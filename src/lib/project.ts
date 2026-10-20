@@ -17,6 +17,7 @@ import {
   type BinCells,
   type BinOptions,
 } from './geometry/bin';
+import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
 import {
   buildConnectorKey,
   connectorKeySize,
@@ -93,12 +94,13 @@ export type MeshSpec =
       connectors: ConnectorSite[];
     }
   | { kind: 'bin'; key: string; opts: BinOptions; cells?: BinCells }
+  | { kind: 'lid'; key: string; opts: BinOptions; cells?: BinCells }
   | { kind: 'key'; key: string; opts: BaseplateOptions };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin' | 'key';
+  kind: 'piece' | 'bin' | 'lid' | 'key';
   meshKey: string;
   w: number;
   d: number;
@@ -165,6 +167,12 @@ export function binCellsAt(layout: GridLayout, b: PlacedBin): BinCells | undefin
 export function binSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'bin' }> {
   const cells = binCellsAt(layout, b);
   return { kind: 'bin', key: `bin|${binKey(b.opts, cells)}`, opts: b.opts, cells };
+}
+
+/** The mesh spec for a placed bin's stacking lid (lids depend only on the footprint). */
+export function lidSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'lid' }> {
+  const cells = binCellsAt(layout, b);
+  return { kind: 'lid', key: `lid|${lidKey(b.opts, cells)}`, opts: b.opts, cells };
 }
 
 /** Everything about the print except the geometry itself. Cheap; safe to call on every edit. */
@@ -257,6 +265,16 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       if (h > setup.maxH) warn(`Bin ${binLabel(b.opts)} is taller than the printer allows.`);
       if (h > room + 1e-6) warn(`Bin ${binLabel(b.opts)} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
       if (include.bins) binItems.push({ key, w, d: dd });
+      if (hasLid(b.opts)) {
+        const lid = lidSpec(layout, b);
+        const lidPart = `${prefix}lid:${b.id}`;
+        const size = lidSize(b.opts, lid.cells);
+        meshes[lid.key] = lid;
+        parts[lidPart] = { key: lidPart, name: `${label}Lid for bin ${binLabel(b.opts)}`, kind: 'lid', meshKey: lid.key, ...size, drawer: d.id };
+        const stack = lidStackHeight(b.opts);
+        if (h <= room + 1e-6 && stack > room + 1e-6) warn(`Bin ${binLabel(b.opts)} with its lid is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+        if (include.bins) binItems.push({ key: lidPart, w: size.w, d: size.d });
+      }
     }
   }
 
@@ -286,6 +304,10 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
     return translateMesh(m, -spec.piece.x0, -spec.piece.y0, 0);
   }
   if (spec.kind === 'key') return buildConnectorKey(w);
+  if (spec.kind === 'lid') {
+    const { w: W, d: D } = lidSize(spec.opts, spec.cells);
+    return translateMesh(buildBinLid(w, spec.opts, spec.cells), W / 2, D / 2, 0);
+  }
   const m = buildBin(w, spec.opts, spec.cells);
   const { w: W, d: D } = binSize(spec.opts, spec.cells);
   return translateMesh(m, W / 2, D / 2, 0);

@@ -8,12 +8,20 @@ import { DEFAULT_SETUP, type PrintSetup } from '../lib/layout/plan';
 import { findPrinter } from '../lib/printers';
 import { canPlace, newId, occupancy } from '../lib/bins';
 import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, type InchPrecision, type Units } from '../lib/units';
+import { cleanTemplates, mergeTemplates, type BinTemplate } from '../lib/templates';
+import { trackHistory, type Snapshot } from './history';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 
 export interface UIState {
   tab: Tab;
+  /** The primary selected bin (the one the Bins panel edits). */
   selectedBinId: string | null;
+  /**
+   * Every selected bin. Only counts while it contains `selectedBinId`, so code
+   * that sets just `selectedBinId` still means a single selection (see selection.ts).
+   */
+  selectedBinIds: string[];
   units: Units;
   /** How finely inches are shown (fraction denominator, 0 = decimal). */
   inchPrecision: InchPrecision;
@@ -21,6 +29,8 @@ export interface UIState {
   explode: boolean;
   /** Plate shown in the print view; -1 = all. */
   plate: number;
+  /** Bins tab, left pane: the drawer grid or the selected bin's compartment editor. */
+  binPane: 'drawer' | 'compartments';
 }
 
 /**
@@ -42,6 +52,8 @@ export interface Store extends ProjectState {
   printScope: PrintScope;
   /** Drawer ids printed when printScope is 'pick'. */
   printPick: string[];
+  /** Saved bin settings, shared by all drawers (actions in templates.ts). */
+  templates: BinTemplate[];
   setDrawer(p: Partial<DrawerInput>): void;
   setBaseplate(p: Partial<BaseplateOptions>): void;
   setSetup(p: Partial<PrintSetup>): void;
@@ -67,13 +79,22 @@ export interface Store extends ProjectState {
   loadProject(data: unknown): void;
 }
 
+/** Every selected bin id, primary first. */
+export function selectedIds(ui: Pick<UIState, 'selectedBinId' | 'selectedBinIds'>): string[] {
+  const p = ui.selectedBinId;
+  if (!p) return [];
+  return ui.selectedBinIds?.includes(p) ? [p, ...ui.selectedBinIds.filter((id) => id !== p)] : [p];
+}
+
 const DEFAULT_UI: UIState = {
   tab: 'drawer',
   selectedBinId: null,
+  selectedBinIds: [],
   units: 'mm',
   inchPrecision: DEFAULT_INCH_PRECISION,
   explode: false,
   plate: -1,
+  binPane: 'drawer',
 };
 
 function gridSize(s: ProjectState) {
@@ -145,6 +166,24 @@ function synced(s: Store): DrawerDoc[] {
   return allDrawers(s);
 }
 
+/** What autosave keeps. Undo/redo covers the same keys, minus `ui` (see `history` below). */
+function persisted(s: Store) {
+  return {
+    drawer: s.drawer,
+    baseplate: s.baseplate,
+    setup: s.setup,
+    bins: s.bins,
+    include: s.include,
+    newBin: s.newBin,
+    drawers: allDrawers(s),
+    activeDrawerId: s.activeDrawerId,
+    printScope: s.printScope,
+    printPick: s.printPick,
+    templates: s.templates,
+    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [] },
+  };
+}
+
 const DEFAULT_WORKSPACE = {
   drawers: [{ id: FIRST_DRAWER_ID, name: 'Drawer 1', drawer: DEFAULT_DRAWER, baseplate: DEFAULT_BASEPLATE, bins: [] }] as DrawerDoc[],
   activeDrawerId: FIRST_DRAWER_ID,
@@ -159,6 +198,7 @@ export const useStore = create<Store>()(
       ...DEFAULT_WORKSPACE,
       ui: DEFAULT_UI,
       newBin: DEFAULT_BIN,
+      templates: [],
       setDrawer: (p) => set((s) => ({ drawer: { ...s.drawer, ...p } })),
       setBaseplate: (p) => set((s) => ({ baseplate: { ...s.baseplate, ...p } })),
       setSetup: (p) => set((s) => ({ setup: { ...s.setup, ...p } })),
@@ -172,7 +212,12 @@ export const useStore = create<Store>()(
         }));
       },
       setInclude: (p) => set((s) => ({ include: { ...s.include, ...p } })),
-      setUI: (p) => set((s) => ({ ui: { ...s.ui, ...p } })),
+      setUI: (p) =>
+        set((s) => {
+          // Setting only the primary selection means selecting just that bin.
+          const ids = 'selectedBinId' in p && !p.selectedBinIds ? { selectedBinIds: p.selectedBinId ? [p.selectedBinId] : [] } : {};
+          return { ui: { ...s.ui, ...p, ...ids } };
+        }),
       setNewBin: (p) => set((s) => ({ newBin: sanitizeBin({ ...s.newBin, ...p }) })),
       addBin: (x, y, w, d) => {
         const id = newId();
@@ -332,6 +377,7 @@ export const useStore = create<Store>()(
           newBin: sanitizeBin({ ...DEFAULT_BIN, ...p.newBin }),
           printScope: p.printScope === 'all' || p.printScope === 'pick' ? p.printScope : 'active',
           printPick: Array.isArray(p.printPick) ? p.printPick.map(String) : [],
+          templates: mergeTemplates(s.templates, cleanTemplates(p.templates)),
           ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
@@ -339,19 +385,7 @@ export const useStore = create<Store>()(
     {
       name: 'gridfit-project',
       version: 2,
-      partialize: (s) => ({
-        drawer: s.drawer,
-        baseplate: s.baseplate,
-        setup: s.setup,
-        bins: s.bins,
-        include: s.include,
-        newBin: s.newBin,
-        drawers: allDrawers(s),
-        activeDrawerId: s.activeDrawerId,
-        printScope: s.printScope,
-        printPick: s.printPick,
-        ui: { ...s.ui, selectedBinId: null },
-      }),
+      partialize: persisted,
       // Version 1 had no drawer list; merge() below builds it from the top-level drawer.
       migrate: (persisted) => persisted as never,
       // Fill in fields added after the project was saved.
@@ -377,6 +411,7 @@ export const useStore = create<Store>()(
           newBin: sanitizeBin({ ...current.newBin, ...p.newBin }),
           printScope: p.printScope ?? current.printScope,
           printPick: p.printPick ?? current.printPick,
+          templates: cleanTemplates(p.templates ?? current.templates),
           ui: { ...current.ui, ...p.ui },
         };
       },
@@ -395,6 +430,7 @@ export function projectFile(s: Store) {
     activeDrawerId: s.activeDrawerId,
     printScope: s.printScope,
     printPick: s.printPick,
+    templates: s.templates,
   };
 }
 
@@ -416,3 +452,37 @@ export function useUnits() {
     fmtBoth: (mm: number, o: FormatOptions = {}) => formatBoth(mm, units, { precision, ...o }),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Undo / redo
+// ---------------------------------------------------------------------------
+
+/** Keys that make up the active drawer; a drawer switch only moves them between here and `drawers`. */
+const DRAWER_KEYS = new Set(['drawers', 'activeDrawerId', 'drawer', 'baseplate', 'bins']);
+
+function sameFields(a: object, b: object) {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => Object.is(a[k as keyof typeof a], b[k as keyof typeof b]));
+}
+
+/** Same project data. Switching drawers isn't an edit, so it isn't an undo step of its own. */
+function sameProject(a: Snapshot, b: Snapshot) {
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (!DRAWER_KEYS.has(k) && !Object.is(a[k], b[k])) return false;
+  const da = allDrawers(a as unknown as Store);
+  const db = allDrawers(b as unknown as Store);
+  return da.length === db.length && da.every((d, i) => sameFields(d, db[i]));
+}
+
+/** Undo/redo for everything autosave keeps except UI state. */
+export const history = trackHistory(useStore, {
+  keys: (s) => Object.keys(persisted(s)).filter((k) => k !== 'ui'),
+  equal: sameProject,
+  // Drop selected bins that the restored state doesn't have.
+  afterRestore: (s) => {
+    const sel = selectedIds(s.ui);
+    const ids = sel.filter((id) => s.bins.some((b) => b.id === id));
+    if (ids.length === sel.length) return null;
+    const primary = ids.includes(s.ui.selectedBinId!) ? s.ui.selectedBinId : (ids[0] ?? null);
+    return { ui: { ...s.ui, selectedBinId: primary, selectedBinIds: ids } };
+  },
+});

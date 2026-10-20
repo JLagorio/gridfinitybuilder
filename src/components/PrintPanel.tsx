@@ -4,16 +4,10 @@ import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
 import { PRINTERS, findPrinter } from '../lib/printers';
 import { assemblyMaps, plateContents, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
-import { pieceColor } from './colors';
-
-async function bambuSettings(printerId: string): Promise<string | undefined> {
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}bambu/${printerId}.json`);
-    return res.ok ? await res.text() : undefined;
-  } catch {
-    return undefined;
-  }
-}
+import { LID_COLOR, pieceColor } from './colors';
+import { bambuSettings } from './bambuSettings';
+import { BomSection, TestFitSection } from './PrintExtras';
+import { CopyShareLink } from './ShareLink';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -57,6 +51,17 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       const bytes = await geometry.exportPlate(job, i, p);
       const name = job.plates[i].name.toLowerCase().replace(/\s+/g, '-');
       downloadBytes(bytes, `gridfinity-${name}.3mf`, 'model/3mf');
+    });
+  const exportStlZip = () =>
+    run('Building STL plates', async (p) => {
+      const bytes = await geometry.exportStlZip(job, p);
+      downloadBytes(bytes, `gridfinity-drawer-${stamp}-plates-stl.zip`, 'application/zip');
+    });
+  const exportStlPlate = (i: number) =>
+    run(`Building plate ${i + 1}`, async (p) => {
+      const bytes = await geometry.exportStlPlate(job, i, p);
+      const name = job.plates[i].name.toLowerCase().replace(/\s+/g, '-');
+      downloadBytes(bytes, `gridfinity-${name}.stl`, 'model/stl');
     });
   const exportMap = () =>
     downloadBytes(
@@ -230,6 +235,9 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           <button disabled={!!progress || !job.plates.length} onClick={exportZip}>
             Plates as 3MF (.zip)
           </button>
+          <button disabled={!!progress || !job.plates.length} onClick={exportStlZip}>
+            Plates as STL (.zip)
+          </button>
           <button disabled={!nPieces} onClick={exportMap}>
             {multi ? 'Assembly maps' : 'Assembly map'}
           </button>
@@ -247,11 +255,15 @@ export function PrintPanel({ job }: { job: PrintJob }) {
         {error && <div className="field-error">{error}</div>}
       </Section>
 
+      <BomSection job={job} stamp={stamp} />
+      <TestFitSection />
+
       <Section title="Project">
         <p className="muted small">Your work is kept in this browser automatically. Save a file to back it up or move it to another computer.</p>
         <div className="button-row">
           <button onClick={saveProject}>Save project</button>
           <button onClick={() => fileInput.current?.click()}>Open project…</button>
+          <CopyShareLink />
           <input
             ref={fileInput}
             type="file"
@@ -281,9 +293,14 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                   {i + 1}. {pl.name}
                 </b>
                 <span className="muted small">{plateContents(job, pl).map((n) => n.replace('Baseplate piece', 'Piece')).join(', ')}</span>
-                <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
-                  Download .3mf
-                </button>
+                <span className="plate-downloads">
+                  <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
+                    Download .3mf
+                  </button>
+                  <button className="link" disabled={!!progress} onClick={() => exportStlPlate(i)}>
+                    .stl
+                  </button>
+                </span>
               </div>
             </div>
           ))}
@@ -302,7 +319,7 @@ function PlateThumb({ job, plate, bedW, bedD }: { job: PrintJob; plate: number; 
         const part = job.parts[p.key];
         const w = p.rotated ? p.d : p.w;
         const d = p.rotated ? p.w : p.d;
-        const color = part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : '#cfd5de';
+        const color = part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'lid' ? LID_COLOR : '#cfd5de';
         return (
           <g key={p.key}>
             <rect x={p.x} y={bedD - p.y - d} width={w} height={d} rx={4} fill={color} fillOpacity={0.85} />

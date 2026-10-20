@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import { useStore } from '../state/store';
 import { Section, Segmented, Slider, Stepper, Toggle } from './fields';
-import { binLabel, binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinOptions } from '../lib/geometry/bin';
+import { binLabel, type BinOptions } from '../lib/geometry/bin';
+import { hasLid } from '../lib/geometry/lid';
 import { canPlace } from '../lib/bins';
-import { binSpec, type PrintJob } from '../lib/project';
+import { binSpec, lidSpec, type PrintJob } from '../lib/project';
+import { BaseField, HeightField, HoleFields, InteriorFields, LipFields, WallFields } from './BinVariantFields';
 import { downloadBytes, geometry } from '../worker/client';
+import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
+import { TemplatesSection } from './TemplatesSection';
+import { CompartmentsSection } from './CompartmentFields';
 
 function BinFields({
   opts,
@@ -17,7 +22,6 @@ function BinFields({
   sizeEditable: boolean;
   sizeError?: string | null;
 }) {
-  const { w, d } = binSize(opts);
   return (
     <>
       {sizeEditable && (
@@ -29,19 +33,8 @@ function BinFields({
           {sizeError && <div className="field-error">{sizeError}</div>}
         </>
       )}
-      <Stepper
-        label="Height"
-        value={opts.heightUnits}
-        min={MIN_HEIGHT_UNITS}
-        max={30}
-        suffix="u"
-        onChange={(heightUnits) => onChange({ heightUnits })}
-        hint={`${7 * opts.heightUnits} mm walls, ${Math.round(binTotalHeight(opts) * 10) / 10} mm overall · footprint ${w} × ${d} mm`}
-      />
-      <div className="row2">
-        <Stepper label="Columns" value={opts.divX} min={1} max={12} onChange={(divX) => onChange({ divX })} />
-        <Stepper label="Rows" value={opts.divY} min={1} max={12} onChange={(divY) => onChange({ divY })} />
-      </div>
+      <HeightField opts={opts} onChange={onChange} />
+      <InteriorFields opts={opts} onChange={onChange} />
       <Slider
         label="Finger scoop"
         value={opts.scoop}
@@ -50,7 +43,7 @@ function BinFields({
         step={0.05}
         format={(v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`)}
         onChange={(scoop) => onChange({ scoop })}
-        hint="Curved front wall so small parts slide out."
+        hint="Curved front wall so small parts slide out. Compartments can override it and the label tab."
       />
       <Segmented
         label="Label tab"
@@ -64,19 +57,10 @@ function BinFields({
         ]}
         onChange={(label) => onChange({ label })}
       />
-      <Segmented
-        label="Bottom holes"
-        value={opts.holes}
-        options={[
-          { value: 'none', label: 'None' },
-          { value: 'magnets', label: 'Magnets' },
-          { value: 'screws', label: 'Screws' },
-          { value: 'both', label: 'Both' },
-        ]}
-        onChange={(holes) => onChange({ holes })}
-        hint={opts.holes === 'magnets' || opts.holes === 'both' ? '6 × 2 mm magnets (6.5 mm pockets).' : undefined}
-      />
-      <Toggle label="Stacking lip" checked={opts.lip} onChange={(lip) => onChange({ lip })} />
+      <BaseField opts={opts} onChange={onChange} />
+      <HoleFields opts={opts} onChange={onChange} />
+      <LipFields opts={opts} onChange={onChange} />
+      <WallFields opts={opts} onChange={onChange} />
       <Toggle label="Rounded inside corners" checked={opts.fillet} onChange={(fillet) => onChange({ fillet })} />
     </>
   );
@@ -87,8 +71,6 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const selectedId = useStore((s) => s.ui.selectedBinId);
   const newBin = useStore((s) => s.newBin);
   const updateBin = useStore((s) => s.updateBin);
-  const removeBin = useStore((s) => s.removeBin);
-  const duplicateBin = useStore((s) => s.duplicateBin);
   const setNewBin = useStore((s) => s.setNewBin);
   const fillEmpty = useStore((s) => s.fillEmpty);
   const clearBins = useStore((s) => s.clearBins);
@@ -96,6 +78,9 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const [sizeError, setSizeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = bins.find((b) => b.id === selectedId) ?? null;
+  // With several bins selected, the panel shows the primary one and edits apply to all.
+  const selIds = useSelectedIds();
+  const many = selIds.length > 1;
   const { nx, ny } = job.layout;
 
   const changeSelected = (p: Partial<BinOptions>) => {
@@ -108,15 +93,27 @@ export function BinPanel({ job }: { job: PrintJob }) {
       }
     }
     setSizeError(null);
-    updateBin(sel.id, { opts: p });
+    for (const id of many ? selIds : [sel.id]) updateBin(id, { opts: p });
   };
 
-  const downloadSelected = async () => {
+  const downloadSelected = async (format: '3mf' | 'stl' = '3mf') => {
     if (!sel) return;
     setBusy(true);
     try {
-      const bytes = await geometry.exportSingle(binSpec(job.layout, sel), binLabel(sel.opts));
-      downloadBytes(bytes, `gridfinity-bin-${sel.opts.unitsX}x${sel.opts.unitsY}x${sel.opts.heightUnits}u.3mf`, 'model/3mf');
+      const spec = binSpec(job.layout, sel);
+      const name = `gridfinity-bin-${sel.opts.unitsX}x${sel.opts.unitsY}x${sel.opts.heightUnits}u`;
+      if (format === 'stl') downloadBytes(await geometry.exportStlSingle(spec, binLabel(sel.opts)), `${name}.stl`, 'model/stl');
+      else downloadBytes(await geometry.exportSingle(spec, binLabel(sel.opts)), `${name}.3mf`, 'model/3mf');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const downloadLid = async () => {
+    if (!sel) return;
+    setBusy(true);
+    try {
+      const bytes = await geometry.exportSingle(lidSpec(job.layout, sel), `Lid ${sel.opts.unitsX}×${sel.opts.unitsY}`);
+      downloadBytes(bytes, `gridfinity-lid-${sel.opts.unitsX}x${sel.opts.unitsY}.3mf`, 'model/3mf');
     } finally {
       setBusy(false);
     }
@@ -129,26 +126,35 @@ export function BinPanel({ job }: { job: PrintJob }) {
     <>
       {sel ? (
         <Section
-          title="Selected bin"
+          title={many ? `${selIds.length} bins selected` : 'Selected bin'}
           aside={
             <button className="link" onClick={() => setUI({ selectedBinId: null })}>
               Done
             </button>
           }
         >
-          <BinFields opts={sel.opts} onChange={changeSelected} sizeEditable sizeError={sizeError} />
+          {many && <p className="muted small">Showing the first bin's settings. Changes apply to all {selIds.length}.</p>}
+          <BinFields opts={sel.opts} onChange={changeSelected} sizeEditable={!many} sizeError={sizeError} />
           <div className="button-row">
-            <button onClick={() => duplicateBin(sel.id)}>Duplicate</button>
+            <button onClick={() => duplicateSelection()}>Duplicate</button>
             <button onClick={() => setNewBin({ ...sel.opts })} title="New bins you draw will use these settings">
               Use for new bins
             </button>
-            <button className="danger" onClick={() => removeBin(sel.id)}>
+            <button className="danger" onClick={() => removeSelection()}>
               Delete
             </button>
           </div>
-          <button className="primary wide" onClick={downloadSelected} disabled={busy}>
+          <button className="primary wide" onClick={() => downloadSelected()} disabled={busy}>
             {busy ? 'Building…' : 'Download this bin (.3mf)'}
           </button>
+          <button className="link" onClick={() => downloadSelected('stl')} disabled={busy}>
+            Download as STL
+          </button>
+          {hasLid(sel.opts) && (
+            <button className="link" onClick={downloadLid} disabled={busy}>
+              Download its lid (.3mf)
+            </button>
+          )}
         </Section>
       ) : (
         <Section title="New bin settings">
@@ -158,6 +164,15 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <BinFields opts={newBin} onChange={setNewBin} sizeEditable={false} />
         </Section>
       )}
+      {sel ? (
+        sel.opts.interior !== 'pockets' && (
+          <CompartmentsSection key={sel.id} opts={sel.opts} onChange={changeSelected} binId={sel.id} grid={job.layout} />
+        )
+      ) : (
+        newBin.interior !== 'pockets' && <CompartmentsSection opts={newBin} onChange={setNewBin} />
+      )}
+
+      <TemplatesSection />
 
       <Section title="Layout">
         <div className="button-row">
