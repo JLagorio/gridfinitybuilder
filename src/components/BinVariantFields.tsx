@@ -1,6 +1,6 @@
 import { useUnits } from '../state/store';
 import { Field, LengthInput, Segmented, Select, Slider, Stepper, Toggle } from './fields';
-import { binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinOptions } from '../lib/geometry/bin';
+import { binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { binBodyHeight, binFloorZ, heightMmFor, heightMmRange, WALLS, type HeightMode, type Wall, type WallMask } from '../lib/geometry/variants';
 import { POCKET_PRESETS, findPocketPreset, pocketLayout, presetFields } from '../lib/geometry/pockets';
 import { LID_HEIGHT } from '../lib/geometry/lid';
@@ -9,9 +9,10 @@ import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
 type Props = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
 /** Height, as 7 mm units or as an inside / overall length in the app's units. */
-export function HeightField({ opts, onChange }: Props) {
+/** `cells`: the bin's cell sizes when it sits on partial edge cells, so the footprint is right. */
+export function HeightField({ opts, onChange, cells }: Props & { cells?: BinCells }) {
   const { fmt } = useUnits();
-  const { w, d } = binSize(opts);
+  const { w, d } = binSize(opts, cells);
   const body = binBodyHeight(opts);
   const inside = body - binFloorZ(opts);
   const total = binTotalHeight(opts);
@@ -59,13 +60,13 @@ export function HeightField({ opts, onChange }: Props) {
 }
 
 /** Compartments or a pocket grid ("item holder"). */
-export function InteriorFields({ opts, onChange }: Props) {
+export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinCells }) {
   const { fmt } = useUnits();
   const pockets = opts.interior === 'pockets';
   const custom = (p: Partial<BinOptions>) => onChange({ ...p, pocketPreset: 'custom' });
   let summary = '';
   if (pockets) {
-    const { w, d } = binSize(opts);
+    const { w, d } = binSize(opts, cells);
     const body = binBodyHeight(opts);
     const zFloor = binFloorZ(opts);
     const topInfill = opts.lip ? body - LIP_SUPPORT_HEIGHT : body;

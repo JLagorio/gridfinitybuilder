@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { useStore } from '../state/store';
 import { Section, Segmented, Slider, Stepper, Toggle } from './fields';
-import { binLabel, type BinOptions } from '../lib/geometry/bin';
+import { binLabel, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { hasLid } from '../lib/geometry/lid';
 import { canPlace, withBlocked } from '../lib/bins';
-import { binSpec, lidSpec, type PrintJob } from '../lib/project';
+import { binCellsAt, binSpec, lidSpec, type PrintJob } from '../lib/project';
 import { BaseField, HeightField, HoleFields, InteriorFields, LipFields, WallFields } from './BinVariantFields';
 import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
@@ -18,11 +18,14 @@ function BinFields({
   onChange,
   sizeEditable,
   sizeError,
+  cells,
 }: {
   opts: BinOptions;
   onChange: (p: Partial<BinOptions>) => void;
   sizeEditable: boolean;
   sizeError?: string | null;
+  /** Cell sizes under the selected bin (partial edge cells). */
+  cells?: BinCells;
 }) {
   return (
     <>
@@ -35,8 +38,8 @@ function BinFields({
           {sizeError && <div className="field-error">{sizeError}</div>}
         </>
       )}
-      <HeightField opts={opts} onChange={onChange} />
-      <InteriorFields opts={opts} onChange={onChange} />
+      <HeightField opts={opts} onChange={onChange} cells={cells} />
+      <InteriorFields opts={opts} onChange={onChange} cells={cells} />
       <Slider
         label="Finger scoop"
         value={opts.scoop}
@@ -184,7 +187,14 @@ export function BinPanel({ job }: { job: PrintJob }) {
           }
         >
           {many && <p className="muted small">Showing the first bin's settings. Changes apply to all {selIds.length}.</p>}
-          <BinFields key={sel.id} opts={sel.opts} onChange={changeSelected} sizeEditable={!many} sizeError={sizeError} />
+          <BinFields
+            key={sel.id}
+            opts={sel.opts}
+            onChange={changeSelected}
+            sizeEditable={!many}
+            sizeError={sizeError}
+            cells={binCellsAt(job.layout, sel)}
+          />
           <div className="button-row">
             <button onClick={() => duplicateSelection()}>Duplicate</button>
             <button onClick={() => setNewBin({ ...sel.opts })} title="New bins you draw will use these settings">
