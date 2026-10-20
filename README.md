@@ -15,41 +15,101 @@ Then open http://localhost:5199.
 
 ## Workflow
 
-1. **Drawer & baseplate.** Enter the inside width and depth of the drawer, in mm or inches (`20 1/8 in` works). Gridfit fits as many 42 mm cells as possible. The leftover space becomes a solid margin, placed wherever you choose (centered by default). Options:
-   - magnet pockets (top- or bottom-loaded, push-out holes)
-   - countersunk screw holes
-   - extra floor
-   - outer corner radius
-   - top-ridge trim
-   - bottom chamfer
-   - bowtie connectors: pockets in the underside wherever a wall or a solid margin crosses a seam, plus one key per pocket. The keys print in the free space next to the pieces. Lay the pieces upside down, press the keys in, then turn the baseplate over into the drawer.
-2. **Bins.** Drag across empty cells to draw a bin, click to select it, drag to move it, press Delete to remove it. Each bin has:
-   - height in 7 mm units, or as an inside depth or overall height in mm
-   - stacking lip: normal, reduced (Gridfinity Extended) or none, with optional anti-slide notches at the cell lines
-   - optional stacking lid, printed as its own part: feet that sit in the lip, and a receptacle per cell on top
-   - base: standard, lite (hollow feet, gridfinity-rebuilt "lite"), efficient floor (Gridfinity Extended) or flat (no feet)
-   - compartments: columns × rows, presets, or walls you place yourself (below)
-   - finger scoop
-   - label tab (full, left, mid, right)
-   - magnet or screw holes, or Gridfinity Refined side-loaded magnet slots; optional crush ribs, chamfered mouths, printable hole tops (no supports) and corner-only holes
-   - wall cutouts, finger slides and a hex wall pattern, per wall
-   - or, instead of compartments, a pocket grid for batteries, coin cells, memory cards, hex bits or screws (or custom round, square or hex pockets), fitted automatically
-   - rounded inside corners
+A project holds **all your drawers**. Switch between them, add, duplicate, rename or delete them from the drawer menu in the top bar. Each drawer has its own size, baseplate settings and bins; print one, all, or a chosen set at once.
 
-   "Fill empty with 1×1" fills the rest of the drawer.
+Lengths are stored in mm. The **mm / in** switch in the top bar changes what every length field shows and accepts. Inches show as fractions (1/8 to 1/32, or decimals), and you can type `20 1/8`, `20-1/8"`, `1' 8 1/8"`, `44.5mm` or `51cm` in either mode.
 
-   **Compartments.** Select a bin and switch the left pane to *Compartments*. Hover inside the bin to see the wall a click would add; it runs wall to wall and snaps to 50 %, thirds and quarters of the space it splits (and of the whole bin), to other walls and to the 42 mm cell seams. Hold Shift to flip its direction, R to lock it, Alt to turn snapping off (1 mm or 1/16″ steps). Drag walls to move them, drag a selected wall's end handles to attach it to a different wall (for L-shaped compartments), click a size to type it (`44.5`, `1 3/4in`). Walls placed by snapping stay proportional when the bin or a neighbour changes; typed sizes stay fixed. The sidebar splits a compartment into equal parts, by ratio (`1:2:1`) or by minimum size, and sets each wall's height (lowered so fingers reach over, or removable: a slide-in plate in slots) and each compartment's scoop, label tab and floor height.
+1. **Drawer & baseplate.**
+   - **Drawer:**
+     - **Size:** enter the inside width and depth. Drawers are rarely square, so add width or depth measurements taken at other spots; the smallest is used.
+     - **Inside height** (optional): shows the tallest bin that fits and warns about bins that don't.
+     - Gridfit fits as many 42 mm cells as possible, then places the grid left/center/right and front/center/back.
+   - **Leftover space** around the grid can stay solid plastic, or become a row of **half (21 mm) cells**, or **partial cells** that use the whole gap. Bins drawn on partial cells get feet sized to each cell. Push the grid to one side to turn two thin gaps into one useful row.
+   - **Blocked cells:** click or drag on the cell map to mark cells where slide hardware or a bump gets in the way. They get no receptacle (filled flat, or cut out of the plate) and bins can't go there.
+   - **Baseplate options:**
+     - **Style:** open frame (least filament), weighted (gridfinity-rebuilt weight pockets), skeletonized, or solid floor.
+     - **Magnet pockets:** top- or bottom-loaded, push-out holes, crush ribs, chamfered mouth, pry slot.
+     - Countersunk screw holes, extra floor, outer corner radius, top-ridge trim, bottom chamfer.
+     - **Joints between split pieces:**
+       - bowtie keys: pockets underneath, plus one printed key per pocket
+       - filament pins: 1.75 mm teardrop holes across each seam
+       - puzzle tabs: jigsaw tabs built into the piece edges
+       - M3 screws: across the seam, with a nut slot or a heat-set insert hole
+       - Bowtie keys print next to the pieces. Lay the pieces upside down, press the keys in, then turn the baseplate over.
+     - **Piece numbers** debossed underneath, mirrored so they read with the piece upside down. They match the assembly map.
+2. **Bins.**
+   - **Layout:**
+     - Drag across empty cells to draw a bin, click to select it, drag to move it, press Delete to remove it.
+     - Shift- or ⌘/Ctrl-click bins, or Shift-drag a box (or drag from outside the grid), to select several.
+     - Drag a selection, nudge it with the arrow keys, copy and paste it (⌘C / ⌘V pastes at the cell under the pointer), duplicate it (⌘D) or delete it.
+     - Drag the handles of a selected bin to resize it.
+     - "Fill empty with 1×1" fills the rest of the drawer.
+   - **Each bin has:**
+     - height in 7 mm units, or as an inside depth or overall height in mm
+     - **inside:** compartments, a pocket grid, or tool cutouts (see below)
+     - finger scoop and label tab (full, left, mid, right), with **label text** (see below)
+     - **base & holes:**
+       - base: standard, lite (hollow feet, gridfinity-rebuilt "lite"), efficient floor (Gridfinity Extended) or flat (no feet)
+       - holes: magnets or screws, or Gridfinity Refined side-loaded magnet slots
+       - optional crush ribs, chamfered mouths, printable hole tops (no supports) and corner-only holes
+     - **lip & lid:**
+       - stacking lip: normal, reduced or none, with optional anti-slide notches
+       - optional stacking lid, printed as its own part
+     - **walls:** cutouts, finger slides and a hex wall pattern, per wall; rounded inside corners
 
-   Shift- or ⌘/Ctrl-click bins, or Shift-drag a box (or drag from outside the grid), to select several; drag them, nudge them with the arrow keys, copy and paste (⌘C / ⌘V pastes at the cell under the pointer), duplicate (⌘D) or delete them together. Drag the handles of a selected bin to resize it. **Templates** save a bin's settings by name; apply one to the selected bins or to new bins, in any drawer.
-3. **Print plates.** Pick the printer (the Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles). Gridfit splits the baseplate on cell boundaries, so every receptacle stays whole. It then packs pieces and bins onto plates. Exports:
-   - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected. Open it and press **Slice all plates**.
-   - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus `assembly-map.txt` showing which piece goes where.
-   - **Plates as STL (.zip):** one binary STL per plate, parts already arranged.
-   - Any single plate or bin, as 3MF or STL.
-   - **Test-fit kit:** a 2 × 2 baseplate sample (split with one connector key when connectors are on) and one 1 × 1 bin, on one plate, to check the fit and the magnets before printing everything.
-   - **Save / Open project** as a `.gridfit.json` file. The project also autosaves in the browser. **Copy share link** puts the whole project, compressed, in the link itself (nothing is uploaded).
+     The base, lip and wall groups fold away. Each says what's set, and starts open when anything in it isn't the default.
+   - **Templates** save a bin's settings by name. Apply one to the selected bins or to new bins, in any drawer.
 
-   The **bill of materials** counts magnets and screws (four holes per full cell; partial edge cells get none), connector keys, parts and plates, and estimates filament per plate from the mesh volumes: 1.75 mm PLA at 1.24 g/cm³, taking 90 % of the solid volume because the thin walls print almost solid. It downloads as CSV or text.
+   **Compartments.**
+   - Select a bin and switch the left pane to *Compartments*. Hover inside the bin to see the wall a click would add. It runs wall to wall and snaps to 50 %, thirds and quarters of the space it splits (and of the whole bin), to other walls and to the 42 mm cell seams.
+   - Keys while placing:
+     - Shift flips the wall's direction.
+     - R locks the direction.
+     - Alt turns snapping off (1 mm or 1/16″ steps).
+   - Editing walls:
+     - Drag walls to move them.
+     - Drag a selected wall's end handles to attach it to a different wall (for L-shaped compartments).
+     - Click a size to type it (`44.5`, `1 3/4in`).
+     - Walls placed by snapping stay proportional when the bin or a neighbour changes; typed sizes stay fixed.
+   - The sidebar has presets and splits a compartment into equal parts, by ratio (`1:2:1`) or by minimum size. It also sets:
+     - **each wall's height:** lowered so fingers reach over, or removable (a slide-in plate in slots that prints with the bins)
+     - **each compartment's** scoop, label tab, label text and floor height
+
+   **Pocket grids** fill the bin and cut a grid of pockets, fitted automatically. Presets cover AA, AAA, 18650, CR2032, SD and microSD cards, ¼″ hex bits and M3–M5 screws; custom round, square or hex pockets work too.
+
+   **Tool cutouts.** Make a shadow-board pocket for a tool:
+   - **Trace it from a photo:**
+     - Lay the tool on a sheet of Letter or A4 paper and take a photo from above.
+     - Mark (or let Gridfit find) the paper's corners.
+     - Adjust the threshold, simplify and smooth sliders.
+     - Name the tool and give its thickness.
+   - Or import an **SVG or DXF** outline.
+   - Tools go into a library shared by every drawer. Switch the left pane to *Tool cutouts* and drag tools into the bin:
+     - It snaps to centre lines, edges and other tools.
+     - R rotates 15°.
+     - Double-click the outline to add a finger notch.
+     - Each pocket gets clearance, an optional chamfer and an optional engraved name.
+   - **Make a bin** sizes a bin for the selected tools and places it in the drawer.
+
+   **Labels.** Type label text for a bin, or per compartment. It shrinks to fit each tab, up to 3 lines, and can be:
+   - **raised**, or **engraved** into the tab
+   - **inlaid**: engraved and filled flush in a second filament. The Bambu project gets a second filament for it; pick its colour in *Print plates*. Needs an AMS or a filament change.
+   - on **swappable label plates**: the tab gets a shallow recess with a pry notch, and small text plates print with the bins and press in, so you can relabel later.
+
+3. **Print plates.**
+   - **Printer:** pick it. The Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles.
+   - **Split and pack:** Gridfit splits each baseplate on cell boundaries, so every receptacle stays whole. Each drawer's baseplate gets its own plates (named after the drawer). Bins, lids, removable dividers and label plates from every printed drawer share plates.
+   - **Exports:**
+     - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected (plus a second filament for inlaid labels). Open it and press **Slice all plates**.
+     - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus an assembly map per drawer showing which piece goes where.
+     - **Plates as STL (.zip):** one binary STL per plate, parts already arranged.
+     - Any single plate or bin, as 3MF or STL.
+     - **Test-fit kit:** a small baseplate sample with your joints and magnets, plus one 1 × 1 bin, on one plate. Use it to check the fit before printing everything.
+     - **Save / Open project** as a `.gridfit.json` file; it also autosaves in the browser. **Copy share link** puts the whole project, compressed, in the link itself (nothing is uploaded).
+   - **Bill of materials:**
+     - Counts magnets, screws, nuts or inserts, filament pins, connector keys, parts and plates. Partial and blocked cells get no holes.
+     - Estimates filament per plate the way a slicer would print it (Bambu's 0.20 mm Standard: about 0.85 mm of walls and top/bottom layers solid, 15 % infill inside) for 1.75 mm PLA at 1.24 g/cm³. Expect ±15 %.
+     - Downloads as CSV or text.
 
 Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl+Y). Press **?** for all keyboard shortcuts.
 
@@ -76,7 +136,7 @@ All constants live in `src/lib/geometry/spec.ts`.
 ## Development
 
 ```bash
-npm test             # vitest: layout, splitting, packing, geometry validity, 3MF structure
+npm test             # vitest: layout, splitting, packing, every geometry variant's validity, dividers, tracing, 3MF/STL structure
 npm run typecheck
 npm run build
 npm run sample -- out   # build a whole drawer kit from the CLI (default: the 510.5 × 376.5 drawer)
@@ -99,11 +159,13 @@ npx tsx scripts/build-bambu-settings.ts
 ### Layout
 
 ```
-src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (Manifold)
+src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (Manifold), label text
+                    (a small TrueType reader; Roboto Condensed Bold, OFL, ships in public/fonts)
 src/lib/layout/     drawer → grid fit, bed splitting, plate packing
 src/lib/dividers/   bin interior layouts: walls → compartments, edits, snapping (pure TS)
+src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
 src/lib/export/     plain 3MF, Bambu Studio project and binary STL writers
-src/lib/project.ts  ties it together: planJob() (cheap, no geometry) + exporters
+src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
 src/worker/         geometry Web Worker + client with a mesh queue/cache
@@ -114,4 +176,4 @@ tests/              vitest suites
 
 ## Credits
 
-Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT).
+Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT). Several options follow other community projects: Gridfinity Extended (lip styles, efficient floor, wall cutouts, pocket grids), Gridfinity Refined (side-loaded magnets), GridFlock (pin and puzzle joints), cq-gridfinity, and Tracefinity (tool tracing). The label font is Roboto Condensed (SIL Open Font License, `public/fonts/RobotoCondensed-OFL.txt`).
