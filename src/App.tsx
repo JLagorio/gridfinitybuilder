@@ -14,6 +14,7 @@ import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
 import { BinInteriorEditor, BinPaneHeader, useInteriorPane } from './components/BinInteriorEditor';
+import { CutoutEditor } from './components/CutoutEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { HistoryButtons } from './components/HistoryButtons';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
@@ -286,7 +287,9 @@ export default function App() {
             <div className="split">
               <div className="pane pane-2d">
                 <BinPaneHeader />
-                {interiorBin ? (
+                {ui.binPane === 'cutouts' ? (
+                  <CutoutEditor job={job} />
+                ) : interiorBin ? (
                   <BinInteriorEditor binId={interiorBin} grid={job.layout} />
                 ) : (
                   <BinGridEditor

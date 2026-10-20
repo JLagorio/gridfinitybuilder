@@ -28,6 +28,7 @@ import { clipToHollow, hollowFloor, isHollowBase } from './binbase';
 import { lipCavityKnots, lipNotches } from './lip';
 import { fingerSlides, wallCutouts, wallPattern } from './walls';
 import { pocketCutters, pocketLayout } from './pockets';
+import { cutoutCutters, cutoutKeyPart, sanitizeCutouts, sanitizeCutoutStyle, type BinCutout, type CutoutStyle } from './cutouts';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
@@ -52,6 +53,10 @@ export interface BinOptions extends BinVariantOptions {
   label: LabelStyle;
   /** Round the bottom edges of compartments. */
   fillet: boolean;
+  /** Tool-outline pockets, used when `interior` is 'cutouts': the bin is filled solid and each tool is cut in (cutouts.ts). */
+  cutouts?: BinCutout[];
+  /** How those pockets are cut; missing fields use DEFAULT_CUTOUT_STYLE. */
+  cutoutStyle?: Partial<CutoutStyle>;
 }
 
 export const DEFAULT_BIN: BinOptions = {
@@ -120,13 +125,16 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     o.fillet ? 'F' : 'n',
     ...(o.layout ? [`D{${layoutKey(o.layout, new Set(binLayout(o, cells).compartments.map((c) => c.key)))}}`] : []),
     ...variantKeyParts(o),
+    ...cutoutKeyPart(o),
   ].join('-');
 }
 
 export function binLabel(o: BinOptions): string {
   const h = o.heightMode && o.heightMode !== 'units' ? `${Math.round(binTotalHeight(o) * 10) / 10}mm` : `${o.heightUnits}u`;
   const parts = [`${o.unitsX}×${o.unitsY}×${h}`];
-  if (o.interior === 'pockets') parts.push('pockets');
+  const tools = o.cutouts?.length ?? 0;
+  if (o.interior === 'cutouts') parts.push(`${tools} tool pocket${tools === 1 ? '' : 's'}`);
+  else if (o.interior === 'pockets') parts.push('pockets');
   else if (o.layout) {
     const n = binLayout(o).compartments.length;
     if (n > 1) parts.push(`${n} compartments`);
@@ -149,7 +157,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const outerRing = roundedRectRing(-W / 2, -D / 2, W / 2, D / 2, BASE_TOP_RADIUS);
     const flat = o.base === 'flat';
     const pockets = o.interior === 'pockets';
-    const hollow = isHollowBase(o.base) && !pockets;
+    const toolCuts = o.interior === 'cutouts';
+    const hollow = isHollowBase(o.base) && !pockets && !toolCuts;
     // Holes only fit in full cells (flat bins have no feet to hold them).
     const sites = flat || o.holes === 'none' ? [] : holeSites(cells, o.holeCorners);
 
@@ -186,12 +195,14 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     // Removable-divider slots need solid floor under them, so those bins keep the full floor.
     const hollowCut = hollow && !o.layout?.walls.some((wall) => wall.removable);
     const cutFloor = hollowCut ? hollowFloor(o.base) : zFloor;
-    const interior = pockets
-      ? { cut: pocketCutters(w, s, o, W, D, zFloor, topInfill), add: [] as Manifold[] }
-      : interiorCuts(w, s, o, W, D, cutFloor, topInfill);
+    const interior = toolCuts
+      ? { cut: cutoutCutters(w, s, o, W, D, topInfill), add: [] as Manifold[] }
+      : pockets
+        ? { cut: pocketCutters(w, s, o, W, D, zFloor, topInfill), add: [] as Manifold[] }
+        : interiorCuts(w, s, o, W, D, cutFloor, topInfill);
     let cut = interior.cut.length ? s.t(w.Manifold.union(interior.cut)) : null;
     // Finger slides: leave a quarter-round along the chosen walls uncut.
-    const slides = cut && !pockets ? fingerSlides(w, s, o, W, D, cutFloor, Math.min(topInfill - cutFloor - 0.5, 40)) : [];
+    const slides = cut && !pockets && !toolCuts ? fingerSlides(w, s, o, W, D, cutFloor, Math.min(topInfill - cutFloor - 0.5, 40)) : [];
     if (cut && slides.length) cut = s.t(cut.subtract(s.t(w.Manifold.union(slides))));
     if (cut && hollowCut) cut = clipToHollow(w, s, o.base, cells, W, D, zFloor, cut, holeBosses(w, s, o, sites, zFloor - 0.05));
     solids.push(cut ? s.t(block.subtract(cut)) : block, ...interior.add);
@@ -212,7 +223,7 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     let bin = s.t(w.Manifold.union(solids));
 
     // Wall cutouts, down to just above the floor (or the pocket fill).
-    const cutLow = pockets ? Math.max(zFloor + 1, pocketLayout(o, W, D, zFloor, topInfill).fillTop + 0.5) : zFloor + 1;
+    const cutLow = pockets ? Math.max(zFloor + 1, pocketLayout(o, W, D, zFloor, topInfill).fillTop + 0.5) : toolCuts ? topInfill + 0.5 : zFloor + 1;
     const cutouts = wallCutouts(w, s, o, W, D, top, cutLow);
     // Hex pattern: from above the floor to below the lip's support.
     const patternTop = !o.lip ? H - 1 : o.lipStyle === 'reduced' ? H : H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL) - 0.5;
@@ -248,6 +259,8 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     scoop: Math.min(1, Math.max(0, Number(o.scoop) || 0)),
     layout: sanitizeLayout(o.layout),
     ...sanitizeVariants({ ...o, heightUnits, lip }),
+    cutouts: sanitizeCutouts(o.cutouts),
+    cutoutStyle: sanitizeCutoutStyle(o.cutoutStyle),
   };
 }
 
@@ -277,7 +290,7 @@ export function binLayout(o: BinOptions, cells?: Partial<BinCells> | null): Reso
  */
 export function removableInserts(opts: BinOptions, cells?: Partial<BinCells> | null): DividerInsert[] {
   const o = sanitizeBin(opts);
-  if (!o.layout || o.interior === 'pockets') return [];
+  if (!o.layout || o.interior !== 'compartments') return [];
   const H = binBodyHeight(o);
   const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
   return insertsFor(binLayout(o, cells), o.lip, binFloorZ(o), topInfill);

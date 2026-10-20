@@ -27,7 +27,8 @@ export type LipStyle = 'normal' | 'reduced';
  * - external: overall height in mm, including the lip.
  */
 export type HeightMode = 'units' | 'internal' | 'external';
-export type InteriorMode = 'compartments' | 'pockets';
+/** 'cutouts': filled solid with library tools cut in as pockets (cutouts.ts; BinOptions.cutouts). */
+export type InteriorMode = 'compartments' | 'pockets' | 'cutouts';
 export type PocketShape = 'round' | 'square' | 'hex';
 /** Which outer walls: any of the letters f (front, −Y), b (back), l (left, −X), r (right). '' = none. */
 export type WallMask = string;
@@ -128,7 +129,7 @@ export const MAX_BODY_HEIGHT = 210;
 const BASE_STYLES: readonly BaseStyle[] = ['standard', 'lite', 'efficient', 'flat'];
 const LIP_STYLES: readonly LipStyle[] = ['normal', 'reduced'];
 const HEIGHT_MODES: readonly HeightMode[] = ['units', 'internal', 'external'];
-const INTERIORS: readonly InteriorMode[] = ['compartments', 'pockets'];
+const INTERIORS: readonly InteriorMode[] = ['compartments', 'pockets', 'cutouts'];
 const POCKET_SHAPES: readonly PocketShape[] = ['round', 'square', 'hex'];
 export const WALLS = ['f', 'b', 'l', 'r'] as const;
 export type Wall = (typeof WALLS)[number];
@@ -258,7 +259,7 @@ export function variantKeyParts(o: KeyInput): string[] {
     if (flags) p.push(`H${flags}`);
   }
   if (o.cutoutWalls) p.push(`W${o.cutoutWalls}${o.cutoutWidth}x${o.cutoutDepth}`);
-  if (o.slideWalls && o.interior !== 'pockets') p.push(`S${o.slideWalls}${o.slideRadius}`);
+  if (o.slideWalls && o.interior === 'compartments') p.push(`S${o.slideWalls}${o.slideRadius}`);
   if (o.patternWalls) p.push(`X${o.patternWalls}${o.patternSize}w${o.patternWeb}`);
   if (o.interior === 'pockets') {
     const size = o.pocketShape === 'square' ? `${o.pocketW}x${o.pocketD}` : String(o.pocketW);

@@ -93,17 +93,25 @@ export function BinPaneHeader() {
   useEffect(() => {
     if (!exists && pane === 'compartments') setUI({ binPane: 'drawer' });
   }, [exists, pane, setUI]);
-  const showing = exists && pane === 'compartments' ? 'compartments' : 'drawer';
+  // The tool cutouts pane (CutoutEditor.tsx) stays open without a bin; it lists bins to pick from.
+  const showing = pane === 'cutouts' ? 'cutouts' : exists && pane === 'compartments' ? 'compartments' : 'drawer';
   return (
     <div className="pane-head">
-      <div className="pane-title">{showing === 'drawer' ? 'Layout — drag to draw bins' : 'Compartments — click inside the bin to add a wall'}</div>
+      <div className="pane-title">
+        {showing === 'drawer'
+          ? 'Layout — drag to draw bins'
+          : showing === 'cutouts'
+            ? 'Tool cutouts — drag tools into the bin'
+            : 'Compartments — click inside the bin to add a wall'}
+      </div>
       <Segmented
         value={showing}
         options={[
           { value: 'drawer', label: 'Drawer layout' },
           { value: 'compartments', label: 'Compartments', title: exists ? 'Edit the selected bin’s walls' : 'Select a bin first' },
+          { value: 'cutouts', label: 'Tool cutouts', title: 'Lay out traced tools as pockets in the selected bin' },
         ]}
-        onChange={(v) => (v === 'drawer' || exists) && setUI({ binPane: v })}
+        onChange={(v) => (v !== 'compartments' || exists) && setUI({ binPane: v })}
       />
     </div>
   );

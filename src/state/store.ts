@@ -10,8 +10,11 @@ import { canPlace, newId, occupancy } from '../lib/bins';
 import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, type InchPrecision, type Units } from '../lib/units';
 import { cleanTemplates, mergeTemplates, type BinTemplate } from '../lib/templates';
 import { trackHistory, type Snapshot } from './history';
+import { cleanTool, cleanTools, mergeTools, removeToolFromBins, syncToolInBins, type Tool } from '../lib/tools';
 
 export type Tab = 'drawer' | 'bins' | 'print';
+/** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
+export type BinPane = 'drawer' | 'compartments' | 'cutouts';
 
 export interface UIState {
   tab: Tab;
@@ -29,8 +32,8 @@ export interface UIState {
   explode: boolean;
   /** Plate shown in the print view; -1 = all. */
   plate: number;
-  /** Bins tab, left pane: the drawer grid or the selected bin's compartment editor. */
-  binPane: 'drawer' | 'compartments';
+  /** Bins tab, left pane (see BinPane). */
+  binPane: BinPane;
 }
 
 /**
@@ -54,6 +57,14 @@ export interface Store extends ProjectState {
   printPick: string[];
   /** Saved bin settings, shared by all drawers (actions in templates.ts). */
   templates: BinTemplate[];
+  /** Tool library (traced / imported outlines), shared by every drawer. */
+  tools: Tool[];
+  /** Add a tool (outline in mm, any winding/origin; it's normalized). Returns its id. */
+  addTool(t: Partial<Tool> & Pick<Tool, 'outline'>): string;
+  /** Change a tool; its copies in placed bins follow. */
+  updateTool(id: string, patch: Partial<Omit<Tool, 'id'>>): void;
+  /** Remove a tool and its pockets from every bin. */
+  removeTool(id: string): void;
   setDrawer(p: Partial<DrawerInput>): void;
   setBaseplate(p: Partial<BaseplateOptions>): void;
   setSetup(p: Partial<PrintSetup>): void;
@@ -180,6 +191,7 @@ function persisted(s: Store) {
     printScope: s.printScope,
     printPick: s.printPick,
     templates: s.templates,
+    tools: s.tools,
     ui: { ...s.ui, selectedBinId: null, selectedBinIds: [] },
   };
 }
@@ -199,6 +211,7 @@ export const useStore = create<Store>()(
       ui: DEFAULT_UI,
       newBin: DEFAULT_BIN,
       templates: [],
+      tools: [],
       setDrawer: (p) => set((s) => ({ drawer: { ...s.drawer, ...p } })),
       setBaseplate: (p) => set((s) => ({ baseplate: { ...s.baseplate, ...p } })),
       setSetup: (p) => set((s) => ({ setup: { ...s.setup, ...p } })),
@@ -218,7 +231,12 @@ export const useStore = create<Store>()(
           const ids = 'selectedBinId' in p && !p.selectedBinIds ? { selectedBinIds: p.selectedBinId ? [p.selectedBinId] : [] } : {};
           return { ui: { ...s.ui, ...p, ...ids } };
         }),
-      setNewBin: (p) => set((s) => ({ newBin: sanitizeBin({ ...s.newBin, ...p }) })),
+      // New bins never start with another bin's tool pockets.
+      setNewBin: (p) =>
+        set((s) => {
+          const nb = sanitizeBin({ ...s.newBin, ...p, cutouts: undefined });
+          return { newBin: nb.interior === 'cutouts' ? { ...nb, interior: 'compartments' } : nb };
+        }),
       addBin: (x, y, w, d) => {
         const id = newId();
         const bin: PlacedBin = { id, x, y, opts: sanitizeBin({ ...get().newBin, unitsX: w, unitsY: d }) };
@@ -357,6 +375,39 @@ export const useStore = create<Store>()(
       },
       setPrintScope: (printScope, pick) => set((s) => ({ printScope, printPick: pick ?? s.printPick, ui: { ...s.ui, plate: -1 } })),
 
+      // Tool library. Placed bins hold copies of a tool, refreshed here in every drawer.
+      addTool: (t) => {
+        const tool = cleanTool({ ...t, id: t.id ?? newId() });
+        if (!tool) throw new Error('A tool outline needs at least 3 points.');
+        set((s) => ({ tools: [...s.tools.filter((x) => x.id !== tool.id), tool] }));
+        return tool.id;
+      },
+      updateTool: (id, patch) => {
+        const s = get();
+        const cur = s.tools.find((t) => t.id === id);
+        // Only re-normalize a new outline, so an unchanged one stays identical (and meshes stay cached).
+        const next = cur && cleanTool({ ...cur, ...patch, id });
+        if (!cur || !next) return;
+        if (!patch.outline) next.outline = cur.outline;
+        set({
+          tools: s.tools.map((t) => (t.id === id ? next : t)),
+          bins: syncToolInBins(s.bins, next),
+          drawers: s.drawers.map((d) => {
+            const bins = syncToolInBins(d.bins, next);
+            return bins === d.bins ? d : { ...d, bins };
+          }),
+        });
+      },
+      removeTool: (id) =>
+        set((s) => ({
+          tools: s.tools.filter((t) => t.id !== id),
+          bins: removeToolFromBins(s.bins, id),
+          drawers: s.drawers.map((d) => {
+            const bins = removeToolFromBins(d.bins, id);
+            return bins === d.bins ? d : { ...d, bins };
+          }),
+        })),
+
       resetAll: () => set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, ui: { ...DEFAULT_UI, units: get().ui.units }, newBin: DEFAULT_BIN }),
       loadProject: (data) => {
         const p = (data ?? {}) as Partial<Store> & { app?: string };
@@ -378,6 +429,8 @@ export const useStore = create<Store>()(
           printScope: p.printScope === 'all' || p.printScope === 'pick' ? p.printScope : 'active',
           printPick: Array.isArray(p.printPick) ? p.printPick.map(String) : [],
           templates: mergeTemplates(s.templates, cleanTemplates(p.templates)),
+          // Like templates: the file's tools join the library (same id = the file's version).
+          tools: mergeTools(s.tools, cleanTools(p.tools)),
           ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
@@ -412,6 +465,7 @@ export const useStore = create<Store>()(
           printScope: p.printScope ?? current.printScope,
           printPick: p.printPick ?? current.printPick,
           templates: cleanTemplates(p.templates ?? current.templates),
+          tools: cleanTools(p.tools ?? current.tools),
           ui: { ...current.ui, ...p.ui },
         };
       },
@@ -431,6 +485,7 @@ export function projectFile(s: Store) {
     printScope: s.printScope,
     printPick: s.printPick,
     templates: s.templates,
+    tools: s.tools,
   };
 }
 

@@ -84,8 +84,10 @@ export function InteriorFields({ opts, onChange }: Props) {
         options={[
           { value: 'compartments', label: 'Compartments' },
           { value: 'pockets', label: 'Pocket grid', title: 'Fill the bin and cut a grid of pockets for batteries, bits, cards…' },
+          { value: 'cutouts', label: 'Tool cutouts', title: 'Fill the bin and cut pockets shaped like your tools (Tool library below)' },
         ]}
         onChange={(interior) => onChange({ interior })}
+        hint={opts.interior === 'cutouts' ? 'Lay the tools out in the Tool cutouts pane; pocket settings are in the Tool library section.' : undefined}
       />
       {pockets && (
         <div className="indent">
