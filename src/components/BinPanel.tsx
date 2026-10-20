@@ -7,6 +7,7 @@ import { binSpec, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
 import { TemplatesSection } from './TemplatesSection';
+import { ToolLibrary } from './ToolLibrary';
 
 function BinFields({
   opts,
@@ -169,6 +170,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
       )}
 
       <TemplatesSection />
+      <ToolLibrary job={job} />
 
       <Section title="Layout">
         <div className="button-row">

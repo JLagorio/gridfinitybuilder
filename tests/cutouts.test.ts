@@ -27,6 +27,7 @@ import {
   heightUnitsFor,
   normalizeOutline,
   pocketGap,
+  snapCutout,
   type Tool,
 } from '../src/lib/tools';
 import { allDrawers, projectFile, useStore } from '../src/state/store';
@@ -245,8 +246,10 @@ describe('tools and bin fitting', () => {
 
   it('sizes a bin for one tool, rotating it if that saves cells', () => {
     const f = fitBinForTools([tool()], { lip: true });
-    // 102 × 22 mm pocket + 2 × 3 mm margin + 2 × 2.6 mm lip → 3 × 1 units.
+    // 102 × 22 mm pocket + 2 × 1.5 mm margin + 2 × 2.6 mm lip → 3 × 1 units.
     expect([f.unitsX, f.unitsY]).toEqual([3, 1]);
+    // 30 mm wide + 1 mm clearance still fits one unit (32 + 3 + 5.2 ≤ 41.5).
+    expect(fitBinForTools([tool({ outline: rect(170, 30) })], { lip: true }).unitsY).toBe(1);
     expect(f.heightUnits).toBe(heightUnitsFor(12, true));
     expect(f.heightUnits).toBe(3); // 7 + 12 + 1.2 = 20.2 mm → 3 u
     expect(f.fits).toBe(true);
@@ -286,6 +289,45 @@ describe('tools and bin fitting', () => {
     const b = pocketBox(second);
     expect(b.y0).toBeGreaterThanOrEqual(area.y0 - 1e-6);
     expect(b.y1).toBeLessThanOrEqual(area.y1 + 1e-6);
+
+    // No box-clear spot: it tucks in beside a screwdriver's thin shaft.
+    const driver = tool({
+      id: 'd',
+      outline: normalizeOutline([
+        [0, 0],
+        [95, 0],
+        [95, 11],
+        [175, 11],
+        [175, 19],
+        [95, 19],
+        [95, 30],
+        [0, 30],
+      ]),
+    });
+    const wide = cutoutArea(209.5, 83.5, true);
+    const placedDriver = cutoutFromTool(driver, 0, 0, 0);
+    const key = tool({ id: 'k', outline: rect(50, 20) });
+    const at = findFreePlacement([placedDriver], key, wide);
+    const placedKey = cutoutFromTool(key, at.x, at.y, at.rotation);
+    expect(pocketGap(placedDriver, placedKey).d).toBeGreaterThanOrEqual(4 - 1e-6);
+    const kb = pocketBox(placedKey);
+    expect(kb.x0 >= wide.x0 - 1e-6 && kb.x1 <= wide.x1 + 1e-6 && kb.y0 >= wide.y0 - 1e-6 && kb.y1 <= wide.y1 + 1e-6).toBe(true);
+  });
+
+  it('snaps to the center line, the opening and a gap from a neighbour', () => {
+    const area = cutoutArea(125.5, 83.5, true); // y1 = 39.15
+    const bar = tool({ outline: rect(40, 10), clearance: 0 });
+    const s = snapCutout(cutoutFromTool(bar, 1, 34, 0), [], area, 2);
+    expect(s.dx).toBeCloseTo(-1, 9);
+    expect(s.dy).toBeCloseTo(0.15, 9);
+    expect(s.guidesX).toEqual([0]);
+    expect(s.guidesY[0]).toBeCloseTo(39.15, 9);
+    // 4 mm right of a neighbour whose right edge is at -20.
+    const other = cutoutFromTool(bar, -40, -20, 0);
+    const n = snapCutout(cutoutFromTool(bar, 4.6, -20, 0), [other], area, 1);
+    expect(n.dx).toBeCloseTo(-0.6, 9);
+    expect(n.dy).toBeCloseTo(0, 9);
+    expect(snapCutout(cutoutFromTool(bar, 30, 10, 0), [], area, 0.5)).toEqual({ dx: 0, dy: 0, guidesX: [], guidesY: [] });
   });
 
   it('finds the first free spot on full cells', () => {

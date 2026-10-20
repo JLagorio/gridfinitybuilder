@@ -13,6 +13,7 @@ import { DrawerPanel } from './components/DrawerPanel';
 import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
+import { CutoutEditor } from './components/CutoutEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { HistoryButtons } from './components/HistoryButtons';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
@@ -265,6 +266,21 @@ export default function App() {
           {ui.tab === 'bins' ? (
             <div className="split">
               <div className="pane pane-2d">
+                {/* 2D pane mode: drawer layout | tool cutouts (ui.binPane) */}
+                <div className="pane-modes">
+                  <Segmented
+                    value={ui.binPane}
+                    options={[
+                      { value: 'layout', label: 'Drawer layout' },
+                      { value: 'cutouts', label: 'Tool cutouts', title: 'Lay out tool pockets in the selected bin' },
+                    ]}
+                    onChange={(binPane) => state.setUI({ binPane })}
+                  />
+                </div>
+                {ui.binPane === 'cutouts' ? (
+                  <CutoutEditor job={job} />
+                ) : (
+                  <>
                 <div className="pane-title">Layout — drag to draw bins · Shift-drag to select · press ? for shortcuts</div>
                 <BinGridEditor
                   layout={job.layout}
@@ -275,6 +291,8 @@ export default function App() {
                   onMoveBins={moveBins}
                   onResize={resizeBin}
                 />
+                  </>
+                )}
               </div>
               <div className="pane pane-3d">{viewer}</div>
             </div>

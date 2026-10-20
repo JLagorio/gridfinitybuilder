@@ -13,7 +13,7 @@ import {
 } from './geometry/cutouts';
 import { BASE_HEIGHT, GRID, HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from './geometry/spec';
 import { cellSizes, type GridLayout } from './layout/drawer';
-import { boundaryDistance, bounds, dedupe, polygonsIntersect, signedArea, simplifyClosed } from './trace/polygon';
+import { boundariesWithin, boundaryDistance, bounds, dedupe, polygonsIntersect, signedArea, simplifyClosed } from './trace/polygon';
 import { canPlace, newId } from './bins';
 import type { PlacedBin } from './project';
 
@@ -31,8 +31,11 @@ export interface Tool {
 
 export const DEFAULT_TOOL_DEPTH = 10;
 export const DEFAULT_CLEARANCE = 1;
-/** Solid material kept between pockets and the bin walls by "Make a bin". */
-export const FIT_MARGIN = 3;
+/**
+ * Extra solid kept between pockets and the opening's edge by "Make a bin"
+ * (on top of the 1.65 mm the lip already leaves between the opening and the wall).
+ */
+export const FIT_MARGIN = 1.5;
 /** Gap between neighbouring pockets laid out by "Make a bin". */
 export const FIT_GAP = 4;
 
@@ -373,7 +376,8 @@ export function snapCutout(c: BinCutout, others: BinCutout[], area: Rect, tol: n
  */
 export function findFreePlacement(cutouts: BinCutout[], t: Tool, area: Rect, gap = FIT_GAP): { x: number; y: number; rotation: number } {
   const step = 2;
-  for (const rotation of [0, 90]) {
+  const others = cutouts.map((d) => ({ d, box: pocketBox(d), pts: placedOutline(d) }));
+  const options = [0, 90].flatMap((rotation) => {
     const probe = cutoutFromTool(t, 0, 0, rotation);
     const b = pocketBox(probe);
     // Allowed range for the cutout origin so the pocket box stays inside.
@@ -381,24 +385,27 @@ export function findFreePlacement(cutouts: BinCutout[], t: Tool, area: Rect, gap
     const xhi = area.x1 - b.x1;
     const ylo = area.y0 - b.y0;
     const yhi = area.y1 - b.y1;
-    if (xlo > xhi + 1e-6 || ylo > yhi + 1e-6) continue;
+    if (xlo > xhi + 1e-6 || ylo > yhi + 1e-6) return [];
     const cands: Pt[] = [];
     for (let x = Math.ceil(xlo / step) * step; x <= xhi + 1e-6; x += step) {
       for (let y = Math.ceil(ylo / step) * step; y <= yhi + 1e-6; y += step) cands.push([x, y]);
     }
     if (!cands.length) cands.push([(xlo + xhi) / 2, (ylo + yhi) / 2]);
     cands.sort((p, q) => Math.hypot(p[0], p[1]) - Math.hypot(q[0], q[1]));
-    let tested = 0;
-    for (const [x, y] of cands) {
-      const c = { ...probe, x, y };
-      const cb = pocketBox(c);
-      const near = cutouts.filter((d) => {
-        const db = pocketBox(d);
-        return !(cb.x1 + gap <= db.x0 || db.x1 + gap <= cb.x0 || cb.y1 + gap <= db.y0 || db.y1 + gap <= cb.y0);
-      });
-      if (!near.length) return { x, y, rotation };
-      // Exact checks are slower; only try a few hundred.
-      if (tested++ < 300 && !near.some((d) => pocketsClash(c, d, gap))) return { x, y, rotation };
+    return [{ rotation, b, pts: placedOutline(probe), cands }];
+  });
+  const nearby = (b: Rect, x: number, y: number) =>
+    others.filter(({ box }) => !(b.x1 + x + gap <= box.x0 || box.x1 + gap <= b.x0 + x || b.y1 + y + gap <= box.y0 || box.y1 + gap <= b.y0 + y));
+  // First choice: clear of every other pocket's bounding box.
+  for (const o of options) for (const [x, y] of o.cands) if (!nearby(o.b, x, y).length) return { x, y, rotation: o.rotation };
+  // Then: clear of their actual outlines (tucked beside a shaft, say).
+  let budget = 5000;
+  for (const o of options) {
+    for (const [x, y] of o.cands) {
+      const pts = o.pts.map(([px, py]) => [px + x, py + y] as Pt);
+      const clash = nearby(o.b, x, y).some((n) => polygonsIntersect(pts, n.pts) || boundariesWithin(pts, n.pts, t.clearance + n.d.clearance + gap));
+      if (!clash) return { x, y, rotation: o.rotation };
+      if (--budget <= 0) return { x: 0, y: 0, rotation: 0 };
     }
   }
   return { x: 0, y: 0, rotation: 0 };

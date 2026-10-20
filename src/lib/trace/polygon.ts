@@ -148,6 +148,17 @@ export function boundaryDistance(a: Pt[], b: Pt[]): { d: number; pa: Pt; pb: Pt 
   return best;
 }
 
+/** True when the two boundaries come within `d` of each other (stops at the first hit). */
+export function boundariesWithin(a: Pt[], b: Pt[], d: number): boolean {
+  const near = (P: Pt[], Q: Pt[]) => {
+    for (const p of P) {
+      for (let j = 0, k = Q.length - 1; j < Q.length; k = j++) if (segDist(p, Q[k], Q[j]) < d) return true;
+    }
+    return false;
+  };
+  return near(a, b) || near(b, a);
+}
+
 /** Closest point on a closed polygon's boundary. */
 export function nearestOnPolygon(p: Pt, poly: Pt[]): Pt {
   let best: Pt = poly[0];
