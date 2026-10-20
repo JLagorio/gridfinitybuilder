@@ -1,0 +1,47 @@
+{
+  "p2s": {
+    "printer": "Bambu Lab P2S 0.4 nozzle",
+    "process": "0.20mm Standard @BBL P2S",
+    "filament": "Bambu PLA Basic @BBL P2S"
+  },
+  "p1s": {
+    "printer": "Bambu Lab P1S 0.4 nozzle",
+    "process": "0.20mm Standard @BBL X1C",
+    "filament": "Bambu PLA Basic @BBL P1S 0.4 nozzle"
+  },
+  "p1p": {
+    "printer": "Bambu Lab P1P 0.4 nozzle",
+    "process": "0.20mm Standard @BBL P1P",
+    "filament": "Bambu PLA Basic @BBL P1P"
+  },
+  "x1c": {
+    "printer": "Bambu Lab X1 Carbon 0.4 nozzle",
+    "process": "0.20mm Standard @BBL X1C",
+    "filament": "Bambu PLA Basic @BBL X1"
+  },
+  "x1e": {
+    "printer": "Bambu Lab X1E 0.4 nozzle",
+    "process": "0.20mm Standard @BBL X1C",
+    "filament": "Bambu PLA Basic @BBL X1C"
+  },
+  "a1": {
+    "printer": "Bambu Lab A1 0.4 nozzle",
+    "process": "0.20mm Standard @BBL A1",
+    "filament": "Bambu PLA Basic @BBL A1"
+  },
+  "a1-mini": {
+    "printer": "Bambu Lab A1 mini 0.4 nozzle",
+    "process": "0.20mm Standard @BBL A1M",
+    "filament": "Bambu PLA Basic @BBL A1M"
+  },
+  "h2d": {
+    "printer": "Bambu Lab H2D 0.4 nozzle",
+    "process": "0.20mm Standard @BBL H2D",
+    "filament": "Bambu PLA Basic @BBL H2D"
+  },
+  "h2s": {
+    "printer": "Bambu Lab H2S 0.4 nozzle",
+    "process": "0.20mm Standard @BBL H2S",
+    "filament": "Bambu PLA Basic @BBL H2S"
+  }
+}

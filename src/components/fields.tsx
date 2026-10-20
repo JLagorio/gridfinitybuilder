@@ -1,0 +1,325 @@
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { parseLength } from '../lib/layout/drawer';
+
+export function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
+  return (
+    <section className="section">
+      <header className="section-head">
+        <h3>{title}</h3>
+        {aside}
+      </header>
+      <div className="section-body">{children}</div>
+    </section>
+  );
+}
+
+export function Field({ label, hint, children, id }: { label: string; hint?: ReactNode; children: ReactNode; id?: string }) {
+  return (
+    <div className="field">
+      <label className="field-label" htmlFor={id}>
+        {label}
+      </label>
+      <div className="field-control">{children}</div>
+      {hint && <div className="field-hint">{hint}</div>}
+    </div>
+  );
+}
+
+const fmt = (v: number, digits: number) => String(Math.round(v * 10 ** digits) / 10 ** digits);
+
+/**
+ * Length input stored in mm. Shows mm or inches; accepts "20 1/8in", "51cm", etc.
+ */
+export function LengthInput({
+  label,
+  value,
+  onChange,
+  units = 'mm',
+  min = 0,
+  max = 5000,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (mm: number) => void;
+  units?: 'mm' | 'in';
+  min?: number;
+  max?: number;
+  hint?: ReactNode;
+}) {
+  const id = useId();
+  const shown = units === 'in' ? fmt(value / 25.4, 3) : fmt(value, 2);
+  const [text, setText] = useState(shown);
+  const [bad, setBad] = useState(false);
+  useEffect(() => setText(shown), [shown]);
+  const commit = () => {
+    const v = parseLength(text, units);
+    if (v === null || v < min || v > max) {
+      setBad(true);
+      return;
+    }
+    setBad(false);
+    onChange(Math.round(v * 1000) / 1000);
+  };
+  return (
+    <Field label={label} hint={hint} id={id}>
+      <div className={`input-wrap ${bad ? 'bad' : ''}`}>
+        <input
+          id={id}
+          inputMode="decimal"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === 'Enter' && commit()}
+        />
+        <span className="suffix">{units}</span>
+      </div>
+    </Field>
+  );
+}
+
+export function NumberInput({
+  label,
+  value,
+  onChange,
+  min = -Infinity,
+  max = Infinity,
+  step = 0.1,
+  suffix = 'mm',
+  hint,
+  digits = 2,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  suffix?: string;
+  hint?: ReactNode;
+  digits?: number;
+}) {
+  const id = useId();
+  const shown = fmt(value, digits);
+  const [text, setText] = useState(shown);
+  const [bad, setBad] = useState(false);
+  const focused = useRef(false);
+  // Don't rewrite the text under the cursor while typing ("1." must stay "1.").
+  useEffect(() => {
+    if (!focused.current) setText(shown);
+  }, [shown]);
+  const commit = (raw = text) => {
+    const v = parseFloat(raw);
+    if (!Number.isFinite(v) || v < min || v > max) {
+      setBad(true);
+      return;
+    }
+    setBad(false);
+    onChange(v);
+  };
+  return (
+    <Field label={label} hint={hint} id={id}>
+      <div className={`input-wrap ${bad ? 'bad' : ''}`}>
+        <input
+          id={id}
+          type="number"
+          step={step}
+          min={Number.isFinite(min) ? min : undefined}
+          max={Number.isFinite(max) ? max : undefined}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            // Apply valid values live (spinner clicks, typing); flag bad ones on blur.
+            const v = parseFloat(e.target.value);
+            if (Number.isFinite(v) && v >= min && v <= max) {
+              setBad(false);
+              onChange(v);
+            }
+          }}
+          onFocus={() => (focused.current = true)}
+          onBlur={() => {
+            focused.current = false;
+            commit();
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && commit()}
+        />
+        {suffix && <span className="suffix">{suffix}</span>}
+      </div>
+    </Field>
+  );
+}
+
+export function Stepper({
+  label,
+  value,
+  onChange,
+  min = 1,
+  max = 99,
+  suffix,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  suffix?: string;
+  hint?: ReactNode;
+}) {
+  const clamp = (v: number) => Math.min(max, Math.max(min, v));
+  return (
+    <Field label={label} hint={hint}>
+      <div className="stepper">
+        <button type="button" aria-label={`Decrease ${label}`} onClick={() => onChange(clamp(value - 1))} disabled={value <= min}>
+          −
+        </button>
+        <span className="stepper-value">
+          {value}
+          {suffix && <small>{suffix}</small>}
+        </span>
+        <button type="button" aria-label={`Increase ${label}`} onClick={() => onChange(clamp(value + 1))} disabled={value >= max}>
+          +
+        </button>
+      </div>
+    </Field>
+  );
+}
+
+export function Toggle({
+  label,
+  checked,
+  onChange,
+  hint,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  hint?: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div className="field toggle-field">
+      <label className="toggle" htmlFor={id}>
+        <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span className="toggle-track" aria-hidden />
+        <span className="toggle-label">{label}</span>
+      </label>
+      {hint && <div className="field-hint">{hint}</div>}
+    </div>
+  );
+}
+
+export function Segmented<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange,
+  hint,
+}: {
+  label?: string;
+  value: T;
+  options: { value: T; label: string; title?: string }[];
+  onChange: (v: T) => void;
+  hint?: ReactNode;
+}) {
+  const body = (
+    <div className="segmented" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={String(o.value)}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          title={o.title}
+          className={o.value === value ? 'active' : ''}
+          onClick={() => onChange(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+  return label ? (
+    <Field label={label} hint={hint}>
+      {body}
+    </Field>
+  ) : (
+    body
+  );
+}
+
+export function Select<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string; group?: string }[];
+  onChange: (v: T) => void;
+  hint?: ReactNode;
+}) {
+  const id = useId();
+  const groups = [...new Set(options.map((o) => o.group ?? ''))];
+  return (
+    <Field label={label} hint={hint} id={id}>
+      <div className="select-wrap">
+        <select id={id} value={value} onChange={(e) => onChange(e.target.value as T)}>
+          {groups.map((g) =>
+            g ? (
+              <optgroup key={g} label={g}>
+                {options
+                  .filter((o) => o.group === g)
+                  .map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+              </optgroup>
+            ) : (
+              options
+                .filter((o) => !o.group)
+                .map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))
+            ),
+          )}
+        </select>
+      </div>
+    </Field>
+  );
+}
+
+export function Slider({
+  label,
+  value,
+  onChange,
+  min = 0,
+  max = 1,
+  step = 0.05,
+  format = (v: number) => String(v),
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  format?: (v: number) => string;
+  hint?: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <Field label={label} hint={hint} id={id}>
+      <div className="slider">
+        <input id={id} type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} />
+        <output htmlFor={id}>{format(value)}</output>
+      </div>
+    </Field>
+  );
+}
