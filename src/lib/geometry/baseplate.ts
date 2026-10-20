@@ -169,7 +169,7 @@ function prism(w: Wasm, ring: Vec2[], z0: number, z1: number): Manifold {
 
 /** A cylinder with crush ribs: the radius waves between `ri` and `ro` (Rebuilt ribbed_cylinder). */
 function ribbedCylinder(w: Wasm, x: number, y: number, z0: number, z1: number, ro: number, ri: number, ribs: number): Manifold {
-  const n = ribs * 12;
+  const n = ribs * 8;
   const mid = (ro + ri) / 2;
   const amp = (ro - ri) / 2;
   const pts: Vec2[] = Array.from({ length: n }, (_, k) => {
@@ -202,17 +202,24 @@ function magnetPocket(w: Wasm, s: Scope, o: BaseplateOptions, floor: number, hx:
   const z0 = top ? floor - depth : -1;
   const z1 = top ? floor + 0.5 : depth;
   const r = magnetPocketR(o);
+  const c = o.magnetChamfer ? Math.min(MAGNET_CHAMFER, depth - 0.2) : 0;
   if (o.magnetRibs) {
     const ri = Math.min(o.magnetDiameter / 2 - CRUSH_RIBS.squeeze, r - 0.1);
     out.push(s.t(ribbedCylinder(w, hx, hy, z0, z1, r, ri, CRUSH_RIBS.count)));
+    if (c > 0) {
+      out.push(
+        s.t(top ? cylinderAt(w, hx, hy, floor - c, floor + 0.01, r, r + c + 0.01) : cylinderAt(w, hx, hy, -0.01, c, r + c + 0.01, r)),
+      );
+    }
+  } else if (c > 0) {
+    // Pocket and 45° mouth in one convex solid.
+    const circle = (rr: number, z: number) => ringAt(roundedRectRing(hx - rr, hy - rr, hx + rr, hy + rr, rr, 10), z);
+    const rings = top
+      ? [circle(r, z0), circle(r, floor - c), circle(r + c + 0.5, floor + 0.5)]
+      : [circle(r + c + 1, -1), circle(r, c), circle(r, z1)];
+    out.push(s.t(w.Manifold.hull(rings.flat())));
   } else {
     out.push(s.t(cylinderAt(w, hx, hy, z0, z1, r)));
-  }
-  if (o.magnetChamfer) {
-    const c = Math.min(MAGNET_CHAMFER, depth - 0.2);
-    out.push(
-      s.t(top ? cylinderAt(w, hx, hy, floor - c, floor + 0.01, r, r + c + 0.01) : cylinderAt(w, hx, hy, -0.01, c, r + c + 0.01, r)),
-    );
   }
   if (o.magnetSlot) {
     // Toward the cell center, the full depth of the pocket.
@@ -303,8 +310,7 @@ interface NumberSpot {
  * wall, or a closed floor, clear of every hole and pocket. Null if none fits.
  */
 function numberSpot(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, keepouts: Rect[], text: string): Rect[] | null {
-  const { height: H, stroke, margin: m } = PIECE_NUMBER;
-  const size = textSize(text, H, stroke);
+  const m = PIECE_NUMBER.margin;
   const { xs, ys } = layout;
   const { cells, outer } = piece;
   const pcx = (piece.x0 + piece.x1) / 2;
@@ -344,18 +350,23 @@ function numberSpot(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, ke
   if (outer.right && outer.back) corners.push({ x0: piece.x1 - R, y0: piece.y1 - R, x1: piece.x1, y1: piece.y1 });
   if (outer.left && outer.back) corners.push({ x0: piece.x0, y0: piece.y1 - R, x1: piece.x0 + R, y1: piece.y1 });
 
-  for (const sp of spots) {
-    const [bw, bh] = sp.rot ? [size.h, size.w] : [size.w, size.h];
-    const box: Rect = { x0: sp.cx - bw / 2, x1: sp.cx + bw / 2, y0: sp.cy - bh / 2, y1: sp.cy + bh / 2 };
-    const grown = growRect(box, m);
-    if (box.x0 < face.x0 || box.x1 > face.x1 || box.y0 < face.y0 || box.y1 > face.y1) continue;
-    if (corners.some((r) => rectsOverlap(r, grown)) || keepouts.some((r) => rectsOverlap(r, grown))) continue;
-    // Mirrored, so it reads right with the piece flipped over (about its Y axis).
-    return textRects(text, H, stroke).map((g) =>
-      sp.rot
-        ? { x0: sp.cx + g.y0 - size.h / 2, x1: sp.cx + g.y1 - size.h / 2, y0: sp.cy + g.x0 - size.w / 2, y1: sp.cy + g.x1 - size.w / 2 }
-        : { x0: sp.cx - g.x1 + size.w / 2, x1: sp.cx - g.x0 + size.w / 2, y0: sp.cy + g.y0 - size.h / 2, y1: sp.cy + g.y1 - size.h / 2 },
-    );
+  // The biggest digits that fit anywhere.
+  for (const H of PIECE_NUMBER.heights) {
+    const stroke = H / 6;
+    const size = textSize(text, H, stroke);
+    for (const sp of spots) {
+      const [bw, bh] = sp.rot ? [size.h, size.w] : [size.w, size.h];
+      const box: Rect = { x0: sp.cx - bw / 2, x1: sp.cx + bw / 2, y0: sp.cy - bh / 2, y1: sp.cy + bh / 2 };
+      const grown = growRect(box, m);
+      if (box.x0 < face.x0 || box.x1 > face.x1 || box.y0 < face.y0 || box.y1 > face.y1) continue;
+      if (corners.some((r) => rectsOverlap(r, grown)) || keepouts.some((r) => rectsOverlap(r, grown))) continue;
+      // Mirrored, so it reads right with the piece flipped over (about its Y axis).
+      return textRects(text, H, stroke).map((g) =>
+        sp.rot
+          ? { x0: sp.cx + g.y0 - size.h / 2, x1: sp.cx + g.y1 - size.h / 2, y0: sp.cy + g.x0 - size.w / 2, y1: sp.cy + g.x1 - size.w / 2 }
+          : { x0: sp.cx - g.x1 + size.w / 2, x1: sp.cx - g.x0 + size.w / 2, y0: sp.cy + g.y0 - size.h / 2, y1: sp.cy + g.y1 - size.h / 2 },
+      );
+    }
   }
   return null;
 }

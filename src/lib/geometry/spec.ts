@@ -231,9 +231,8 @@ export const SCREW_JOIN = {
 // ---------------------------------------------------------------------------
 
 export const PIECE_NUMBER = {
-  /** Digit height and stroke. */
-  height: 3.6,
-  stroke: 0.6,
+  /** Digit heights to try, largest first (the smallest fits a wall's underside); stroke = height / 6. */
+  heights: [10, 6, 3.6],
   depth: 0.4,
   /** Solid material kept around the digits. */
   margin: 0.8,
