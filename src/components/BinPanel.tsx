@@ -5,6 +5,7 @@ import { binLabel, binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinOptions } 
 import { canPlace } from '../lib/bins';
 import { binSpec, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
+import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
 
 function BinFields({
   opts,
@@ -87,8 +88,6 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const selectedId = useStore((s) => s.ui.selectedBinId);
   const newBin = useStore((s) => s.newBin);
   const updateBin = useStore((s) => s.updateBin);
-  const removeBin = useStore((s) => s.removeBin);
-  const duplicateBin = useStore((s) => s.duplicateBin);
   const setNewBin = useStore((s) => s.setNewBin);
   const fillEmpty = useStore((s) => s.fillEmpty);
   const clearBins = useStore((s) => s.clearBins);
@@ -96,6 +95,9 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const [sizeError, setSizeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = bins.find((b) => b.id === selectedId) ?? null;
+  // With several bins selected, the panel shows the primary one and edits apply to all.
+  const selIds = useSelectedIds();
+  const many = selIds.length > 1;
   const { nx, ny } = job.layout;
 
   const changeSelected = (p: Partial<BinOptions>) => {
@@ -108,7 +110,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
       }
     }
     setSizeError(null);
-    updateBin(sel.id, { opts: p });
+    for (const id of many ? selIds : [sel.id]) updateBin(id, { opts: p });
   };
 
   const downloadSelected = async () => {
@@ -129,20 +131,21 @@ export function BinPanel({ job }: { job: PrintJob }) {
     <>
       {sel ? (
         <Section
-          title="Selected bin"
+          title={many ? `${selIds.length} bins selected` : 'Selected bin'}
           aside={
             <button className="link" onClick={() => setUI({ selectedBinId: null })}>
               Done
             </button>
           }
         >
-          <BinFields opts={sel.opts} onChange={changeSelected} sizeEditable sizeError={sizeError} />
+          {many && <p className="muted small">Showing the first bin's settings. Changes apply to all {selIds.length}.</p>}
+          <BinFields opts={sel.opts} onChange={changeSelected} sizeEditable={!many} sizeError={sizeError} />
           <div className="button-row">
-            <button onClick={() => duplicateBin(sel.id)}>Duplicate</button>
+            <button onClick={() => duplicateSelection()}>Duplicate</button>
             <button onClick={() => setNewBin({ ...sel.opts })} title="New bins you draw will use these settings">
               Use for new bins
             </button>
-            <button className="danger" onClick={() => removeBin(sel.id)}>
+            <button className="danger" onClick={() => removeSelection()}>
               Delete
             </button>
           </div>
