@@ -5,6 +5,8 @@ import { binLabel, binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinOptions } 
 import { canPlace } from '../lib/bins';
 import { binSpec, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
+import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
+import { TemplatesSection } from './TemplatesSection';
 
 function BinFields({
   opts,
@@ -87,8 +89,6 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const selectedId = useStore((s) => s.ui.selectedBinId);
   const newBin = useStore((s) => s.newBin);
   const updateBin = useStore((s) => s.updateBin);
-  const removeBin = useStore((s) => s.removeBin);
-  const duplicateBin = useStore((s) => s.duplicateBin);
   const setNewBin = useStore((s) => s.setNewBin);
   const fillEmpty = useStore((s) => s.fillEmpty);
   const clearBins = useStore((s) => s.clearBins);
@@ -96,6 +96,9 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const [sizeError, setSizeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = bins.find((b) => b.id === selectedId) ?? null;
+  // With several bins selected, the panel shows the primary one and edits apply to all.
+  const selIds = useSelectedIds();
+  const many = selIds.length > 1;
   const { nx, ny } = job.layout;
 
   const changeSelected = (p: Partial<BinOptions>) => {
@@ -108,15 +111,17 @@ export function BinPanel({ job }: { job: PrintJob }) {
       }
     }
     setSizeError(null);
-    updateBin(sel.id, { opts: p });
+    for (const id of many ? selIds : [sel.id]) updateBin(id, { opts: p });
   };
 
-  const downloadSelected = async () => {
+  const downloadSelected = async (format: '3mf' | 'stl' = '3mf') => {
     if (!sel) return;
     setBusy(true);
     try {
-      const bytes = await geometry.exportSingle(binSpec(job.layout, sel), binLabel(sel.opts));
-      downloadBytes(bytes, `gridfinity-bin-${sel.opts.unitsX}x${sel.opts.unitsY}x${sel.opts.heightUnits}u.3mf`, 'model/3mf');
+      const spec = binSpec(job.layout, sel);
+      const name = `gridfinity-bin-${sel.opts.unitsX}x${sel.opts.unitsY}x${sel.opts.heightUnits}u`;
+      if (format === 'stl') downloadBytes(await geometry.exportStlSingle(spec, binLabel(sel.opts)), `${name}.stl`, 'model/stl');
+      else downloadBytes(await geometry.exportSingle(spec, binLabel(sel.opts)), `${name}.3mf`, 'model/3mf');
     } finally {
       setBusy(false);
     }
@@ -129,25 +134,29 @@ export function BinPanel({ job }: { job: PrintJob }) {
     <>
       {sel ? (
         <Section
-          title="Selected bin"
+          title={many ? `${selIds.length} bins selected` : 'Selected bin'}
           aside={
             <button className="link" onClick={() => setUI({ selectedBinId: null })}>
               Done
             </button>
           }
         >
-          <BinFields opts={sel.opts} onChange={changeSelected} sizeEditable sizeError={sizeError} />
+          {many && <p className="muted small">Showing the first bin's settings. Changes apply to all {selIds.length}.</p>}
+          <BinFields opts={sel.opts} onChange={changeSelected} sizeEditable={!many} sizeError={sizeError} />
           <div className="button-row">
-            <button onClick={() => duplicateBin(sel.id)}>Duplicate</button>
+            <button onClick={() => duplicateSelection()}>Duplicate</button>
             <button onClick={() => setNewBin({ ...sel.opts })} title="New bins you draw will use these settings">
               Use for new bins
             </button>
-            <button className="danger" onClick={() => removeBin(sel.id)}>
+            <button className="danger" onClick={() => removeSelection()}>
               Delete
             </button>
           </div>
-          <button className="primary wide" onClick={downloadSelected} disabled={busy}>
+          <button className="primary wide" onClick={() => downloadSelected()} disabled={busy}>
             {busy ? 'Building…' : 'Download this bin (.3mf)'}
+          </button>
+          <button className="link" onClick={() => downloadSelected('stl')} disabled={busy}>
+            Download as STL
           </button>
         </Section>
       ) : (
@@ -158,6 +167,8 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <BinFields opts={newBin} onChange={setNewBin} sizeEditable={false} />
         </Section>
       )}
+
+      <TemplatesSection />
 
       <Section title="Layout">
         <div className="button-row">

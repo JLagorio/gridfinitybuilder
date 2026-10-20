@@ -1,0 +1,104 @@
+import { baseplateHeight, type BaseplateOptions } from './geometry/baseplate';
+import { binLabel, binSize, binTotalHeight, sanitizeBin, type BinOptions } from './geometry/bin';
+import { connectorKeySize, connectorSites, sitesOnPiece } from './geometry/connectors';
+import { DEFAULT_DRAWER, computeLayout } from './layout/drawer';
+import { packPlates, type PackItem } from './layout/pack';
+import type { PrintSetup } from './layout/plan';
+import { makePieces } from './layout/split';
+import { binSpec, pieceMeshKey, type JobPart, type MeshSpec, type PrintJob } from './project';
+
+/**
+ * A small kit to check tolerances before printing everything: a 2 × 2 cell
+ * baseplate sample with the drawer's baseplate settings and one 1 × 1 bin with
+ * the new-bin settings. With connectors on, the sample is split down the
+ * middle so one key crosses the seam (a 2 × 1 sample has no wall crossing its
+ * seam, so it would get no key). Planned like a normal job, so every exporter works.
+ */
+export function planTestFit(baseplate: BaseplateOptions, bin: BinOptions, setup: PrintSetup, pitch = { x: 42, y: 42 }): PrintJob {
+  const layout = computeLayout({ ...DEFAULT_DRAWER, mode: 'grid', gridX: 2, gridY: 2, pitchX: pitch.x, pitchY: pitch.y });
+  const split = baseplate.connector !== 'none';
+  const pieces = makePieces(layout, split ? [0, layout.xs[1], layout.plateW] : [0, layout.plateW], [0, layout.plateD]);
+  const connectors = connectorSites(layout, pieces, baseplate);
+
+  const parts: Record<string, JobPart> = {};
+  const meshes: Record<string, MeshSpec> = {};
+  const items: PackItem[] = [];
+  const add = (part: JobPart, spec: MeshSpec) => {
+    parts[part.key] = part;
+    meshes[spec.key] = spec;
+    items.push({ key: part.key, w: part.w, d: part.d });
+  };
+
+  for (const piece of pieces) {
+    const mine = sitesOnPiece(connectors, piece);
+    const meshKey = pieceMeshKey(layout, piece, baseplate, mine);
+    const side = pieces.length > 1 ? (piece.col === 0 ? ' (left)' : ' (right)') : '';
+    add(
+      {
+        key: `piece:${piece.id}`,
+        name: `Test-fit baseplate${side}`,
+        kind: 'piece',
+        meshKey,
+        w: piece.x1 - piece.x0,
+        d: piece.y1 - piece.y0,
+        h: baseplateHeight(baseplate),
+        pieceId: piece.id,
+      },
+      { kind: 'piece', key: meshKey, layout, piece, opts: baseplate, connectors: mine },
+    );
+  }
+  if (connectors.length) {
+    const meshKey = `key|${baseplate.connector}`;
+    connectors.forEach((_, i) =>
+      add(
+        { key: `key:${i + 1}`, name: `Connector key ${i + 1}`, kind: 'key', meshKey, ...connectorKeySize() },
+        { kind: 'key', key: meshKey, opts: baseplate },
+      ),
+    );
+  }
+  const testBin = { id: 'test-bin', x: 0, y: 0, opts: sanitizeBin({ ...bin, unitsX: 1, unitsY: 1 }) };
+  const spec = binSpec(layout, testBin);
+  const size = binSize(testBin.opts, spec.cells);
+  add(
+    {
+      key: `bin:${testBin.id}`,
+      name: `Test-fit bin ${binLabel(testBin.opts)}`,
+      kind: 'bin',
+      meshKey: spec.key,
+      w: size.w,
+      d: size.d,
+      h: binTotalHeight(testBin.opts),
+    },
+    spec,
+  );
+
+  const packed = packPlates(items, {
+    bedW: setup.bedW,
+    bedD: setup.bedD,
+    margin: setup.plateMargin,
+    spacing: Math.max(setup.spacing, 2),
+    nest: true,
+  });
+  const warnings = packed.oversize.map((o) => `${parts[o.key].name} is larger than the print bed.`);
+  const plates = packed.plates.map((pl, i) => ({
+    name: packed.plates.length > 1 ? `Test-fit kit ${i + 1}` : 'Test-fit kit',
+    group: 'baseplate' as const,
+    placements: pl.placements,
+  }));
+  const plan = {
+    pieces,
+    plates: packed.plates.map((pl) => ({ placements: pl.placements.filter((p) => p.key.startsWith('piece:')) })),
+    cols: split ? 2 : 1,
+    rows: 1,
+  };
+  return {
+    layout,
+    plan,
+    connectors,
+    drawers: [{ id: 'test-fit', name: 'Test-fit kit', layout, plan, connectors, plateOffset: 0, plateCount: plates.length }],
+    parts,
+    meshes,
+    plates,
+    warnings,
+  };
+}
