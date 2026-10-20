@@ -1595,6 +1595,14 @@ button.link.danger {
   stroke-width: 2px;
   font-weight: 700;
 }
+.trace-side .row2 .slider {
+  gap: 6px;
+  min-width: 0;
+}
+.trace-side .row2 .slider input {
+  min-width: 0;
+  width: 100%;
+}
 .trace-side .row2 .slider output {
   width: auto;
   min-width: 28px;

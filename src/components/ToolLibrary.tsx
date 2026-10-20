@@ -12,6 +12,7 @@ import {
   findFreePlacement,
   fitBinForTools,
   firstFreeSpot,
+  pocketsClash,
   toolSize,
   toolUsage,
   type Tool,
@@ -46,8 +47,10 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
     const { w, d } = binSize(sel.opts, binSpec(job.layout, sel).cells);
     const list = sel.opts.cutouts ?? [];
     const spot = findFreePlacement(list, t, cutoutArea(w, d, sel.opts.lip, sel.opts.lipStyle));
-    updateBin(sel.id, { opts: { interior: 'cutouts', cutouts: [...list, cutoutFromTool(t, spot.x, spot.y, spot.rotation)] } });
+    const added = cutoutFromTool(t, spot.x, spot.y, spot.rotation);
+    updateBin(sel.id, { opts: { interior: 'cutouts', cutouts: [...list, added] } });
     setUI({ binPane: 'cutouts' });
+    setMsg(list.some((c) => pocketsClash(c, added)) ? `No free room for “${t.name}” in this bin: it was put in the middle. Move things around, or make the bin bigger.` : null);
   };
 
   const makeBin = (ts: Tool[]) => {
