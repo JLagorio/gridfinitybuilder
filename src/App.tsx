@@ -14,7 +14,9 @@ import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { Segmented } from './components/fields';
-import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, pieceColor } from './components/colors';
+import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LID_COLOR, pieceColor } from './components/colors';
+import { binBodyHeight } from './lib/geometry/variants';
+import { LID_SEAT_DROP } from './lib/geometry/lid';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'drawer', label: 'Drawer & baseplate' },
@@ -64,6 +66,21 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
         selected: b.id === state.ui.selectedBinId,
         pickable: true,
       });
+      // A lid sits in the bin's lip (hidden while the bin is selected, so its inside stays visible).
+      const lid = job.parts[`lid:${b.id}`];
+      if (lid && b.id !== state.ui.selectedBinId) {
+        items.push({
+          id: `${b.id}:lid`,
+          meshKey: lid.meshKey,
+          x: cellEdge(job.layout.xs, b.x, job.layout.pitchX) + inset,
+          y: cellEdge(job.layout.ys, b.y, job.layout.pitchY) + inset,
+          z: seat + binBodyHeight(b.opts) - LID_SEAT_DROP,
+          w: lid.w,
+          d: lid.d,
+          h: lid.h,
+          color: LID_COLOR,
+        });
+      }
     }
   }
   return {
@@ -93,7 +110,7 @@ function platesScene(job: PrintJob, plate: number, bedW: number, bedD: number): 
         d: part.d,
         h: part.h,
         rotated: p.rotated,
-        color: part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'key' ? KEY_COLOR : BIN_COLOR,
+        color: part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'key' ? KEY_COLOR : part.kind === 'lid' ? LID_COLOR : BIN_COLOR,
       });
     }
   });
