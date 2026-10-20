@@ -3,7 +3,7 @@ import { useStore } from '../state/store';
 import { Section, Segmented, Slider, Stepper, Toggle } from './fields';
 import { binLabel, type BinOptions } from '../lib/geometry/bin';
 import { hasLid } from '../lib/geometry/lid';
-import { canPlace } from '../lib/bins';
+import { canPlace, withBlocked } from '../lib/bins';
 import { binSpec, lidSpec, type PrintJob } from '../lib/project';
 import { BaseField, HeightField, HoleFields, InteriorFields, LipFields, WallFields } from './BinVariantFields';
 import { downloadBytes, geometry } from '../worker/client';
@@ -88,7 +88,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     if (!sel) return;
     if (p.unitsX !== undefined || p.unitsY !== undefined) {
       const r = { x: sel.x, y: sel.y, w: p.unitsX ?? sel.opts.unitsX, d: p.unitsY ?? sel.opts.unitsY };
-      if (!canPlace(bins, r, nx, ny, sel.id)) {
+      if (!canPlace(withBlocked(bins, job.layout.mask), r, nx, ny, sel.id)) {
         setSizeError('No room to grow that way — move the bin or clear neighbours first.');
         return;
       }

@@ -16,7 +16,7 @@ import { BASE_HEIGHT, GRID, HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from './geometry/s
 import { cellSizes, type GridLayout } from './layout/drawer';
 import { binFloorZ, type BaseStyle, type LipStyle } from './geometry/variants';
 import { boundariesWithin, boundaryDistance, bounds, dedupe, polygonsIntersect, signedArea, simplifyClosed } from './trace/polygon';
-import { canPlace, newId } from './bins';
+import { canPlace, newId, withBlocked } from './bins';
 import type { PlacedBin } from './project';
 
 /** A traced or imported tool in the library. */
@@ -249,8 +249,10 @@ export function fitBinForTools(
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /** First free spot for a w × d bin, preferring spots on full grid cells. */
-export function firstFreeSpot(layout: GridLayout, bins: PlacedBin[], w: number, d: number): { x: number; y: number } | null {
+export function firstFreeSpot(layout: GridLayout, placed: PlacedBin[], w: number, d: number): { x: number; y: number } | null {
   const { nx, ny } = layout;
+  // Blocked cells count as taken.
+  const bins = withBlocked(placed, layout.mask);
   let fallback: { x: number; y: number } | null = null;
   for (let j = 0; j + d <= ny; j++) {
     for (let i = 0; i + w <= nx; i++) {

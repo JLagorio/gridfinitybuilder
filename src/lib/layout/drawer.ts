@@ -34,7 +34,13 @@ export interface DrawerInput {
   fill: EdgeFill;
   /** Narrowest partial cell worth making, mm. Thinner margins stay solid. */
   minFill: number;
+  /** Blocked cells ("i,j"): slide hardware, a bump. They get no receptacle and no bins. */
+  mask?: string[];
+  /** Blocked cells are filled flat ('solid') or cut out of the plate ('void'). */
+  maskStyle?: MaskStyle;
 }
+
+export type MaskStyle = 'solid' | 'void';
 
 export const DEFAULT_DRAWER: DrawerInput = {
   mode: 'drawer',
@@ -80,6 +86,26 @@ export interface GridLayout {
   ys: number[];
   /** Solid margin left on each side (after edge fill). */
   margins: { left: number; right: number; front: number; back: number };
+  /** Blocked cells ("i,j") inside the grid; only present when there are some. */
+  mask?: string[];
+  maskStyle?: MaskStyle;
+}
+
+/** Blocked cell keys that fall inside an nx × ny grid, sorted and deduplicated. */
+export function maskInGrid(mask: readonly string[] | undefined, nx: number, ny: number): string[] {
+  if (!mask?.length) return [];
+  const keep = new Set<string>();
+  for (const k of mask) {
+    const m = /^(\d+),(\d+)$/.exec(k);
+    if (m && +m[1] < nx && +m[2] < ny) keep.add(`${+m[1]},${+m[2]}`);
+  }
+  return [...keep].sort();
+}
+
+/** Adds the drawer's blocked cells to a layout (left untouched when there are none). */
+function withMask(l: GridLayout, d: DrawerInput): GridLayout {
+  const mask = maskInGrid(d.mask, l.nx, l.ny);
+  return mask.length ? { ...l, mask, maskStyle: d.maskStyle === 'void' ? 'void' : 'solid' } : l;
 }
 
 const EPS = 1e-6;
@@ -101,6 +127,10 @@ function fillCell(margin: number, d: DrawerInput, pitch: number): number {
 }
 
 export function computeLayout(d: DrawerInput): GridLayout {
+  return withMask(computeGrid(d), d);
+}
+
+function computeGrid(d: DrawerInput): GridLayout {
   const pitchX = d.pitchX > 0 ? d.pitchX : GRID;
   const pitchY = d.pitchY > 0 ? d.pitchY : GRID;
   if (d.mode === 'grid') {

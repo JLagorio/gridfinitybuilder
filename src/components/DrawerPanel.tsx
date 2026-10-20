@@ -1,11 +1,20 @@
 import { useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, Stepper, TextInput, Toggle } from './fields';
-import { baseplateFloor, baseplateHeight, binSeatHeight } from '../lib/geometry/baseplate';
+import { baseplateFloor, baseplateHeight, binSeatHeight, screwPlacement, type BaseplateStyle } from '../lib/geometry/baseplate';
+import { PIN, SCREW_JOIN, WEIGHTED } from '../lib/geometry/spec';
+import { CellMaskEditor } from './CellMaskEditor';
 import { effectiveSize } from '../lib/layout/drawer';
 import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
+
+const STYLE_HINT: Record<BaseplateStyle, string> = {
+  frame: 'Open bottom: least filament. Magnets or screws add a floor.',
+  weighted: `${WEIGHTED.floor} mm floor with a ${WEIGHTED.pocket} mm pocket under each cell for a weight (steel squares, washers, coins).`,
+  skeletonized: 'Floor only around the corner holes, the rest cut away: holds magnets and screws with less filament.',
+  solid: 'Closed floor under every cell.',
+};
 
 function Samples({
   label,
@@ -55,6 +64,28 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   const room = drawer.height > 0 ? drawer.height - binSeatHeight(bp) : 0;
   const maxLip = maxBinUnits(room, true);
   const maxFlat = maxBinUnits(room, false);
+  const nBlocked = L.mask?.length ?? 0;
+  const sp = screwPlacement(bp);
+  const screwHint = !bp.screws
+    ? 'Countersunk holes to screw the plate down.'
+    : sp === 'center'
+      ? 'Countersunk hole in each cell to screw the plate down.'
+      : sp === 'corner'
+        ? `In the four corner bosses of each cell${bp.magnets ? ', under the magnets' : ''}.`
+        : 'This style puts screws in the corner bosses, which bottom-loaded magnets already use. Load the magnets from the top to add screws.';
+  const joints = job.sites.length;
+  const connectorHint =
+    bp.connector === 'none'
+      ? 'Lock the split pieces together: bowtie keys, filament pins, puzzle tabs or M3 screws.'
+      : job.plan.pieces.length < 2
+        ? 'The baseplate prints in one piece, so there are no seams to join.'
+        : bp.connector === 'bowtie'
+          ? `Pockets underneath wherever a wall or margin crosses a seam. ${job.connectors.length} keys print with the pieces; fit them with the baseplate upside down.`
+          : bp.connector === 'pin'
+            ? `${joints} holes across the seams for 1.75 mm filament: cut ${joints} pins ${PIN.length - 0.5} mm long. Nothing extra to print.`
+            : bp.connector === 'puzzle'
+              ? `${joints} jigsaw tabs on the left / front piece of each seam. Lower each neighbor onto them.`
+              : `${joints} × ${SCREW_JOIN.screw} socket-head screws across the seams, in slots open underneath. Raises the floor to ${SCREW_JOIN.floor} mm.`;
 
   return (
     <>
@@ -205,12 +236,52 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
         )}
       </Section>
 
+      <Section title="Blocked cells">
+        <CellMaskEditor layout={L} mask={drawer.mask ?? []} onChange={(mask) => setDrawer({ mask })} />
+        <div className="field-hint">
+          Click or drag to mark cells that slide hardware or a bump gets in the way of. They get no receptacle, and bins
+          can&apos;t go there.
+          {nBlocked > 0 && (
+            <>
+              {' '}
+              {nBlocked} blocked.{' '}
+              <button className="link" onClick={() => setDrawer({ mask: [] })}>
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+        {nBlocked > 0 && (
+          <Segmented
+            label="Blocked cells are"
+            value={drawer.maskStyle ?? 'solid'}
+            options={[
+              { value: 'solid', label: 'Filled flat', title: 'Solid plastic, level with the top of the plate' },
+              { value: 'void', label: 'Cut out', title: 'A hole or notch in the plate, so the obstacle pokes through' },
+            ]}
+            onChange={(maskStyle) => setDrawer({ maskStyle })}
+          />
+        )}
+      </Section>
+
       <Section title="Baseplate">
+        <Segmented
+          label="Style"
+          value={bp.style}
+          options={[
+            { value: 'frame', label: 'Frame', title: 'Open bottom, least filament' },
+            { value: 'weighted', label: 'Weighted', title: 'Pockets underneath for weights' },
+            { value: 'skeletonized', label: 'Skeleton', title: 'Floor only around the corner holes' },
+            { value: 'solid', label: 'Solid', title: 'Closed floor' },
+          ]}
+          onChange={(style) => setBp({ style })}
+          hint={STYLE_HINT[bp.style]}
+        />
         <Toggle
           label="Magnet pockets"
           checked={bp.magnets}
           onChange={(magnets) => setBp({ magnets })}
-          hint="Adds a floor with 4 pockets per cell so magnet bins snap in."
+          hint="4 pockets per cell so magnet bins snap in (none in partial edge cells)."
         />
         {bp.magnets && (
           <div className="indent">
@@ -239,14 +310,22 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             {bp.magnetSide === 'top' && (
               <Toggle label="Push-out holes underneath" checked={bp.magnetRelease} onChange={(magnetRelease) => setBp({ magnetRelease })} />
             )}
+            <Toggle
+              label="Crush ribs"
+              checked={bp.magnetRibs}
+              onChange={(magnetRibs) => setBp({ magnetRibs })}
+              hint="8 ribs grip the magnet, so it holds without glue."
+            />
+            <Toggle label="Chamfered mouth" checked={bp.magnetChamfer} onChange={(magnetChamfer) => setBp({ magnetChamfer })} />
+            <Toggle
+              label="Pry slot"
+              checked={bp.magnetSlot}
+              onChange={(magnetSlot) => setBp({ magnetSlot })}
+              hint="A slot beside each pocket to lever a magnet back out."
+            />
           </div>
         )}
-        <Toggle
-          label="Screw holes"
-          checked={bp.screws}
-          onChange={(screws) => setBp({ screws })}
-          hint="Countersunk hole in each cell to screw the plate down."
-        />
+        <Toggle label="Screw holes" checked={bp.screws} onChange={(screws) => setBp({ screws })} hint={screwHint} />
         {bp.screws && (
           <div className="indent row2">
             <NumberInput label="Screw Ø" value={bp.screwDiameter} min={2} max={6} step={0.5} onChange={(screwDiameter) => setBp({ screwDiameter })} />
@@ -270,7 +349,7 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
           max={10}
           step={0.2}
           onChange={(bottomPad) => setBp({ bottomPad })}
-          hint="0 = open-bottom frame (least filament)."
+          hint={bp.style === 'frame' ? '0 = open-bottom frame (least filament).' : 'Added under the floor the style needs.'}
         />
         <Select
           label="Connectors"
@@ -278,15 +357,29 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
           options={[
             { value: 'none', label: 'None' },
             { value: 'bowtie', label: 'Bowtie keys' },
+            { value: 'pin', label: 'Filament pins' },
+            { value: 'puzzle', label: 'Puzzle tabs' },
+            { value: 'screw', label: 'M3 screws' },
           ]}
           onChange={(connector) => setBp({ connector })}
-          hint={
-            bp.connector === 'none'
-              ? 'Bowtie keys lock the split pieces together.'
-              : job.plan.pieces.length < 2
-                ? 'The baseplate prints in one piece, so there are no seams to join.'
-                : `Pockets underneath wherever a wall or margin crosses a seam. ${job.connectors.length} keys print with the pieces; fit them with the baseplate upside down.`
-          }
+          hint={connectorHint}
+        />
+        {bp.connector === 'screw' && (
+          <Segmented
+            label="Screws go into"
+            value={bp.screwFastener}
+            options={[
+              { value: 'nut', label: 'Hex nuts', title: 'A slot for an M3 hex nut, open underneath' },
+              { value: 'insert', label: 'Heat-set inserts', title: 'A 4 mm hole in the seam face for an M3 insert' },
+            ]}
+            onChange={(screwFastener) => setBp({ screwFastener })}
+          />
+        )}
+        <Toggle
+          label="Piece numbers underneath"
+          checked={bp.pieceNumbers}
+          onChange={(pieceNumbers) => setBp({ pieceNumbers })}
+          hint="Debossed in a solid spot and mirrored, so they read with the piece upside down. They match the assembly map."
         />
         <details className="advanced">
           <summary>Advanced</summary>

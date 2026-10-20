@@ -1,7 +1,7 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cellEdge, cellIndexAt, type GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin } from '../lib/project';
-import { binRect, canPlace, occupancy, outOfBounds, type CellRect } from '../lib/bins';
+import { binRect, canPlace, occupancy, onBlocked, outOfBounds, withBlocked, type CellRect } from '../lib/bins';
 import { HANDLES, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
 import { useLayoutShortcuts } from './useLayoutShortcuts';
 import { dividerLines } from './dividerLines';
@@ -60,6 +60,9 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
   const [px, setPx] = useState(1);
   const { nx, ny, pitchX, pitchY, xs, ys, plateW, plateD } = layout;
   const occ = useMemo(() => occupancy(bins, nx, ny), [bins, nx, ny]);
+  // Placement checks treat blocked cells (layout.mask) as taken.
+  const blocked = useMemo(() => withBlocked(bins, layout.mask), [bins, layout.mask]);
+  const hatch = `ge-hatch-${useId().replace(/[^\w-]/g, '')}`;
   const pad = 8;
 
   useLayoutEffect(() => {
@@ -117,14 +120,14 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
       const x = Math.min(drag.start[0], drag.cur[0]);
       const y = Math.min(drag.start[1], drag.cur[1]);
       const r = { x, y, w: Math.abs(drag.cur[0] - drag.start[0]) + 1, d: Math.abs(drag.cur[1] - drag.start[1]) + 1 };
-      return [{ r, ok: canPlace(bins, r, nx, ny) }];
+      return [{ r, ok: canPlace(blocked, r, nx, ny) }];
     }
     // Resizing stops before collisions, so its ghost is always placeable.
     if (drag.kind === 'resize') return sameRect(drag.cur, drag.from) ? [] : [{ r: drag.cur, ok: true }];
     if (drag.kind !== 'move' || !drag.moved) return [];
     const dx = drag.cur[0] - drag.start[0];
     const dy = drag.cur[1] - drag.start[1];
-    const ok = canMoveGroup(bins, drag.ids, dx, dy, nx, ny);
+    const ok = canMoveGroup(blocked, drag.ids, dx, dy, nx, ny);
     return bins.filter((b) => drag.ids.includes(b.id)).map((b) => ({ r: { ...binRect(b), x: b.x + dx, y: b.y + dy }, ok }));
   })();
 
@@ -167,7 +170,7 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
       setDrag({ ...drag, cur: p });
     } else if (drag.kind === 'resize') {
       const target = resizeTarget(drag.from, drag.handle, nearestBoundary(xs, p[0]), nearestBoundary(ys, p[1]));
-      const others = bins.filter((b) => b.id !== drag.id);
+      const others = blocked.filter((b) => b.id !== drag.id);
       const cur = fitResize(others, drag.from, target, nx, ny);
       if (!sameRect(cur, drag.cur)) setDrag({ ...drag, cur });
     } else if (c) {
@@ -234,10 +237,21 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
             return <rect key={`${i}-${j}`} className={`ge-cell ${hovered ? 'hover' : ''}`} {...r} rx={3.5} />;
           }),
         )}
+        {!!layout.mask?.length && (
+          <defs>
+            <pattern id={hatch} width={5} height={5} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1={0} y1={0} x2={0} y2={5} className="ge-hatch" />
+            </pattern>
+          </defs>
+        )}
+        {layout.mask?.map((k) => {
+          const [i, j] = k.split(',').map(Number);
+          return <rect key={`m${k}`} className="ge-blocked" {...cellRectSvg({ x: i, y: j, w: 1, d: 1 }, 1.5)} rx={3.5} fill={`url(#${hatch})`} />;
+        })}
         {bins.map((b) => {
           const r = cellRectSvg({ x: b.x, y: b.y, w: b.opts.unitsX, d: b.opts.unitsY }, 0.6);
           const sel = selected.has(b.id);
-          const bad = outOfBounds(b, nx, ny);
+          const bad = outOfBounds(b, nx, ny) || onBlocked(b, layout.mask);
           const fs = Math.min(10, (Math.min(r.width, r.height) / 4) | 0) || 6;
           return (
             <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''}`}>

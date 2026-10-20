@@ -22,9 +22,12 @@ import {
   buildConnectorKey,
   connectorKeySize,
   connectorSites,
+  jointSteps,
+  pieceProtrusion,
   sitesOnPiece,
   type ConnectorSite,
 } from './geometry/connectors';
+import { pieceIsVoid } from './geometry/mask';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
 import { DEFAULT_DRAWER, cellSizes, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
 import { packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
@@ -32,6 +35,7 @@ import {
   DEFAULT_SETUP,
   assemblyMap,
   connectorSteps,
+  pieceFootprint,
   planBaseplate,
   type BaseplatePlan,
   type PlateLayout,
@@ -120,6 +124,10 @@ export interface DrawerJob {
   layout: GridLayout;
   plan: BaseplatePlan;
   connectors: ConnectorSite[];
+  /** Every joint on the seams, whatever the connector style (connectors holds only those that need a key). */
+  sites: ConnectorSite[];
+  /** Assembly notes for joints without keys (pins, puzzle tabs, screws). */
+  steps: string[];
   /** Index of this drawer's first plate in the job. */
   plateOffset: number;
   /** Plates that hold this drawer's baseplate (and keys). */
@@ -132,6 +140,8 @@ export interface PrintJob {
   plan: BaseplatePlan;
   /** One per connector key; empty when connectors are off. */
   connectors: ConnectorSite[];
+  /** Every joint on the first drawer's seams, whatever the style. */
+  sites: ConnectorSite[];
   drawers: DrawerJob[];
   parts: Record<string, JobPart>;
   meshes: Record<string, MeshSpec>;
@@ -140,7 +150,8 @@ export interface PrintJob {
 }
 
 export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, connectors: ConnectorSite[] = []) {
-  return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, o, connectors])}`;
+  const id = o.pieceNumbers ? piece.id : 0; // numbered pieces are all different
+  return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, o, connectors, id])}`;
 }
 
 /** Cell sizes under a bin, or undefined when it only covers full cells. */
@@ -189,14 +200,17 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     const label = multi ? `${d.name} · ` : '';
     const warn = (msg: string) => warnings.add(multi ? `${d.name}: ${msg}` : msg);
     const layout = computeLayout(d.drawer);
-    const plan = planBaseplate(layout, setup);
+    const protrude = pieceProtrusion(d.baseplate);
+    const plan = planBaseplate(layout, setup, { protrude, skip: (p) => pieceIsVoid(layout, p) });
     if (plan.error) warn(plan.error);
 
     const bpH = baseplateHeight(d.baseplate);
-    const connectors = connectorSites(layout, plan.pieces, d.baseplate);
+    const sites = connectorSites(layout, plan.pieces, d.baseplate);
+    // Only bowtie joints print keys; the others need nothing (pins, puzzle tabs) or hardware (screws).
+    const connectors = d.baseplate.connector === 'bowtie' ? sites : [];
     for (const piece of plan.pieces) {
       const key = `${prefix}piece:${piece.id}`;
-      const mine = sitesOnPiece(connectors, piece);
+      const mine = sitesOnPiece(sites, piece);
       const meshKey = pieceMeshKey(layout, piece, d.baseplate, mine);
       meshes[meshKey] = { kind: 'piece', key: meshKey, layout, piece, opts: d.baseplate, connectors: mine };
       parts[key] = {
@@ -204,8 +218,7 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         name: `${label}Baseplate piece ${piece.id}`,
         kind: 'piece',
         meshKey,
-        w: piece.x1 - piece.x0,
-        d: piece.y1 - piece.y0,
+        ...pieceFootprint(piece, protrude),
         h: bpH,
         drawer: d.id,
         pieceId: piece.id,
@@ -238,7 +251,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       });
       if (packed.oversize.length) warn('Connector keys are larger than the print bed and were left out.');
     }
-    drawerJobs.push({ id: d.id, name: d.name, layout, plan, connectors, plateOffset, plateCount: plates.length - plateOffset });
+    const steps = jointSteps(d.baseplate, d.baseplate.connector === 'bowtie' ? 0 : sites.length);
+    drawerJobs.push({ id: d.id, name: d.name, layout, plan, connectors, sites, steps, plateOffset, plateCount: plates.length - plateOffset });
 
     const room = d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) : Infinity;
     for (const b of d.bins) {
@@ -274,6 +288,7 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     layout: first.layout,
     plan: first.plan,
     connectors: first.connectors,
+    sites: first.sites,
     drawers: drawerJobs,
     parts,
     meshes,
@@ -366,7 +381,7 @@ export function assemblyMaps(job: PrintJob): Record<string, string> {
   for (const d of job.drawers) {
     const name = job.drawers.length > 1 ? `assembly-map-${slug(d.name)}.txt` : 'assembly-map.txt';
     const head = job.drawers.length > 1 ? `${d.name}\n` : '';
-    out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset);
+    out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset, d.steps);
   }
   return out;
 }
@@ -398,6 +413,7 @@ function readme(job: PrintJob, setup: PrintSetup) {
     'Each .3mf file is one print plate with parts already arranged.',
     'Baseplate pieces are numbered; see the assembly map for where each one goes.',
     ...(keys ? ['', ...connectorSteps(keys)] : []),
+    ...job.drawers.flatMap((d) => (d.steps.length ? ['', ...(job.drawers.length > 1 ? [`${d.name}:`] : []), ...d.steps] : [])),
     '',
     ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}): ${plateContents(job, pl).join(', ')}`),
     '',
