@@ -7,6 +7,7 @@ import { downloadBytes, geometry } from '../worker/client';
 import { pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
 import { BomSection, TestFitSection } from './PrintExtras';
+import { CopyShareLink } from './ShareLink';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -262,6 +263,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
         <div className="button-row">
           <button onClick={saveProject}>Save project</button>
           <button onClick={() => fileInput.current?.click()}>Open project…</button>
+          <CopyShareLink />
           <input
             ref={fileInput}
             type="file"

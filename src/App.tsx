@@ -16,6 +16,7 @@ import { BinGridEditor } from './components/BinGridEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { HistoryButtons } from './components/HistoryButtons';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
+import { useOpenSharedProject } from './components/ShareLink';
 import { Segmented } from './components/fields';
 import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, pieceColor } from './components/colors';
 import './components/workflow.css';
@@ -149,6 +150,7 @@ export default function App() {
     geometry.want(specs);
   }, [scene, printJob, viewJob]);
 
+  useOpenSharedProject();
   const selection = useSelectedIds();
 
   // Delete / Backspace removes the selected bins (unless typing in a field).
