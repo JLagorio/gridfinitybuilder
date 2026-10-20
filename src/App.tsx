@@ -11,7 +11,7 @@ import { DrawerPanel } from './components/DrawerPanel';
 import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
-import { BASEPLATE_COLOR, BIN_COLOR, pieceColor } from './components/colors';
+import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, pieceColor } from './components/colors';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'drawer', label: 'Drawer & baseplate' },
@@ -90,7 +90,7 @@ function platesScene(job: PrintJob, plate: number, bedW: number, bedD: number): 
         d: part.d,
         h: part.h,
         rotated: p.rotated,
-        color: part.kind === 'piece' ? pieceColor(Number(p.key.split(':')[1])) : BIN_COLOR,
+        color: part.kind === 'piece' ? pieceColor(Number(p.key.split(':')[1])) : part.kind === 'key' ? KEY_COLOR : BIN_COLOR,
       });
     }
   });

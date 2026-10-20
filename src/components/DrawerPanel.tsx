@@ -1,5 +1,5 @@
 import { useStore } from '../state/store';
-import { LengthInput, NumberInput, Section, Segmented, Stepper, Toggle } from './fields';
+import { LengthInput, NumberInput, Section, Segmented, Select, Stepper, Toggle } from './fields';
 import { baseplateFloor, baseplateHeight } from '../lib/geometry/baseplate';
 import type { PrintJob } from '../lib/project';
 
@@ -173,6 +173,22 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
           step={0.2}
           onChange={(bottomPad) => setBp({ bottomPad })}
           hint="0 = open-bottom frame (least filament)."
+        />
+        <Select
+          label="Connectors"
+          value={bp.connector}
+          options={[
+            { value: 'none', label: 'None' },
+            { value: 'bowtie', label: 'Bowtie keys' },
+          ]}
+          onChange={(connector) => setBp({ connector })}
+          hint={
+            bp.connector === 'none'
+              ? 'Bowtie keys lock the split pieces together.'
+              : job.plan.pieces.length < 2
+                ? 'The baseplate prints in one piece, so there are no seams to join.'
+                : `Pockets underneath wherever a wall or margin crosses a seam. ${job.connectors.length} keys print with the pieces; fit them with the baseplate upside down.`
+          }
         />
         <details className="advanced">
           <summary>Advanced</summary>

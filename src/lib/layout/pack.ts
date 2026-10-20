@@ -145,25 +145,66 @@ export function packPlates(items: PackItem[], o: PackOptions): { plates: PlateLa
     }
   }
 
-  const plates = bins.map((bin) => {
-    // Center the packed group on the bed.
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const p of bin.placed) {
-      const rw = p.rotated ? p.d : p.w;
-      const rh = p.rotated ? p.w : p.d;
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x + rw);
-      maxY = Math.max(maxY, p.y + rh);
-    }
-    const dx = (o.bedW - (maxX - minX)) / 2 - minX;
-    const dy = (o.bedD - (maxY - minY)) / 2 - minY;
-    return {
-      placements: bin.placed.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })),
-    };
+  return { plates: bins.map((bin) => centerOnBed(bin, o)), oversize };
+}
+
+/** Center a packed group on the bed. */
+function centerOnBed(bin: MaxRectsBin, o: PackOptions): PlateLayout {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of bin.placed) {
+    const rw = p.rotated ? p.d : p.w;
+    const rh = p.rotated ? p.w : p.d;
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + rw);
+    maxY = Math.max(maxY, p.y + rh);
+  }
+  const dx = (o.bedW - (maxX - minX)) / 2 - minX;
+  const dy = (o.bedD - (maxY - minY)) / 2 - minY;
+  return {
+    placements: bin.placed.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })),
+  };
+}
+
+/**
+ * Fit small items into the free space left on plates that are already packed,
+ * leaving what's there in place. Whatever doesn't fit goes on new plates.
+ */
+export function packIntoPlates(
+  plates: PlateLayout[],
+  items: PackItem[],
+  o: PackOptions,
+): { plates: PlateLayout[]; extra: PlateLayout[]; oversize: PackItem[] } {
+  const W = o.bedW - 2 * o.margin;
+  const D = o.bedD - 2 * o.margin;
+  const s = Math.max(0, o.spacing);
+  const sorted = [...items].sort((a, b) => Math.max(b.w, b.d) - Math.max(a.w, a.d) || b.w * b.d - a.w * a.d);
+  const bins = plates.map((pl) => {
+    const bin = new MaxRectsBin(W + s, D + s);
+    for (const p of pl.placements) bin.place(p.key, p.x - o.margin, p.y - o.margin, p.w, p.d, p.rotated, s);
+    return bin;
   });
-  return { plates, oversize };
+  const added: Placement[][] = plates.map(() => []);
+  const rest: PackItem[] = [];
+  for (const it of sorted) {
+    let placed = false;
+    for (let i = 0; i < bins.length && !placed; i++) {
+      const f = bins[i].find(it.w + s, it.d + s, true);
+      if (f) {
+        bins[i].place(it.key, f.x, f.y, it.w, it.d, f.rotated, s);
+        added[i].push({ key: it.key, x: f.x + o.margin, y: f.y + o.margin, w: it.w, d: it.d, rotated: f.rotated });
+        placed = true;
+      }
+    }
+    if (!placed) rest.push(it);
+  }
+  const more = packPlates(rest, { ...o, nest: true });
+  return {
+    plates: plates.map((pl, i) => ({ placements: [...pl.placements, ...added[i]] })),
+    extra: more.plates,
+    oversize: more.oversize,
+  };
 }

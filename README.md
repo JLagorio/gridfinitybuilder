@@ -22,6 +22,7 @@ Then open http://localhost:5199.
    - outer corner radius
    - top-ridge trim
    - bottom chamfer
+   - bowtie connectors: pockets in the underside wherever a wall or a solid margin crosses a seam, plus one key per pocket. The keys print in the free space next to the pieces. Lay the pieces upside down, press the keys in, then turn the baseplate over into the drawer.
 2. **Bins.** Drag across empty cells to draw a bin, click to select it, drag to move it, press Delete to remove it. Each bin has:
    - height in 7 mm units
    - stacking lip
@@ -54,6 +55,7 @@ The dimensions follow the community spec (gridfinity.xyz) as implemented by [gri
 - **Stacking lip:** 0.7 / 1.8 / 1.9 mm.
 - **Baseplate:** 0.7 / 1.8 / 2.15 mm receptacle with 0.35 mm bottom clearance (5 mm spec height). The top ridge is trimmed 0.4 mm by default so it prints cleanly.
 - **Magnet holes:** 6.5 × 2.4 mm, 13 mm from the cell center.
+- **Bowtie connectors:** 10 mm long, 3 mm wide at the ends and 1.6 mm at the neck, 2 mm deep, with a 0.4 mm flare at the mouth. Keys are 0.15 mm smaller per side and 1.8 mm thick. A 3 mm pocket fits the 4.3 mm wall with 0.65 mm to spare on each side.
 
 All constants live in `src/lib/geometry/spec.ts`.
 

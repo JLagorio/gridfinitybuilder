@@ -8,6 +8,7 @@ import {
   HOLE_OFFSET,
 } from './spec';
 import { cylinderAt, loftRoundedRect, ringAt, roundedRectRing, type CornerRadii, type LoftKnot } from './shapes';
+import { connectorPocket, type ConnectorSite, type ConnectorStyle } from './connectors';
 import type { PieceDef } from '../layout/split';
 import type { GridLayout } from '../layout/drawer';
 
@@ -37,6 +38,9 @@ export interface BaseplateOptions {
   screws: boolean;
   screwDiameter: number;
   screwHeadDiameter: number;
+
+  /** Bowtie pockets in the bottom across every seam, with matching keys to print. */
+  connector: ConnectorStyle;
 }
 
 export const DEFAULT_BASEPLATE: BaseplateOptions = {
@@ -55,6 +59,7 @@ export const DEFAULT_BASEPLATE: BaseplateOptions = {
   screws: false,
   screwDiameter: 3,
   screwHeadDiameter: 6,
+  connector: 'none',
 };
 
 export function baseplateFloor(o: BaseplateOptions): number {
@@ -87,9 +92,16 @@ function cellCutout(w: Wasm, cx: number, cy: number, o: BaseplateOptions): Manif
 
 /**
  * Build one baseplate piece in plate coordinates (drawer front-left = origin).
+ * `connectors` are the sites on this piece's seams (see connectorSites).
  * Returns a mesh; all WASM memory is released before returning.
  */
-export function buildBaseplatePiece(w: Wasm, layout: GridLayout, piece: PieceDef, o: BaseplateOptions): MeshData {
+export function buildBaseplatePiece(
+  w: Wasm,
+  layout: GridLayout,
+  piece: PieceDef,
+  o: BaseplateOptions,
+  connectors: ConnectorSite[] = [],
+): MeshData {
   const s = new Scope();
   try {
     const top = baseplateHeight(o);
@@ -160,6 +172,7 @@ export function buildBaseplatePiece(w: Wasm, layout: GridLayout, piece: PieceDef
         }
       }
     }
+    if (o.connector === 'bowtie') for (const site of connectors) negatives.push(connectorPocket(w, s, site));
     const result = negatives.length ? s.t(slab.subtract(s.t(w.Manifold.union(negatives)))) : slab;
     assertValid(result, `baseplate piece ${piece.id}`);
     return toMeshData(result);

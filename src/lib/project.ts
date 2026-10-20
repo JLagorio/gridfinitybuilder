@@ -1,10 +1,17 @@
 import { zipSync, strToU8 } from 'fflate';
 import { DEFAULT_BASEPLATE, baseplateHeight, buildBaseplatePiece, type BaseplateOptions } from './geometry/baseplate';
 import { DEFAULT_BIN, binKey, binLabel, binSize, binTotalHeight, buildBin, type BinOptions } from './geometry/bin';
+import {
+  buildConnectorKey,
+  connectorKeySize,
+  connectorSites,
+  sitesOnPiece,
+  type ConnectorSite,
+} from './geometry/connectors';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
-import { packPlates, type Placement } from './layout/pack';
-import { DEFAULT_SETUP, assemblyMap, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
+import { packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
+import { DEFAULT_SETUP, assemblyMap, connectorSteps, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
 import type { PieceDef } from './layout/split';
 import { writeBambuProject, type BambuPlate } from './export/bambu';
 import { placeTransform, write3MF, type ExportObject } from './export/threemf';
@@ -38,13 +45,22 @@ export { DEFAULT_BIN };
 
 /** Describes how to build one unique mesh. */
 export type MeshSpec =
-  | { kind: 'piece'; key: string; layout: GridLayout; piece: PieceDef; opts: BaseplateOptions }
-  | { kind: 'bin'; key: string; opts: BinOptions };
+  | {
+      kind: 'piece';
+      key: string;
+      layout: GridLayout;
+      piece: PieceDef;
+      opts: BaseplateOptions;
+      /** Connector sites on this piece's seams. */
+      connectors: ConnectorSite[];
+    }
+  | { kind: 'bin'; key: string; opts: BinOptions }
+  | { kind: 'key'; key: string; opts: BaseplateOptions };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin';
+  kind: 'piece' | 'bin' | 'key';
   meshKey: string;
   w: number;
   d: number;
@@ -60,14 +76,16 @@ export interface JobPlate {
 export interface PrintJob {
   layout: GridLayout;
   plan: BaseplatePlan;
+  /** One per connector key; empty when connectors are off. */
+  connectors: ConnectorSite[];
   parts: Record<string, JobPart>;
   meshes: Record<string, MeshSpec>;
   plates: JobPlate[];
   warnings: string[];
 }
 
-export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOptions) {
-  return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, o])}`;
+export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, connectors: ConnectorSite[] = []) {
+  return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, o, connectors])}`;
 }
 
 /** Everything about the print except the geometry itself. Cheap; safe to call on every edit. */
@@ -81,10 +99,12 @@ export function planJob(state: ProjectState): PrintJob {
   if (plan.error) warnings.push(plan.error);
 
   const bpH = baseplateHeight(state.baseplate);
+  const connectors = connectorSites(layout, plan.pieces, state.baseplate);
   for (const piece of plan.pieces) {
     const key = `piece:${piece.id}`;
-    const meshKey = pieceMeshKey(layout, piece, state.baseplate);
-    meshes[meshKey] = { kind: 'piece', key: meshKey, layout, piece, opts: state.baseplate };
+    const mine = sitesOnPiece(connectors, piece);
+    const meshKey = pieceMeshKey(layout, piece, state.baseplate, mine);
+    meshes[meshKey] = { kind: 'piece', key: meshKey, layout, piece, opts: state.baseplate, connectors: mine };
     parts[key] = {
       key,
       name: `Baseplate piece ${piece.id}`,
@@ -96,9 +116,33 @@ export function planJob(state: ProjectState): PrintJob {
     };
   }
   if (state.include.baseplate) {
-    plan.plates.forEach((pl, i) => {
+    // Keys print in the free space next to the pieces; any that don't fit get their own plate.
+    const keys: PackItem[] = [];
+    if (connectors.length) {
+      const meshKey = `key|${state.baseplate.connector}`;
+      const size = connectorKeySize();
+      meshes[meshKey] = { kind: 'key', key: meshKey, opts: state.baseplate };
+      for (let i = 1; i <= connectors.length; i++) {
+        const key = `key:${i}`;
+        parts[key] = { key, name: `Connector key ${i}`, kind: 'key', meshKey, ...size };
+        keys.push({ key, w: size.w, d: size.d });
+      }
+    }
+    const packed = packIntoPlates(plan.plates, keys, {
+      bedW: state.setup.bedW,
+      bedD: state.setup.bedD,
+      margin: state.setup.plateMargin,
+      spacing: state.setup.spacing,
+      nest: true,
+    });
+    packed.plates.forEach((pl, i) => {
       plates.push({ name: `Baseplate ${i + 1}`, group: 'baseplate', placements: pl.placements });
     });
+    packed.extra.forEach((pl, i) => {
+      const name = packed.extra.length > 1 ? `Connector keys ${i + 1}` : 'Connector keys';
+      plates.push({ name, group: 'baseplate', placements: pl.placements });
+    });
+    if (packed.oversize.length) warnings.push('Connector keys are larger than the print bed and were left out.');
   }
 
   if (state.include.bins && state.bins.length) {
@@ -123,15 +167,16 @@ export function planJob(state: ProjectState): PrintJob {
     for (const o of packed.oversize) warnings.push(`${parts[o.key].name} is larger than the print bed and was left out.`);
     packed.plates.forEach((pl, i) => plates.push({ name: `Bins ${i + 1}`, group: 'bins', placements: pl.placements }));
   }
-  return { layout, plan, parts, meshes, plates, warnings };
+  return { layout, plan, connectors, parts, meshes, plates, warnings };
 }
 
 /** Build a mesh with its footprint's min corner at the origin and its bottom at z = 0. */
 export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'piece') {
-    const m = buildBaseplatePiece(w, spec.layout, spec.piece, spec.opts);
+    const m = buildBaseplatePiece(w, spec.layout, spec.piece, spec.opts, spec.connectors);
     return translateMesh(m, -spec.piece.x0, -spec.piece.y0, 0);
   }
+  if (spec.kind === 'key') return buildConnectorKey(w);
   const m = buildBin(w, spec.opts);
   const { w: W, d: D } = binSize(spec.opts);
   return translateMesh(m, W / 2, D / 2, 0);
@@ -203,7 +248,7 @@ export function exportPlatesZip(job: PrintJob, state: ProjectState, getMesh: Mes
     const name = `${String(i + 1).padStart(2, '0')}-${pl.name.toLowerCase().replace(/\s+/g, '-')}.3mf`;
     files[name] = [exportPlate3MF(job, i, getMesh), { level: 0 }];
   });
-  files['assembly-map.txt'] = strToU8(assemblyMap(job.layout, job.plan));
+  files['assembly-map.txt'] = strToU8(assemblyMap(job.layout, job.plan, job.connectors.length));
   files['README.txt'] = strToU8(readme(job, state));
   return zipSync(files);
 }
@@ -219,13 +264,25 @@ function readme(job: PrintJob, state: ProjectState) {
     '',
     'Each .3mf file is one print plate with parts already arranged.',
     'Baseplate pieces are numbered; see assembly-map.txt for where each one goes.',
+    ...(job.connectors.length ? ['', ...connectorSteps(job.connectors.length)] : []),
     '',
-    ...job.plates.map(
-      (pl, i) => `Plate ${i + 1} (${pl.name}): ${pl.placements.map((p) => job.parts[p.key].name).join(', ')}`,
-    ),
+    ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}): ${plateContents(job, pl).join(', ')}`),
     '',
   ];
   return lines.join('\n');
+}
+
+/** Names of the parts on a plate, with connector keys counted rather than listed. */
+export function plateContents(job: PrintJob, pl: JobPlate): string[] {
+  const names: string[] = [];
+  let keys = 0;
+  for (const p of pl.placements) {
+    const part = job.parts[p.key];
+    if (part.kind === 'key') keys++;
+    else names.push(part.name);
+  }
+  if (keys) names.push(`${keys} connector key${keys === 1 ? '' : 's'}`);
+  return names;
 }
 
 function round(v: number) {

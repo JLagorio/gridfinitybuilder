@@ -21,6 +21,7 @@ import {
 } from '../src/lib/project';
 import { meshBounds, type MeshData } from '../src/lib/geometry/kernel';
 import { assemblyMap } from '../src/lib/layout/plan';
+import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
 
 const outDir = resolve(process.argv[2] ?? 'out');
 mkdirSync(outDir, { recursive: true });
@@ -30,6 +31,7 @@ wasm.setup();
 
 const state: ProjectState = {
   ...DEFAULT_PROJECT,
+  baseplate: { ...DEFAULT_BASEPLATE, connector: 'bowtie' },
   bins: [
     { id: 'a', x: 0, y: 0, opts: { ...DEFAULT_BIN, unitsX: 2, unitsY: 1, heightUnits: 3, divX: 2, scoop: 0.7, label: 'full' } },
     { id: 'b', x: 2, y: 0, opts: { ...DEFAULT_BIN, unitsX: 1, unitsY: 1, heightUnits: 6, holes: 'magnets' } },
@@ -43,9 +45,11 @@ const t0 = performance.now();
 const job = planJob(state);
 console.log(`Plan: ${job.layout.nx}×${job.layout.ny} cells, plate ${job.layout.plateW}×${job.layout.plateD} mm`);
 console.log('Margins', job.layout.margins);
-console.log(`Pieces: ${job.plan.pieces.length} (${job.plan.cols}×${job.plan.rows}), plates: ${job.plates.length}`);
+console.log(
+  `Pieces: ${job.plan.pieces.length} (${job.plan.cols}×${job.plan.rows}), connector keys: ${job.connectors.length}, plates: ${job.plates.length}`,
+);
 if (job.warnings.length) console.log('Warnings:', job.warnings);
-console.log(assemblyMap(job.layout, job.plan));
+console.log(assemblyMap(job.layout, job.plan, job.connectors.length));
 
 const cache = new Map<string, MeshData>();
 let ok = true;
@@ -71,7 +75,8 @@ for (const [key, spec] of Object.entries(job.meshes)) {
   parts.forEach((p) => p.delete());
   m.delete();
   if (info.status !== 'NoError' || info.components !== 1) ok = false;
-  console.log(spec.kind === 'bin' ? `bin ${spec.key}` : `piece ${spec.piece.id}`, JSON.stringify(info));
+  const label = spec.kind === 'piece' ? `piece ${spec.piece.id} (${spec.connectors.length} pockets)` : `${spec.kind} ${spec.key}`;
+  console.log(label, JSON.stringify(info));
 }
 
 const getMesh = (k: string) => cache.get(k)!;
@@ -85,7 +90,13 @@ console.log(`Done in ${Math.round(performance.now() - t0)} ms → ${outDir}`);
 job.plates.forEach((pl, i) =>
   console.log(
     `Plate ${i + 1} ${pl.name}:`,
-    pl.placements.map((p) => `${p.key}@(${p.x.toFixed(1)},${p.y.toFixed(1)})${p.rotated ? 'R' : ''}`).join(' '),
+    pl.placements
+      .filter((p) => job.parts[p.key].kind !== 'key')
+      .map((p) => `${p.key}@(${p.x.toFixed(1)},${p.y.toFixed(1)})${p.rotated ? 'R' : ''}`)
+      .join(' '),
+    pl.placements.some((p) => job.parts[p.key].kind === 'key')
+      ? `+ ${pl.placements.filter((p) => job.parts[p.key].kind === 'key').length} keys`
+      : '',
   ),
 );
 if (!ok) {

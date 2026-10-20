@@ -135,8 +135,17 @@ function lexLess(a: number[], b: number[]) {
   return false;
 }
 
+/** Assembly steps for connector keys. */
+export function connectorSteps(keys: number): string[] {
+  return [
+    `Connector keys: ${keys}, one for each bowtie pocket that spans a seam.`,
+    'Lay the pieces upside down in their final arrangement, press a key into every',
+    'pocket across a seam, then turn the baseplate over into the drawer.',
+  ];
+}
+
 /** Text map of which piece covers which cell — handy taped inside the drawer. */
-export function assemblyMap(layout: GridLayout, plan: BaseplatePlan): string {
+export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKeys = 0): string {
   const lines: string[] = [];
   lines.push('BASEPLATE ASSEMBLY MAP');
   lines.push('='.repeat(40));
@@ -170,6 +179,7 @@ export function assemblyMap(layout: GridLayout, plan: BaseplatePlan): string {
   plan.plates.forEach((pl, i) => {
     lines.push(`Plate ${i + 1}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
   });
+  if (connectorKeys) lines.push('', ...connectorSteps(connectorKeys));
   return lines.join('\n') + '\n';
 }
 

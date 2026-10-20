@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { projectFile, projectOf, useStore } from '../state/store';
 import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
 import { PRINTERS, findPrinter } from '../lib/printers';
-import type { PrintJob } from '../lib/project';
+import { plateContents, type PrintJob } from '../lib/project';
 import { assemblyMap } from '../lib/layout/plan';
 import { downloadBytes, geometry } from '../worker/client';
 import { pieceColor } from './colors';
@@ -54,7 +54,11 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       downloadBytes(bytes, `gridfinity-${name}.3mf`, 'model/3mf');
     });
   const exportMap = () =>
-    downloadBytes(new TextEncoder().encode(assemblyMap(job.layout, job.plan)), 'assembly-map.txt', 'text/plain');
+    downloadBytes(
+      new TextEncoder().encode(assemblyMap(job.layout, job.plan, job.connectors.length)),
+      'assembly-map.txt',
+      'text/plain',
+    );
 
   const fileInput = useRef<HTMLInputElement>(null);
   const saveProject = () =>
@@ -222,7 +226,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                 <b>
                   {i + 1}. {pl.name}
                 </b>
-                <span className="muted small">{pl.placements.map((p) => job.parts[p.key].name.replace('Baseplate piece', 'Piece')).join(', ')}</span>
+                <span className="muted small">{plateContents(job, pl).map((n) => n.replace('Baseplate piece', 'Piece')).join(', ')}</span>
                 <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
                   Download .3mf
                 </button>

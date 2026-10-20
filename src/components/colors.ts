@@ -7,3 +7,4 @@ export function pieceColor(id: number) {
 
 export const BASEPLATE_COLOR = '#8b94a3';
 export const BIN_COLOR = '#d7dce3';
+export const KEY_COLOR = '#5f6b7a';

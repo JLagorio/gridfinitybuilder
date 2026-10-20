@@ -2,11 +2,20 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import Module from 'manifold-3d';
 import { strFromU8, unzipSync } from 'fflate';
 import type { MeshData, Wasm } from '../src/lib/geometry/kernel';
-import { meshBounds } from '../src/lib/geometry/kernel';
+import { Scope, meshBounds, translateMesh } from '../src/lib/geometry/kernel';
 import { DEFAULT_BIN, buildBin, binTotalHeight } from '../src/lib/geometry/bin';
 import { DEFAULT_BASEPLATE, baseplateHeight, buildBaseplatePiece } from '../src/lib/geometry/baseplate';
+import {
+  buildConnectorKey,
+  connectorKeySize,
+  connectorPocket,
+  connectorSites,
+  sitesOnPiece,
+  type ConnectorSite,
+} from '../src/lib/geometry/connectors';
 import { computeLayout, DEFAULT_DRAWER } from '../src/lib/layout/drawer';
 import { makePieces } from '../src/lib/layout/split';
+import { DEFAULT_PROJECT, planJob, type MeshSpec } from '../src/lib/project';
 import { placeTransform, write3MF } from '../src/lib/export/threemf';
 import { plateColumns, plateOrigin, writeBambuProject } from '../src/lib/export/bambu';
 
@@ -88,6 +97,125 @@ describe('baseplate pieces', () => {
     const cells = (piece.cells.x1 - piece.cells.x0) * (piece.cells.y1 - piece.cells.y0);
     const c = check(buildBaseplatePiece(w, layout, piece, DEFAULT_BASEPLATE));
     expect(c.genus).toBe(cells);
+  });
+});
+
+describe('connectors', () => {
+  const layout = computeLayout({ ...DEFAULT_DRAWER, width: 510.5, depth: 376.5, clearance: 0.5 });
+  // The split "auto" picks for this drawer: 3 × 2 pieces, seams at x = 87, 297 and y = 146.
+  const pieces = makePieces(layout, [0, 87, 297, 510], [0, 146, 376]);
+  const bowtie = { ...DEFAULT_BASEPLATE, connector: 'bowtie' as const };
+  const sites = connectorSites(layout, pieces, bowtie);
+
+  const toManifold = (mesh: MeshData) =>
+    w.Manifold.ofMesh(new w.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
+
+  /** Volume of a whole pocket inside a baseplate of the given height. */
+  function pocketVolume(height: number) {
+    const s = new Scope();
+    try {
+      const pocket = connectorPocket(w, s, { x: 0, y: 0, axis: 'x' });
+      const slab = s.t(w.Manifold.cube([40, 40, height]).translate([-20, -20, 0]));
+      return s.t(pocket.intersect(slab)).volume();
+    } finally {
+      s.dispose();
+    }
+  }
+
+  it('puts one key wherever a wall or a solid margin crosses a seam', () => {
+    // 2 seams × (2 + 4 walls + front and back margin) + seam y = 146 × (9 walls + left and right margin)
+    expect(sites.length).toBe(27);
+    const onGrid = (v: number, origin: number) => Math.abs((v - origin) / 42 - Math.round((v - origin) / 42)) < 1e-9;
+    const margin = sites.filter((s) =>
+      s.axis === 'x' ? s.y < layout.originY || s.y > layout.originY + 8 * 42 : s.x < layout.originX || s.x > layout.originX + 12 * 42,
+    );
+    expect(margin.length).toBe(6);
+    for (const s of sites.filter((x) => !margin.includes(x))) {
+      expect(onGrid(s.axis === 'x' ? s.y : s.x, s.axis === 'x' ? layout.originY : layout.originX)).toBe(true);
+    }
+    expect(connectorSites(layout, pieces, DEFAULT_BASEPLATE)).toEqual([]);
+  });
+
+  it('pockets line up: each site is half in one piece and half in the piece across the seam', () => {
+    for (const s of sites) {
+      const owners = pieces.filter((p) => sitesOnPiece(sites, p).includes(s));
+      expect(owners.length).toBe(2);
+      const [a, b] = owners;
+      if (s.axis === 'x') expect([a.x1, b.x0]).toEqual([s.x, s.x]);
+      else expect([a.y1, b.y0]).toEqual([s.y, s.y]);
+    }
+  });
+
+  it('skips the outside edges when there is no margin to hold a pocket', () => {
+    const grid = computeLayout({ ...DEFAULT_DRAWER, mode: 'grid', gridX: 4, gridY: 3 });
+    const s = connectorSites(grid, makePieces(grid, [0, 84, 168], [0, 126]), bowtie);
+    expect(s).toEqual<ConnectorSite[]>([
+      { x: 84, y: 42, axis: 'x' },
+      { x: 84, y: 84, axis: 'x' },
+    ]);
+  });
+
+  it.each([
+    { name: 'frame', o: {} },
+    { name: 'magnets from bottom', o: { magnets: true, magnetSide: 'bottom' as const } },
+    { name: 'screws + chamfer + pad', o: { screws: true, bottomChamfer: 0.6, bottomPad: 1 } },
+  ])('$name: seamed piece with pockets is one valid solid, every pocket fully in solid material', ({ o }) => {
+    const opts = { ...bowtie, ...o };
+    const piece = pieces[1]; // front middle: seams left, right and back
+    const mine = sitesOnPiece(connectorSites(layout, pieces, opts), piece);
+    expect(mine.length).toBe(10);
+    const plain = check(buildBaseplatePiece(w, layout, piece, { ...opts, connector: 'none' }));
+    const keyed = check(buildBaseplatePiece(w, layout, piece, opts, mine));
+    expect(keyed.status).toBe('NoError');
+    expect(keyed.components).toBe(1);
+    // Blind pockets: no new holes, and exactly half a pocket's volume gone per site.
+    // A pocket that broke into a receptacle or an edge would remove less.
+    expect(keyed.genus).toBe(plain.genus);
+    expect(plain.volume - keyed.volume).toBeCloseTo((mine.length * pocketVolume(baseplateHeight(opts))) / 2, 2);
+  });
+
+  it('the key is one valid solid that fits inside its pocket', () => {
+    const mesh = buildConnectorKey(w);
+    const c = check(mesh);
+    expect(c.status).toBe('NoError');
+    expect(c.components).toBe(1);
+    expect(c.genus).toBe(0);
+    const size = connectorKeySize();
+    const b = meshBounds(mesh);
+    expect(b.max[0] - b.min[0]).toBeCloseTo(size.w, 4);
+    expect(b.max[1] - b.min[1]).toBeCloseTo(size.d, 4);
+    expect(b.max[2] - b.min[2]).toBeCloseTo(size.h, 4);
+
+    // Centered on a site, nothing of the key sticks out of the pocket.
+    const s = new Scope();
+    try {
+      const key = s.t(toManifold(translateMesh(mesh, -size.w / 2, -size.d / 2, 0)));
+      const pocket = connectorPocket(w, s, { x: 0, y: 0, axis: 'x' });
+      expect(s.t(key.subtract(pocket)).volume()).toBeLessThan(1e-6);
+      expect(key.volume()).toBeLessThan(pocketVolume(10));
+    } finally {
+      s.dispose();
+    }
+  });
+
+  it('planJob prints one key per pocket', () => {
+    const job = planJob({ ...DEFAULT_PROJECT, baseplate: bowtie });
+    const placements = job.plates.flatMap((pl) => pl.placements);
+    const keys = placements.filter((p) => job.parts[p.key].kind === 'key');
+    expect(keys.length).toBe(job.connectors.length);
+    expect(keys.length).toBe(27);
+    // Every key fills two half pockets, one in each piece of its seam.
+    const halves = job.plan.pieces.reduce((n, p) => {
+      const spec = job.meshes[job.parts[`piece:${p.id}`].meshKey] as Extract<MeshSpec, { kind: 'piece' }>;
+      return n + spec.connectors.length;
+    }, 0);
+    expect(halves).toBe(2 * keys.length);
+    // The keys fit next to the pieces, so connectors don't cost a plate.
+    expect(job.plates.length).toBe(planJob(DEFAULT_PROJECT).plates.length);
+
+    const off = planJob(DEFAULT_PROJECT);
+    expect(off.connectors).toEqual([]);
+    expect(Object.values(off.parts).some((p) => p.kind === 'key')).toBe(false);
   });
 });
 

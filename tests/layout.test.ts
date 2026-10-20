@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeLayout, DEFAULT_DRAWER, parseLength } from '../src/lib/layout/drawer';
-import { packPlates, type PackItem, type Placement } from '../src/lib/layout/pack';
+import { packIntoPlates, packPlates, type PackItem, type Placement } from '../src/lib/layout/pack';
 import { DEFAULT_SETUP, planBaseplate, type PrintSetup } from '../src/lib/layout/plan';
 import { axisCuts, enumeratePartitions, minPieces } from '../src/lib/layout/split';
 
@@ -171,5 +171,32 @@ describe('packPlates', () => {
   it('reports parts that cannot fit any plate', () => {
     const { oversize } = packPlates([{ key: 'big', w: 300, d: 20 }], { bedW: 256, bedD: 256, margin: 10, spacing: 3, nest: true });
     expect(oversize.map((o) => o.key)).toEqual(['big']);
+  });
+});
+
+describe('packIntoPlates', () => {
+  const layout = computeLayout({ ...DEFAULT_DRAWER, width: 510.5, depth: 376.5, clearance: 0.5 });
+  const plan = planBaseplate(layout, DEFAULT_SETUP);
+  const opts = { bedW: 256, bedD: 256, margin: 10, spacing: 3, nest: true };
+  const keys = (n: number): PackItem[] => Array.from({ length: n }, (_, i) => ({ key: `key:${i + 1}`, w: 9.7, d: 2.7 }));
+
+  it('fills the free space around the pieces without moving them', () => {
+    const { plates, extra, oversize } = packIntoPlates(plan.plates, keys(27), opts);
+    expect(extra).toEqual([]);
+    expect(oversize).toEqual([]);
+    expect(plates.flatMap((p) => p.placements).filter((p) => p.key.startsWith('key:')).length).toBe(27);
+    plates.forEach((pl, i) => {
+      expect(pl.placements.slice(0, plan.plates[i].placements.length)).toEqual(plan.plates[i].placements);
+      assertPlacementsValid(pl.placements, opts);
+    });
+  });
+
+  it('puts what does not fit on new plates', () => {
+    const full = [{ placements: [{ key: 'big', x: 10, y: 10, w: 236, d: 236, rotated: false }] }];
+    const { plates, extra } = packIntoPlates(full, keys(30), opts);
+    expect(plates[0].placements.length).toBe(1);
+    expect(extra.length).toBe(1);
+    expect(extra[0].placements.length).toBe(30);
+    assertPlacementsValid(extra[0].placements, opts);
   });
 });

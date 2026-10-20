@@ -78,3 +78,35 @@ export const BP_PROFILE_DEPTH = BP_PROFILE.chamfer1 + BP_PROFILE.chamfer2; // 2.
 export const BP_BOTTOM_CLEARANCE = 0.35;
 /** Outer corner radius of a baseplate cell (top of the receptacle). */
 export const BP_CELL_RADIUS = 4;
+
+// ---------------------------------------------------------------------------
+// Connectors (bowtie keys that lock split baseplate pieces together)
+// ---------------------------------------------------------------------------
+
+/**
+ * Bowtie pocket cut into the bottom of the baseplate, centered on a seam and
+ * spanning across it. Walls are 4.3 mm wide in the vertical band of the
+ * profile, so a 3 mm pocket leaves 0.65 mm on each side.
+ */
+export const BOWTIE = {
+  /** Across the seam, half in each piece. */
+  length: 10,
+  /** Width at the two ends. */
+  width: 3,
+  /** Width at the seam. */
+  neck: 1.6,
+  /** Pocket depth from the bottom of the baseplate. */
+  depth: 2,
+  /** 45° flare at the pocket mouth so elephant foot doesn't close it up. */
+  mouthChamfer: 0.4,
+} as const;
+/** Keys are this much smaller than the pocket on every side. */
+export const BOWTIE_CLEARANCE = 0.15;
+/** Keys are this much thinner than the pocket is deep, so the plate still sits flat. */
+export const BOWTIE_KEY_RECESS = 0.2;
+/** 45° chamfer on the key's bottom edges (elephant-foot relief). */
+export const BOWTIE_KEY_CHAMFER = 0.3;
+/** Thinnest wall left between a pocket and a receptacle or an outside edge. */
+export const CONNECTOR_MIN_WALL = 0.6;
+/** One connector per this much length of solid margin along a seam. */
+export const CONNECTOR_SPACING = GRID;
