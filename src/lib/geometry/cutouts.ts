@@ -1,7 +1,7 @@
 import type { Manifold, Wasm } from './kernel';
 import type { Scope } from './kernel';
 import type { BinOptions } from './bin';
-import { BASE_HEIGHT, LIP_DEPTH, WALL } from './spec';
+import { BASE_HEIGHT, HEIGHT_UNIT, LIP_DEPTH, LIP_SUPPORT_HEIGHT, WALL } from './spec';
 import { hasFont, textOutline, textSolid } from './text';
 
 /**
@@ -278,6 +278,11 @@ export function labelPlacement(c: BinCutout, style: CutoutStyle, area: Rect): { 
 /** Z of a pocket's floor, given the top of the fill. */
 export function pocketFloorZ(top: number, c: Pick<BinCutout, 'depth'>, style: CutoutStyle): number {
   return Math.max(POCKET_MIN_FLOOR_Z, top - c.depth - style.extraDepth);
+}
+
+/** Top of the solid fill pockets are cut into (what buildBin calls topInfill). */
+export function fillTop(o: Pick<BinOptions, 'heightUnits' | 'lip'>): number {
+  return HEIGHT_UNIT * o.heightUnits - (o.lip ? LIP_SUPPORT_HEIGHT : 0);
 }
 
 /** Deepest pocket that fits under `top` (the top of the fill). */

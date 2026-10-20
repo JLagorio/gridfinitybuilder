@@ -300,6 +300,64 @@ export function cutoutIssues(o: BinOptions, W: number, D: number, top: number): 
   });
 }
 
+export interface SnapResult {
+  dx: number;
+  dy: number;
+  /** Lines to draw: x = const and y = const (bin coordinates). */
+  guidesX: number[];
+  guidesY: number[];
+}
+
+/**
+ * Snap a pocket being dragged: its box's edges or center to the bin's center
+ * lines, the opening's edges, other pockets' edges and centers, or `gap` mm
+ * from another pocket. Each axis snaps on its own, within `tol` mm.
+ */
+export function snapCutout(c: BinCutout, others: BinCutout[], area: Rect, tol: number, gap = FIT_GAP): SnapResult {
+  const b = pocketBox(c);
+  type Cand = { from: number; to: number };
+  const mid = (lo: number, hi: number) => (lo + hi) / 2;
+  const xs: Cand[] = [
+    { from: mid(b.x0, b.x1), to: 0 },
+    { from: b.x0, to: area.x0 },
+    { from: b.x1, to: area.x1 },
+  ];
+  const ys: Cand[] = [
+    { from: mid(b.y0, b.y1), to: 0 },
+    { from: b.y0, to: area.y0 },
+    { from: b.y1, to: area.y1 },
+  ];
+  for (const o of others) {
+    const ob = pocketBox(o);
+    xs.push(
+      { from: b.x0, to: ob.x0 },
+      { from: b.x1, to: ob.x1 },
+      { from: mid(b.x0, b.x1), to: mid(ob.x0, ob.x1) },
+      { from: b.x0, to: ob.x1 + gap },
+      { from: b.x1, to: ob.x0 - gap },
+    );
+    ys.push(
+      { from: b.y0, to: ob.y0 },
+      { from: b.y1, to: ob.y1 },
+      { from: mid(b.y0, b.y1), to: mid(ob.y0, ob.y1) },
+      { from: b.y0, to: ob.y1 + gap },
+      { from: b.y1, to: ob.y0 - gap },
+    );
+  }
+  const best = (cands: Cand[]) => {
+    let d: number | null = null;
+    for (const k of cands) {
+      const v = k.to - k.from;
+      if (Math.abs(v) <= tol && (d === null || Math.abs(v) < Math.abs(d))) d = v;
+    }
+    return d;
+  };
+  const dx = best(xs);
+  const dy = best(ys);
+  const guides = (cands: Cand[], d: number | null) => (d === null ? [] : [...new Set(cands.filter((k) => Math.abs(k.to - k.from - d) < 1e-6).map((k) => k.to))]);
+  return { dx: dx ?? 0, dy: dy ?? 0, guidesX: guides(xs, dx), guidesY: guides(ys, dy) };
+}
+
 /**
  * Somewhere free for a new pocket: the spot nearest the bin's center (0° or
  * 90°) whose pocket stays inside the opening and `gap` mm clear of the others.

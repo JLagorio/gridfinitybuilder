@@ -148,6 +148,27 @@ export function boundaryDistance(a: Pt[], b: Pt[]): { d: number; pa: Pt; pb: Pt 
   return best;
 }
 
+/** Closest point on a closed polygon's boundary. */
+export function nearestOnPolygon(p: Pt, poly: Pt[]): Pt {
+  let best: Pt = poly[0];
+  let bestD = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[j];
+    const b = poly[i];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+    const q: Pt = [a[0] + t * dx, a[1] + t * dy];
+    const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+    if (d < bestD) {
+      bestD = d;
+      best = q;
+    }
+  }
+  return best;
+}
+
 /** True when the segments of the two polygons cross, or one lies inside the other. */
 export function polygonsIntersect(a: Pt[], b: Pt[]): boolean {
   const ba = bounds(a);
