@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { parseLength } from '../lib/layout/drawer';
+import { lengthFieldText, parseLength, type Units } from '../lib/units';
+import { useUnits } from '../state/store';
 
 export function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -28,31 +29,45 @@ export function Field({ label, hint, children, id }: { label: string; hint?: Rea
 const fmt = (v: number, digits: number) => String(Math.round(v * 10 ** digits) / 10 ** digits);
 
 /**
- * Length input stored in mm. Shows mm or inches; accepts "20 1/8in", "51cm", etc.
+ * Length input stored in mm. Shows mm or inches (fractions to the chosen
+ * precision); accepts "20 1/8in", "1' 2\"", "51cm", "44.5mm" whatever the units.
+ * Units default to the app-wide setting.
  */
 export function LengthInput({
   label,
   value,
   onChange,
-  units = 'mm',
+  units: unitsProp,
   min = 0,
   max = 5000,
   hint,
+  placeholder,
+  allowEmpty = false,
 }: {
   label: string;
   value: number;
   onChange: (mm: number) => void;
-  units?: 'mm' | 'in';
+  units?: Units;
   min?: number;
   max?: number;
   hint?: ReactNode;
+  placeholder?: string;
+  /** Empty text means 0 (e.g. "unknown"). */
+  allowEmpty?: boolean;
 }) {
   const id = useId();
-  const shown = units === 'in' ? fmt(value / 25.4, 3) : fmt(value, 2);
+  const app = useUnits();
+  const units = unitsProp ?? app.units;
+  const shown = allowEmpty && !value ? '' : lengthFieldText(value, units, app.precision);
   const [text, setText] = useState(shown);
   const [bad, setBad] = useState(false);
   useEffect(() => setText(shown), [shown]);
   const commit = () => {
+    if (allowEmpty && !text.trim()) {
+      setBad(false);
+      onChange(0);
+      return;
+    }
     const v = parseLength(text, units);
     if (v === null || v < min || v > max) {
       setBad(true);
@@ -62,17 +77,52 @@ export function LengthInput({
     onChange(Math.round(v * 1000) / 1000);
   };
   return (
-    <Field label={label} hint={hint} id={id}>
+    <Field label={label} hint={bad ? <span className="field-error-inline">Try 510.5, 20 1/8 or 1' 8 1/8"</span> : hint} id={id}>
       <div className={`input-wrap ${bad ? 'bad' : ''}`}>
         <input
           id={id}
           inputMode="decimal"
           value={text}
+          placeholder={placeholder}
           onChange={(e) => setText(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => e.key === 'Enter' && commit()}
         />
         <span className="suffix">{units}</span>
+      </div>
+    </Field>
+  );
+}
+
+/** Plain text field that commits on blur / Enter. */
+export function TextInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  hint?: ReactNode;
+}) {
+  const id = useId();
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  const commit = () => text !== value && onChange(text);
+  return (
+    <Field label={label} hint={hint} id={id}>
+      <div className="input-wrap">
+        <input
+          id={id}
+          value={text}
+          placeholder={placeholder}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === 'Enter' && commit()}
+        />
       </div>
     </Field>
   );

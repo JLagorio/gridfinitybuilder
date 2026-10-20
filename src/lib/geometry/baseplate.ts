@@ -5,6 +5,7 @@ import {
   BP_PROFILE,
   BP_PROFILE_DEPTH,
   BP_PROFILE_HEIGHT,
+  GRID,
   HOLE_OFFSET,
 } from './spec';
 import { cylinderAt, loftRoundedRect, ringAt, roundedRectRing, type CornerRadii, type LoftKnot } from './shapes';
@@ -77,7 +78,7 @@ export function binSeatHeight(o: BaseplateOptions): number {
   return baseplateFloor(o);
 }
 
-function cellCutout(w: Wasm, cx: number, cy: number, o: BaseplateOptions): Manifold {
+function cellCutout(w: Wasm, cx: number, cy: number, cw: number, cd: number, o: BaseplateOptions): Manifold {
   const floor = baseplateFloor(o);
   const z0 = floor + o.bottomClearance;
   const knots: LoftKnot[] = [];
@@ -87,7 +88,7 @@ function cellCutout(w: Wasm, cx: number, cy: number, o: BaseplateOptions): Manif
   knots.push({ z: z0 + BP_PROFILE.chamfer1 + BP_PROFILE.vertical, inset: BP_PROFILE.chamfer2 });
   knots.push({ z: z0 + BP_PROFILE_HEIGHT, inset: 0 });
   knots.push({ z: z0 + BP_PROFILE_HEIGHT + 1, inset: -1 });
-  return loftRoundedRect(w, cx, cy, 42, 42, BP_CELL_RADIUS, knots);
+  return loftRoundedRect(w, cx, cy, cw, cd, BP_CELL_RADIUS, knots);
 }
 
 /**
@@ -138,11 +139,15 @@ export function buildBaseplatePiece(
     const negatives: Manifold[] = [];
     for (let i = piece.cells.x0; i < piece.cells.x1; i++) {
       for (let j = piece.cells.y0; j < piece.cells.y1; j++) {
-        const cx = layout.originX + (i + 0.5) * layout.pitchX;
-        const cy = layout.originY + (j + 0.5) * layout.pitchY;
-        negatives.push(s.t(cellCutout(w, cx, cy, o)));
+        const cw = layout.xs[i + 1] - layout.xs[i];
+        const cd = layout.ys[j + 1] - layout.ys[j];
+        const cx = layout.xs[i] + cw / 2;
+        const cy = layout.ys[j] + cd / 2;
+        negatives.push(s.t(cellCutout(w, cx, cy, cw, cd, o)));
+        // Partial edge cells are too small for the corner holes.
+        const fullCell = Math.min(cw, cd) >= GRID - 1e-6;
 
-        if (o.magnets && floor > 0) {
+        if (o.magnets && floor > 0 && fullCell) {
           const r = (o.magnetDiameter + o.magnetFit) / 2;
           const depth = o.magnetHeight + 0.2;
           for (const [dx, dy] of [
@@ -161,7 +166,7 @@ export function buildBaseplatePiece(
             }
           }
         }
-        if (o.screws && floor > 0) {
+        if (o.screws && floor > 0 && Math.min(cw, cd) >= o.screwHeadDiameter + 2 * BP_PROFILE_DEPTH) {
           const rh = (o.screwDiameter + 0.3) / 2;
           const rk = Math.max(o.screwHeadDiameter / 2, rh + 0.5);
           const sinkDepth = Math.min(rk - rh, floor - 0.4);

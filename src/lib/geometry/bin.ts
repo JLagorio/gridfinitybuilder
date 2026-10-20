@@ -64,8 +64,30 @@ export const DEFAULT_BIN: BinOptions = {
 
 export const MIN_HEIGHT_UNITS = 2;
 
-export function binSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>) {
-  return { w: GRID * o.unitsX - (GRID - BASE_TOP), d: GRID * o.unitsY - (GRID - BASE_TOP) };
+/**
+ * Pitch of each grid cell a bin covers, when it sits on partial (edge-fill) cells.
+ * Missing entries are full cells. Each cell gets a foot of its own size.
+ */
+export interface BinCells {
+  x: number[];
+  y: number[];
+}
+
+export function binCells(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null): BinCells {
+  const fit = (arr: number[] | undefined, n: number) => Array.from({ length: n }, (_, k) => (arr?.[k] && arr[k] > 0 ? arr[k] : GRID));
+  return { x: fit(cells?.x, o.unitsX), y: fit(cells?.y, o.unitsY) };
+}
+
+/** True when every cell is a full grid cell (the common case). */
+export function fullCells(c: BinCells | null | undefined): boolean {
+  return !c || [...c.x, ...c.y].every((v) => Math.abs(v - GRID) < 1e-6);
+}
+
+const sum = (a: number[]) => a.reduce((t, v) => t + v, 0);
+
+export function binSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null) {
+  const c = binCells(o, cells);
+  return { w: sum(c.x) - (GRID - BASE_TOP), d: sum(c.y) - (GRID - BASE_TOP) };
 }
 
 /** Overall height including the lip. */
@@ -74,8 +96,11 @@ export function binTotalHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'>) {
 }
 
 /** Stable key so identical bins share one mesh. */
-export function binKey(o: BinOptions): string {
+export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string {
+  const c = binCells(o, cells);
+  const cellPart = fullCells(c) ? [] : [`c${c.x.join('/')}x${c.y.join('/')}`];
   return [
+    ...cellPart,
     o.unitsX,
     o.unitsY,
     o.heightUnits,
@@ -98,11 +123,12 @@ export function binLabel(o: BinOptions): string {
 /**
  * Build a bin centered on the origin in XY with its bottom at z = 0.
  */
-export function buildBin(w: Wasm, input: BinOptions): MeshData {
+export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells> | null): MeshData {
   const o = sanitizeBin(input);
+  const cells = binCells(o, cellsIn);
   const s = new Scope();
   try {
-    const { w: W, d: D } = binSize(o);
+    const { w: W, d: D } = binSize(o, cells);
     const H = HEIGHT_UNIT * o.heightUnits;
     const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
     const zFloor = BASE_HEIGHT;
@@ -110,16 +136,22 @@ export function buildBin(w: Wasm, input: BinOptions): MeshData {
 
     const solids: Manifold[] = [];
 
-    // 1. Base profile under every grid cell.
+    // 1. Base profile under every grid cell (sized to the cell, for partial edge cells).
     const cellCenters: [number, number][] = [];
-    for (let i = 0; i < o.unitsX; i++) {
-      for (let j = 0; j < o.unitsY; j++) {
-        const cx = (i + 0.5) * GRID - (GRID * o.unitsX) / 2;
-        const cy = (j + 0.5) * GRID - (GRID * o.unitsY) / 2;
-        cellCenters.push([cx, cy]);
+    const gap = GRID - BASE_TOP;
+    const totalX = sum(cells.x);
+    const totalY = sum(cells.y);
+    for (let i = 0, x0 = -totalX / 2; i < o.unitsX; x0 += cells.x[i], i++) {
+      for (let j = 0, y0 = -totalY / 2; j < o.unitsY; y0 += cells.y[j], j++) {
+        const cw = cells.x[i];
+        const cd = cells.y[j];
+        const cx = x0 + cw / 2;
+        const cy = y0 + cd / 2;
+        // Corner holes only fit in full cells.
+        if (Math.min(cw, cd) >= GRID - 1e-6) cellCenters.push([cx, cy]);
         solids.push(
           s.t(
-            loftRoundedRect(w, cx, cy, BASE_TOP, BASE_TOP, BASE_TOP_RADIUS, [
+            loftRoundedRect(w, cx, cy, cw - gap, cd - gap, BASE_TOP_RADIUS, [
               { z: 0, inset: BASE_PROFILE_DEPTH },
               { z: BASE_PROFILE.chamfer1, inset: BASE_PROFILE.chamfer2 },
               { z: BASE_PROFILE.chamfer1 + BASE_PROFILE.vertical, inset: BASE_PROFILE.chamfer2 },

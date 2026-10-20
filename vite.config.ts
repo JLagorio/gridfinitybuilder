@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
@@ -9,4 +9,6 @@ export default defineConfig({
   server: { port: 5199 },
   // three.js alone is ~600 kB; that's expected for a 3D app.
   build: { chunkSizeWarningLimit: 1200 },
+  // Agent worktrees live under .claude/; never pick up their copies of the tests.
+  test: { exclude: ['**/node_modules/**', '.claude/**', 'dist/**'] },
 });

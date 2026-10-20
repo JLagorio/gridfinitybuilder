@@ -1,29 +1,47 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { DEFAULT_PROJECT, type PlacedBin, type ProjectState } from '../lib/project';
+import { DEFAULT_PROJECT, type NamedDrawer, type PlacedBin, type ProjectState } from '../lib/project';
 import { DEFAULT_BIN, sanitizeBin, type BinOptions } from '../lib/geometry/bin';
-import type { BaseplateOptions } from '../lib/geometry/baseplate';
-import { computeLayout, type DrawerInput } from '../lib/layout/drawer';
-import type { PrintSetup } from '../lib/layout/plan';
+import { DEFAULT_BASEPLATE, type BaseplateOptions } from '../lib/geometry/baseplate';
+import { DEFAULT_DRAWER, computeLayout, type DrawerInput } from '../lib/layout/drawer';
+import { DEFAULT_SETUP, type PrintSetup } from '../lib/layout/plan';
 import { findPrinter } from '../lib/printers';
 import { canPlace, newId, occupancy } from '../lib/bins';
+import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, type InchPrecision, type Units } from '../lib/units';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 
 export interface UIState {
   tab: Tab;
   selectedBinId: string | null;
-  units: 'mm' | 'in';
+  units: Units;
+  /** How finely inches are shown (fraction denominator, 0 = decimal). */
+  inchPrecision: InchPrecision;
   /** Spread baseplate pieces apart in the drawer view. */
   explode: boolean;
   /** Plate shown in the print view; -1 = all. */
   plate: number;
 }
 
+/**
+ * A saved drawer. The active drawer's live data is in the store's top-level
+ * `drawer` / `baseplate` / `bins`; its entry in `drawers` is only refreshed when
+ * switching away (use `allDrawers()` to read every drawer up to date).
+ */
+export type DrawerDoc = NamedDrawer;
+
+/** Which drawers the print tab exports. */
+export type PrintScope = 'active' | 'all' | 'pick';
+
 export interface Store extends ProjectState {
   ui: UIState;
   /** Settings used for newly drawn bins. */
   newBin: BinOptions;
+  drawers: DrawerDoc[];
+  activeDrawerId: string;
+  printScope: PrintScope;
+  /** Drawer ids printed when printScope is 'pick'. */
+  printPick: string[];
   setDrawer(p: Partial<DrawerInput>): void;
   setBaseplate(p: Partial<BaseplateOptions>): void;
   setSetup(p: Partial<PrintSetup>): void;
@@ -37,22 +55,108 @@ export interface Store extends ProjectState {
   duplicateBin(id: string): string | null;
   clearBins(): void;
   fillEmpty(): number;
+  // Drawers
+  addDrawer(name?: string): string;
+  duplicateDrawer(id: string): string;
+  removeDrawer(id: string): void;
+  renameDrawer(id: string, name: string): void;
+  switchDrawer(id: string): void;
+  setPrintScope(scope: PrintScope, pick?: string[]): void;
   resetAll(): void;
   /** Replace the project with one loaded from a saved file. */
   loadProject(data: unknown): void;
 }
 
-const DEFAULT_UI: UIState = { tab: 'drawer', selectedBinId: null, units: 'mm', explode: false, plate: -1 };
+const DEFAULT_UI: UIState = {
+  tab: 'drawer',
+  selectedBinId: null,
+  units: 'mm',
+  inchPrecision: DEFAULT_INCH_PRECISION,
+  explode: false,
+  plate: -1,
+};
 
 function gridSize(s: ProjectState) {
   const l = computeLayout(s.drawer);
   return { nx: l.nx, ny: l.ny };
 }
 
+const FIRST_DRAWER_ID = 'd1';
+
+function cleanDrawer(d: Partial<DrawerInput> | undefined): DrawerInput {
+  const out = { ...DEFAULT_DRAWER, ...d };
+  const nums = (v: unknown) => (Array.isArray(v) ? v.map(Number).filter((n) => Number.isFinite(n) && n > 0) : []);
+  out.widthSamples = nums(out.widthSamples);
+  out.depthSamples = nums(out.depthSamples);
+  out.height = Number(out.height) > 0 ? Number(out.height) : 0;
+  if (!['solid', 'half', 'fit'].includes(out.fill)) out.fill = 'solid';
+  return out;
+}
+
+function cleanBins(bins: unknown): PlacedBin[] {
+  if (!Array.isArray(bins)) return [];
+  return bins.map((b) => ({
+    id: String(b?.id ?? newId()),
+    x: Math.round(Number(b?.x) || 0),
+    y: Math.round(Number(b?.y) || 0),
+    opts: sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
+  }));
+}
+
+function cleanDoc(d: Partial<DrawerDoc>, i: number): DrawerDoc {
+  return {
+    id: String(d.id ?? newId()),
+    name: String(d.name ?? `Drawer ${i + 1}`),
+    drawer: cleanDrawer(d.drawer),
+    baseplate: { ...DEFAULT_BASEPLATE, ...d.baseplate },
+    bins: cleanBins(d.bins),
+  };
+}
+
+/** Every drawer, with the active one's live data. */
+export function allDrawers(s: Pick<Store, 'drawers' | 'activeDrawerId' | 'drawer' | 'baseplate' | 'bins'>): DrawerDoc[] {
+  return s.drawers.map((d) =>
+    d.id === s.activeDrawerId ? { ...d, drawer: s.drawer, baseplate: s.baseplate, bins: s.bins } : d,
+  );
+}
+
+export function activeDrawer(s: Store): DrawerDoc {
+  return allDrawers(s).find((d) => d.id === s.activeDrawerId) ?? allDrawers(s)[0];
+}
+
+/** The drawers the print tab should export, in workspace order. */
+export function printDrawers(s: Store): DrawerDoc[] {
+  const all = allDrawers(s);
+  if (s.printScope === 'all') return all;
+  if (s.printScope === 'pick') {
+    const picked = all.filter((d) => s.printPick.includes(d.id));
+    if (picked.length) return picked;
+  }
+  return all.filter((d) => d.id === s.activeDrawerId);
+}
+
+function uniqueName(base: string, taken: string[]) {
+  if (!taken.includes(base)) return base;
+  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
+}
+
+/** Live state with the active drawer written back into the drawer list. */
+function synced(s: Store): DrawerDoc[] {
+  return allDrawers(s);
+}
+
+const DEFAULT_WORKSPACE = {
+  drawers: [{ id: FIRST_DRAWER_ID, name: 'Drawer 1', drawer: DEFAULT_DRAWER, baseplate: DEFAULT_BASEPLATE, bins: [] }] as DrawerDoc[],
+  activeDrawerId: FIRST_DRAWER_ID,
+  printScope: 'active' as PrintScope,
+  printPick: [] as string[],
+};
+
 export const useStore = create<Store>()(
   persist(
     (set, get) => ({
       ...DEFAULT_PROJECT,
+      ...DEFAULT_WORKSPACE,
       ui: DEFAULT_UI,
       newBin: DEFAULT_BIN,
       setDrawer: (p) => set((s) => ({ drawer: { ...s.drawer, ...p } })),
@@ -125,31 +229,116 @@ export const useStore = create<Store>()(
         set({ bins: [...s.bins, ...added] });
         return added.length;
       },
-      resetAll: () => set({ ...DEFAULT_PROJECT, ui: DEFAULT_UI, newBin: DEFAULT_BIN }),
+
+      addDrawer: (name) => {
+        const s = get();
+        const id = newId();
+        const docs = synced(s);
+        // New drawers start with the current baseplate settings: magnets, connectors etc. are usually shared.
+        const doc: DrawerDoc = {
+          id,
+          name: uniqueName(name?.trim() || `Drawer ${docs.length + 1}`, docs.map((d) => d.name)),
+          drawer: { ...DEFAULT_DRAWER, mode: s.drawer.mode, clearance: s.drawer.clearance, fill: s.drawer.fill },
+          baseplate: { ...s.baseplate },
+          bins: [],
+        };
+        set({
+          drawers: [...docs, doc],
+          activeDrawerId: id,
+          drawer: doc.drawer,
+          baseplate: doc.baseplate,
+          bins: doc.bins,
+          ui: { ...s.ui, selectedBinId: null, plate: -1 },
+        });
+        return id;
+      },
+      duplicateDrawer: (id) => {
+        const s = get();
+        const docs = synced(s);
+        const src = docs.find((d) => d.id === id);
+        if (!src) return s.activeDrawerId;
+        const nid = newId();
+        const copy: DrawerDoc = {
+          ...structuredClone(src),
+          id: nid,
+          name: uniqueName(`${src.name} copy`, docs.map((d) => d.name)),
+          bins: src.bins.map((b) => ({ ...structuredClone(b), id: newId() })),
+        };
+        const at = docs.indexOf(src) + 1;
+        set({
+          drawers: [...docs.slice(0, at), copy, ...docs.slice(at)],
+          activeDrawerId: nid,
+          drawer: copy.drawer,
+          baseplate: copy.baseplate,
+          bins: copy.bins,
+          ui: { ...s.ui, selectedBinId: null, plate: -1 },
+        });
+        return nid;
+      },
+      removeDrawer: (id) => {
+        const s = get();
+        const docs = synced(s);
+        if (docs.length <= 1) return;
+        const at = docs.findIndex((d) => d.id === id);
+        if (at < 0) return;
+        const rest = docs.filter((d) => d.id !== id);
+        const next = id === s.activeDrawerId ? rest[Math.min(at, rest.length - 1)] : rest.find((d) => d.id === s.activeDrawerId)!;
+        set({
+          drawers: rest,
+          activeDrawerId: next.id,
+          drawer: next.drawer,
+          baseplate: next.baseplate,
+          bins: next.bins,
+          printPick: s.printPick.filter((p) => p !== id),
+          ui: id === s.activeDrawerId ? { ...s.ui, selectedBinId: null, plate: -1 } : s.ui,
+        });
+      },
+      renameDrawer: (id, name) =>
+        set((s) => ({ drawers: s.drawers.map((d) => (d.id === id ? { ...d, name: name.trim() || d.name } : d)) })),
+      switchDrawer: (id) => {
+        const s = get();
+        if (id === s.activeDrawerId) return;
+        const docs = synced(s);
+        const next = docs.find((d) => d.id === id);
+        if (!next) return;
+        set({
+          drawers: docs,
+          activeDrawerId: id,
+          drawer: next.drawer,
+          baseplate: next.baseplate,
+          bins: next.bins,
+          ui: { ...s.ui, selectedBinId: null, plate: -1 },
+        });
+      },
+      setPrintScope: (printScope, pick) => set((s) => ({ printScope, printPick: pick ?? s.printPick, ui: { ...s.ui, plate: -1 } })),
+
+      resetAll: () => set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, ui: { ...DEFAULT_UI, units: get().ui.units }, newBin: DEFAULT_BIN }),
       loadProject: (data) => {
         const p = (data ?? {}) as Partial<Store> & { app?: string };
         if (typeof p !== 'object' || (p.app !== undefined && p.app !== 'gridfit')) throw new Error('Not a Gridfit project file.');
+        // Version 1 files hold a single drawer at the top level.
+        const docs = Array.isArray(p.drawers) && p.drawers.length
+          ? p.drawers.map(cleanDoc)
+          : [cleanDoc({ id: FIRST_DRAWER_ID, name: 'Drawer 1', drawer: p.drawer, baseplate: p.baseplate, bins: p.bins }, 0)];
+        const active = docs.find((d) => d.id === p.activeDrawerId) ?? docs[0];
         set((s) => ({
-          drawer: { ...DEFAULT_PROJECT.drawer, ...p.drawer },
-          baseplate: { ...DEFAULT_PROJECT.baseplate, ...p.baseplate },
-          setup: { ...DEFAULT_PROJECT.setup, ...p.setup },
+          drawers: docs,
+          activeDrawerId: active.id,
+          drawer: active.drawer,
+          baseplate: active.baseplate,
+          bins: active.bins,
+          setup: { ...DEFAULT_SETUP, ...p.setup },
           include: { ...DEFAULT_PROJECT.include, ...p.include },
           newBin: sanitizeBin({ ...DEFAULT_BIN, ...p.newBin }),
-          bins: Array.isArray(p.bins)
-            ? p.bins.map((b) => ({
-                id: String(b.id ?? newId()),
-                x: Math.round(Number(b.x) || 0),
-                y: Math.round(Number(b.y) || 0),
-                opts: sanitizeBin({ ...DEFAULT_BIN, ...b.opts }),
-              }))
-            : [],
-          ui: { ...s.ui, selectedBinId: null },
+          printScope: p.printScope === 'all' || p.printScope === 'pick' ? p.printScope : 'active',
+          printPick: Array.isArray(p.printPick) ? p.printPick.map(String) : [],
+          ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
     }),
     {
       name: 'gridfit-project',
-      version: 1,
+      version: 2,
       partialize: (s) => ({
         drawer: s.drawer,
         baseplate: s.baseplate,
@@ -157,21 +346,38 @@ export const useStore = create<Store>()(
         bins: s.bins,
         include: s.include,
         newBin: s.newBin,
+        drawers: allDrawers(s),
+        activeDrawerId: s.activeDrawerId,
+        printScope: s.printScope,
+        printPick: s.printPick,
         ui: { ...s.ui, selectedBinId: null },
       }),
+      // Version 1 had no drawer list; merge() below builds it from the top-level drawer.
+      migrate: (persisted) => persisted as never,
       // Fill in fields added after the project was saved.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Store>;
+        const drawer = cleanDrawer({ ...current.drawer, ...p.drawer });
+        const baseplate = { ...current.baseplate, ...p.baseplate };
+        const bins = cleanBins(p.bins ?? current.bins);
+        let docs = Array.isArray(p.drawers) && p.drawers.length ? p.drawers.map(cleanDoc) : null;
+        let activeDrawerId = String(p.activeDrawerId ?? FIRST_DRAWER_ID);
+        if (!docs) docs = [{ id: activeDrawerId, name: 'Drawer 1', drawer, baseplate, bins }];
+        if (!docs.some((d) => d.id === activeDrawerId)) activeDrawerId = docs[0].id;
         return {
           ...current,
           ...p,
-          drawer: { ...current.drawer, ...p.drawer },
-          baseplate: { ...current.baseplate, ...p.baseplate },
+          drawer,
+          baseplate,
+          bins,
+          drawers: docs,
+          activeDrawerId,
           setup: { ...current.setup, ...p.setup },
           include: { ...current.include, ...p.include },
-          newBin: { ...current.newBin, ...p.newBin },
+          newBin: sanitizeBin({ ...current.newBin, ...p.newBin }),
+          printScope: p.printScope ?? current.printScope,
+          printPick: p.printPick ?? current.printPick,
           ui: { ...current.ui, ...p.ui },
-          bins: (p.bins ?? current.bins).map((b) => ({ ...b, opts: sanitizeBin({ ...DEFAULT_BIN, ...b.opts }) })),
         };
       },
     },
@@ -180,10 +386,33 @@ export const useStore = create<Store>()(
 
 /** Contents of a saved .gridfit.json file. */
 export function projectFile(s: Store) {
-  return { app: 'gridfit', version: 1, ...projectOf(s), newBin: s.newBin };
+  return {
+    app: 'gridfit',
+    version: 2,
+    ...projectOf(s),
+    newBin: s.newBin,
+    drawers: allDrawers(s),
+    activeDrawerId: s.activeDrawerId,
+    printScope: s.printScope,
+    printPick: s.printPick,
+  };
 }
 
-/** The serializable project (what planJob needs). */
+/** The serializable project for the active drawer (what planJob needs). */
 export function projectOf(s: Store): ProjectState {
   return { drawer: s.drawer, baseplate: s.baseplate, setup: s.setup, bins: s.bins, include: s.include };
+}
+
+/** Current display units plus formatters bound to them. */
+export function useUnits() {
+  const units = useStore((s) => s.ui.units);
+  const precision = useStore((s) => s.ui.inchPrecision);
+  return {
+    units,
+    precision,
+    /** "20 1/8″" or "511.2 mm". */
+    fmt: (mm: number, o: FormatOptions = {}) => formatLength(mm, units, { precision, ...o }),
+    /** "20 1/8″ (511.2 mm)" in inch mode. */
+    fmtBoth: (mm: number, o: FormatOptions = {}) => formatBoth(mm, units, { precision, ...o }),
+  };
 }

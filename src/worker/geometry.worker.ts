@@ -77,7 +77,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       }
       case 'export-zip': {
         const get = await ensureJobMeshes(req.id, req.job);
-        const bytes = exportPlatesZip(req.job, req.state, get);
+        const bytes = exportPlatesZip(req.job, req.setup, get);
         post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
         break;
       }

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import type { GridLayout } from '../lib/layout/drawer';
+import { cellEdge, cellIndexAt, type GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin } from '../lib/project';
 import { canPlace, occupancy, outOfBounds, type CellRect } from '../lib/bins';
 
@@ -21,7 +21,7 @@ export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, on
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<[number, number] | null>(null);
-  const { nx, ny, pitchX, pitchY, originX, originY, plateW, plateD } = layout;
+  const { nx, ny, pitchX, pitchY, xs, ys, plateW, plateD } = layout;
   const occ = useMemo(() => occupancy(bins, nx, ny), [bins, nx, ny]);
   const pad = 8;
 
@@ -34,9 +34,9 @@ export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, on
     const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(el.getScreenCTM()!.inverse());
     const px = pt.x;
     const py = plateD - pt.y;
-    const i = Math.floor((px - originX) / pitchX);
-    const j = Math.floor((py - originY) / pitchY);
-    if (i < 0 || j < 0 || i >= nx || j >= ny) return null;
+    const i = cellIndexAt(xs, px);
+    const j = cellIndexAt(ys, py);
+    if (i < 0 || j < 0) return null;
     return [i, j];
   };
 
@@ -87,12 +87,13 @@ export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, on
     setDrag(null);
   };
 
-  const cellRectSvg = (r: CellRect, inset = 0.25) => ({
-    x: originX + r.x * pitchX + inset,
-    y: sy(originY + (r.y + r.d) * pitchY) + inset,
-    width: r.w * pitchX - 2 * inset,
-    height: r.d * pitchY - 2 * inset,
-  });
+  const cellRectSvg = (r: CellRect, inset = 0.25) => {
+    const x0 = cellEdge(xs, r.x, pitchX);
+    const x1 = cellEdge(xs, r.x + r.w, pitchX);
+    const y0 = cellEdge(ys, r.y, pitchY);
+    const y1 = cellEdge(ys, r.y + r.d, pitchY);
+    return { x: x0 + inset, y: sy(y1) + inset, width: x1 - x0 - 2 * inset, height: y1 - y0 - 2 * inset };
+  };
 
   if (!nx || !ny) return <div className="editor-empty">The drawer is smaller than one grid cell.</div>;
 

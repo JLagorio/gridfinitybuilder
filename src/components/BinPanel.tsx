@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useStore } from '../state/store';
 import { Section, Segmented, Slider, Stepper, Toggle } from './fields';
-import { binKey, binLabel, binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinOptions } from '../lib/geometry/bin';
+import { binLabel, binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinOptions } from '../lib/geometry/bin';
 import { canPlace } from '../lib/bins';
-import type { PrintJob } from '../lib/project';
+import { binSpec, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 
 function BinFields({
@@ -115,8 +115,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     if (!sel) return;
     setBusy(true);
     try {
-      const key = `bin|${binKey(sel.opts)}`;
-      const bytes = await geometry.exportSingle({ kind: 'bin', key, opts: sel.opts }, binLabel(sel.opts));
+      const bytes = await geometry.exportSingle(binSpec(job.layout, sel), binLabel(sel.opts));
       downloadBytes(bytes, `gridfinity-bin-${sel.opts.unitsX}x${sel.opts.unitsY}x${sel.opts.heightUnits}u.3mf`, 'model/3mf');
     } finally {
       setBusy(false);

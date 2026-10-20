@@ -47,14 +47,16 @@ describe('parseLength', () => {
   });
 });
 
+const bounds = (origin: number, n: number) => Array.from({ length: n + 1 }, (_, k) => origin + 42 * k);
+
 describe('axis splitting', () => {
   it('only cuts on cell boundaries by default', () => {
-    const cuts = axisCuts(3, 12, 42, 510, 236, false);
+    const cuts = axisCuts(bounds(3, 12), 510, 236, false);
     expect(cuts).toEqual(Array.from({ length: 11 }, (_, k) => 3 + 42 * (k + 1)));
   });
 
   it('finds the minimum piece count', () => {
-    const cuts = axisCuts(3, 12, 42, 510, 236, false);
+    const cuts = axisCuts(bounds(3, 12), 510, 236, false);
     expect(minPieces(510, cuts, 236)).toBe(3);
     const parts = enumeratePartitions(510, cuts, 236);
     expect(parts.length).toBeGreaterThan(1);
@@ -66,7 +68,7 @@ describe('axis splitting', () => {
 
   it('forces a margin cut when a margin cannot share a piece with a cell', () => {
     // 200 mm margin + one 42 mm cell > 236
-    const cuts = axisCuts(200, 2, 42, 284, 236, false);
+    const cuts = axisCuts(bounds(200, 2), 284, 236, false);
     expect(cuts).toContain(200);
   });
 });

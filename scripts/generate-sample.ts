@@ -83,7 +83,7 @@ const getMesh = (k: string) => cache.get(k)!;
 const settingsPath = resolve('public/bambu', `${state.setup.printerId}.json`);
 const settings = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf8') : undefined;
 writeFileSync(join(outDir, 'drawer-bambu-project.3mf'), exportBambuProject(job, state.setup, getMesh, settings));
-writeFileSync(join(outDir, 'drawer-plates.zip'), exportPlatesZip(job, state, getMesh));
+writeFileSync(join(outDir, 'drawer-plates.zip'), exportPlatesZip(job, state.setup, getMesh));
 const firstBin = Object.values(job.meshes).find((m) => m.kind === 'bin')!;
 writeFileSync(join(outDir, 'single-bin.3mf'), exportSingle3MF('bin', getMesh(firstBin.key)));
 console.log(`Done in ${Math.round(performance.now() - t0)} ms → ${outDir}`);

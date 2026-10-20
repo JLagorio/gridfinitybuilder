@@ -1,4 +1,5 @@
 import type { PlacedBin } from './project';
+import { binTotalHeight } from './geometry/bin';
 
 /** Cell → bin id map for the drawer grid. */
 export function occupancy(bins: PlacedBin[], nx: number, ny: number): (string | null)[][] {
@@ -40,4 +41,15 @@ export function outOfBounds(b: PlacedBin, nx: number, ny: number) {
 
 export function newId() {
   return Math.random().toString(36).slice(2, 9);
+}
+
+/**
+ * Tallest bin (in 7 mm units) that fits under `room` mm, measured from the
+ * baseplate floor a bin sits on. Returns 0 when nothing fits.
+ */
+export function maxBinUnits(room: number, lip: boolean): number {
+  if (!(room > 0)) return 0;
+  let u = 0;
+  while (binTotalHeight({ heightUnits: u + 1, lip }) <= room + 1e-6 && u < 60) u++;
+  return u;
 }

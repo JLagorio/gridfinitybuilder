@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { projectOf, useStore, type Tab } from './state/store';
-import { planJob, type MeshSpec, type PrintJob } from './lib/project';
+import { printDrawers, projectOf, useStore, type Tab } from './state/store';
+import { planJob, planPrint, type MeshSpec, type PrintJob } from './lib/project';
+import { cellEdge } from './lib/layout/drawer';
 import { binSeatHeight } from './lib/geometry/baseplate';
 import { BASE_TOP, GRID } from './lib/geometry/spec';
 import { plateOrigin } from './lib/export/bambu';
@@ -11,6 +12,8 @@ import { DrawerPanel } from './components/DrawerPanel';
 import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
+import { DrawerSwitcher } from './components/DrawerSwitcher';
+import { Segmented } from './components/fields';
 import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, pieceColor } from './components/colors';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -51,8 +54,8 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
       items.push({
         id: b.id,
         meshKey: part.meshKey,
-        x: job.layout.originX + b.x * job.layout.pitchX + inset,
-        y: job.layout.originY + b.y * job.layout.pitchY + inset,
+        x: cellEdge(job.layout.xs, b.x, job.layout.pitchX) + inset,
+        y: cellEdge(job.layout.ys, b.y, job.layout.pitchY) + inset,
         z: seat,
         w: part.w,
         d: part.d,
@@ -90,7 +93,7 @@ function platesScene(job: PrintJob, plate: number, bedW: number, bedD: number): 
         d: part.d,
         h: part.h,
         rotated: p.rotated,
-        color: part.kind === 'piece' ? pieceColor(Number(p.key.split(':')[1])) : part.kind === 'key' ? KEY_COLOR : BIN_COLOR,
+        color: part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'key' ? KEY_COLOR : BIN_COLOR,
       });
     }
   });
@@ -112,12 +115,21 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [job, state.include.bins],
   );
+  // The print tab can cover several drawers.
+  const printJob = useMemo(
+    () => {
+      const docs = printDrawers(state);
+      return docs.length === 1 && docs[0].id === state.activeDrawerId ? job : planPrint(docs, state.setup, state.include);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [job, state.drawers, state.activeDrawerId, state.printScope, state.printPick, state.setup, state.include],
+  );
 
   const scene = useMemo<Scene>(() => {
-    if (ui.tab === 'print') return platesScene(job, ui.plate, state.setup.bedW, state.setup.bedD);
+    if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup.bedW, state.setup.bedD);
     return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, state.setup.bedW, state.setup.bedD]);
+  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, state.setup.bedW, state.setup.bedD]);
 
   // Ask the worker for exactly the meshes on screen (selected bin first).
   useEffect(() => {
@@ -127,11 +139,11 @@ export default function App() {
     for (const it of ordered) {
       if (seen.has(it.meshKey)) continue;
       seen.add(it.meshKey);
-      const spec = viewJob.meshes[it.meshKey] ?? job.meshes[it.meshKey];
+      const spec = viewJob.meshes[it.meshKey] ?? printJob.meshes[it.meshKey];
       if (spec) specs.push(spec);
     }
     geometry.want(specs);
-  }, [scene, job, viewJob]);
+  }, [scene, printJob, viewJob]);
 
   // Delete / Backspace removes the selected bin (unless typing in a field).
   useEffect(() => {
@@ -201,6 +213,7 @@ export default function App() {
           </svg>
           <span>Gridfit</span>
         </div>
+        <DrawerSwitcher />
         <nav className="tabs" role="tablist">
           {TABS.map((t, i) => (
             <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => state.setUI({ tab: t.id })}>
@@ -215,11 +228,19 @@ export default function App() {
               <span className="spinner" /> Building {queue}
             </span>
           )}
+          <Segmented
+            value={ui.units}
+            options={[
+              { value: 'mm', label: 'mm', title: 'Show and enter lengths in millimetres' },
+              { value: 'in', label: 'in', title: 'Show and enter lengths in inches (fractions work: 20 1/8)' },
+            ]}
+            onChange={(units) => state.setUI({ units })}
+          />
           <span className="chip" title="Printer">
             {printer.name} · {state.setup.bedW}×{state.setup.bedD}
           </span>
           <span className="chip">
-            {job.layout.nx}×{job.layout.ny} grid · {job.plan.pieces.length} pieces · {job.plates.length} plates
+            {job.layout.nx}×{job.layout.ny} grid · {job.plan.pieces.length} pieces · {printJob.plates.length} plates
           </span>
         </div>
       </header>
@@ -228,7 +249,7 @@ export default function App() {
         <aside className="sidebar">
           {ui.tab === 'drawer' && <DrawerPanel job={job} />}
           {ui.tab === 'bins' && <BinPanel job={viewJob} />}
-          {ui.tab === 'print' && <PrintPanel job={job} />}
+          {ui.tab === 'print' && <PrintPanel job={printJob} />}
         </aside>
         <main className={`main main-${ui.tab}`}>
           {ui.tab === 'bins' ? (
@@ -249,8 +270,8 @@ export default function App() {
           ) : (
             viewer
           )}
-          {job.warnings.length > 0 && ui.tab !== 'print' && (
-            <div className="toast">{job.warnings[0]}</div>
+          {viewJob.warnings.length > 0 && ui.tab !== 'print' && (
+            <div className="toast">{viewJob.warnings[0]}</div>
           )}
         </main>
       </div>

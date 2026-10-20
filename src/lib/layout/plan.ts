@@ -1,5 +1,7 @@
 import type { GridLayout } from './drawer';
 import { packPlates, type PackItem, type PlateLayout } from './pack';
+
+export type { PlateLayout };
 import {
   axisCuts,
   balanceScore,
@@ -88,8 +90,8 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplateP
   type Cand = { xs: AxisPartition; ys: AxisPartition; score: number[] };
   let best: Cand | null = null;
   for (const [maxX, maxY] of orientations) {
-    const cutsX = axisCuts(layout.originX, layout.nx, layout.pitchX, layout.plateW, maxX, setup.splitMargins);
-    const cutsY = axisCuts(layout.originY, layout.ny, layout.pitchY, layout.plateD, maxY, setup.splitMargins);
+    const cutsX = axisCuts(layout.xs, layout.plateW, maxX, setup.splitMargins);
+    const cutsY = axisCuts(layout.ys, layout.plateD, maxY, setup.splitMargins);
     const xsList = candidatesFor(layout.plateW, cutsX, maxX, setup.splitStyle);
     const ysList = candidatesFor(layout.plateD, cutsY, maxY, setup.splitStyle);
     for (const xs of xsList) {
@@ -145,12 +147,15 @@ export function connectorSteps(keys: number): string[] {
 }
 
 /** Text map of which piece covers which cell — handy taped inside the drawer. */
-export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKeys = 0): string {
+export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKeys = 0, plateOffset = 0): string {
   const lines: string[] = [];
   lines.push('BASEPLATE ASSEMBLY MAP');
   lines.push('='.repeat(40));
   lines.push(`Baseplate: ${fmt(layout.plateW)} × ${fmt(layout.plateD)} mm`);
-  lines.push(`Grid: ${layout.nx} × ${layout.ny} cells (${layout.pitchX} mm)`);
+  const partial = [...layout.xs.slice(1).map((v, i) => v - layout.xs[i]), ...layout.ys.slice(1).map((v, i) => v - layout.ys[i])].some(
+    (v) => Math.abs(v - layout.pitchX) > 1e-6 && Math.abs(v - layout.pitchY) > 1e-6,
+  );
+  lines.push(`Grid: ${layout.nx} × ${layout.ny} cells (${layout.pitchX} mm${partial ? ', with partial edge cells' : ''})`);
   lines.push(
     `Margins: left ${fmt(layout.margins.left)}, right ${fmt(layout.margins.right)}, front ${fmt(layout.margins.front)}, back ${fmt(layout.margins.back)} mm`,
   );
@@ -177,7 +182,7 @@ export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKe
     lines.push(`Piece ${p.id}: ${cw} × ${cd} cells, ${fmt(p.x1 - p.x0)} × ${fmt(p.y1 - p.y0)} mm`);
   }
   plan.plates.forEach((pl, i) => {
-    lines.push(`Plate ${i + 1}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
+    lines.push(`Plate ${plateOffset + i + 1}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
   });
   if (connectorKeys) lines.push('', ...connectorSteps(connectorKeys));
   return lines.join('\n') + '\n';

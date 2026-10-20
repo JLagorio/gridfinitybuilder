@@ -1,37 +1,65 @@
-import { useStore } from '../state/store';
-import { LengthInput, NumberInput, Section, Segmented, Select, Stepper, Toggle } from './fields';
-import { baseplateFloor, baseplateHeight } from '../lib/geometry/baseplate';
+import { useStore, useUnits } from '../state/store';
+import { LengthInput, NumberInput, Section, Segmented, Select, Stepper, TextInput, Toggle } from './fields';
+import { baseplateFloor, baseplateHeight, binSeatHeight } from '../lib/geometry/baseplate';
+import { effectiveSize } from '../lib/layout/drawer';
+import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
+function Samples({
+  label,
+  values,
+  onChange,
+}: {
+  label: string;
+  values: number[];
+  onChange: (v: number[]) => void;
+}) {
+  return (
+    <div className="samples">
+      {values.map((v, i) => (
+        <div className="sample-row" key={i}>
+          <LengthInput
+            label={`${label} ${i + 2}`}
+            value={v}
+            min={10}
+            onChange={(mm) => onChange(values.map((x, k) => (k === i ? mm : x)))}
+          />
+          <button className="link" onClick={() => onChange(values.filter((_, k) => k !== i))} aria-label={`Remove ${label} ${i + 2}`}>
+            Remove
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function DrawerPanel({ job }: { job: PrintJob }) {
   const drawer = useStore((s) => s.drawer);
   const bp = useStore((s) => s.baseplate);
-  const units = useStore((s) => s.ui.units);
   const explode = useStore((s) => s.ui.explode);
+  const precision = useStore((s) => s.ui.inchPrecision);
+  const active = useStore((s) => s.drawers.find((d) => d.id === s.activeDrawerId));
+  const renameDrawer = useStore((s) => s.renameDrawer);
   const setDrawer = useStore((s) => s.setDrawer);
   const setBp = useStore((s) => s.setBaseplate);
   const setUI = useStore((s) => s.setUI);
+  const { units, fmt } = useUnits();
   const L = job.layout;
   const m = L.margins;
-  const fmtLen = (mm: number) => (units === 'in' ? `${+(mm / 25.4).toFixed(3)}″` : `${+mm.toFixed(2)} mm`);
+  const usedW = effectiveSize(drawer.width, drawer.widthSamples);
+  const usedD = effectiveSize(drawer.depth, drawer.depthSamples);
+  const partialX = L.xs.slice(1).map((v, i) => v - L.xs[i]).filter((v) => Math.abs(v - L.pitchX) > 1e-6);
+  const partialY = L.ys.slice(1).map((v, i) => v - L.ys[i]).filter((v) => Math.abs(v - L.pitchY) > 1e-6);
+  const room = drawer.height > 0 ? drawer.height - binSeatHeight(bp) : 0;
+  const maxLip = maxBinUnits(room, true);
+  const maxFlat = maxBinUnits(room, false);
 
   return (
     <>
-      <Section
-        title="Drawer"
-        aside={
-          <Segmented
-            value={units}
-            options={[
-              { value: 'mm', label: 'mm' },
-              { value: 'in', label: 'in' },
-            ]}
-            onChange={(u) => setUI({ units: u })}
-          />
-        }
-      >
+      <Section title="Drawer">
+        {active && <TextInput label="Name" value={active.name} onChange={(name) => renameDrawer(active.id, name)} placeholder="Workbench, top drawer" />}
         <Segmented
           label="Size from"
           value={drawer.mode}
@@ -44,16 +72,46 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
         {drawer.mode === 'drawer' ? (
           <>
             <div className="row2">
-              <LengthInput label="Inside width" value={drawer.width} units={units} onChange={(width) => setDrawer({ width })} min={42} />
-              <LengthInput label="Inside depth" value={drawer.depth} units={units} onChange={(depth) => setDrawer({ depth })} min={42} />
+              <LengthInput label="Inside width" value={drawer.width} onChange={(width) => setDrawer({ width })} min={42} />
+              <LengthInput label="Inside depth" value={drawer.depth} onChange={(depth) => setDrawer({ depth })} min={42} />
             </div>
-            <div className="field-hint">Measure wall to wall at the floor. Fractions work too: 20 1/8 in.</div>
-            <NumberInput
+            <Samples label="Width" values={drawer.widthSamples} onChange={(widthSamples) => setDrawer({ widthSamples })} />
+            <Samples label="Depth" values={drawer.depthSamples} onChange={(depthSamples) => setDrawer({ depthSamples })} />
+            <div className="field-hint">
+              Measure wall to wall at the floor, in {units === 'in' ? 'inches (20 1/8, 1\' 8 1/8")' : 'mm (or 20 1/8 in)'}.{' '}
+              Drawers are rarely square:{' '}
+              <button className="link" onClick={() => setDrawer({ widthSamples: [...drawer.widthSamples, drawer.width] })}>
+                + width
+              </button>{' '}
+              <button className="link" onClick={() => setDrawer({ depthSamples: [...drawer.depthSamples, drawer.depth] })}>
+                + depth
+              </button>{' '}
+              measured elsewhere, and the smallest is used.
+              {(drawer.widthSamples.length > 0 || drawer.depthSamples.length > 0) && (
+                <>
+                  {' '}
+                  Using <b>{fmt(usedW)}</b> × <b>{fmt(usedD)}</b>.
+                </>
+              )}
+            </div>
+            <LengthInput
+              label="Inside height (optional)"
+              value={drawer.height}
+              allowEmpty
+              placeholder="e.g. 3 1/2"
+              onChange={(height) => setDrawer({ height })}
+              hint={
+                drawer.height > 0
+                  ? maxLip > 0 || maxFlat > 0
+                    ? `Bins up to ${maxLip}u with a stacking lip (${maxFlat}u without) fit under ${fmt(room)} above the baseplate floor.`
+                    : 'Too shallow for a bin on this baseplate.'
+                  : 'Floor to the underside of whatever is above the drawer. Used to warn about bins that are too tall.'
+              }
+            />
+            <LengthInput
               label="Fit clearance"
               value={drawer.clearance}
-              min={0}
-              max={10}
-              step={0.25}
+              max={20}
               onChange={(clearance) => setDrawer({ clearance })}
               hint="Taken off each axis so the plate drops in without binding."
             />
@@ -77,6 +135,33 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
               ]}
               onChange={(alignY) => setDrawer({ alignY })}
             />
+            <Segmented
+              label="Leftover space"
+              value={drawer.fill}
+              options={[
+                { value: 'solid', label: 'Solid', title: 'Fill the gap around the grid with solid plastic' },
+                { value: 'half', label: 'Half cells', title: 'Add a row of 21 mm half cells where the gap allows' },
+                { value: 'fit', label: 'Partial cells', title: 'Turn each gap into a row of narrower cells, so bins can use the space' },
+              ]}
+              onChange={(fill) => setDrawer({ fill })}
+              hint={
+                drawer.fill === 'solid'
+                  ? 'Partial cells use the gap for bins with narrower feet. Push the grid to one side to get one wide row instead of two thin ones.'
+                  : partialX.length + partialY.length
+                    ? `Partial cells: ${[...new Set([...partialX, ...partialY].map((v) => fmt(v)))].join(', ')}. Bins drawn on them get matching feet.`
+                    : `No gap is wide enough (${drawer.fill === 'half' ? fmt(21) : `at least ${fmt(drawer.minFill)}`}). Push the grid to one side to combine the gaps.`
+              }
+            />
+            {drawer.fill === 'fit' && (
+              <LengthInput
+                label="Narrowest partial cell"
+                value={drawer.minFill}
+                min={8}
+                max={41}
+                onChange={(minFill) => setDrawer({ minFill })}
+                hint="Thinner gaps stay solid."
+              />
+            )}
           </>
         ) : (
           <div className="row2">
@@ -91,20 +176,33 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
           <dl>
             <dt>Baseplate</dt>
             <dd>
-              {fmtLen(L.plateW)} × {fmtLen(L.plateD)}
+              {fmt(L.plateW)} × {fmt(L.plateD)}
             </dd>
             {drawer.mode === 'drawer' && (
               <>
                 <dt>Solid margin</dt>
                 <dd>
-                  L {fmtLen(m.left)} · R {fmtLen(m.right)} · F {fmtLen(m.front)} · B {fmtLen(m.back)}
+                  L {fmt(m.left)} · R {fmt(m.right)} · F {fmt(m.front)} · B {fmt(m.back)}
                 </dd>
               </>
             )}
             <dt>Height</dt>
-            <dd>{r1(baseplateHeight(bp))} mm</dd>
+            <dd>{fmt(baseplateHeight(bp))}</dd>
           </dl>
         </div>
+        {units === 'in' && (
+          <Segmented
+            label="Show inches to"
+            value={precision}
+            options={[
+              { value: 8, label: '1/8' },
+              { value: 16, label: '1/16' },
+              { value: 32, label: '1/32' },
+              { value: 0, label: 'Decimal' },
+            ]}
+            onChange={(inchPrecision) => setUI({ inchPrecision })}
+          />
+        )}
       </Section>
 
       <Section title="Baseplate">

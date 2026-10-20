@@ -1,6 +1,22 @@
 import { zipSync, strToU8 } from 'fflate';
-import { DEFAULT_BASEPLATE, baseplateHeight, buildBaseplatePiece, type BaseplateOptions } from './geometry/baseplate';
-import { DEFAULT_BIN, binKey, binLabel, binSize, binTotalHeight, buildBin, type BinOptions } from './geometry/bin';
+import {
+  DEFAULT_BASEPLATE,
+  baseplateHeight,
+  binSeatHeight,
+  buildBaseplatePiece,
+  type BaseplateOptions,
+} from './geometry/baseplate';
+import {
+  DEFAULT_BIN,
+  binKey,
+  binLabel,
+  binSize,
+  binTotalHeight,
+  buildBin,
+  fullCells,
+  type BinCells,
+  type BinOptions,
+} from './geometry/bin';
 import {
   buildConnectorKey,
   connectorKeySize,
@@ -9,9 +25,17 @@ import {
   type ConnectorSite,
 } from './geometry/connectors';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
-import { DEFAULT_DRAWER, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
+import { DEFAULT_DRAWER, cellSizes, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
 import { packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
-import { DEFAULT_SETUP, assemblyMap, connectorSteps, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
+import {
+  DEFAULT_SETUP,
+  assemblyMap,
+  connectorSteps,
+  planBaseplate,
+  type BaseplatePlan,
+  type PlateLayout,
+  type PrintSetup,
+} from './layout/plan';
 import type { PieceDef } from './layout/split';
 import { writeBambuProject, type BambuPlate } from './export/bambu';
 import { placeTransform, write3MF, type ExportObject } from './export/threemf';
@@ -25,11 +49,21 @@ export interface PlacedBin {
   opts: BinOptions;
 }
 
-export interface ProjectState {
+/** One drawer's design. */
+export interface DrawerProject {
   drawer: DrawerInput;
   baseplate: BaseplateOptions;
-  setup: PrintSetup;
   bins: PlacedBin[];
+}
+
+/** A drawer in a multi-drawer workspace. */
+export interface NamedDrawer extends DrawerProject {
+  id: string;
+  name: string;
+}
+
+export interface ProjectState extends DrawerProject {
+  setup: PrintSetup;
   include: { baseplate: boolean; bins: boolean };
 }
 
@@ -54,7 +88,7 @@ export type MeshSpec =
       /** Connector sites on this piece's seams. */
       connectors: ConnectorSite[];
     }
-  | { kind: 'bin'; key: string; opts: BinOptions }
+  | { kind: 'bin'; key: string; opts: BinOptions; cells?: BinCells }
   | { kind: 'key'; key: string; opts: BaseplateOptions };
 
 export interface JobPart {
@@ -65,6 +99,10 @@ export interface JobPart {
   w: number;
   d: number;
   h: number;
+  /** Drawer this part belongs to (multi-drawer jobs). */
+  drawer?: string;
+  /** Baseplate piece number. */
+  pieceId?: number;
 }
 
 export interface JobPlate {
@@ -73,11 +111,26 @@ export interface JobPlate {
   placements: Placement[];
 }
 
+/** One drawer's baseplate within a print job. */
+export interface DrawerJob {
+  id: string;
+  name: string;
+  layout: GridLayout;
+  plan: BaseplatePlan;
+  connectors: ConnectorSite[];
+  /** Index of this drawer's first plate in the job. */
+  plateOffset: number;
+  /** Plates that hold this drawer's baseplate (and keys). */
+  plateCount: number;
+}
+
 export interface PrintJob {
+  /** The first (or only) drawer's layout, plan and connectors. */
   layout: GridLayout;
   plan: BaseplatePlan;
   /** One per connector key; empty when connectors are off. */
   connectors: ConnectorSite[];
+  drawers: DrawerJob[];
   parts: Record<string, JobPart>;
   meshes: Record<string, MeshSpec>;
   plates: JobPlate[];
@@ -88,86 +141,127 @@ export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOp
   return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, o, connectors])}`;
 }
 
+/** Cell sizes under a bin, or undefined when it only covers full cells. */
+export function binCellsAt(layout: GridLayout, b: PlacedBin): BinCells | undefined {
+  const cells = {
+    x: cellSizes(layout.xs, b.x, b.opts.unitsX, layout.pitchX),
+    y: cellSizes(layout.ys, b.y, b.opts.unitsY, layout.pitchY),
+  };
+  return fullCells(cells) ? undefined : cells;
+}
+
+/** The mesh spec for a placed bin. */
+export function binSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'bin' }> {
+  const cells = binCellsAt(layout, b);
+  return { kind: 'bin', key: `bin|${binKey(b.opts, cells)}`, opts: b.opts, cells };
+}
+
 /** Everything about the print except the geometry itself. Cheap; safe to call on every edit. */
 export function planJob(state: ProjectState): PrintJob {
-  const layout = computeLayout(state.drawer);
-  const plan = planBaseplate(layout, state.setup);
+  return planPrint([{ id: '', name: '', drawer: state.drawer, baseplate: state.baseplate, bins: state.bins }], state.setup, state.include);
+}
+
+/**
+ * Plan several drawers at once. Each drawer's baseplate gets its own plates;
+ * bins from every drawer share plates. With one drawer, part keys are plain
+ * (`piece:3`, `bin:<id>`); with several they're prefixed with the drawer id.
+ */
+export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include']): PrintJob {
+  const multi = drawers.length > 1;
   const parts: Record<string, JobPart> = {};
   const meshes: Record<string, MeshSpec> = {};
   const plates: JobPlate[] = [];
-  const warnings: string[] = [];
-  if (plan.error) warnings.push(plan.error);
+  const warnings = new Set<string>();
+  const drawerJobs: DrawerJob[] = [];
+  const binItems: PackItem[] = [];
+  const bed = { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin };
 
-  const bpH = baseplateHeight(state.baseplate);
-  const connectors = connectorSites(layout, plan.pieces, state.baseplate);
-  for (const piece of plan.pieces) {
-    const key = `piece:${piece.id}`;
-    const mine = sitesOnPiece(connectors, piece);
-    const meshKey = pieceMeshKey(layout, piece, state.baseplate, mine);
-    meshes[meshKey] = { kind: 'piece', key: meshKey, layout, piece, opts: state.baseplate, connectors: mine };
-    parts[key] = {
-      key,
-      name: `Baseplate piece ${piece.id}`,
-      kind: 'piece',
-      meshKey,
-      w: piece.x1 - piece.x0,
-      d: piece.y1 - piece.y0,
-      h: bpH,
-    };
-  }
-  if (state.include.baseplate) {
-    // Keys print in the free space next to the pieces; any that don't fit get their own plate.
-    const keys: PackItem[] = [];
-    if (connectors.length) {
-      const meshKey = `key|${state.baseplate.connector}`;
-      const size = connectorKeySize();
-      meshes[meshKey] = { kind: 'key', key: meshKey, opts: state.baseplate };
-      for (let i = 1; i <= connectors.length; i++) {
-        const key = `key:${i}`;
-        parts[key] = { key, name: `Connector key ${i}`, kind: 'key', meshKey, ...size };
-        keys.push({ key, w: size.w, d: size.d });
+  for (const d of drawers) {
+    const prefix = multi ? `${d.id}/` : '';
+    const label = multi ? `${d.name} · ` : '';
+    const warn = (msg: string) => warnings.add(multi ? `${d.name}: ${msg}` : msg);
+    const layout = computeLayout(d.drawer);
+    const plan = planBaseplate(layout, setup);
+    if (plan.error) warn(plan.error);
+
+    const bpH = baseplateHeight(d.baseplate);
+    const connectors = connectorSites(layout, plan.pieces, d.baseplate);
+    for (const piece of plan.pieces) {
+      const key = `${prefix}piece:${piece.id}`;
+      const mine = sitesOnPiece(connectors, piece);
+      const meshKey = pieceMeshKey(layout, piece, d.baseplate, mine);
+      meshes[meshKey] = { kind: 'piece', key: meshKey, layout, piece, opts: d.baseplate, connectors: mine };
+      parts[key] = {
+        key,
+        name: `${label}Baseplate piece ${piece.id}`,
+        kind: 'piece',
+        meshKey,
+        w: piece.x1 - piece.x0,
+        d: piece.y1 - piece.y0,
+        h: bpH,
+        drawer: d.id,
+        pieceId: piece.id,
+      };
+    }
+    const plateOffset = plates.length;
+    if (include.baseplate) {
+      // Keys print in the free space next to the pieces; any that don't fit get their own plate.
+      const keys: PackItem[] = [];
+      if (connectors.length) {
+        const meshKey = `key|${d.baseplate.connector}`;
+        const size = connectorKeySize();
+        meshes[meshKey] = { kind: 'key', key: meshKey, opts: d.baseplate };
+        for (let i = 1; i <= connectors.length; i++) {
+          const key = `${prefix}key:${i}`;
+          parts[key] = { key, name: `${label}Connector key ${i}`, kind: 'key', meshKey, ...size, drawer: d.id };
+          keys.push({ key, w: size.w, d: size.d });
+        }
       }
+      const piecePlates: PlateLayout[] = plan.plates.map((pl) => ({
+        placements: pl.placements.map((p) => ({ ...p, key: prefix + p.key })),
+      }));
+      const packed = packIntoPlates(piecePlates, keys, { ...bed, spacing: setup.spacing, nest: true });
+      packed.plates.forEach((pl, i) => {
+        plates.push({ name: `${label}Baseplate ${i + 1}`, group: 'baseplate', placements: pl.placements });
+      });
+      packed.extra.forEach((pl, i) => {
+        const name = packed.extra.length > 1 ? `Connector keys ${i + 1}` : 'Connector keys';
+        plates.push({ name: label + name, group: 'baseplate', placements: pl.placements });
+      });
+      if (packed.oversize.length) warn('Connector keys are larger than the print bed and were left out.');
     }
-    const packed = packIntoPlates(plan.plates, keys, {
-      bedW: state.setup.bedW,
-      bedD: state.setup.bedD,
-      margin: state.setup.plateMargin,
-      spacing: state.setup.spacing,
-      nest: true,
-    });
-    packed.plates.forEach((pl, i) => {
-      plates.push({ name: `Baseplate ${i + 1}`, group: 'baseplate', placements: pl.placements });
-    });
-    packed.extra.forEach((pl, i) => {
-      const name = packed.extra.length > 1 ? `Connector keys ${i + 1}` : 'Connector keys';
-      plates.push({ name, group: 'baseplate', placements: pl.placements });
-    });
-    if (packed.oversize.length) warnings.push('Connector keys are larger than the print bed and were left out.');
+    drawerJobs.push({ id: d.id, name: d.name, layout, plan, connectors, plateOffset, plateCount: plates.length - plateOffset });
+
+    const room = d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) : Infinity;
+    for (const b of d.bins) {
+      const key = `${prefix}bin:${b.id}`;
+      const spec = binSpec(layout, b);
+      const { w, d: dd } = binSize(b.opts, spec.cells);
+      const h = binTotalHeight(b.opts);
+      meshes[spec.key] = spec;
+      parts[key] = { key, name: `${label}Bin ${binLabel(b.opts)}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
+      if (h > setup.maxH) warn(`Bin ${binLabel(b.opts)} is taller than the printer allows.`);
+      if (h > room + 1e-6) warn(`Bin ${binLabel(b.opts)} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+      if (include.bins) binItems.push({ key, w, d: dd });
+    }
   }
 
-  if (state.include.bins && state.bins.length) {
-    const items = [];
-    for (const b of state.bins) {
-      const key = `bin:${b.id}`;
-      const meshKey = `bin|${binKey(b.opts)}`;
-      const { w, d } = binSize(b.opts);
-      const h = binTotalHeight(b.opts);
-      meshes[meshKey] = { kind: 'bin', key: meshKey, opts: b.opts };
-      parts[key] = { key, name: `Bin ${binLabel(b.opts)}`, kind: 'bin', meshKey, w, d, h };
-      if (h > state.setup.maxH) warnings.push(`Bin ${binLabel(b.opts)} is taller than the printer allows.`);
-      items.push({ key, w, d });
-    }
-    const packed = packPlates(items, {
-      bedW: state.setup.bedW,
-      bedD: state.setup.bedD,
-      margin: state.setup.plateMargin,
-      spacing: Math.max(state.setup.spacing, 2),
-      nest: true,
-    });
-    for (const o of packed.oversize) warnings.push(`${parts[o.key].name} is larger than the print bed and was left out.`);
+  if (binItems.length) {
+    const packed = packPlates(binItems, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
+    for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
     packed.plates.forEach((pl, i) => plates.push({ name: `Bins ${i + 1}`, group: 'bins', placements: pl.placements }));
   }
-  return { layout, plan, connectors, parts, meshes, plates, warnings };
+  const first = drawerJobs[0];
+  return {
+    layout: first.layout,
+    plan: first.plan,
+    connectors: first.connectors,
+    drawers: drawerJobs,
+    parts,
+    meshes,
+    plates,
+    warnings: [...warnings],
+  };
 }
 
 /** Build a mesh with its footprint's min corner at the origin and its bottom at z = 0. */
@@ -177,8 +271,8 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
     return translateMesh(m, -spec.piece.x0, -spec.piece.y0, 0);
   }
   if (spec.kind === 'key') return buildConnectorKey(w);
-  const m = buildBin(w, spec.opts);
-  const { w: W, d: D } = binSize(spec.opts);
+  const m = buildBin(w, spec.opts, spec.cells);
+  const { w: W, d: D } = binSize(spec.opts, spec.cells);
   return translateMesh(m, W / 2, D / 2, 0);
 }
 
@@ -242,29 +336,46 @@ export function exportSingle3MF(name: string, mesh: MeshData): Uint8Array {
   return write3MF([{ name, mesh }], [{ object: 0, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] }], name);
 }
 
-export function exportPlatesZip(job: PrintJob, state: ProjectState, getMesh: MeshLookup): Uint8Array {
+const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'drawer';
+
+/** Assembly maps for every drawer in the job, keyed by file name. */
+export function assemblyMaps(job: PrintJob): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const d of job.drawers) {
+    const name = job.drawers.length > 1 ? `assembly-map-${slug(d.name)}.txt` : 'assembly-map.txt';
+    const head = job.drawers.length > 1 ? `${d.name}\n` : '';
+    out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset);
+  }
+  return out;
+}
+
+export function exportPlatesZip(job: PrintJob, setup: PrintSetup, getMesh: MeshLookup): Uint8Array {
   const files: Record<string, Uint8Array | [Uint8Array, { level: 0 }]> = {};
   job.plates.forEach((pl, i) => {
-    const name = `${String(i + 1).padStart(2, '0')}-${pl.name.toLowerCase().replace(/\s+/g, '-')}.3mf`;
+    const name = `${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.3mf`;
     files[name] = [exportPlate3MF(job, i, getMesh), { level: 0 }];
   });
-  files['assembly-map.txt'] = strToU8(assemblyMap(job.layout, job.plan, job.connectors.length));
-  files['README.txt'] = strToU8(readme(job, state));
+  for (const [name, text] of Object.entries(assemblyMaps(job))) files[name] = strToU8(text);
+  files['README.txt'] = strToU8(readme(job, setup));
   return zipSync(files);
 }
 
-function readme(job: PrintJob, state: ProjectState) {
-  const printer = findPrinter(state.setup.printerId);
+function readme(job: PrintJob, setup: PrintSetup) {
+  const printer = findPrinter(setup.printerId);
+  const keys = job.drawers.reduce((t, d) => t + d.connectors.length, 0);
   const lines = [
     'Gridfinity drawer kit generated by Gridfit',
     '',
-    `Printer: ${printer.name} (${state.setup.bedW} × ${state.setup.bedD} mm bed, ${state.setup.plateMargin} mm edge margin)`,
-    `Drawer: ${state.drawer.width} × ${state.drawer.depth} mm → baseplate ${round(job.layout.plateW)} × ${round(job.layout.plateD)} mm`,
-    `Grid: ${job.layout.nx} × ${job.layout.ny} cells`,
+    `Printer: ${printer.name} (${setup.bedW} × ${setup.bedD} mm bed, ${setup.plateMargin} mm edge margin)`,
+    ...job.drawers.map(
+      (d) =>
+        `${d.name ? `${d.name}: ` : ''}baseplate ${round(d.layout.plateW)} × ${round(d.layout.plateD)} mm, ` +
+        `${d.layout.nx} × ${d.layout.ny} cells, ${d.plan.pieces.length} pieces`,
+    ),
     '',
     'Each .3mf file is one print plate with parts already arranged.',
-    'Baseplate pieces are numbered; see assembly-map.txt for where each one goes.',
-    ...(job.connectors.length ? ['', ...connectorSteps(job.connectors.length)] : []),
+    'Baseplate pieces are numbered; see the assembly map for where each one goes.',
+    ...(keys ? ['', ...connectorSteps(keys)] : []),
     '',
     ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}): ${plateContents(job, pl).join(', ')}`),
     '',

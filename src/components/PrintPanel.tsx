@@ -1,9 +1,8 @@
 import { useRef, useState } from 'react';
-import { projectFile, projectOf, useStore } from '../state/store';
+import { allDrawers, printDrawers, projectFile, useStore } from '../state/store';
 import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
 import { PRINTERS, findPrinter } from '../lib/printers';
-import { plateContents, type PrintJob } from '../lib/project';
-import { assemblyMap } from '../lib/layout/plan';
+import { assemblyMaps, plateContents, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { pieceColor } from './colors';
 
@@ -35,7 +34,13 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     }
   };
 
-  const stamp = `${job.layout.nx}x${job.layout.ny}`;
+  const drawers = allDrawers(store);
+  const printing = printDrawers(store);
+  const multi = job.drawers.length > 1;
+  const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const stamp = multi ? `${job.drawers.length}-drawers` : slug(printing[0]?.name ?? '') || `${job.layout.nx}x${job.layout.ny}`;
+  const nPieces = job.drawers.reduce((t, d) => t + d.plan.pieces.length, 0);
+  const nBins = printing.reduce((t, d) => t + d.bins.length, 0);
   const exportBambu = () =>
     run('Building project', async (p) => {
       const settings = printer.bambu ? await bambuSettings(printer.id) : undefined;
@@ -44,7 +49,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     });
   const exportZip = () =>
     run('Building plates', async (p) => {
-      const bytes = await geometry.exportZip(job, projectOf(store), p);
+      const bytes = await geometry.exportZip(job, setup, p);
       downloadBytes(bytes, `gridfinity-drawer-${stamp}-plates.zip`, 'application/zip');
     });
   const exportPlate = (i: number) =>
@@ -55,8 +60,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     });
   const exportMap = () =>
     downloadBytes(
-      new TextEncoder().encode(assemblyMap(job.layout, job.plan, job.connectors.length)),
-      'assembly-map.txt',
+      new TextEncoder().encode(Object.values(assemblyMaps(job)).join('\n\n')),
+      multi ? 'assembly-maps.txt' : 'assembly-map.txt',
       'text/plain',
     );
 
@@ -81,6 +86,42 @@ export function PrintPanel({ job }: { job: PrintJob }) {
 
   return (
     <>
+      {drawers.length > 1 && (
+        <Section title="Drawers to print">
+          <Segmented
+            value={store.printScope}
+            options={[
+              { value: 'active', label: 'This drawer' },
+              { value: 'all', label: `All ${drawers.length}` },
+              { value: 'pick', label: 'Choose' },
+            ]}
+            onChange={(scope) =>
+              store.setPrintScope(scope, scope === 'pick' && !store.printPick.length ? [store.activeDrawerId] : undefined)
+            }
+          />
+          {store.printScope === 'pick' && (
+            <div className="drawer-picks">
+              {drawers.map((d) => (
+                <Toggle
+                  key={d.id}
+                  label={`${d.name} · ${d.bins.length} bins`}
+                  checked={store.printPick.includes(d.id)}
+                  onChange={(on) =>
+                    store.setPrintScope(
+                      'pick',
+                      on ? [...store.printPick, d.id] : store.printPick.filter((p) => p !== d.id),
+                    )
+                  }
+                />
+              ))}
+            </div>
+          )}
+          <p className="muted small">
+            Each drawer's baseplate prints on its own plates. Bins from every drawer share plates, and their names say which
+            drawer they're for.
+          </p>
+        </Section>
+      )}
       <Section title="Printer">
         <Select
           label="Model"
@@ -136,13 +177,26 @@ export function PrintPanel({ job }: { job: PrintJob }) {
         />
         <div className="summary">
           <div className="summary-big">
-            {job.plan.pieces.length} <small>pieces</small> · {nBasePlates} <small>plates</small>
+            {nPieces} <small>pieces</small> · {nBasePlates} <small>plates</small>
           </div>
           <dl>
-            <dt>Piece grid</dt>
-            <dd>
-              {job.plan.cols} × {job.plan.rows}
-            </dd>
+            {multi ? (
+              job.drawers.map((d) => (
+                <div key={d.id} className="dl-row">
+                  <dt>{d.name}</dt>
+                  <dd>
+                    {d.plan.cols} × {d.plan.rows} pieces
+                  </dd>
+                </div>
+              ))
+            ) : (
+              <>
+                <dt>Piece grid</dt>
+                <dd>
+                  {job.plan.cols} × {job.plan.rows}
+                </dd>
+              </>
+            )}
             <dt>Usable bed</dt>
             <dd>
               {setup.bedW - 2 * setup.plateMargin} × {setup.bedD - 2 * setup.plateMargin} mm
@@ -154,7 +208,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       <Section title="Export">
         <Toggle label="Baseplate" checked={include.baseplate} onChange={(v) => store.setInclude({ baseplate: v })} />
         <Toggle
-          label={`Bins (${store.bins.length})`}
+          label={`Bins (${nBins})`}
           checked={include.bins}
           onChange={(v) => store.setInclude({ bins: v })}
           hint={nBinPlates ? `${nBinPlates} plate${nBinPlates > 1 ? 's' : ''} of bins` : undefined}
@@ -176,8 +230,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           <button disabled={!!progress || !job.plates.length} onClick={exportZip}>
             Plates as 3MF (.zip)
           </button>
-          <button disabled={!job.plan.pieces.length} onClick={exportMap}>
-            Assembly map
+          <button disabled={!nPieces} onClick={exportMap}>
+            {multi ? 'Assembly maps' : 'Assembly map'}
           </button>
         </div>
         {progress && (
@@ -248,13 +302,13 @@ function PlateThumb({ job, plate, bedW, bedD }: { job: PrintJob; plate: number; 
         const part = job.parts[p.key];
         const w = p.rotated ? p.d : p.w;
         const d = p.rotated ? p.w : p.d;
-        const color = part.kind === 'piece' ? pieceColor(Number(p.key.split(':')[1])) : '#cfd5de';
+        const color = part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : '#cfd5de';
         return (
           <g key={p.key}>
             <rect x={p.x} y={bedD - p.y - d} width={w} height={d} rx={4} fill={color} fillOpacity={0.85} />
             {part.kind === 'piece' && (
               <text x={p.x + w / 2} y={bedD - p.y - d / 2} textAnchor="middle" dominantBaseline="middle" fontSize={40} className="thumb-label">
-                {p.key.split(':')[1]}
+                {part.pieceId}
               </text>
             )}
           </g>

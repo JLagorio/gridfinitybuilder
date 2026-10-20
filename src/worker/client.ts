@@ -1,5 +1,5 @@
 import type { MeshData } from '../lib/geometry/kernel';
-import type { MeshSpec, PrintJob, ProjectState } from '../lib/project';
+import type { MeshSpec, PrintJob } from '../lib/project';
 import type { PrintSetup } from '../lib/layout/plan';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 
@@ -108,8 +108,8 @@ class GeometryClient {
     return this.bytes(await this.call({ type: 'export-bambu', job, setup, settings }, onProgress));
   }
 
-  async exportZip(job: PrintJob, state: ProjectState, onProgress?: Pending['onProgress']) {
-    return this.bytes(await this.call({ type: 'export-zip', job, state }, onProgress));
+  async exportZip(job: PrintJob, setup: PrintSetup, onProgress?: Pending['onProgress']) {
+    return this.bytes(await this.call({ type: 'export-zip', job, setup }, onProgress));
   }
 
   async exportPlate(job: PrintJob, plate: number, onProgress?: Pending['onProgress']) {

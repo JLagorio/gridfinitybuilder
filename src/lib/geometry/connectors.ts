@@ -37,9 +37,8 @@ const HALF_WALL = BP_PROFILE.chamfer2;
 
 /** The grid along one axis. */
 interface Axis {
-  origin: number;
-  pitch: number;
-  n: number;
+  /** Cell boundaries (n + 1 values). */
+  bounds: number[];
   total: number;
 }
 
@@ -72,17 +71,15 @@ function seamPositions(span: SeamSpan, across: Axis, along: Axis, chamfer: numbe
   if (hi < lo) return [];
 
   // A receptacle the pocket would reach blocks its row, leaving a thin band at each wall line.
-  const hitsCells = Array.from({ length: across.n }, (_, i) => i).some((i) => {
-    const c0 = across.origin + i * across.pitch + HALF_WALL;
-    const c1 = across.origin + (i + 1) * across.pitch - HALF_WALL;
+  const cells = (a: Axis) => a.bounds.slice(1).map((b, i) => [a.bounds[i], b] as const);
+  const hitsCells = cells(across).some(([b0, b1]) => {
+    const c0 = b0 + HALF_WALL;
+    const c1 = b1 - HALF_WALL;
     return c0 < span.at + reach && c1 > span.at - reach;
   });
   const pad = HALF_W + CONNECTOR_MIN_WALL;
   const blocked: [number, number][] = hitsCells
-    ? Array.from({ length: along.n }, (_, j) => [
-        along.origin + j * along.pitch + HALF_WALL - pad,
-        along.origin + (j + 1) * along.pitch - HALF_WALL + pad,
-      ])
+    ? cells(along).map(([b0, b1]) => [b0 + HALF_WALL - pad, b1 - HALF_WALL + pad])
     : [];
 
   const free: [number, number][] = [];
@@ -109,8 +106,8 @@ function seamPositions(span: SeamSpan, across: Axis, along: Axis, chamfer: numbe
  */
 export function connectorSites(layout: GridLayout, pieces: PieceDef[], o: BaseplateOptions): ConnectorSite[] {
   if (o.connector !== 'bowtie') return [];
-  const X: Axis = { origin: layout.originX, pitch: layout.pitchX, n: layout.nx, total: layout.plateW };
-  const Y: Axis = { origin: layout.originY, pitch: layout.pitchY, n: layout.ny, total: layout.plateD };
+  const X: Axis = { bounds: layout.xs, total: layout.plateW };
+  const Y: Axis = { bounds: layout.ys, total: layout.plateD };
   const chamfer = Math.max(o.bottomChamfer, 0);
   const sites: ConnectorSite[] = [];
   for (const a of pieces) {
