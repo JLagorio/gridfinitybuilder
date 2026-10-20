@@ -4,6 +4,7 @@ import type { PlacedBin } from '../lib/project';
 import { binRect, canPlace, occupancy, outOfBounds, type CellRect } from '../lib/bins';
 import { HANDLES, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
 import { useLayoutShortcuts } from './useLayoutShortcuts';
+import { dividerLines } from './dividerLines';
 
 interface Props {
   layout: GridLayout;
@@ -241,16 +242,9 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
           return (
             <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''}`}>
               <rect {...r} rx={3.75} />
-              {b.opts.divX > 1 &&
-                Array.from({ length: b.opts.divX - 1 }, (_, k) => {
-                  const x = r.x + ((k + 1) * r.width) / b.opts.divX;
-                  return <line key={`x${k}`} x1={x} x2={x} y1={r.y + 4} y2={r.y + r.height - 4} />;
-                })}
-              {b.opts.divY > 1 &&
-                Array.from({ length: b.opts.divY - 1 }, (_, k) => {
-                  const y = r.y + ((k + 1) * r.height) / b.opts.divY;
-                  return <line key={`y${k}`} y1={y} y2={y} x1={r.x + 4} x2={r.x + r.width - 4} />;
-                })}
+              {dividerLines(layout, b).map((l, k) => (
+                <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />
+              ))}
               <text x={r.x + r.width / 2} y={r.y + r.height / 2} fontSize={fs} dominantBaseline="middle" textAnchor="middle">
                 {b.opts.heightUnits}u
               </text>

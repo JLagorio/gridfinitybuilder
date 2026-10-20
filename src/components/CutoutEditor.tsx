@@ -6,6 +6,7 @@ import { BASE_TOP_RADIUS, WALL } from '../lib/geometry/spec';
 import {
   autoNotches,
   cutoutArea,
+  cutoutFloor,
   cutoutStyle,
   fillTop,
   labelPlacement,
@@ -104,8 +105,9 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
 
   const cells = binSpec(job.layout, bin).cells;
   const { w: W, d: D } = binSize(bin.opts, cells);
-  const area = cutoutArea(W, D, bin.opts.lip);
+  const area = cutoutArea(W, D, bin.opts.lip, bin.opts.lipStyle);
   const top = fillTop(bin.opts);
+  const floor = cutoutFloor(bin.opts);
   const style = cutoutStyle(bin.opts);
   const saved = bin.opts.cutouts ?? [];
   const cutouts = draft ?? saved;
@@ -114,7 +116,7 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
 
   const commit = (list: BinCutout[]) => {
     setDraft(null);
-    updateBin(bin.id, { opts: { cutouts: list } });
+    updateBin(bin.id, { opts: { interior: 'cutouts', cutouts: list } });
   };
   const patchSel = (patch: Partial<BinCutout>) => {
     if (sel === null) return;
@@ -280,7 +282,7 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
     if (is.overlaps.some((j) => j > i)) warnings.push(`${n} overlaps ${is.overlaps.filter((j) => j > i).map((j) => cutouts[j].name || `pocket ${j + 1}`).join(', ')}.`);
   });
   const deepest = Math.max(0, ...cutouts.map((c) => c.depth));
-  const needUnits = cutouts.length ? heightUnitsFor(deepest, bin.opts.lip, style.extraDepth) : bin.opts.heightUnits;
+  const needUnits = cutouts.length ? heightUnitsFor(deepest, bin.opts.lip, style.extraDepth, floor) : bin.opts.heightUnits;
   const tooShallow = issues.some((i) => i.tooDeep);
 
   return (
@@ -290,7 +292,7 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
           <b>{binLabel(bin.opts)}</b>
           <span className="muted">
             {' '}
-            · opening {fmt(area.x1 - area.x0)} × {fmt(area.y1 - area.y0)} · pockets up to {fmt(maxPocketDepth(top))} deep
+            · opening {fmt(area.x1 - area.x0)} × {fmt(area.y1 - area.y0)} · pockets up to {fmt(maxPocketDepth(top, floor))} deep
           </span>
         </span>
         <label className="co-check" title="Snap to the center lines, the walls and other pockets (hold Alt to move freely)">
@@ -469,7 +471,12 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
             front
           </text>
         </svg>
-        {!cutouts.length && <div className="co-hint">Drag a tool here from the strip above. The bin gets filled solid and each tool is cut as a pocket.</div>}
+        {!cutouts.length && (
+          <div className="co-hint">
+            Drag a tool here from the strip above. {bin.opts.interior === 'cutouts' ? 'The bin is filled solid' : 'The bin gets filled solid (no compartments)'} and each tool is cut
+            as a pocket.
+          </div>
+        )}
       </div>
       <div className="co-foot">
         {selC ? (
@@ -509,7 +516,7 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
             {tooShallow && (
               <div>
                 The bin is too shallow for the deepest pocket ({fmt(deepest + style.extraDepth)}).{' '}
-                <button className="link" onClick={() => updateBin(bin.id, { opts: { heightUnits: needUnits } })}>
+                <button className="link" onClick={() => updateBin(bin.id, { opts: { heightMode: 'units', heightUnits: needUnits } })}>
                   Make it {needUnits}u
                 </button>
               </div>

@@ -2,6 +2,7 @@ import { binSize, MIN_HEIGHT_UNITS, type BinOptions } from './geometry/bin';
 import {
   autoNotches,
   cutoutArea,
+  cutoutFloor,
   DEFAULT_CUTOUT_STYLE,
   MAX_OUTLINE_POINTS,
   maxPocketDepth,
@@ -13,6 +14,7 @@ import {
 } from './geometry/cutouts';
 import { BASE_HEIGHT, GRID, HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from './geometry/spec';
 import { cellSizes, type GridLayout } from './layout/drawer';
+import { binFloorZ, type BaseStyle, type LipStyle } from './geometry/variants';
 import { boundariesWithin, boundaryDistance, bounds, dedupe, polygonsIntersect, signedArea, simplifyClosed } from './trace/polygon';
 import { canPlace, newId } from './bins';
 import type { PlacedBin } from './project';
@@ -154,15 +156,15 @@ export function toolUsage(bins: PlacedBin[], toolId: string): number {
 }
 
 /** Height units needed for a pocket this deep (plus the bin's floor and lip support). */
-export function heightUnitsFor(depth: number, lip: boolean, extraDepth = 0): number {
-  const need = BASE_HEIGHT + depth + extraDepth + (lip ? LIP_SUPPORT_HEIGHT : 0);
+export function heightUnitsFor(depth: number, lip: boolean, extraDepth = 0, floor = BASE_HEIGHT): number {
+  const need = floor + depth + extraDepth + (lip ? LIP_SUPPORT_HEIGHT : 0);
   return Math.max(MIN_HEIGHT_UNITS, Math.ceil(need / HEIGHT_UNIT - 1e-9));
 }
 
 /** Grid units needed along one axis for `extent` mm of pockets. */
-function unitsFor(extent: number, lip: boolean, margin: number): number {
+function unitsFor(extent: number, lip: boolean, margin: number, lipStyle: LipStyle = 'normal'): number {
   for (let n = 1; n < 100; n++) {
-    const a = cutoutArea(binSize({ unitsX: n, unitsY: 1 }).w, 10, lip);
+    const a = cutoutArea(binSize({ unitsX: n, unitsY: 1 }).w, 10, lip, lipStyle);
     if (a.x1 - a.x0 - 2 * margin >= extent - 1e-6) return n;
   }
   return 100;
@@ -207,20 +209,20 @@ export interface BinFit {
  */
 export function fitBinForTools(
   tools: Tool[],
-  o: { lip: boolean; extraDepth?: number; margin?: number; gap?: number } = { lip: true },
+  o: { lip: boolean; lipStyle?: LipStyle; base?: BaseStyle; extraDepth?: number; margin?: number; gap?: number } = { lip: true },
 ): BinFit {
   const margin = o.margin ?? FIT_MARGIN;
   const gap = o.gap ?? FIT_GAP;
   const extraDepth = o.extraDepth ?? DEFAULT_CUTOUT_STYLE.extraDepth;
-  const heightUnits = heightUnitsFor(Math.max(0, ...tools.map((t) => t.depth)), o.lip, extraDepth);
+  const heightUnits = heightUnitsFor(Math.max(0, ...tools.map((t) => t.depth)), o.lip, extraDepth, binFloorZ(o));
   const layouts: { ux: number; uy: number; cutouts: BinCutout[] }[] = [];
   const arrange = (dir: 'row' | 'col' | 'single') => {
     const rots = tools.map((t) => bestRotation(t, dir === 'row' ? 'tall' : dir === 'col' ? 'wide' : 'any'));
     const sizes = tools.map((t, i) => pocketSize(t, rots[i]));
     const along = sizes.reduce((s, z) => s + (dir === 'col' ? z.d : z.w), 0) + gap * (tools.length - 1);
     const across = Math.max(...sizes.map((z) => (dir === 'col' ? z.w : z.d)));
-    const ux = unitsFor(dir === 'col' ? across : along, o.lip, margin);
-    const uy = unitsFor(dir === 'col' ? along : across, o.lip, margin);
+    const ux = unitsFor(dir === 'col' ? across : along, o.lip, margin, o.lipStyle);
+    const uy = unitsFor(dir === 'col' ? along : across, o.lip, margin, o.lipStyle);
     // Lay the pockets out centered in the bin.
     let pos = -along / 2;
     const cutouts = tools.map((t, i) => {
@@ -263,7 +265,7 @@ export function firstFreeSpot(layout: GridLayout, bins: PlacedBin[], w: number, 
 
 /** Bin options for "make a bin for these tools" (merged over the new-bin defaults). */
 export function binOptsForTools(fit: BinFit): Partial<BinOptions> {
-  return { unitsX: fit.unitsX, unitsY: fit.unitsY, heightUnits: fit.heightUnits, divX: 1, divY: 1, cutouts: fit.cutouts };
+  return { unitsX: fit.unitsX, unitsY: fit.unitsY, heightUnits: fit.heightUnits, heightMode: 'units', divX: 1, divY: 1, interior: 'cutouts', cutouts: fit.cutouts };
 }
 
 /** Two pockets closer than `gap` mm (edge to edge, clearances included), or overlapping. */
@@ -297,9 +299,9 @@ export interface CutoutIssues {
 /** Problems with each pocket in a bin (for warnings in the editor). `top` is the top of the fill (mm). */
 export function cutoutIssues(o: BinOptions, W: number, D: number, top: number): CutoutIssues[] {
   const cs = o.cutouts ?? [];
-  const area = cutoutArea(W, D, o.lip);
+  const area = cutoutArea(W, D, o.lip, o.lipStyle);
   const extra = { ...DEFAULT_CUTOUT_STYLE, ...o.cutoutStyle }.extraDepth;
-  const room = maxPocketDepth(top);
+  const room = maxPocketDepth(top, cutoutFloor(o));
   return cs.map((c, i) => {
     const b = pocketBox(c);
     const eps = 1e-3;

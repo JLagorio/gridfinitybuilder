@@ -25,7 +25,7 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
   const activeId = useStore((s) => s.activeDrawerId);
   const selectedId = useStore((s) => s.ui.selectedBinId);
   const binPane = useStore((s) => s.ui.binPane);
-  const lip = useStore((s) => s.newBin.lip);
+  const newBin = useStore((s) => s.newBin);
   const addBin = useStore((s) => s.addBin);
   const updateBin = useStore((s) => s.updateBin);
   const updateTool = useStore((s) => s.updateTool);
@@ -45,13 +45,13 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
     if (!sel) return;
     const { w, d } = binSize(sel.opts, binSpec(job.layout, sel).cells);
     const list = sel.opts.cutouts ?? [];
-    const spot = findFreePlacement(list, t, cutoutArea(w, d, sel.opts.lip));
-    updateBin(sel.id, { opts: { cutouts: [...list, cutoutFromTool(t, spot.x, spot.y, spot.rotation)] } });
+    const spot = findFreePlacement(list, t, cutoutArea(w, d, sel.opts.lip, sel.opts.lipStyle));
+    updateBin(sel.id, { opts: { interior: 'cutouts', cutouts: [...list, cutoutFromTool(t, spot.x, spot.y, spot.rotation)] } });
     setUI({ binPane: 'cutouts' });
   };
 
   const makeBin = (ts: Tool[]) => {
-    const fit = fitBinForTools(ts, { lip });
+    const fit = fitBinForTools(ts, { lip: newBin.lip, lipStyle: newBin.lipStyle, base: newBin.base });
     if (!fit.fits) {
       setMsg(`Too big for one bin: it would need ${fit.unitsX} × ${fit.unitsY} units (12 × 12 at most).`);
       return;
@@ -164,7 +164,7 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
         )}
         {msg && <div className="field-error">{msg}</div>}
       </Section>
-      {sel?.opts.cutouts?.length ? <PocketSettings binId={sel.id} style={cutoutStyle(sel.opts)} count={sel.opts.cutouts.length} /> : null}
+      {sel?.opts.interior === 'cutouts' ? <PocketSettings binId={sel.id} style={cutoutStyle(sel.opts)} count={sel.opts.cutouts?.length ?? 0} /> : null}
       {dialog && <TraceDialog initialTab={dialog} onClose={() => setDialog(null)} />}
     </>
   );
@@ -178,12 +178,15 @@ function PocketSettings({ binId, style, count }: { binId: string; style: CutoutS
     <Section
       title={`Pockets in this bin (${count})`}
       aside={
-        <button className="link danger" onClick={() => confirm('Remove every pocket from this bin? It goes back to a normal bin.') && updateBin(binId, { opts: { cutouts: [] } })}>
-          Remove all
+        <button
+          className="link danger"
+          onClick={() => (!count || confirm('Remove every tool pocket from this bin? It goes back to compartments.')) && updateBin(binId, { opts: { interior: 'compartments', cutouts: [] } })}
+        >
+          Back to compartments
         </button>
       }
     >
-      <p className="muted small">The bin is filled solid and each tool is cut into it. Compartments, scoop and label tab are ignored while it has pockets.</p>
+      <p className="muted small">The bin is filled solid and each tool is cut into it. Lay them out in the Tool cutouts pane.</p>
       <Segmented
         label="Top edge"
         value={style.edge}

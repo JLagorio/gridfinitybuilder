@@ -88,6 +88,7 @@ const cut = (o: Partial<BinCutout> = {}): BinCutout => ({
 
 const bin = (cutouts: BinCutout[], o: Partial<BinOptions> = {}): BinOptions => ({
   ...DEFAULT_BIN,
+  interior: 'cutouts',
   unitsX: 2,
   unitsY: 1,
   heightUnits: 4,
@@ -152,6 +153,17 @@ describe('pocket geometry', () => {
     expect(noNotches.volume - withAll.volume).toBeGreaterThan(100);
   });
 
+  it.each([
+    { name: 'flat base (pockets reach its 1.2 mm floor)', o: { base: 'flat' as const, heightUnits: 2 } },
+    { name: 'lite base stays solid under the pockets', o: { base: 'lite' as const } },
+    { name: 'reduced lip, internal height in mm', o: { lipStyle: 'reduced' as const, heightMode: 'internal' as const, heightMm: 15 } },
+  ])('works with bin variants: $name', ({ o }) => {
+    const c = check(buildBin(w, bin([cut({ outline: wrench, clearance: 1, depth: 9, notches: autoNotches(wrench) })], { ...o, cutoutStyle: { edge: 'chamfer' } })));
+    expect(c.status).toBe('NoError');
+    expect(c.components).toBe(1);
+    expect(c.genus).toBe(0);
+  });
+
   it('a pocket hanging over the edge is clipped by the wall, never through it', () => {
     const inside = buildBin(w, bin([cut({ x: 0 })]));
     const over = buildBin(w, bin([cut({ x: 40, y: 15 })]));
@@ -176,6 +188,8 @@ describe('cutout data', () => {
   it('binKey changes with the tool and stays the same for plain bins', () => {
     const base = binKey(sanitizeBin(DEFAULT_BIN));
     expect(binKey(sanitizeBin({ ...DEFAULT_BIN, cutouts: [] }))).toBe(base);
+    // Pockets only count in the 'cutouts' interior.
+    expect(binKey(sanitizeBin({ ...DEFAULT_BIN, cutouts: [cut()] }))).toBe(base);
     const a = binKey(bin([cut()]));
     expect(a).not.toBe(base);
     expect(binKey(bin([cut({ depth: 9 })]))).not.toBe(a);
@@ -379,8 +393,9 @@ describe('tool library in the store', () => {
   });
 
   it('"Use for new bins" never copies pockets', () => {
-    s().setNewBin({ heightUnits: 5, cutouts: [cut()] });
+    s().setNewBin({ heightUnits: 5, interior: 'cutouts', cutouts: [cut()] });
     expect(s().newBin.cutouts).toBeUndefined();
+    expect(s().newBin.interior).toBe('compartments');
     expect(s().newBin.heightUnits).toBe(5);
   });
 });

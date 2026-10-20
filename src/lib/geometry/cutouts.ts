@@ -1,7 +1,9 @@
 import type { Manifold, Wasm } from './kernel';
 import type { Scope } from './kernel';
 import type { BinOptions } from './bin';
-import { BASE_HEIGHT, HEIGHT_UNIT, LIP_DEPTH, LIP_SUPPORT_HEIGHT, WALL } from './spec';
+import { BASE_HEIGHT, INNER_RADIUS, LIP_DEPTH, LIP_PROFILE, LIP_SUPPORT_HEIGHT, WALL } from './spec';
+import { extrudePolygon, roundedRectRing } from './shapes';
+import { binBodyHeight, binFloorZ, type LipStyle } from './variants';
 import { hasFont, textOutline, textSolid } from './text';
 
 /**
@@ -66,7 +68,7 @@ export const DEFAULT_CUTOUT_STYLE: CutoutStyle = {
 
 /** Engraving depth for labels, mm. */
 export const LABEL_DEPTH = 0.6;
-/** Pockets never cut below the floor of a standard bin. */
+/** Pockets never cut below the bin's floor (7 mm on standard feet; see binFloorZ). */
 export const POCKET_MIN_FLOOR_Z = BASE_HEIGHT;
 export const MAX_CUTOUTS = 40;
 export const MAX_OUTLINE_POINTS = 2500;
@@ -156,15 +158,17 @@ function hash(s: string): string {
   return ((h1 >>> 0) * 2 ** 21 + ((h2 >>> 0) & 0x1fffff)).toString(36);
 }
 
-/** Extra binKey parts: [] for a plain bin, so its key doesn't change. */
-export function cutoutKeyPart(o: Pick<BinOptions, 'cutouts' | 'cutoutStyle'>): string[] {
-  if (!o.cutouts?.length) return [];
-  return [`t${o.cutouts.length}x${hash(JSON.stringify([o.cutouts, cutoutStyle(o)]))}`];
+/** Extra binKey parts: [] unless the interior is 'cutouts', so other bins keep their keys. */
+export function cutoutKeyPart(o: Pick<BinOptions, 'interior' | 'cutouts' | 'cutoutStyle'>): string[] {
+  if (o.interior !== 'cutouts') return [];
+  const list = o.cutouts ?? [];
+  return [`T${list.length}x${hash(JSON.stringify([list, cutoutStyle(o)]))}`];
 }
 
-/** How far in from the outside of the bin the usable top opening starts (the lip's inner tip). */
-export function cutoutInset(lip: boolean): number {
-  return lip ? LIP_DEPTH : WALL;
+/** How far in from the outside of the bin the usable top opening starts (the lip's narrowest point). */
+export function cutoutInset(lip: boolean, lipStyle: LipStyle = 'normal'): number {
+  if (!lip) return WALL;
+  return lipStyle === 'reduced' ? LIP_PROFILE.chamfer2 : LIP_DEPTH;
 }
 
 export interface Rect {
@@ -175,8 +179,8 @@ export interface Rect {
 }
 
 /** Where pockets can go: the opening inside the walls (or the lip), centered on the bin. */
-export function cutoutArea(W: number, D: number, lip: boolean): Rect {
-  const i = cutoutInset(lip);
+export function cutoutArea(W: number, D: number, lip: boolean, lipStyle: LipStyle = 'normal'): Rect {
+  const i = cutoutInset(lip, lipStyle);
   return { x0: -W / 2 + i, y0: -D / 2 + i, x1: W / 2 - i, y1: D / 2 - i };
 }
 
@@ -275,29 +279,35 @@ export function labelPlacement(c: BinCutout, style: CutoutStyle, area: Rect): { 
   return { x: (box.x0 + box.x1) / 2, y, maxWidth };
 }
 
-/** Z of a pocket's floor, given the top of the fill. */
-export function pocketFloorZ(top: number, c: Pick<BinCutout, 'depth'>, style: CutoutStyle): number {
-  return Math.max(POCKET_MIN_FLOOR_Z, top - c.depth - style.extraDepth);
+/** Z of a pocket's floor, given the top of the fill and the bin's floor. */
+export function pocketFloorZ(top: number, c: Pick<BinCutout, 'depth'>, style: CutoutStyle, floor = POCKET_MIN_FLOOR_Z): number {
+  return Math.max(floor, top - c.depth - style.extraDepth);
 }
 
 /** Top of the solid fill pockets are cut into (what buildBin calls topInfill). */
-export function fillTop(o: Pick<BinOptions, 'heightUnits' | 'lip'>): number {
-  return HEIGHT_UNIT * o.heightUnits - (o.lip ? LIP_SUPPORT_HEIGHT : 0);
+export function fillTop(o: Pick<BinOptions, 'heightUnits' | 'lip'> & Partial<BinOptions>): number {
+  return binBodyHeight(o) - (o.lip ? LIP_SUPPORT_HEIGHT : 0);
+}
+
+/** Lowest a pocket may go: the bin's own floor. */
+export function cutoutFloor(o: Partial<Pick<BinOptions, 'base'>>): number {
+  return binFloorZ(o);
 }
 
 /** Deepest pocket that fits under `top` (the top of the fill). */
-export function maxPocketDepth(top: number): number {
-  return Math.max(0, top - POCKET_MIN_FLOOR_Z);
+export function maxPocketDepth(top: number, floor = POCKET_MIN_FLOOR_Z): number {
+  return Math.max(0, top - floor);
 }
 
 /**
- * Solids to subtract from the bin's solid fill (top at `top`): one per pocket,
- * edge step, notch and label. The bin's walls are added afterwards, so
- * anything that strays into them is clipped automatically.
+ * What to subtract from the bin's solid fill (top at `top`): every pocket,
+ * edge step, notch and label, clipped to the inside of the walls (the walls
+ * and lip are added afterwards, so anything straying under them is filled back).
  */
 export function cutoutCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: number, top: number): Manifold[] {
   const st = cutoutStyle(o);
-  const area = cutoutArea(W, D, o.lip);
+  const area = cutoutArea(W, D, o.lip, o.lipStyle);
+  const floor = cutoutFloor(o);
   const out: Manifold[] = [];
   const above = top + 1;
   for (const c of o.cutouts ?? []) {
@@ -305,7 +315,7 @@ export function cutoutCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: nu
     const tool = s.t(new w.CrossSection([placedOutline(c)], 'NonZero'));
     const pocket = c.clearance > 0 ? s.t(tool.offset(c.clearance, 'Round', 2, ROUND_SEGS)) : tool;
     if (pocket.isEmpty()) continue;
-    const zb = pocketFloorZ(top, c, st);
+    const zb = pocketFloorZ(top, c, st, floor);
     if (zb >= top - 0.05) continue;
     out.push(s.t(pocket.extrude(above - zb).translate([0, 0, zb])));
 
@@ -339,5 +349,10 @@ export function cutoutCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: nu
       if (solid) out.push(s.t(solid));
     }
   }
-  return out;
+  if (!out.length) return out;
+  // Keep everything inside the walls: below the wall's bottom edge (flat bases,
+  // whose floor is lower) the fill itself is the outside of the bin.
+  const inner = roundedRectRing(-W / 2 + WALL, -D / 2 + WALL, W / 2 - WALL, D / 2 - WALL, INNER_RADIUS);
+  const keep = s.t(extrudePolygon(w, inner, floor - 1, above + 1));
+  return [s.t(s.t(w.Manifold.union(out)).intersect(keep))];
 }

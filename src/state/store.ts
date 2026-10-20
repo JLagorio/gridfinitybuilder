@@ -13,8 +13,8 @@ import { trackHistory, type Snapshot } from './history';
 import { cleanTool, cleanTools, mergeTools, removeToolFromBins, syncToolInBins, type Tool } from '../lib/tools';
 
 export type Tab = 'drawer' | 'bins' | 'print';
-/** What the Bins tab's 2D pane shows. */
-export type BinPane = 'layout' | 'cutouts';
+/** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
+export type BinPane = 'drawer' | 'compartments' | 'cutouts';
 
 export interface UIState {
   tab: Tab;
@@ -32,7 +32,7 @@ export interface UIState {
   explode: boolean;
   /** Plate shown in the print view; -1 = all. */
   plate: number;
-  /** Bins tab 2D pane: drawer layout or the selected bin's tool cutouts. */
+  /** Bins tab, left pane (see BinPane). */
   binPane: BinPane;
 }
 
@@ -105,7 +105,7 @@ const DEFAULT_UI: UIState = {
   inchPrecision: DEFAULT_INCH_PRECISION,
   explode: false,
   plate: -1,
-  binPane: 'layout',
+  binPane: 'drawer',
 };
 
 function gridSize(s: ProjectState) {
@@ -232,7 +232,11 @@ export const useStore = create<Store>()(
           return { ui: { ...s.ui, ...p, ...ids } };
         }),
       // New bins never start with another bin's tool pockets.
-      setNewBin: (p) => set((s) => ({ newBin: sanitizeBin({ ...s.newBin, ...p, cutouts: undefined }) })),
+      setNewBin: (p) =>
+        set((s) => {
+          const nb = sanitizeBin({ ...s.newBin, ...p, cutouts: undefined });
+          return { newBin: nb.interior === 'cutouts' ? { ...nb, interior: 'compartments' } : nb };
+        }),
       addBin: (x, y, w, d) => {
         const id = newId();
         const bin: PlacedBin = { id, x, y, opts: sanitizeBin({ ...get().newBin, unitsX: w, unitsY: d }) };

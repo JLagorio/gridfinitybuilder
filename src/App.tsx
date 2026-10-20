@@ -13,13 +13,16 @@ import { DrawerPanel } from './components/DrawerPanel';
 import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
+import { BinInteriorEditor, BinPaneHeader, useInteriorPane } from './components/BinInteriorEditor';
 import { CutoutEditor } from './components/CutoutEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { HistoryButtons } from './components/HistoryButtons';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { useOpenSharedProject } from './components/ShareLink';
 import { Segmented } from './components/fields';
-import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, pieceColor } from './components/colors';
+import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LID_COLOR, pieceColor } from './components/colors';
+import { binBodyHeight } from './lib/geometry/variants';
+import { LID_SEAT_DROP } from './lib/geometry/lid';
 import './components/workflow.css';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -70,6 +73,21 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
         selected: selectedIds(state.ui).includes(b.id),
         pickable: true,
       });
+      // A lid sits in the bin's lip (hidden while the bin is selected, so its inside stays visible).
+      const lid = job.parts[`lid:${b.id}`];
+      if (lid && !selectedIds(state.ui).includes(b.id)) {
+        items.push({
+          id: `${b.id}:lid`,
+          meshKey: lid.meshKey,
+          x: cellEdge(job.layout.xs, b.x, job.layout.pitchX) + inset,
+          y: cellEdge(job.layout.ys, b.y, job.layout.pitchY) + inset,
+          z: seat + binBodyHeight(b.opts) - LID_SEAT_DROP,
+          w: lid.w,
+          d: lid.d,
+          h: lid.h,
+          color: LID_COLOR,
+        });
+      }
     }
   }
   return {
@@ -99,7 +117,7 @@ function platesScene(job: PrintJob, plate: number, bedW: number, bedD: number): 
         d: part.d,
         h: part.h,
         rotated: p.rotated,
-        color: part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'key' ? KEY_COLOR : BIN_COLOR,
+        color: part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'key' ? KEY_COLOR : part.kind === 'lid' ? LID_COLOR : BIN_COLOR,
       });
     }
   });
@@ -109,6 +127,7 @@ function platesScene(job: PrintJob, plate: number, bedW: number, bedD: number): 
 export default function App() {
   const state = useStore();
   const { ui } = state;
+  const interiorBin = useInteriorPane();
   // Plan with bins always included so the drawer view can show them.
   const project = projectOf(state);
   const job = useMemo(
@@ -158,7 +177,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('input, textarea, select, [contenteditable]')) return;
+      // Handled already (e.g. by the compartment editor, which owns Delete/Escape while it's open).
+      if (e.defaultPrevented || t.closest('input, textarea, select, [contenteditable]')) return;
       const s = useStore.getState();
       if ((e.key === 'Delete' || e.key === 'Backspace') && s.ui.selectedBinId && s.ui.tab === 'bins') {
         removeSelection();
@@ -266,32 +286,21 @@ export default function App() {
           {ui.tab === 'bins' ? (
             <div className="split">
               <div className="pane pane-2d">
-                {/* 2D pane mode: drawer layout | tool cutouts (ui.binPane) */}
-                <div className="pane-modes">
-                  <Segmented
-                    value={ui.binPane}
-                    options={[
-                      { value: 'layout', label: 'Drawer layout' },
-                      { value: 'cutouts', label: 'Tool cutouts', title: 'Lay out tool pockets in the selected bin' },
-                    ]}
-                    onChange={(binPane) => state.setUI({ binPane })}
-                  />
-                </div>
+                <BinPaneHeader />
                 {ui.binPane === 'cutouts' ? (
                   <CutoutEditor job={job} />
+                ) : interiorBin ? (
+                  <BinInteriorEditor binId={interiorBin} grid={job.layout} />
                 ) : (
-                  <>
-                <div className="pane-title">Layout — drag to draw bins · Shift-drag to select · press ? for shortcuts</div>
-                <BinGridEditor
-                  layout={job.layout}
-                  bins={state.bins}
-                  selectedIds={selection}
-                  onSelect={selectBins}
-                  onCreate={(r) => state.addBin(r.x, r.y, r.w, r.d)}
-                  onMoveBins={moveBins}
-                  onResize={resizeBin}
-                />
-                  </>
+                  <BinGridEditor
+                    layout={job.layout}
+                    bins={state.bins}
+                    selectedIds={selection}
+                    onSelect={selectBins}
+                    onCreate={(r) => state.addBin(r.x, r.y, r.w, r.d)}
+                    onMoveBins={moveBins}
+                    onResize={resizeBin}
+                  />
                 )}
               </div>
               <div className="pane pane-3d">{viewer}</div>
