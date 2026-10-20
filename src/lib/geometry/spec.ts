@@ -80,6 +80,58 @@ export const BP_BOTTOM_CLEARANCE = 0.35;
 export const BP_CELL_RADIUS = 4;
 
 // ---------------------------------------------------------------------------
+// Baseplate styles (gridfinity-rebuilt-openscad baseplate styles)
+// ---------------------------------------------------------------------------
+
+/** Floor of a 'solid' or 'skeletonized' plate when nothing else asks for more (Rebuilt h_skel). */
+export const BP_MIN_FLOOR = 1;
+
+/**
+ * Weighted baseplate (Rebuilt bp_h_bot / bp_cut_* / bp_rcut_*): a 6.4 mm floor
+ * with a square weight pocket under each cell and four rounded channels from it.
+ */
+export const WEIGHTED = {
+  floor: 6.4,
+  /** Square pocket in the middle of each cell. */
+  pocket: 21.4,
+  pocketDepth: 4,
+  /** Channels toward the four cell edges: width, straight length, depth. */
+  channelWidth: 8.5,
+  channelLength: 4.25,
+  channelDepth: 2,
+  /** Distance from the cell center to the middle of a channel's straight part. */
+  channelAt: 10,
+} as const;
+
+/**
+ * Skeletonized baseplate (Rebuilt profile_skeleton): the floor is cut through
+ * between the corner bosses that hold the magnets and screws.
+ */
+export const SKELETON = {
+  /** Rounding of the cut's outside corners. */
+  radius: 2,
+  /** Boss material left around the largest hole at each corner. */
+  boss: 2,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Magnet pocket extras
+// ---------------------------------------------------------------------------
+
+/** Press-fit ribs inside the pocket (Rebuilt crush_ribs: 8 ribs, 5.9 mm inner for a 6 mm magnet). */
+export const CRUSH_RIBS = {
+  count: 8,
+  /** Rib tips sit this far inside the magnet's radius. */
+  squeeze: 0.05,
+  /** Rib roots sit at least this far outside the magnet's radius. */
+  relief: 0.25,
+} as const;
+/** 45° chamfer at the pocket mouth (Rebuilt CHAMFER_ADDITIONAL_RADIUS). */
+export const MAGNET_CHAMFER = 0.8;
+/** Side slot to pry a magnet out (toward the cell center): width, and reach past the pocket wall. */
+export const MAGNET_SLOT = { width: 2, reach: 2.5 } as const;
+
+// ---------------------------------------------------------------------------
 // Connectors (bowtie keys that lock split baseplate pieces together)
 // ---------------------------------------------------------------------------
 
@@ -110,3 +162,79 @@ export const BOWTIE_KEY_CHAMFER = 0.3;
 export const CONNECTOR_MIN_WALL = 0.6;
 /** One connector per this much length of solid margin along a seam. */
 export const CONNECTOR_SPACING = GRID;
+
+/**
+ * Filament pins: horizontal holes across a seam for pins cut from 1.75 mm
+ * filament. Each hole runs half the pin length into each piece and sits in the
+ * vertical band of the wall (4.3 mm wide), centered `z` above the receptacle's
+ * bottom clearance.
+ */
+export const PIN = {
+  hole: 1.9,
+  /** Total hole length across the seam; cut pins 0.5 mm shorter. */
+  length: 16,
+  z: 1.6,
+} as const;
+
+/**
+ * Puzzle tabs: a jigsaw knob on the left / front piece of a seam, with a
+ * matching socket (with clearance) in the piece across it. They sit in the
+ * wall that crosses the seam, from the bottom up to just below the top of the
+ * wall's vertical band; the socket is open underneath, so the neighbor is
+ * lowered onto the tab.
+ */
+export const PUZZLE = {
+  neck: 1.8,
+  /** Round head: diameter, and its center's distance from the seam. */
+  head: 2.8,
+  headAt: 3.2,
+  /** Clearance around the tab, per side. */
+  gap: 0.15,
+  /** How far the tab reaches back into its own piece, so the two fuse. */
+  overlap: 0.5,
+  /** Space between the tab top and the socket ceiling, and between the ceiling and the band top. */
+  topGap: 0.2,
+} as const;
+/** How far a puzzle tab sticks out past its piece's edge. */
+export const PUZZLE_PROTRUSION = PUZZLE.headAt + PUZZLE.head / 2;
+
+/**
+ * Screw-together joints (after Rebuilt's "screw together" baseplate): a
+ * horizontal M3 hole across the seam, 3 mm above the bottom, with a head slot
+ * in one piece and a hex-nut slot (or a heat-set insert hole) in the other.
+ * Both slots are open underneath. Needs a 7 mm floor, which is enforced.
+ */
+export const SCREW_JOIN = {
+  floor: 7,
+  z: 3,
+  hole: 3.4,
+  /** Material between each slot and the seam. */
+  seat: 3.5,
+  /** Head slot: width, length (an M3×10 and its head drop in), height above the hole axis. */
+  headWidth: 6,
+  headLength: 14,
+  headTop: 3,
+  /** Hex nut slot (M3: 5.5 mm across flats, 2.4 thick, corners up). */
+  nutWidth: 5.9,
+  nutThick: 2.8,
+  nutTop: 3.4,
+  /** Hole past the nut for the screw tip. */
+  tip: 2.5,
+  /** Heat-set insert hole from the seam face. */
+  insertHole: 4,
+  insertLength: 7,
+  screw: 'M3×10',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Piece numbers (debossed on the underside)
+// ---------------------------------------------------------------------------
+
+export const PIECE_NUMBER = {
+  /** Digit height and stroke. */
+  height: 3.6,
+  stroke: 0.6,
+  depth: 0.4,
+  /** Solid material kept around the digits. */
+  margin: 0.8,
+} as const;
