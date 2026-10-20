@@ -60,6 +60,29 @@ export const SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    title: 'Compartments (bin walls)',
+    items: [
+      { keys: [['Click inside the bin']], label: 'Add a wall across that space (snaps to 50%, 33%, 25%, other walls and cell lines)' },
+      { keys: [['Shift']], label: 'Flip the new wall between across and along' },
+      { keys: [['R']], label: 'Lock the direction: auto, vertical, horizontal' },
+      { keys: [['Alt', 'Drag']], label: 'Move without snapping (fine steps only)' },
+      { keys: [['Drag a wall']], label: 'Move it; drag an end handle to re-attach it' },
+      { keys: [['Click a size']], label: 'Type an exact gap, e.g. 1 3/4 or 44.5mm' },
+      { keys: [['←'], ['→'], ['↑'], ['↓']], label: 'Nudge the selected wall (Shift: 10×)' },
+      { keys: [['Delete'], ['Backspace']], label: 'Remove the selected wall' },
+    ],
+  },
+  {
+    title: 'Tool cutouts',
+    items: [
+      { keys: [['Drag a tool in']], label: 'Place it in the bin' },
+      { keys: [['R']], label: 'Rotate 15°' },
+      { keys: [['Alt', 'Drag']], label: 'Move without snapping' },
+      { keys: [['Double-click the outline']], label: 'Add a finger notch' },
+      { keys: [['Delete']], label: 'Remove the selected pocket' },
+    ],
+  },
+  {
     title: '3D view',
     items: [
       { keys: [['Drag']], label: 'Orbit' },
