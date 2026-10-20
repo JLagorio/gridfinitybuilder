@@ -75,6 +75,7 @@ describe('defaults keep the classic bin', () => {
       { holes: 'refined' },
       { cutoutWalls: 'f' },
       { slideWalls: 'b' },
+      { patternWalls: 'l' },
       { interior: 'pockets' },
       { heightMode: 'internal', heightMm: 30 },
     ];
@@ -144,6 +145,9 @@ describe('every variant is one closed solid with the right outside size', () => 
     { name: 'pockets: hex bits on a lite base with a cutout', o: { unitsX: 2, interior: 'pockets', base: 'lite', cutoutWalls: 'f', ...presetFields(POCKET_PRESETS.find((p) => p.id === 'hexbit')!) } },
     { name: 'pockets: SD cards, flat base', o: { unitsX: 2, interior: 'pockets', base: 'flat', ...presetFields(POCKET_PRESETS.find((p) => p.id === 'sd')!) } },
     { name: 'pockets filled to the top', o: { interior: 'pockets', pocketW: 5, pocketDepth: 200 } },
+    { name: 'hex pattern on every wall, tall', o: { unitsX: 2, unitsY: 2, heightUnits: 8, patternWalls: 'fblr', divX: 3 } },
+    { name: 'hex pattern with a cutout, notches, lite', o: { unitsX: 2, heightUnits: 6, base: 'lite', patternWalls: 'fl', cutoutWalls: 'f', lipNotches: true, label: 'full' } },
+    { name: 'hex pattern, no lip, small holes', o: { unitsX: 2, heightUnits: 4, lip: false, patternWalls: 'b', patternSize: 4, patternWeb: 1.5 } },
     { name: 'everything at once', o: { unitsX: 2, unitsY: 2, base: 'lite', lipStyle: 'reduced', lipNotches: true, holes: 'both', holePrintable: true, holeChamfer: true, holeCorners: true, cutoutWalls: 'fb', slideWalls: 'l', divX: 2, label: 'full' } },
   ])('$name', ({ o, cells }) => {
     const opts = sanitizeBin(bin(o));
@@ -310,6 +314,12 @@ describe('wall cutouts and finger slides', () => {
     expect(vol({ unitsX: 2, cutoutWalls: 'f' })).toBeLessThan(plain - 50);
     expect(vol({ unitsX: 2, cutoutWalls: 'fb' })).toBeLessThan(vol({ unitsX: 2, cutoutWalls: 'f' }) - 50);
     expect(vol({ unitsX: 2, slideWalls: 'f' })).toBeGreaterThan(plain + 50);
+    // The hex pattern goes through the wall: one hole per hexagon, and less plastic.
+    const tall = { unitsX: 2, heightUnits: 6 };
+    const hex = check(buildBin(w, bin({ ...tall, patternWalls: 'f' })));
+    expect(hex.genus).toBeGreaterThan(5);
+    expect(hex.volume).toBeLessThan(vol(tall) - 100);
+    expect(check(buildBin(w, bin({ heightUnits: 2, patternWalls: 'f' }))).genus).toBe(0); // too short: no holes
     // A cutout stops above the floor: the floor is intact.
     const deep = buildBin(w, bin({ cutoutWalls: 'f', cutoutDepth: 200, cutoutWidth: 1 }));
     expect(check(deep).genus).toBe(0);

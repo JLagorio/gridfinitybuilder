@@ -8,6 +8,7 @@ import {
   DIVIDER,
   GRID,
   INNER_RADIUS,
+  LIP_DEPTH,
   LIP_SUPPORT_HEIGHT,
   TAB_DEPTH,
   TAB_SUPPORT_ANGLE_DEG,
@@ -29,7 +30,7 @@ import {
 import { holeBosses, holeCutters, holeSites } from './holes';
 import { clipToHollow, hollowFloor, isHollowBase } from './binbase';
 import { lipCavityKnots, lipNotches } from './lip';
-import { fingerSlides, wallCutouts } from './walls';
+import { fingerSlides, wallCutouts, wallPattern } from './walls';
 import { pocketCutters, pocketLayout } from './pockets';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
@@ -206,6 +207,9 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     // Wall cutouts, down to just above the floor (or the pocket fill).
     const cutLow = pockets ? Math.max(zFloor + 1, pocketLayout(o, W, D, zFloor, topInfill).fillTop + 0.5) : zFloor + 1;
     const cutouts = wallCutouts(w, s, o, W, D, top, cutLow);
+    // Hex pattern: from above the floor to below the lip's support.
+    const patternTop = !o.lip ? H - 1 : o.lipStyle === 'reduced' ? H : H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL) - 0.5;
+    cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop));
     if (cutouts.length) bin = s.t(bin.subtract(s.t(w.Manifold.union(cutouts))));
 
     // 4. Magnet / screw holes in the bottom.

@@ -270,7 +270,7 @@ function WallPicker({ label, value, onChange, hint }: { label: string; value: Wa
   );
 }
 
-/** Wall cutouts and finger slides. */
+/** Wall cutouts, finger slides and the hex wall pattern. */
 export function WallFields({ opts, onChange }: Props) {
   return (
     <>
@@ -303,6 +303,18 @@ export function WallFields({ opts, onChange }: Props) {
       {opts.slideWalls && (
         <div className="indent">
           <LengthInput label="Slide radius" value={opts.slideRadius} min={1} max={40} onChange={(slideRadius) => onChange({ slideRadius })} />
+        </div>
+      )}
+      <WallPicker
+        label="Hex wall pattern"
+        value={opts.patternWalls}
+        onChange={(patternWalls) => onChange({ patternWalls })}
+        hint={opts.patternWalls ? undefined : 'Hexagonal holes through the walls save plastic on tall bins.'}
+      />
+      {opts.patternWalls && (
+        <div className="indent row2">
+          <LengthInput label="Hole size" value={opts.patternSize} min={3} max={30} onChange={(patternSize) => onChange({ patternSize })} />
+          <LengthInput label="Web" value={opts.patternWeb} min={1.2} max={10} onChange={(patternWeb) => onChange({ patternWeb })} />
         </div>
       )}
     </>

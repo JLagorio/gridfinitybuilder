@@ -63,6 +63,7 @@ const state: ProjectState = {
       opts: { ...DEFAULT_BIN, unitsX: 2, heightMode: 'external', heightMm: 40, holes: 'refined', slideWalls: 'f', lid: true },
     },
     { id: 'j', x: 7, y: 2, opts: { ...DEFAULT_BIN, base: 'efficient', holes: 'magnets', holeCrushRibs: true, holeChamfer: true } },
+    { id: 'k', x: 8, y: 2, opts: { ...DEFAULT_BIN, unitsX: 2, unitsY: 2, heightUnits: 8, patternWalls: 'fblr', divX: 2 } },
   ],
 };
 

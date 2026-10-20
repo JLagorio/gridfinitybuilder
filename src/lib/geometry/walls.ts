@@ -6,6 +6,8 @@
  *   side.
  * - Finger slides (Extended `fingerslide`): a concave quarter-round where the
  *   floor meets a wall, so small parts slide up and out.
+ * - Hex wall pattern (Extended `wallpattern` hexgrid): staggered hexagonal
+ *   holes through the wall, points up so they print without support.
  */
 import type { Manifold, Scope, Wasm } from './kernel';
 import { BASE_TOP_RADIUS, LIP_DEPTH, WALL } from './spec';
@@ -101,6 +103,52 @@ export function fingerSlides(w: Wasm, s: Scope, o: SlideOpts, W: number, D: numb
     const block = s.t(boxAt(w, -hl, v0, zFloor - 1, hl, v1, zFloor + r));
     const cyl = s.t(s.t(w.Manifold.cylinder(f.length + 2, r, r, SEGS * 2)).rotate([0, 90, 0]).translate([-hl - 1, v1, zFloor + r]));
     out.push(place(s, s.t(block.subtract(cyl)), f));
+  }
+  return out;
+}
+
+export interface PatternOpts extends CutoutOpts {
+  patternWalls: WallMask;
+  patternSize: number;
+  patternWeb: number;
+}
+
+/**
+ * Hex holes through the selected walls between `zLow` and `zHigh`, staggered
+ * rows with `patternWeb` of plastic between holes, clear of the corners and of
+ * any wall cutout on the same wall.
+ */
+export function wallPattern(w: Wasm, s: Scope, o: PatternOpts, W: number, D: number, top: number, zLow: number, zHigh: number): Manifold[] {
+  const out: Manifold[] = [];
+  const af = o.patternSize; // across flats, horizontal
+  const R = af / Math.sqrt(3); // circumradius = half the hole's height
+  const px = af + o.patternWeb;
+  const pz = (px * Math.sqrt(3)) / 2;
+  const v0 = -1;
+  const v1 = WALL + 0.3;
+  for (const f of frames(o.patternWalls, W, D)) {
+    const half = f.length / 2 - BASE_TOP_RADIUS - o.patternWeb - af / 2; // furthest hole center from the middle
+    const z0 = zLow + o.patternWeb + R;
+    const z1 = zHigh - o.patternWeb - R;
+    if (half < 0 || z1 < z0) continue;
+    const rows = Math.floor((z1 - z0) / pz + 1e-9) + 1;
+    const zOff = (z1 - z0 - (rows - 1) * pz) / 2;
+    const cut = f.wall && o.cutoutWalls.includes(f.wall) ? cutoutSize(o, f.length, top, zLow) : null;
+    const holes: Manifold[] = [];
+    for (let j = 0; j < rows; j++) {
+      const z = z0 + zOff + j * pz;
+      // Rows centered on the middle of the wall; odd rows shifted half a pitch.
+      const off = j % 2 ? px / 2 : 0;
+      const kMax = Math.floor((half - off) / px + 1e-9);
+      for (let k = -kMax - (off ? 1 : 0); k <= kMax; k++) {
+        const u = k * px + off;
+        if (Math.abs(u) > half + 1e-9) continue;
+        // Skip holes that would run into a cutout on this wall.
+        if (cut && Math.abs(u) < cut.width / 2 + o.patternWeb + af / 2 && z + R > cut.bottom - o.patternWeb) continue;
+        holes.push(s.t(s.t(s.t(w.Manifold.cylinder(v1 - v0, R, R, 6)).rotate([0, 0, 90]).rotate([-90, 0, 0])).translate([u, v0, z])));
+      }
+    }
+    if (holes.length) out.push(place(s, s.t(w.Manifold.union(holes)), f));
   }
   return out;
 }

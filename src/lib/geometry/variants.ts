@@ -57,6 +57,12 @@ export interface BinVariantOptions {
   /** Finger slides (a rounded ramp where the floor meets the wall) along these outer walls. */
   slideWalls: WallMask;
   slideRadius: number;
+  /** Hex holes through these outer walls (Gridfinity Extended wall pattern), to save plastic on tall bins. */
+  patternWalls: WallMask;
+  /** Hex hole size across flats, mm. */
+  patternSize: number;
+  /** Plastic left between holes, mm. */
+  patternWeb: number;
   /** 'pockets' fills the bin and cuts a grid of item pockets instead of compartments. */
   interior: InteriorMode;
   /** Preset the pocket fields came from ('custom' when edited by hand). UI only; not part of the geometry. */
@@ -91,6 +97,9 @@ export const DEFAULT_VARIANTS: BinVariantOptions = {
   cutoutDepth: 12,
   slideWalls: '',
   slideRadius: 8,
+  patternWalls: '',
+  patternSize: 8,
+  patternWeb: 2,
   interior: 'compartments',
   pocketPreset: 'aa',
   pocketShape: 'round',
@@ -205,6 +214,9 @@ export function sanitizeVariants(o: Partial<BinVariantOptions> & { heightUnits: 
     cutoutDepth: round2(num(o.cutoutDepth, 1, 200, d.cutoutDepth)),
     slideWalls: wallMask(o.slideWalls ?? d.slideWalls),
     slideRadius: round2(num(o.slideRadius, 1, 40, d.slideRadius)),
+    patternWalls: wallMask(o.patternWalls ?? d.patternWalls),
+    patternSize: round2(num(o.patternSize, 3, 30, d.patternSize)),
+    patternWeb: round2(num(o.patternWeb, 1.2, 10, d.patternWeb)),
     interior: pick(o.interior, INTERIORS, d.interior),
     pocketPreset: typeof o.pocketPreset === 'string' && o.pocketPreset ? o.pocketPreset.slice(0, 40) : d.pocketPreset,
     pocketShape: pick(o.pocketShape, POCKET_SHAPES, d.pocketShape),
@@ -247,6 +259,7 @@ export function variantKeyParts(o: KeyInput): string[] {
   }
   if (o.cutoutWalls) p.push(`W${o.cutoutWalls}${o.cutoutWidth}x${o.cutoutDepth}`);
   if (o.slideWalls && o.interior !== 'pockets') p.push(`S${o.slideWalls}${o.slideRadius}`);
+  if (o.patternWalls) p.push(`X${o.patternWalls}${o.patternSize}w${o.patternWeb}`);
   if (o.interior === 'pockets') {
     const size = o.pocketShape === 'square' ? `${o.pocketW}x${o.pocketD}` : String(o.pocketW);
     p.push(`P${o.pocketShape}${size}d${o.pocketDepth}s${o.pocketSpacing}c${o.pocketChamfer}`);
