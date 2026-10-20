@@ -10,6 +10,7 @@ import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
 import { TemplatesSection } from './TemplatesSection';
 import { CompartmentsSection } from './CompartmentFields';
+import { ToolLibrary } from './ToolLibrary';
 
 function BinFields({
   opts,
@@ -165,14 +166,15 @@ export function BinPanel({ job }: { job: PrintJob }) {
         </Section>
       )}
       {sel ? (
-        sel.opts.interior !== 'pockets' && (
+        sel.opts.interior === 'compartments' && (
           <CompartmentsSection key={sel.id} opts={sel.opts} onChange={changeSelected} binId={sel.id} grid={job.layout} />
         )
       ) : (
-        newBin.interior !== 'pockets' && <CompartmentsSection opts={newBin} onChange={setNewBin} />
+        newBin.interior === 'compartments' && <CompartmentsSection opts={newBin} onChange={setNewBin} />
       )}
 
       <TemplatesSection />
+      <ToolLibrary job={job} />
 
       <Section title="Layout">
         <div className="button-row">

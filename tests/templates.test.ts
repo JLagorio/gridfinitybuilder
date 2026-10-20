@@ -67,3 +67,13 @@ describe('bin templates', () => {
     expect(mergeTemplates([{ id: 'a', name: 'A', opts: DEFAULT_BIN }], [{ id: 'a', name: 'A2', opts: DEFAULT_BIN }])).toHaveLength(1);
   });
 });
+
+describe('templates with tool pockets', () => {
+  const cutout = { toolId: 't', name: 'pliers', x: 0, y: 0, rotation: 0, outline: [[-10, -5], [10, -5], [10, 5], [-10, 5]] as [number, number][], depth: 10, clearance: 1 };
+  const t = { id: 'x', name: 'Pliers', opts: { ...DEFAULT_BIN, unitsX: 2, unitsY: 1, interior: 'cutouts' as const, cutouts: [cutout] } };
+
+  it('keep their pockets on a bin of the same size only', () => {
+    expect(applyTemplate(t, { unitsX: 2, unitsY: 1 }).cutouts).toHaveLength(1);
+    expect(applyTemplate(t, { unitsX: 3, unitsY: 1 }).cutouts ?? []).toHaveLength(0);
+  });
+});

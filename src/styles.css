@@ -1280,3 +1280,615 @@ details.advanced[open] > .field-hint {
 .interior-editor.measuring .ie-badge:hover {
   opacity: 1;
 }
+
+/* ==========================================================================
+   Tool cutouts: tool library, trace dialog, cutout editor (TraceDialog.tsx,
+   ToolLibrary.tsx, CutoutEditor.tsx)
+   ========================================================================== */
+
+/* ---------- tool library (sidebar) ---------- */
+
+.tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tool-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  cursor: grab;
+}
+.tool-row.open {
+  border-color: var(--border-strong);
+}
+.tool-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+.tool-main input[type='checkbox'] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.tool-thumb {
+  flex-shrink: 0;
+  display: block;
+}
+.tool-thumb path {
+  fill: rgba(245, 165, 36, 0.18);
+  stroke: var(--accent);
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.2px;
+}
+.tool-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+}
+.tool-name:hover:not(:disabled) {
+  background: none;
+}
+.tool-name b {
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-name small {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.tool-more {
+  flex-shrink: 0;
+  font-size: 12.5px;
+}
+.tool-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px 8px 63px;
+}
+.tool-actions button {
+  flex: 1;
+  padding: 4px 7px;
+  font-size: 12px;
+}
+.tool-edit {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  cursor: default;
+}
+button.link.danger {
+  color: #ffb3b7;
+}
+
+/* ---------- modal + trace dialog ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(5, 6, 8, 0.65);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.trace-dialog {
+  width: min(1280px, calc(100vw - 32px));
+  height: min(860px, calc(100vh - 32px));
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.modal-close {
+  margin-left: auto;
+  font-size: 16px;
+  color: var(--muted) !important;
+}
+.trace-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+.trace-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: #0b0d10;
+  display: flex;
+  border-bottom-left-radius: 10px;
+  overflow: hidden;
+}
+.trace-stage > svg {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  cursor: crosshair;
+}
+.trace-stage > svg.dragging {
+  cursor: grabbing;
+}
+.trace-drop {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 40px 56px;
+  border: 2px dashed var(--border-strong);
+  background: none;
+  border-radius: 12px;
+}
+.trace-drop b {
+  font-size: 15px;
+}
+.trace-drop span {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.trace-empty {
+  margin: auto;
+  color: var(--muted);
+}
+.trace-side {
+  border-left: 1px solid var(--border);
+  padding: 12px 14px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.trace-side h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+}
+.trace-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.trace-spacer {
+  flex: 1;
+}
+.trace-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.trace-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.trace-stage-hint {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  background: rgba(15, 17, 20, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  color: var(--text);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.trace-quad {
+  fill: rgba(245, 165, 36, 0.08);
+  stroke: var(--accent);
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.trace-quad.bad {
+  stroke: var(--danger);
+}
+.trace-handle circle {
+  fill: rgba(245, 165, 36, 0.18);
+  stroke: var(--accent);
+  cursor: grab;
+}
+.trace-handle.active circle {
+  fill: rgba(245, 165, 36, 0.35);
+}
+.trace-handle .dot {
+  fill: var(--accent);
+  stroke: none;
+}
+.trace-loupe {
+  position: absolute;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+.trace-loupe svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.trace-cross {
+  stroke: var(--accent);
+  fill: none;
+}
+.trace-candidate {
+  fill: none;
+  stroke: rgba(231, 233, 236, 0.55);
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+.trace-clearance {
+  fill: rgba(70, 201, 139, 0.18);
+  stroke: rgba(70, 201, 139, 0.28);
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.trace-outline {
+  fill: none;
+  stroke: var(--ok);
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.trace-pick {
+  fill: var(--accent);
+  stroke: #000;
+  pointer-events: none;
+}
+.trace-scale {
+  pointer-events: none;
+}
+.trace-scale rect {
+  fill: #fff;
+  stroke: #000;
+}
+.trace-scale text {
+  fill: #fff;
+  paint-order: stroke;
+  stroke: #000;
+  stroke-width: 2px;
+  font-weight: 700;
+}
+.trace-side .row2 .slider {
+  gap: 6px;
+  min-width: 0;
+}
+.trace-side .row2 .slider input {
+  min-width: 0;
+  width: 100%;
+}
+.trace-side .row2 .slider output {
+  width: auto;
+  min-width: 28px;
+  white-space: nowrap;
+}
+.trace-side .slider output {
+  width: auto;
+  min-width: 40px;
+  white-space: nowrap;
+}
+/* Save stays in reach when the side panel scrolls on short screens. */
+.trace-side > .button-row:last-child {
+  position: sticky;
+  bottom: -14px;
+  background: var(--panel);
+  padding: 8px 0 14px;
+  margin-bottom: -14px;
+}
+.import-shape {
+  fill: rgba(231, 233, 236, 0.06);
+  stroke: var(--muted);
+  cursor: pointer;
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.2px;
+}
+.import-shape:hover {
+  stroke: var(--text);
+}
+.import-shape.selected {
+  fill: rgba(245, 165, 36, 0.22);
+  stroke: var(--accent);
+  stroke-width: 2px;
+}
+.import-shape.hole {
+  fill: none;
+  stroke-dasharray: 4 3;
+}
+@media (max-width: 900px) {
+  .trace-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(260px, 1fr) auto;
+  }
+  .trace-side {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 45vh;
+  }
+}
+
+/* ---------- cutout editor (2D pane) ---------- */
+
+.cutout-empty {
+  padding: 24px 18px;
+  color: var(--muted);
+}
+.cutout-empty p {
+  margin: 0 0 12px;
+}
+.cutout-bin-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cutout-bin-list button {
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+.cutout-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.co-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 14px 0;
+  font-size: 12.5px;
+}
+.co-bin {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.co-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.co-check input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.co-palette {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.co-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 4px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: grab;
+  background: var(--panel-2);
+}
+.co-canvas {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  padding: 8px 14px;
+  display: flex;
+}
+.co-canvas.drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+}
+.co-canvas svg {
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  touch-action: none;
+}
+.co-bin-outer {
+  fill: #2a303b;
+  stroke: #4a5466;
+  stroke-width: 0.4;
+}
+.co-fill {
+  fill: #3a4252;
+}
+.co-opening {
+  fill: none;
+  stroke: #6b7380;
+  stroke-dasharray: 1.5 1;
+}
+.co-center {
+  stroke: rgba(152, 161, 174, 0.35);
+  stroke-dasharray: 2 1.5;
+  fill: none;
+}
+.co-pocket {
+  cursor: grab;
+}
+.co-clear,
+.co-notch-area {
+  fill: #121519;
+  stroke: #121519;
+  stroke-linejoin: round;
+}
+.co-tool {
+  fill: rgba(231, 233, 236, 0.05);
+  stroke: #8b95a5;
+  stroke-linejoin: round;
+}
+.co-cutout.selected .co-tool {
+  stroke: var(--accent);
+  fill: rgba(245, 165, 36, 0.12);
+}
+.co-cutout.bad .co-clear,
+.co-cutout.bad .co-notch-area {
+  fill: #3a1a1e;
+  stroke: #3a1a1e;
+}
+.co-cutout.bad .co-tool {
+  stroke: var(--danger);
+}
+.co-notch-handle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  cursor: move;
+}
+.co-label-hit {
+  cursor: move;
+}
+.co-label {
+  fill: #15181d;
+  fill-rule: nonzero;
+}
+.co-label-text {
+  fill: #15181d;
+  font-weight: 700;
+}
+.co-cutout.selected .co-label {
+  fill: #5a4310;
+}
+.co-rot-stem {
+  stroke: var(--accent);
+  fill: none;
+  pointer-events: none;
+}
+.co-rot-handle {
+  fill: var(--accent);
+  stroke: #1a1305;
+  cursor: grab;
+}
+.co-guide {
+  stroke: #4fc3f7;
+  stroke-dasharray: 1.5 1;
+  fill: none;
+  pointer-events: none;
+}
+.co-dim {
+  pointer-events: none;
+}
+.co-dim path {
+  stroke: #cfd5de;
+  fill: none;
+}
+.co-dim text {
+  fill: #e7e9ec;
+  paint-order: stroke;
+  stroke: #15181d;
+  font-weight: 600;
+}
+.co-dim.bad path {
+  stroke: var(--danger);
+}
+.co-dim.bad text {
+  fill: #ffb3b7;
+}
+.co-caption {
+  fill: var(--faint);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.co-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  background: rgba(15, 17, 20, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  pointer-events: none;
+  max-width: 90%;
+  text-align: center;
+}
+.co-foot {
+  padding: 0 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.co-sel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 12.5px;
+}
+.co-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+.co-actions button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.co-actions button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.co-warnings {
+  font-size: 12.5px;
+  color: #ffd0d3;
+  background: rgba(240, 97, 106, 0.1);
+  border: 1px solid rgba(240, 97, 106, 0.35);
+  border-radius: 6px;
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

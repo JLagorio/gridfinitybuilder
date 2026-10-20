@@ -43,9 +43,16 @@ export function mergeTemplates(current: BinTemplate[], incoming: BinTemplate[]):
   return out;
 }
 
-/** A template's settings for a bin, keeping the bin's own footprint. */
+/**
+ * A template's settings for a bin, keeping the bin's own footprint. Tool
+ * pockets are placed for one bin size, so they only carry over to bins of the
+ * same footprint; other sizes get the template's other settings and an empty
+ * cutout bin.
+ */
 export function applyTemplate(t: BinTemplate, target: Pick<BinOptions, 'unitsX' | 'unitsY'>): BinOptions {
-  return sanitizeBin({ ...DEFAULT_BIN, ...structuredClone(t.opts), unitsX: target.unitsX, unitsY: target.unitsY });
+  const opts = structuredClone(t.opts);
+  if (opts.cutouts?.length && (opts.unitsX !== target.unitsX || opts.unitsY !== target.unitsY)) opts.cutouts = [];
+  return sanitizeBin({ ...DEFAULT_BIN, ...opts, unitsX: target.unitsX, unitsY: target.unitsY });
 }
 
 /** One-line description: "3u · lip · magnets · 2×1 compartments". */
