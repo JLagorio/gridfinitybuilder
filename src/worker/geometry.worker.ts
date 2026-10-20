@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
-import type { MeshData, Wasm } from '../lib/geometry/kernel';
+import { cloneMesh, type MeshData, type Wasm } from '../lib/geometry/kernel';
 import {
   buildMesh,
   exportBambuProject,
@@ -73,7 +73,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       case 'mesh': {
         const m = await meshFor(req.spec);
         // Copy so the cached arrays stay usable in this worker.
-        post({ id: req.id, type: 'mesh', mesh: { positions: m.positions.slice(), indices: m.indices.slice() } });
+        post({ id: req.id, type: 'mesh', mesh: cloneMesh(m) });
         break;
       }
       case 'export-bambu': {
