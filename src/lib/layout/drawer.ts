@@ -96,19 +96,4 @@ function clean(v: number) {
   return Math.abs(v) < 1e-4 ? 0 : Math.round(v * 1e4) / 1e4;
 }
 
-/** Parse a length like "510.5", "20.1in", "20 1/8\"", "51cm" into mm. */
-export function parseLength(input: string, defaultUnit: 'mm' | 'in' = 'mm'): number | null {
-  const s = input.trim().toLowerCase().replace(/″|”/g, '"');
-  const m = s.match(/^(\d+(?:\.\d+)?)?(?:\s*(\d+)\s*\/\s*(\d+))?\s*(mm|cm|in|inch|inches|")?$/);
-  if (!m || (!m[1] && !m[2])) return null;
-  let v = m[1] ? parseFloat(m[1]) : 0;
-  if (m[2] && m[3]) {
-    const den = parseInt(m[3], 10);
-    if (!den) return null;
-    v += parseInt(m[2], 10) / den;
-  }
-  const unit = m[4] ?? defaultUnit;
-  if (unit === 'cm') return v * 10;
-  if (unit === 'in' || unit === 'inch' || unit === 'inches' || unit === '"') return v * 25.4;
-  return v;
-}
+export { parseLength } from '../units';
