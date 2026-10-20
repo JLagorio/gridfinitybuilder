@@ -59,19 +59,20 @@ describe('bill of materials', () => {
   });
 
   it('turns volumes into grams and metres, per plate and in total', () => {
-    expect(filamentFor(1000).grams).toBeCloseTo(1.116, 3);
-    expect(filamentFor(1000).meters).toBeCloseTo(0.3742, 3);
+    // Volumes are already "as printed", so this is just density and cross-section.
+    expect(filamentFor(1000).grams).toBeCloseTo(1.24, 3);
+    expect(filamentFor(1000).meters).toBeCloseTo(0.4158, 3);
     const job = planJob({ ...DEFAULT_PROJECT, drawer: grid(2, 2), bins: [bin('a', 0, 0), bin('b', 1, 0)] });
     const none = billOfMaterials(job);
     expect(none.total.grams).toBeNull();
     const b = billOfMaterials(job, () => 10_000);
     expect(b.plates.map((p) => p.parts)).toEqual([1, 2]);
     expect(b.plates[1].volume).toBe(20_000);
-    expect(b.total.grams).toBeCloseTo(3 * 11.16, 2);
+    expect(b.total.grams).toBeCloseTo(3 * 12.4, 2);
     const csv = bomCsv(b);
     expect(csv.split('\n')[0]).toMatch(/^Section,Item,Quantity/);
-    expect(csv).toContain('Total,2 plates,3,30,33.5,11.2');
-    expect(bomText(b)).toContain('Filament total: 33 g');
+    expect(csv).toContain('Total,2 plates,3,30,37.2,12.5');
+    expect(bomText(b)).toContain('Filament total: 37 g');
   });
 });
 
@@ -113,5 +114,18 @@ describe('mesh volume', () => {
     const plain = planTestFit(DEFAULT_BASEPLATE, DEFAULT_BIN, DEFAULT_SETUP);
     expect(plain.plates[0].placements.map((p) => plain.parts[p.key].kind).sort()).toEqual(['bin', 'piece']);
     expect(plain.parts['piece:1'].w).toBe(84);
+  });
+  it('counts thin walls fully and solid bases at infill density', async () => {
+    const { printedVolume } = await import('../src/lib/geometry/volume');
+    const bin = buildBin(w, DEFAULT_BIN);
+    const solid = meshVolume(bin);
+    const printed = printedVolume(bin);
+    // A 1×1×3u bin's solid base is mostly infill, so well under its solid volume.
+    expect(printed).toBeLessThan(solid * 0.8);
+    expect(printed).toBeGreaterThan(solid * 0.3);
+    // Grams in the range slicers report for a 1×1×3u bin (≈ 8–15 g).
+    const g = filamentFor(printed).grams;
+    expect(g).toBeGreaterThan(7);
+    expect(g).toBeLessThan(16);
   });
 });

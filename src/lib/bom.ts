@@ -4,6 +4,7 @@ import { maskSet } from './geometry/mask';
 import { binCells } from './geometry/bin';
 import { holeSites } from './geometry/holes';
 import { BP_PROFILE_DEPTH, GRID, PIN, SCREW_JOIN } from './geometry/spec';
+import { PRINT_ESTIMATE } from './geometry/volume';
 import type { MeshSpec, PrintJob } from './project';
 
 /**
@@ -22,13 +23,6 @@ import type { MeshSpec, PrintJob } from './project';
 export const PLA_DENSITY = 1.24;
 /** Filament diameter, mm. */
 export const FILAMENT_DIAMETER = 1.75;
-/**
- * Share of the solid volume a slicer actually extrudes. Gridfinity parts are
- * mostly walls one or two perimeters thick, which print solid; only floors and
- * the thicker baseplate sections get sparse infill. 0.9 is a round figure;
- * real use varies by roughly ±10 % with wall count and infill settings.
- */
-export const SLICE_FACTOR = 0.9;
 
 const FULL = GRID - 1e-6;
 
@@ -41,7 +35,7 @@ export interface HardwareLine {
 export interface PlateBom {
   name: string;
   parts: number;
-  /** Solid volume of the parts, mm³; null until every mesh has been measured. */
+  /** Printed (extruded) volume of the parts, mm³; null until every mesh has been measured. */
   volume: number | null;
   grams: number | null;
   meters: number | null;
@@ -54,8 +48,13 @@ export interface Bom {
   total: PlateBom;
 }
 
+/**
+ * Filament for an extruded volume. The worker measures each mesh as a slicer
+ * would print it (`printedVolume`: solid skin, 15 % infill inside), so this
+ * is just density and filament cross-section.
+ */
 export function filamentFor(volumeMm3: number) {
-  const printed = volumeMm3 * SLICE_FACTOR;
+  const printed = volumeMm3;
   const area = Math.PI * (FILAMENT_DIAMETER / 2) ** 2;
   return { grams: (printed / 1000) * PLA_DENSITY, meters: printed / area / 1000 };
 }
@@ -171,7 +170,7 @@ function csvCell(v: string | number) {
 
 /** Spreadsheet-friendly BOM: hardware lines, then one row per plate. */
 export function bomCsv(b: Bom): string {
-  const rows: (string | number)[][] = [['Section', 'Item', 'Quantity', 'Solid volume (cm³)', 'Filament (g)', 'Filament (m)', 'Notes']];
+  const rows: (string | number)[][] = [['Section', 'Item', 'Quantity', 'Printed volume (cm³)', 'Filament (g)', 'Filament (m)', 'Notes']];
   for (const h of b.hardware) rows.push(['Hardware', h.item, h.count, '', '', '', h.note ?? '']);
   rows.push(['Parts', 'Baseplate pieces', b.parts.pieces, '', '', '', '']);
   rows.push(['Parts', 'Bins', b.parts.bins, '', '', '', '']);
@@ -206,5 +205,5 @@ export function bomText(b: Bom): string {
 }
 
 export function filamentNote() {
-  return `${FILAMENT_DIAMETER} mm PLA at ${PLA_DENSITY} g/cm³, ${Math.round(SLICE_FACTOR * 100)} % of solid volume`;
+  return `${FILAMENT_DIAMETER} mm PLA at ${PLA_DENSITY} g/cm³: walls and top/bottom layers solid (${PRINT_ESTIMATE.shell} mm), ${Math.round(PRINT_ESTIMATE.infill * 100)} % infill inside, like Bambu's 0.20 mm Standard. Expect ±15 %`;
 }

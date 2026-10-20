@@ -22,3 +22,38 @@ export function meshVolume(mesh: MeshData): number {
   // Overlay bodies (e.g. inlaid label text) are filament too.
   return v / 6 + (mesh.overlays ?? []).reduce((t, o) => t + meshVolume(o), 0);
 }
+
+/** Surface area (mm²) of a triangle mesh, overlays included. */
+export function meshArea(mesh: MeshData): number {
+  const p = mesh.positions;
+  const t = mesh.indices;
+  let a = 0;
+  for (let i = 0; i < t.length; i += 3) {
+    const i0 = t[i] * 3;
+    const i1 = t[i + 1] * 3;
+    const i2 = t[i + 2] * 3;
+    const ux = p[i1] - p[i0], uy = p[i1 + 1] - p[i0 + 1], uz = p[i1 + 2] - p[i0 + 2];
+    const vx = p[i2] - p[i0], vy = p[i2 + 1] - p[i0 + 1], vz = p[i2 + 2] - p[i0 + 2];
+    a += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  }
+  return a + (mesh.overlays ?? []).reduce((s, o) => s + meshArea(o), 0);
+}
+
+/**
+ * What a slicer at Bambu's 0.20 mm Standard defaults would extrude: a skin of
+ * walls and top/bottom layers that prints solid, and sparse infill inside it.
+ * Thin walls and dividers are all skin, so they count fully; the solid 7 mm
+ * bin bases and thick baseplate floors are mostly infill.
+ */
+export const PRINT_ESTIMATE = {
+  /** Average skin thickness: 2 walls of 0.42 mm, 1 mm top, 0.6 mm bottom. */
+  shell: 0.85,
+  /** Sparse infill density. */
+  infill: 0.15,
+} as const;
+
+export function printedVolume(mesh: MeshData): number {
+  const v = meshVolume(mesh);
+  const skin = Math.min(v, meshArea(mesh) * PRINT_ESTIMATE.shell);
+  return skin + (v - skin) * PRINT_ESTIMATE.infill;
+}

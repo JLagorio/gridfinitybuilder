@@ -118,7 +118,7 @@ export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
       )}
       <div className="field-hint">
         {progress ? `Measuring parts… ${progress[0]}/${progress[1]}. ` : ''}
-        Estimate for {filamentNote()}: the walls are thin enough to print almost solid.
+        Estimate for {filamentNote()}.
       </div>
       <div className="button-row">
         <button onClick={() => download('csv')}>BOM (.csv)</button>

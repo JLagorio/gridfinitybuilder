@@ -12,7 +12,7 @@ import {
   type PrintJob,
 } from '../lib/project';
 import { exportPlateSTL, exportPlatesStlZip, writeSTL } from '../lib/export/stl';
-import { meshVolume } from '../lib/geometry/volume';
+import { printedVolume } from '../lib/geometry/volume';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 import { FONT_URL_PATH, registerFont } from '../lib/geometry/text';
 
@@ -51,7 +51,7 @@ async function meshFor(spec: MeshSpec): Promise<MeshData> {
   const w = await wasmReady;
   const mesh = buildMesh(w, spec);
   cache.set(spec.key, mesh);
-  volumes.set(spec.key, meshVolume(mesh));
+  volumes.set(spec.key, printedVolume(mesh));
   while (volumes.size > MAX_VOLUMES) volumes.delete(volumes.keys().next().value!);
   while (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value!);
   return mesh;
@@ -91,7 +91,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           try {
             await meshFor(spec);
             // The volume can be evicted while the mesh is still cached.
-            if (!volumes.has(spec.key)) volumes.set(spec.key, meshVolume(getCached(spec.key)!));
+            if (!volumes.has(spec.key)) volumes.set(spec.key, printedVolume(getCached(spec.key)!));
             out[spec.key] = volumes.get(spec.key)!;
           } catch {
             // Leave it out; the caller shows the part as unmeasured.
