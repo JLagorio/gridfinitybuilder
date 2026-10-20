@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useStore, useUnits } from '../state/store';
+import { history, useStore, useUnits } from '../state/store';
 import type { GridLayout } from '../lib/layout/drawer';
 import { BASE_TOP_RADIUS, DIVIDER, INNER_RADIUS, TAB_DEPTH, TAB_WIDTH_NOMINAL, WALL } from '../lib/geometry/spec';
 import { lengthFieldText, parseLength, snapStep } from '../lib/units';
@@ -61,6 +61,8 @@ type WallDrag = {
   ctx: DragContext;
   startPx: [number, number];
   moved: boolean;
+  /** Just placed by this press: the drag belongs to the same undo step. */
+  fresh?: boolean;
   preview: { pos: number; layout: DividerLayout; resolved: ResolvedLayout; snap: SnapResult | null } | null;
 };
 type EndDrag = {
@@ -133,7 +135,11 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   const [editing, setEditing] = useState<Editing | null>(null);
   const editDone = useRef(false);
 
-  const commit = (next: DividerLayout) => updateBin(binId, { opts: { layout: next } });
+  /** Each edit starts its own undo step; `join` doesn't force one (sliding a wall just placed groups with it if quick). */
+  const commit = (next: DividerLayout, join = false) => {
+    if (!join) history.checkpoint();
+    updateBin(binId, { opts: { layout: next } });
+  };
   const step = snapStep(units, precision || 16);
   const cellsX = useMemo(() => (info ? cellLines(info.cells.x) : []), [info]);
   const cellsY = useMemo(() => (info ? cellLines(info.cells.y) : []), [info]);
@@ -185,6 +191,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
         // Never delete the whole bin from here.
         stop();
         if (s.wallId && !d) {
+          history.checkpoint();
           updateBin(binId, { opts: { layout: removeWall(inf.layout, inf.size, s.wallId) } });
           clearInteriorSelection();
         }
@@ -311,7 +318,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
       selectWall(binId, wall.id);
       // Keep the button down to slide the new wall into place.
       const ctx = dragContext(next, resolveIn(next, info.size), wall.id);
-      if (ctx) setDrag({ kind: 'wall', id: wall.id, layout: next, ctx, startPx: [e.clientX, e.clientY], moved: false, preview: null });
+      if (ctx) setDrag({ kind: 'wall', id: wall.id, layout: next, ctx, startPx: [e.clientX, e.clientY], moved: false, preview: null, fresh: true });
       return;
     }
     if (comp) selectCompartment(binId, comp.key);
@@ -354,7 +361,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   const onUp = () => {
     if (drag?.kind === 'wall' && drag.moved && drag.preview) {
       const s = drag.preview.snap;
-      commit(moveWall(drag.layout, info.size, drag.id, drag.preview.pos, s && s.kind !== 'step' && s.kind !== 'free' ? s : undefined));
+      commit(moveWall(drag.layout, info.size, drag.id, drag.preview.pos, s && s.kind !== 'step' && s.kind !== 'free' ? s : undefined), drag.fresh);
     } else if (drag?.kind === 'end' && drag.preview) {
       const cur = drag.layout.walls.find((w) => w.id === drag.id);
       if (cur && cur[drag.which] !== drag.preview.target.ref) commit(drag.preview.layout);
