@@ -1973,3 +1973,40 @@ button.link.danger {
   cursor: pointer;
   flex-shrink: 0;
 }
+
+/* Folding groups of bin options (BinPanel.tsx) */
+details.option-group summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  list-style-position: inside;
+}
+details.option-group summary small {
+  color: var(--faint);
+  font-weight: 400;
+  font-size: 11.5px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+details.option-group[open] > .field:first-of-type {
+  margin-top: 4px;
+}
+details.option-group summary::-webkit-details-marker {
+  display: none;
+}
+details.option-group summary > span::before {
+  content: '▸';
+  display: inline-block;
+  width: 14px;
+  color: var(--faint);
+}
+details.option-group[open] summary > span::before {
+  content: '▾';
+}

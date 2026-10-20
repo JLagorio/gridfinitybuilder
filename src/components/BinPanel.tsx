@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useStore } from '../state/store';
 import { Section, Segmented, Slider, Stepper, Toggle } from './fields';
 import { binLabel, type BinOptions } from '../lib/geometry/bin';
@@ -60,13 +60,60 @@ function BinFields({
         onChange={(label) => onChange({ label })}
       />
       <LabelFields opts={opts} onChange={onChange} />
-      <BaseField opts={opts} onChange={onChange} />
-      <HoleFields opts={opts} onChange={onChange} />
-      <LipFields opts={opts} onChange={onChange} />
-      <WallFields opts={opts} onChange={onChange} />
-      <Toggle label="Rounded inside corners" checked={opts.fillet} onChange={(fillet) => onChange({ fillet })} />
+      <OptionGroup title="Base & holes" status={baseStatus(opts)} active={opts.base !== 'standard' || opts.holes !== 'none'}>
+        <BaseField opts={opts} onChange={onChange} />
+        <HoleFields opts={opts} onChange={onChange} />
+      </OptionGroup>
+      <OptionGroup title="Lip & lid" status={lipStatus(opts)} active={!opts.lip || opts.lipStyle !== 'normal' || opts.lipNotches || opts.lid}>
+        <LipFields opts={opts} onChange={onChange} />
+      </OptionGroup>
+      <OptionGroup title="Walls" status={wallStatus(opts)} active={!!(opts.cutoutWalls || opts.slideWalls || opts.patternWalls) || !opts.fillet}>
+        <WallFields opts={opts} onChange={onChange} />
+        <Toggle label="Rounded inside corners" checked={opts.fillet} onChange={(fillet) => onChange({ fillet })} />
+      </OptionGroup>
     </>
   );
+}
+
+/**
+ * A folding group of bin options. It starts open when anything in it is set
+ * away from the defaults, so nothing active is hidden; the summary says what's set.
+ */
+function OptionGroup({ title, status, active, children }: { title: string; status: string; active: boolean; children: ReactNode }) {
+  // Decided once per bin (BinFields is keyed by bin), so turning an option off doesn't snap the group shut.
+  const [open] = useState(active);
+  return (
+    <details className="advanced option-group" open={open || undefined}>
+      <summary>
+        <span>{title}</span>
+        <small>{status}</small>
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+const WALL_NAMES: Record<string, string> = { f: 'front', b: 'back', l: 'left', r: 'right' };
+const wallList = (mask: string) => [...mask].map((c) => WALL_NAMES[c] ?? c).join(', ');
+
+function baseStatus(o: BinOptions) {
+  const holes = { none: 'no holes', magnets: 'magnets', screws: 'screws', both: 'magnets + screws', refined: 'refined magnets' }[o.holes];
+  return `${o.base} feet · ${holes}${o.holes !== 'none' && o.holeCorners ? ' (corners)' : ''}`;
+}
+
+function lipStatus(o: BinOptions) {
+  if (!o.lip) return 'no lip';
+  return [o.lipStyle === 'reduced' ? 'reduced lip' : 'stacking lip', o.lipNotches && 'notches', o.lid && 'lid'].filter(Boolean).join(' · ');
+}
+
+function wallStatus(o: BinOptions) {
+  const parts = [
+    o.cutoutWalls && `cutouts: ${wallList(o.cutoutWalls)}`,
+    o.slideWalls && `slides: ${wallList(o.slideWalls)}`,
+    o.patternWalls && `hex: ${wallList(o.patternWalls)}`,
+    !o.fillet && 'square corners',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'plain';
 }
 
 export function BinPanel({ job }: { job: PrintJob }) {
@@ -137,7 +184,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           }
         >
           {many && <p className="muted small">Showing the first bin's settings. Changes apply to all {selIds.length}.</p>}
-          <BinFields opts={sel.opts} onChange={changeSelected} sizeEditable={!many} sizeError={sizeError} />
+          <BinFields key={sel.id} opts={sel.opts} onChange={changeSelected} sizeEditable={!many} sizeError={sizeError} />
           <div className="button-row">
             <button onClick={() => duplicateSelection()}>Duplicate</button>
             <button onClick={() => setNewBin({ ...sel.opts })} title="New bins you draw will use these settings">
