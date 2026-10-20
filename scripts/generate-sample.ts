@@ -22,6 +22,7 @@ import {
 import { meshBounds, type MeshData } from '../src/lib/geometry/kernel';
 import { assemblyMap } from '../src/lib/layout/plan';
 import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
+import { POCKET_PRESETS, presetFields } from '../src/lib/geometry/pockets';
 
 const outDir = resolve(process.argv[2] ?? 'out');
 mkdirSync(outDir, { recursive: true });
@@ -38,6 +39,27 @@ const state: ProjectState = {
     { id: 'c', x: 3, y: 0, opts: { ...DEFAULT_BIN, unitsX: 3, unitsY: 2, heightUnits: 4, divX: 3, divY: 2, label: 'left' } },
     { id: 'd', x: 6, y: 0, opts: { ...DEFAULT_BIN, unitsX: 1, unitsY: 1, heightUnits: 2, lip: false, holes: 'both' } },
     { id: 'e', x: 7, y: 0, opts: { ...DEFAULT_BIN, unitsX: 1, unitsY: 1, heightUnits: 6, holes: 'magnets' } },
+    // Variants: bases, lips, holes, height modes, walls, pocket grid, lids.
+    {
+      id: 'f',
+      x: 0,
+      y: 2,
+      opts: { ...DEFAULT_BIN, unitsX: 2, unitsY: 2, base: 'lite', lipNotches: true, holes: 'both', holePrintable: true, holeCorners: true, divX: 2, lid: true },
+    },
+    { id: 'g', x: 2, y: 2, opts: { ...DEFAULT_BIN, base: 'flat', cutoutWalls: 'f', heightUnits: 4 } },
+    {
+      id: 'h',
+      x: 3,
+      y: 2,
+      opts: { ...DEFAULT_BIN, unitsX: 2, heightUnits: 6, interior: 'pockets', lipStyle: 'reduced', ...presetFields(POCKET_PRESETS[0]) },
+    },
+    {
+      id: 'i',
+      x: 5,
+      y: 2,
+      opts: { ...DEFAULT_BIN, unitsX: 2, heightMode: 'external', heightMm: 40, holes: 'refined', slideWalls: 'f', lid: true },
+    },
+    { id: 'j', x: 7, y: 2, opts: { ...DEFAULT_BIN, base: 'efficient', holes: 'magnets', holeCrushRibs: true, holeChamfer: true } },
   ],
 };
 
