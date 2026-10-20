@@ -6,7 +6,7 @@ import { DEFAULT_BASEPLATE, type BaseplateOptions } from '../lib/geometry/basepl
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput } from '../lib/layout/drawer';
 import { DEFAULT_SETUP, type PrintSetup } from '../lib/layout/plan';
 import { findPrinter } from '../lib/printers';
-import { canPlace, newId, occupancy } from '../lib/bins';
+import { canPlace, newId, occupancy, withBlocked } from '../lib/bins';
 import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, type InchPrecision, type Units } from '../lib/units';
 import { cleanTemplates, mergeTemplates, type BinTemplate } from '../lib/templates';
 import { trackHistory, type Snapshot } from './history';
@@ -99,7 +99,7 @@ const DEFAULT_UI: UIState = {
 
 function gridSize(s: ProjectState) {
   const l = computeLayout(s.drawer);
-  return { nx: l.nx, ny: l.ny };
+  return { nx: l.nx, ny: l.ny, mask: l.mask };
 }
 
 const FIRST_DRAWER_ID = 'd1';
@@ -111,6 +111,9 @@ function cleanDrawer(d: Partial<DrawerInput> | undefined): DrawerInput {
   out.depthSamples = nums(out.depthSamples);
   out.height = Number(out.height) > 0 ? Number(out.height) : 0;
   if (!['solid', 'half', 'fit'].includes(out.fill)) out.fill = 'solid';
+  // Blocked cells: "i,j" keys, deduplicated.
+  out.mask = Array.isArray(out.mask) ? [...new Set(out.mask.map(String).filter((k) => /^\d+,\d+$/.test(k)))] : [];
+  out.maskStyle = out.maskStyle === 'void' ? 'void' : 'solid';
   return out;
 }
 
@@ -247,11 +250,11 @@ export const useStore = create<Store>()(
         const s = get();
         const src = s.bins.find((b) => b.id === id);
         if (!src) return null;
-        const { nx, ny } = gridSize(s);
+        const { nx, ny, mask } = gridSize(s);
         for (let j = 0; j < ny; j++) {
           for (let i = 0; i < nx; i++) {
             const r = { x: i, y: j, w: src.opts.unitsX, d: src.opts.unitsY };
-            if (canPlace(s.bins, r, nx, ny)) {
+            if (canPlace(withBlocked(s.bins, mask), r, nx, ny)) {
               const nid = newId();
               set({ bins: [...s.bins, { id: nid, x: i, y: j, opts: { ...src.opts } }], ui: { ...s.ui, selectedBinId: nid } });
               return nid;
@@ -263,8 +266,8 @@ export const useStore = create<Store>()(
       clearBins: () => set((s) => ({ bins: [], ui: { ...s.ui, selectedBinId: null } })),
       fillEmpty: () => {
         const s = get();
-        const { nx, ny } = gridSize(s);
-        const occ = occupancy(s.bins, nx, ny);
+        const { nx, ny, mask } = gridSize(s);
+        const occ = occupancy(withBlocked(s.bins, mask), nx, ny);
         const added: PlacedBin[] = [];
         for (let i = 0; i < nx; i++) {
           for (let j = 0; j < ny; j++) {
