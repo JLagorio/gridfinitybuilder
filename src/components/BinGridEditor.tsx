@@ -1,6 +1,7 @@
 import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cellEdge, cellIndexAt, type GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin } from '../lib/project';
+import { binTotalHeight } from '../lib/geometry/bin';
 import { binRect, canPlace, occupancy, onBlocked, outOfBounds, withBlocked, type CellRect } from '../lib/bins';
 import { HANDLES, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
 import { useLayoutShortcuts } from './useLayoutShortcuts';
@@ -42,6 +43,11 @@ const HANDLE_CURSOR: Record<Handle, string> = {
 };
 
 const sameRect = (a: CellRect, b: CellRect) => a.x === b.x && a.y === b.y && a.w === b.w && a.d === b.d;
+
+/** "3u", or the height in mm for bins sized in mm. */
+function heightCaption(o: PlacedBin['opts']): string {
+  return o.heightMode && o.heightMode !== 'units' ? `${Math.round(binTotalHeight(o))}mm` : `${o.heightUnits}u`;
+}
 
 /**
  * Top-down drawer grid. Back of the drawer is at the top.
@@ -260,8 +266,19 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
                 <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />
               ))}
               <text x={r.x + r.width / 2} y={r.y + r.height / 2} fontSize={fs} dominantBaseline="middle" textAnchor="middle">
-                {b.opts.heightUnits}u
+                {heightCaption(b.opts)}
               </text>
+              {(() => {
+                // What's in the bin, from its label text (first line, cut to fit).
+                const t = b.opts.labelText?.trim().split('\n')[0];
+                if (!t || r.height < fs * 2.6) return null;
+                const room = Math.max(1, Math.floor((r.width - 4) / (fs * 0.5)));
+                return (
+                  <text className="ge-bin-label" x={r.x + r.width / 2} y={r.y + r.height / 2 + fs * 1.15} fontSize={fs * 0.8} dominantBaseline="middle" textAnchor="middle">
+                    {t.length > room ? `${t.slice(0, Math.max(1, room - 1))}…` : t}
+                  </text>
+                );
+              })()}
             </g>
           );
         })}

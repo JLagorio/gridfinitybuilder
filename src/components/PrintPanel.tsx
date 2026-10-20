@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { allDrawers, printDrawers, projectFile, useStore } from '../state/store';
 import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
 import { PRINTERS, findPrinter } from '../lib/printers';
-import { assemblyMaps, plateContents, type PrintJob } from '../lib/project';
+import { assemblyMaps, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
@@ -86,6 +86,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     }
   };
 
+  const twoColour = usesSecondFilament(job);
   const nBasePlates = job.plates.filter((p) => p.group === 'baseplate').length;
   const nBinPlates = job.plates.length - nBasePlates;
 
@@ -223,6 +224,22 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             {w}
           </div>
         ))}
+        {twoColour && (
+          <div className="field label-colour">
+            <label className="field-label" htmlFor="label-colour">
+              Label filament (slot 2)
+            </label>
+            <div className="field-control colour-row">
+              <input
+                id="label-colour"
+                type="color"
+                value={setup.labelColour ?? '#161616'}
+                onChange={(e) => store.setSetup({ labelColour: e.target.value })}
+              />
+              <span className="muted small">Inlaid label text prints in this filament; the Bambu project gets a second filament set to it.</span>
+            </div>
+          </div>
+        )}
         <button className="primary wide" disabled={!!progress || !job.plates.length} onClick={exportBambu}>
           {printer.bambu ? 'Bambu Studio project (.3mf)' : 'Slicer project (.3mf)'}
         </button>

@@ -3,6 +3,7 @@ import { useStore, useUnits } from '../state/store';
 import type { GridLayout } from '../lib/layout/drawer';
 import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT, BASE_HEIGHT } from '../lib/geometry/spec';
 import { removableInserts, type BinOptions, type LabelStyle } from '../lib/geometry/bin';
+import { LabelTextField } from './LabelFields';
 import { binCellsAt } from '../lib/project';
 import {
   MIN_GAP,
@@ -354,6 +355,14 @@ function CompartmentFields({ info, compKey, onLayout }: { info: BinInterior; com
         onChange={(scoop) => set({ scoop })}
       />
       <Segmented label="Label tab" value={own.label ?? 'default'} options={LABELS} onChange={(v) => set({ label: v === 'default' ? undefined : v })} />
+      {eff.label !== 'none' && (
+        <LabelTextField
+          label="Label text"
+          value={own.labelText ?? ''}
+          placeholder={info.opts.labelText.trim() ? `${info.opts.labelText.split('\n')[0]} (bin text)` : 'e.g. M3 × 8'}
+          onChange={(t) => set({ labelText: t.trim() ? t : undefined })}
+        />
+      )}
       <LengthInput
         label="Raise floor"
         value={own.floor ?? 0}
@@ -364,7 +373,7 @@ function CompartmentFields({ info, compKey, onLayout }: { info: BinInterior; com
         hint={`${fmt(Math.max(0, depth - (own.floor ?? 0)))} deep${c.isRect ? '' : ' · flat floor (L-shaped compartments skip the rounded bottom)'}`}
       />
       {Object.keys(own).length > 0 && (
-        <button className="link" onClick={() => set({ scoop: undefined, label: undefined, floor: undefined })}>
+        <button className="link" onClick={() => set({ scoop: undefined, label: undefined, floor: undefined, labelText: undefined })}>
           Use the bin’s settings
         </button>
       )}

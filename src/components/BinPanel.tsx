@@ -10,6 +10,7 @@ import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
 import { TemplatesSection } from './TemplatesSection';
 import { CompartmentsSection } from './CompartmentFields';
+import { LabelFields } from './LabelFields';
 import { ToolLibrary } from './ToolLibrary';
 
 function BinFields({
@@ -58,6 +59,7 @@ function BinFields({
         ]}
         onChange={(label) => onChange({ label })}
       />
+      <LabelFields opts={opts} onChange={onChange} />
       <BaseField opts={opts} onChange={onChange} />
       <HoleFields opts={opts} onChange={onChange} />
       <LipFields opts={opts} onChange={onChange} />

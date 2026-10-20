@@ -1928,3 +1928,48 @@ button.link.danger {
   fill: rgba(240, 97, 106, 0.45);
   stroke: var(--danger);
 }
+
+/* ==========================================================================
+   Labels: text fields, tab previews, label filament colour (LabelFields.tsx)
+   ========================================================================== */
+
+.input-wrap.label-text textarea {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  padding: 7px 9px;
+  outline: none;
+  resize: none;
+  line-height: 1.35;
+}
+.label-fields {
+  margin-top: -2px;
+}
+.ie-tab-text {
+  fill: #e7e9ec;
+  font-weight: 700;
+  font-stretch: condensed;
+  pointer-events: none;
+}
+.ge-bin text.ge-bin-label {
+  fill: var(--accent);
+  font-weight: 500;
+}
+.colour-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.colour-row input[type='color'] {
+  width: 40px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
