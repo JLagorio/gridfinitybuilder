@@ -1,6 +1,5 @@
 import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Vec3, type Wasm } from './kernel';
 import {
-  BASE_HEIGHT,
   BASE_PROFILE,
   BASE_PROFILE_DEPTH,
   BASE_PROFILE_HEIGHT,
@@ -8,35 +7,42 @@ import {
   BASE_TOP_RADIUS,
   DIVIDER,
   GRID,
-  HEIGHT_UNIT,
-  HOLE_OFFSET,
   INNER_RADIUS,
-  LIP_DEPTH,
-  LIP_HEIGHT,
-  LIP_PROFILE,
   LIP_SUPPORT_HEIGHT,
-  LIP_TOP_FLAT,
-  MAGNET_HOLE_DEPTH,
-  MAGNET_HOLE_DIAMETER,
-  SCREW_HOLE_DEPTH,
-  SCREW_HOLE_DIAMETER,
   TAB_DEPTH,
   TAB_SUPPORT_ANGLE_DEG,
   TAB_TIP_HEIGHT,
   TAB_WIDTH_NOMINAL,
   WALL,
 } from './spec';
-import { boxAt, cylinderAt, extrudePolygon, loftRoundedRect, ringAt, roundedRectRing } from './shapes';
+import { boxAt, extrudePolygon, loftRoundedRect, ringAt, roundedRectRing } from './shapes';
+import {
+  DEFAULT_VARIANTS,
+  binBodyHeight,
+  binFloorZ,
+  heightKey,
+  lipRise,
+  sanitizeVariants,
+  variantKeyParts,
+  type BinVariantOptions,
+} from './variants';
+import { holeBosses, holeCutters, holeSites } from './holes';
+import { clipToHollow, hollowFloor, isHollowBase } from './binbase';
+import { lipCavityKnots, lipNotches } from './lip';
+import { fingerSlides, wallCutouts } from './walls';
+import { pocketCutters, pocketLayout } from './pockets';
 
-export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both';
+export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
 
-export interface BinOptions {
+/** Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts. */
+export interface BinOptions extends BinVariantOptions {
   /** Footprint in grid units. */
   unitsX: number;
   unitsY: number;
-  /** Height in 7 mm units, excluding the stacking lip. */
+  /** Height in 7 mm units, excluding the stacking lip (when heightMode is 'units'). */
   heightUnits: number;
+  /** Stacking lip on/off; its shape is `lipStyle`. */
   lip: boolean;
   holes: HoleStyle;
   /** Number of compartments along X and Y. */
@@ -60,6 +66,7 @@ export const DEFAULT_BIN: BinOptions = {
   scoop: 0,
   label: 'none',
   fillet: true,
+  ...DEFAULT_VARIANTS,
 };
 
 export const MIN_HEIGHT_UNITS = 2;
@@ -91,8 +98,8 @@ export function binSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partia
 }
 
 /** Overall height including the lip. */
-export function binTotalHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'>) {
-  return HEIGHT_UNIT * o.heightUnits + (o.lip ? LIP_HEIGHT - LIP_TOP_FLAT : 0);
+export function binTotalHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'> & Partial<BinOptions>) {
+  return binBodyHeight(o) + lipRise(o);
 }
 
 /** Stable key so identical bins share one mesh. */
@@ -103,7 +110,7 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     ...cellPart,
     o.unitsX,
     o.unitsY,
-    o.heightUnits,
+    heightKey(o),
     o.lip ? 'L' : 'n',
     o.holes,
     o.divX,
@@ -111,12 +118,15 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     Math.round(o.scoop * 100),
     o.label,
     o.fillet ? 'F' : 'n',
+    ...variantKeyParts(o),
   ].join('-');
 }
 
 export function binLabel(o: BinOptions): string {
-  const parts = [`${o.unitsX}×${o.unitsY}×${o.heightUnits}u`];
-  if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
+  const h = o.heightMode && o.heightMode !== 'units' ? `${Math.round(binTotalHeight(o) * 10) / 10}mm` : `${o.heightUnits}u`;
+  const parts = [`${o.unitsX}×${o.unitsY}×${h}`];
+  if (o.interior === 'pockets') parts.push('pockets');
+  else if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
   return parts.join(' ');
 }
 
@@ -129,27 +139,30 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
   const s = new Scope();
   try {
     const { w: W, d: D } = binSize(o, cells);
-    const H = HEIGHT_UNIT * o.heightUnits;
+    const H = binBodyHeight(o);
     const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
-    const zFloor = BASE_HEIGHT;
+    const zFloor = binFloorZ(o);
     const outerRing = roundedRectRing(-W / 2, -D / 2, W / 2, D / 2, BASE_TOP_RADIUS);
+    const flat = o.base === 'flat';
+    const pockets = o.interior === 'pockets';
+    const hollow = isHollowBase(o.base) && !pockets;
+    // Holes only fit in full cells (flat bins have no feet to hold them).
+    const sites = flat || o.holes === 'none' ? [] : holeSites(cells, o.holeCorners);
 
     const solids: Manifold[] = [];
 
-    // 1. Base profile under every grid cell (sized to the cell, for partial edge cells).
-    const cellCenters: [number, number][] = [];
+    // 1. Base profile under every grid cell (sized to the cell, for partial edge cells); none for flat bins.
+    const feet: Manifold[] = [];
     const gap = GRID - BASE_TOP;
     const totalX = sum(cells.x);
     const totalY = sum(cells.y);
-    for (let i = 0, x0 = -totalX / 2; i < o.unitsX; x0 += cells.x[i], i++) {
+    for (let i = 0, x0 = -totalX / 2; i < o.unitsX && !flat; x0 += cells.x[i], i++) {
       for (let j = 0, y0 = -totalY / 2; j < o.unitsY; y0 += cells.y[j], j++) {
         const cw = cells.x[i];
         const cd = cells.y[j];
         const cx = x0 + cw / 2;
         const cy = y0 + cd / 2;
-        // Corner holes only fit in full cells.
-        if (Math.min(cw, cd) >= GRID - 1e-6) cellCenters.push([cx, cy]);
-        solids.push(
+        feet.push(
           s.t(
             loftRoundedRect(w, cx, cy, cw - gap, cd - gap, BASE_TOP_RADIUS, [
               { z: 0, inset: BASE_PROFILE_DEPTH },
@@ -163,54 +176,40 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
       }
     }
 
-    // 2. Infill block (floor + dividers), with compartments cut out.
-    const block = s.t(extrudePolygon(w, outerRing, BASE_PROFILE_HEIGHT, topInfill));
-    const cutters = compartmentCutters(w, s, o, W, D, zFloor, topInfill);
-    solids.push(cutters.length ? s.t(block.subtract(s.t(w.Manifold.union(cutters)))) : block);
+    // 2. Infill block (floor + dividers), with compartments (or item pockets) cut out.
+    const block = s.t(extrudePolygon(w, outerRing, flat ? 0 : BASE_PROFILE_HEIGHT, topInfill));
+    // Lite / efficient bases: compartments go down into the feet (clipped to the foot pockets below).
+    const cutFloor = hollow ? hollowFloor(o.base) : zFloor;
+    const cutters = pockets ? pocketCutters(w, s, o, W, D, zFloor, topInfill) : compartmentCutters(w, s, o, W, D, cutFloor, topInfill);
+    let cut = cutters.length ? s.t(w.Manifold.union(cutters)) : null;
+    // Finger slides: leave a quarter-round along the chosen walls uncut.
+    const slides = cut && !pockets ? fingerSlides(w, s, o, W, D, cutFloor, Math.min(topInfill - cutFloor - 0.5, 40)) : [];
+    if (cut && slides.length) cut = s.t(cut.subtract(s.t(w.Manifold.union(slides))));
+    if (cut && hollow) cut = clipToHollow(w, s, o.base, cells, W, D, zFloor, cut, holeBosses(w, s, o, sites, zFloor - 0.05));
+    solids.push(cut ? s.t(block.subtract(cut)) : block);
+    if (cut && hollow && feet.length) solids.push(s.t(s.t(w.Manifold.union(feet)).subtract(cut)));
+    else solids.push(...feet);
 
     // 3. Outer wall + stacking lip (unioned after the compartments so they never cut into it).
     const wallBottom = BASE_PROFILE_HEIGHT + 0.75;
     const top = binTotalHeight(o);
-    const cavityKnots = o.lip
-      ? [
-          { z: wallBottom + 0.5, inset: WALL },
-          { z: H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL), inset: WALL },
-          { z: H - LIP_SUPPORT_HEIGHT, inset: LIP_DEPTH },
-          { z: H, inset: LIP_DEPTH },
-          { z: H + LIP_PROFILE.chamfer1, inset: LIP_PROFILE.chamfer2 },
-          { z: H + LIP_PROFILE.chamfer1 + LIP_PROFILE.vertical, inset: LIP_PROFILE.chamfer2 },
-          { z: H + LIP_HEIGHT, inset: 0 },
-          { z: H + LIP_HEIGHT + 1, inset: -1 },
-        ]
-      : [
-          { z: wallBottom + 0.5, inset: WALL },
-          { z: H + 1, inset: WALL },
-        ];
+    // A floor below the wall's bottom (flat, lite) needs the wall open underneath.
+    const cavityKnots = lipCavityKnots(o, H, wallBottom, flat || (hollow && cut) ? wallBottom - 0.5 : wallBottom + 0.5);
     const shell = s.t(extrudePolygon(w, outerRing, wallBottom, top));
-    const cavity = s.t(loftRoundedRect(w, 0, 0, W, D, BASE_TOP_RADIUS, cavityKnots));
+    let cavity = s.t(loftRoundedRect(w, 0, 0, W, D, BASE_TOP_RADIUS, cavityKnots));
+    const notches = o.lip && o.lipNotches ? lipNotches(w, s, o, cells, W, D, H, top) : null;
+    if (notches) cavity = s.t(cavity.subtract(notches));
     solids.push(s.t(shell.subtract(cavity)));
 
     let bin = s.t(w.Manifold.union(solids));
 
+    // Wall cutouts, down to just above the floor (or the pocket fill).
+    const cutLow = pockets ? Math.max(zFloor + 1, pocketLayout(o, W, D, zFloor, topInfill).fillTop + 0.5) : zFloor + 1;
+    const cutouts = wallCutouts(w, s, o, W, D, top, cutLow);
+    if (cutouts.length) bin = s.t(bin.subtract(s.t(w.Manifold.union(cutouts))));
+
     // 4. Magnet / screw holes in the bottom.
-    const holes: Manifold[] = [];
-    if (o.holes !== 'none') {
-      for (const [cx, cy] of cellCenters) {
-        for (const [dx, dy] of [
-          [-1, -1],
-          [1, -1],
-          [1, 1],
-          [-1, 1],
-        ]) {
-          const hx = cx + dx * HOLE_OFFSET;
-          const hy = cy + dy * HOLE_OFFSET;
-          if (o.holes === 'magnets' || o.holes === 'both')
-            holes.push(s.t(cylinderAt(w, hx, hy, -1, MAGNET_HOLE_DEPTH, MAGNET_HOLE_DIAMETER / 2)));
-          if (o.holes === 'screws' || o.holes === 'both')
-            holes.push(s.t(cylinderAt(w, hx, hy, -1, SCREW_HOLE_DEPTH, SCREW_HOLE_DIAMETER / 2, SCREW_HOLE_DIAMETER / 2, 24)));
-        }
-      }
-    }
+    const holes = holeCutters(w, s, o, sites);
     if (holes.length) bin = s.t(bin.subtract(s.t(w.Manifold.union(holes))));
 
     assertValid(bin, 'bin');
@@ -220,16 +219,23 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
   }
 }
 
+const HOLE_STYLES: readonly HoleStyle[] = ['none', 'magnets', 'screws', 'both', 'refined'];
+
 export function sanitizeBin(o: BinOptions): BinOptions {
   const int = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));
+  const heightUnits = int(o.heightUnits, MIN_HEIGHT_UNITS, 30);
+  const lip = o.lip === undefined ? true : !!o.lip;
   return {
     ...o,
     unitsX: int(o.unitsX, 1, 12),
     unitsY: int(o.unitsY, 1, 12),
-    heightUnits: int(o.heightUnits, MIN_HEIGHT_UNITS, 30),
+    heightUnits,
+    lip,
+    holes: HOLE_STYLES.includes(o.holes) ? o.holes : 'none',
     divX: int(o.divX, 1, 12),
     divY: int(o.divY, 1, 12),
     scoop: Math.min(1, Math.max(0, Number(o.scoop) || 0)),
+    ...sanitizeVariants({ ...o, heightUnits, lip }),
   };
 }
 
