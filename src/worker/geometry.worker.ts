@@ -12,10 +12,17 @@ import {
   type PrintJob,
 } from '../lib/project';
 import type { WorkerRequest, WorkerResponse } from './protocol';
+import { FONT_URL_PATH, registerFont } from '../lib/geometry/text';
 
 declare const self: DedicatedWorkerGlobalScope;
 
-const wasmReady: Promise<Wasm> = Module({ locateFile: () => wasmUrl }).then((w) => {
+// Label text needs the font before any mesh that uses it is built (building is synchronous).
+const fontReady = fetch(`${import.meta.env.BASE_URL}${FONT_URL_PATH}`)
+  .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`font ${r.status}`))))
+  .then(registerFont)
+  .catch((e) => console.warn('Label font unavailable:', e));
+
+const wasmReady: Promise<Wasm> = Promise.all([Module({ locateFile: () => wasmUrl }), fontReady]).then(([w]) => {
   w.setup();
   return w;
 });
