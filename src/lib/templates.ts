@@ -1,4 +1,4 @@
-import { DEFAULT_BIN, sanitizeBin, type BinOptions } from './geometry/bin';
+import { DEFAULT_BIN, binLayout, sanitizeBin, type BinOptions } from './geometry/bin';
 import { newId } from './bins';
 
 /**
@@ -52,7 +52,10 @@ export function templateSummary(o: BinOptions): string {
   const parts = [`${o.heightUnits}u`];
   if (o.lip) parts.push('lip');
   if (o.holes && o.holes !== 'none') parts.push(o.holes === 'both' ? 'magnets + screws' : o.holes);
-  if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
+  if (o.layout) {
+    const n = binLayout(o).compartments.length;
+    if (n > 1) parts.push(`${n} compartments`);
+  } else if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
   if (o.scoop > 0) parts.push('scoop');
   if (o.label && o.label !== 'none') parts.push(`${o.label === 'center' ? 'mid' : o.label} label`);
   return parts.join(' · ');

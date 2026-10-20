@@ -29,6 +29,8 @@ export interface UIState {
   explode: boolean;
   /** Plate shown in the print view; -1 = all. */
   plate: number;
+  /** Bins tab, left pane: the drawer grid or the selected bin's compartment editor. */
+  binPane: 'drawer' | 'compartments';
 }
 
 /**
@@ -92,6 +94,7 @@ const DEFAULT_UI: UIState = {
   inchPrecision: DEFAULT_INCH_PRECISION,
   explode: false,
   plate: -1,
+  binPane: 'drawer',
 };
 
 function gridSize(s: ProjectState) {

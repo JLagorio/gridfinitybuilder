@@ -7,6 +7,7 @@ import { binSpec, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
 import { TemplatesSection } from './TemplatesSection';
+import { CompartmentsSection } from './CompartmentFields';
 
 function BinFields({
   opts,
@@ -40,10 +41,6 @@ function BinFields({
         onChange={(heightUnits) => onChange({ heightUnits })}
         hint={`${7 * opts.heightUnits} mm walls, ${Math.round(binTotalHeight(opts) * 10) / 10} mm overall · footprint ${w} × ${d} mm`}
       />
-      <div className="row2">
-        <Stepper label="Columns" value={opts.divX} min={1} max={12} onChange={(divX) => onChange({ divX })} />
-        <Stepper label="Rows" value={opts.divY} min={1} max={12} onChange={(divY) => onChange({ divY })} />
-      </div>
       <Slider
         label="Finger scoop"
         value={opts.scoop}
@@ -52,7 +49,7 @@ function BinFields({
         step={0.05}
         format={(v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`)}
         onChange={(scoop) => onChange({ scoop })}
-        hint="Curved front wall so small parts slide out."
+        hint="Curved front wall so small parts slide out. Compartments can override it and the label tab."
       />
       <Segmented
         label="Label tab"
@@ -166,6 +163,11 @@ export function BinPanel({ job }: { job: PrintJob }) {
           </p>
           <BinFields opts={newBin} onChange={setNewBin} sizeEditable={false} />
         </Section>
+      )}
+      {sel ? (
+        <CompartmentsSection key={sel.id} opts={sel.opts} onChange={changeSelected} binId={sel.id} grid={job.layout} />
+      ) : (
+        <CompartmentsSection opts={newBin} onChange={setNewBin} />
       )}
 
       <TemplatesSection />

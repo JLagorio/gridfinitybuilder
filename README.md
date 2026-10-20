@@ -26,13 +26,15 @@ Then open http://localhost:5199.
 2. **Bins.** Drag across empty cells to draw a bin, click to select it, drag to move it, press Delete to remove it. Each bin has:
    - height in 7 mm units
    - stacking lip
-   - compartments (columns × rows)
+   - compartments: columns × rows, presets, or walls you place yourself (below)
    - finger scoop
    - label tab (full, left, mid, right)
    - magnet or screw holes
    - rounded inside corners
 
    "Fill empty with 1×1" fills the rest of the drawer.
+
+   **Compartments.** Select a bin and switch the left pane to *Compartments*. Hover inside the bin to see the wall a click would add; it runs wall to wall and snaps to 50 %, thirds and quarters of the space it splits (and of the whole bin), to other walls and to the 42 mm cell seams. Hold Shift to flip its direction, R to lock it, Alt to turn snapping off (1 mm or 1/16″ steps). Drag walls to move them, drag a selected wall's end handles to attach it to a different wall (for L-shaped compartments), click a size to type it (`44.5`, `1 3/4in`). Walls placed by snapping stay proportional when the bin or a neighbour changes; typed sizes stay fixed. The sidebar splits a compartment into equal parts, by ratio (`1:2:1`) or by minimum size, and sets each wall's height (lowered so fingers reach over, or removable: a slide-in plate in slots) and each compartment's scoop, label tab and floor height.
 
    Shift- or ⌘/Ctrl-click bins, or Shift-drag a box (or drag from outside the grid), to select several; drag them, nudge them with the arrow keys, copy and paste (⌘C / ⌘V pastes at the cell under the pointer), duplicate (⌘D) or delete them together. Drag the handles of a selected bin to resize it. **Templates** save a bin's settings by name; apply one to the selected bins or to new bins, in any drawer.
 3. **Print plates.** Pick the printer (the Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles). Gridfit splits the baseplate on cell boundaries, so every receptacle stays whole. It then packs pieces and bins onto plates. Exports:
@@ -95,6 +97,7 @@ npx tsx scripts/build-bambu-settings.ts
 ```
 src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (Manifold)
 src/lib/layout/     drawer → grid fit, bed splitting, plate packing
+src/lib/dividers/   bin interior layouts: walls → compartments, edits, snapping (pure TS)
 src/lib/export/     plain 3MF, Bambu Studio project and binary STL writers
 src/lib/project.ts  ties it together: planJob() (cheap, no geometry) + exporters
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links
