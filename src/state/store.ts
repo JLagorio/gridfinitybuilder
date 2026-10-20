@@ -8,8 +8,11 @@ import { DEFAULT_SETUP, type PrintSetup } from '../lib/layout/plan';
 import { findPrinter } from '../lib/printers';
 import { canPlace, newId, occupancy } from '../lib/bins';
 import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, type InchPrecision, type Units } from '../lib/units';
+import { cleanTool, cleanTools, removeToolFromBins, syncToolInBins, type Tool } from '../lib/tools';
 
 export type Tab = 'drawer' | 'bins' | 'print';
+/** What the Bins tab's 2D pane shows. */
+export type BinPane = 'layout' | 'cutouts';
 
 export interface UIState {
   tab: Tab;
@@ -21,6 +24,8 @@ export interface UIState {
   explode: boolean;
   /** Plate shown in the print view; -1 = all. */
   plate: number;
+  /** Bins tab 2D pane: drawer layout or the selected bin's tool cutouts. */
+  binPane: BinPane;
 }
 
 /**
@@ -42,6 +47,14 @@ export interface Store extends ProjectState {
   printScope: PrintScope;
   /** Drawer ids printed when printScope is 'pick'. */
   printPick: string[];
+  /** Tool library (traced / imported outlines), shared by every drawer. */
+  tools: Tool[];
+  /** Add a tool (outline in mm, any winding/origin; it's normalized). Returns its id. */
+  addTool(t: Partial<Tool> & Pick<Tool, 'outline'>): string;
+  /** Change a tool; its copies in placed bins follow. */
+  updateTool(id: string, patch: Partial<Omit<Tool, 'id'>>): void;
+  /** Remove a tool and its pockets from every bin. */
+  removeTool(id: string): void;
   setDrawer(p: Partial<DrawerInput>): void;
   setBaseplate(p: Partial<BaseplateOptions>): void;
   setSetup(p: Partial<PrintSetup>): void;
@@ -74,6 +87,7 @@ const DEFAULT_UI: UIState = {
   inchPrecision: DEFAULT_INCH_PRECISION,
   explode: false,
   plate: -1,
+  binPane: 'layout',
 };
 
 function gridSize(s: ProjectState) {
@@ -150,6 +164,7 @@ const DEFAULT_WORKSPACE = {
   activeDrawerId: FIRST_DRAWER_ID,
   printScope: 'active' as PrintScope,
   printPick: [] as string[],
+  tools: [] as Tool[],
 };
 
 export const useStore = create<Store>()(
@@ -173,7 +188,8 @@ export const useStore = create<Store>()(
       },
       setInclude: (p) => set((s) => ({ include: { ...s.include, ...p } })),
       setUI: (p) => set((s) => ({ ui: { ...s.ui, ...p } })),
-      setNewBin: (p) => set((s) => ({ newBin: sanitizeBin({ ...s.newBin, ...p }) })),
+      // New bins never start with another bin's tool pockets.
+      setNewBin: (p) => set((s) => ({ newBin: sanitizeBin({ ...s.newBin, ...p, cutouts: undefined }) })),
       addBin: (x, y, w, d) => {
         const id = newId();
         const bin: PlacedBin = { id, x, y, opts: sanitizeBin({ ...get().newBin, unitsX: w, unitsY: d }) };
@@ -312,6 +328,39 @@ export const useStore = create<Store>()(
       },
       setPrintScope: (printScope, pick) => set((s) => ({ printScope, printPick: pick ?? s.printPick, ui: { ...s.ui, plate: -1 } })),
 
+      // Tool library. Placed bins hold copies of a tool, refreshed here in every drawer.
+      addTool: (t) => {
+        const tool = cleanTool({ ...t, id: t.id ?? newId() });
+        if (!tool) throw new Error('A tool outline needs at least 3 points.');
+        set((s) => ({ tools: [...s.tools.filter((x) => x.id !== tool.id), tool] }));
+        return tool.id;
+      },
+      updateTool: (id, patch) => {
+        const s = get();
+        const cur = s.tools.find((t) => t.id === id);
+        // Only re-normalize a new outline, so an unchanged one stays identical (and meshes stay cached).
+        const next = cur && cleanTool({ ...cur, ...patch, id });
+        if (!cur || !next) return;
+        if (!patch.outline) next.outline = cur.outline;
+        set({
+          tools: s.tools.map((t) => (t.id === id ? next : t)),
+          bins: syncToolInBins(s.bins, next),
+          drawers: s.drawers.map((d) => {
+            const bins = syncToolInBins(d.bins, next);
+            return bins === d.bins ? d : { ...d, bins };
+          }),
+        });
+      },
+      removeTool: (id) =>
+        set((s) => ({
+          tools: s.tools.filter((t) => t.id !== id),
+          bins: removeToolFromBins(s.bins, id),
+          drawers: s.drawers.map((d) => {
+            const bins = removeToolFromBins(d.bins, id);
+            return bins === d.bins ? d : { ...d, bins };
+          }),
+        })),
+
       resetAll: () => set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, ui: { ...DEFAULT_UI, units: get().ui.units }, newBin: DEFAULT_BIN }),
       loadProject: (data) => {
         const p = (data ?? {}) as Partial<Store> & { app?: string };
@@ -332,6 +381,8 @@ export const useStore = create<Store>()(
           newBin: sanitizeBin({ ...DEFAULT_BIN, ...p.newBin }),
           printScope: p.printScope === 'all' || p.printScope === 'pick' ? p.printScope : 'active',
           printPick: Array.isArray(p.printPick) ? p.printPick.map(String) : [],
+          // Files from before the tool library keep the current library.
+          tools: Array.isArray(p.tools) ? cleanTools(p.tools) : s.tools,
           ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
@@ -350,6 +401,7 @@ export const useStore = create<Store>()(
         activeDrawerId: s.activeDrawerId,
         printScope: s.printScope,
         printPick: s.printPick,
+        tools: s.tools,
         ui: { ...s.ui, selectedBinId: null },
       }),
       // Version 1 had no drawer list; merge() below builds it from the top-level drawer.
@@ -377,6 +429,7 @@ export const useStore = create<Store>()(
           newBin: sanitizeBin({ ...current.newBin, ...p.newBin }),
           printScope: p.printScope ?? current.printScope,
           printPick: p.printPick ?? current.printPick,
+          tools: cleanTools(p.tools ?? current.tools),
           ui: { ...current.ui, ...p.ui },
         };
       },
@@ -395,6 +448,7 @@ export function projectFile(s: Store) {
     activeDrawerId: s.activeDrawerId,
     printScope: s.printScope,
     printPick: s.printPick,
+    tools: s.tools,
   };
 }
 

@@ -27,6 +27,7 @@ import {
   WALL,
 } from './spec';
 import { boxAt, cylinderAt, extrudePolygon, loftRoundedRect, ringAt, roundedRectRing } from './shapes';
+import { cutoutCutters, cutoutKeyPart, sanitizeCutouts, sanitizeCutoutStyle, type BinCutout, type CutoutStyle } from './cutouts';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
@@ -47,6 +48,10 @@ export interface BinOptions {
   label: LabelStyle;
   /** Round the bottom edges of compartments. */
   fillet: boolean;
+  /** Tool-outline pockets. When present the bin is filled solid and compartments are skipped (see cutouts.ts). */
+  cutouts?: BinCutout[];
+  /** How those pockets are cut; missing fields use DEFAULT_CUTOUT_STYLE. */
+  cutoutStyle?: Partial<CutoutStyle>;
 }
 
 export const DEFAULT_BIN: BinOptions = {
@@ -111,12 +116,14 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     Math.round(o.scoop * 100),
     o.label,
     o.fillet ? 'F' : 'n',
+    ...cutoutKeyPart(o),
   ].join('-');
 }
 
 export function binLabel(o: BinOptions): string {
   const parts = [`${o.unitsX}×${o.unitsY}×${o.heightUnits}u`];
   if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
+  if (o.cutouts?.length) parts.push(`${o.cutouts.length} tool pocket${o.cutouts.length === 1 ? '' : 's'}`);
   return parts.join(' ');
 }
 
@@ -165,7 +172,7 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
 
     // 2. Infill block (floor + dividers), with compartments cut out.
     const block = s.t(extrudePolygon(w, outerRing, BASE_PROFILE_HEIGHT, topInfill));
-    const cutters = compartmentCutters(w, s, o, W, D, zFloor, topInfill);
+    const cutters = o.cutouts?.length ? cutoutCutters(w, s, o, W, D, topInfill) : compartmentCutters(w, s, o, W, D, zFloor, topInfill);
     solids.push(cutters.length ? s.t(block.subtract(s.t(w.Manifold.union(cutters)))) : block);
 
     // 3. Outer wall + stacking lip (unioned after the compartments so they never cut into it).
@@ -230,6 +237,8 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     divX: int(o.divX, 1, 12),
     divY: int(o.divY, 1, 12),
     scoop: Math.min(1, Math.max(0, Number(o.scoop) || 0)),
+    cutouts: sanitizeCutouts(o.cutouts),
+    cutoutStyle: sanitizeCutoutStyle(o.cutoutStyle),
   };
 }
 
