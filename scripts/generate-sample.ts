@@ -23,11 +23,14 @@ import { meshBounds, type MeshData } from '../src/lib/geometry/kernel';
 import { assemblyMap } from '../src/lib/layout/plan';
 import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
 import { POCKET_PRESETS, presetFields } from '../src/lib/geometry/pockets';
+import { FONT_URL_PATH, registerFont } from '../src/lib/geometry/text';
 
 const outDir = resolve(process.argv[2] ?? 'out');
 mkdirSync(outDir, { recursive: true });
 
 const wasm = await Module();
+const fontBytes = readFileSync(resolve('public', FONT_URL_PATH));
+registerFont(fontBytes.buffer.slice(fontBytes.byteOffset, fontBytes.byteOffset + fontBytes.byteLength));
 wasm.setup();
 
 const state: ProjectState = {

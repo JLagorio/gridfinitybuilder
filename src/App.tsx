@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { printDrawers, projectOf, useStore, type Tab } from './state/store';
+import { printDrawers, projectOf, selectedIds, useStore, type Tab } from './state/store';
+import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
 import { planJob, planPrint, type MeshSpec, type PrintJob } from './lib/project';
 import { cellEdge } from './lib/layout/drawer';
 import { binSeatHeight } from './lib/geometry/baseplate';
@@ -13,10 +14,14 @@ import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
+import { HistoryButtons } from './components/HistoryButtons';
+import { ShortcutsHelp } from './components/ShortcutsHelp';
+import { useOpenSharedProject } from './components/ShareLink';
 import { Segmented } from './components/fields';
 import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LID_COLOR, pieceColor } from './components/colors';
 import { binBodyHeight } from './lib/geometry/variants';
 import { LID_SEAT_DROP } from './lib/geometry/lid';
+import './components/workflow.css';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'drawer', label: 'Drawer & baseplate' },
@@ -63,12 +68,12 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
         d: part.d,
         h: part.h,
         color: BIN_COLOR,
-        selected: b.id === state.ui.selectedBinId,
+        selected: selectedIds(state.ui).includes(b.id),
         pickable: true,
       });
       // A lid sits in the bin's lip (hidden while the bin is selected, so its inside stays visible).
       const lid = job.parts[`lid:${b.id}`];
-      if (lid && b.id !== state.ui.selectedBinId) {
+      if (lid && !selectedIds(state.ui).includes(b.id)) {
         items.push({
           id: `${b.id}:lid`,
           meshKey: lid.meshKey,
@@ -146,7 +151,7 @@ export default function App() {
     if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup.bedW, state.setup.bedD);
     return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, state.setup.bedW, state.setup.bedD]);
+  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup.bedW, state.setup.bedD]);
 
   // Ask the worker for exactly the meshes on screen (selected bin first).
   useEffect(() => {
@@ -162,14 +167,17 @@ export default function App() {
     geometry.want(specs);
   }, [scene, printJob, viewJob]);
 
-  // Delete / Backspace removes the selected bin (unless typing in a field).
+  useOpenSharedProject();
+  const selection = useSelectedIds();
+
+  // Delete / Backspace removes the selected bins (unless typing in a field).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest('input, textarea, select, [contenteditable]')) return;
       const s = useStore.getState();
       if ((e.key === 'Delete' || e.key === 'Backspace') && s.ui.selectedBinId && s.ui.tab === 'bins') {
-        s.removeBin(s.ui.selectedBinId);
+        removeSelection();
         e.preventDefault();
       }
       if (e.key === 'Escape') s.setUI({ selectedBinId: null });
@@ -240,6 +248,7 @@ export default function App() {
           ))}
         </nav>
         <div className="topbar-status">
+          <HistoryButtons />
           {queue > 0 && (
             <span className="building">
               <span className="spinner" /> Building {queue}
@@ -259,6 +268,7 @@ export default function App() {
           <span className="chip">
             {job.layout.nx}×{job.layout.ny} grid · {job.plan.pieces.length} pieces · {printJob.plates.length} plates
           </span>
+          <ShortcutsHelp />
         </div>
       </header>
 
@@ -272,14 +282,15 @@ export default function App() {
           {ui.tab === 'bins' ? (
             <div className="split">
               <div className="pane pane-2d">
-                <div className="pane-title">Layout — drag to draw bins</div>
+                <div className="pane-title">Layout — drag to draw bins · Shift-drag to select · press ? for shortcuts</div>
                 <BinGridEditor
                   layout={job.layout}
                   bins={state.bins}
-                  selectedId={ui.selectedBinId}
-                  onSelect={(id) => state.setUI({ selectedBinId: id })}
+                  selectedIds={selection}
+                  onSelect={selectBins}
                   onCreate={(r) => state.addBin(r.x, r.y, r.w, r.d)}
-                  onMove={(id, x, y) => state.updateBin(id, { x, y })}
+                  onMoveBins={moveBins}
+                  onResize={resizeBin}
                 />
               </div>
               <div className="pane pane-3d">{viewer}</div>

@@ -37,6 +37,65 @@ export interface BambuProjectInput {
   /** Full project_settings.config JSON text, if available. */
   projectSettings?: string;
   title?: string;
+  /** Colours for filament slots 2+ when overlays use them (default: black, white, red…). */
+  filamentColours?: string[];
+}
+
+const EXTRA_COLOURS = ['#161616', '#FFFFFF', '#C12E1F', '#0A2989', '#F4EE2A'];
+
+/**
+ * Grow single-filament project settings to `count` filaments. Bambu Studio
+ * takes the filament count from `filament_diameter` and fills any shorter
+ * per-filament list from its first entry, so only the lists that identify a
+ * filament need to grow. Per-extruder lists (nozzle_diameter, extruder_*)
+ * must not change on a single-nozzle printer.
+ */
+export function withFilaments(settingsJson: string, count: number, colours: string[] = []): string {
+  let cfg: Record<string, unknown>;
+  try {
+    cfg = JSON.parse(settingsJson) as Record<string, unknown>;
+  } catch {
+    return settingsJson;
+  }
+  const have = Array.isArray(cfg.filament_diameter) ? cfg.filament_diameter.length : 1;
+  if (have >= count) return settingsJson;
+  const grow = (key: string, fill?: (i: number) => string) => {
+    const v = cfg[key];
+    if (!Array.isArray(v) || !v.length) return;
+    const out = [...v];
+    while (out.length < count) out.push(fill ? fill(out.length) : out[out.length - 1]);
+    cfg[key] = out;
+  };
+  for (const key of [
+    'filament_diameter',
+    'filament_settings_id',
+    'filament_type',
+    'filament_ids',
+    'filament_vendor',
+    'filament_density',
+    'filament_cost',
+    'filament_map',
+    'filament_nozzle_map',
+    'filament_volume_map',
+    'filament_is_mixed',
+    'filament_extruder_compatibility',
+    'filament_flow_ratio',
+    'filament_max_volumetric_speed',
+    'nozzle_temperature',
+    'nozzle_temperature_initial_layer',
+    'default_filament_colour',
+  ]) {
+    grow(key);
+  }
+  grow('filament_colour', (i) => colours[i - 1] ?? EXTRA_COLOURS[(i - 1) % EXTRA_COLOURS.length]);
+  // [process, filament 1..n, printer]
+  for (const key of ['different_settings_to_system', 'inherits_group']) {
+    const v = cfg[key];
+    if (Array.isArray(v) && v.length === have + 2) {
+      cfg[key] = [v[0], ...v.slice(1, -1), ...Array(count - have).fill(v[v.length - 2]), v[v.length - 1]];
+    }
+  }
+  return JSON.stringify(cfg, null, 4);
 }
 
 const PLATE_GAP = 1 / 5;
@@ -89,31 +148,55 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
   const NS =
     'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"';
 
+  // Every placed part is one Bambu object: a wrapper whose components are its
+  // bodies (the main mesh plus any overlays in other filaments). Ids are
+  // allocated in order: the bodies first, then the wrapper.
+  type Body = { id: number; name: string; filament: number; xml: () => string };
+  type Placed = Flat & { wrapId: number; bodies: Body[]; path: string };
+  let nextId = 1;
+  const placed: Placed[] = flat.map((f) => {
+    const obj = objects[f.part.object];
+    const bodies: Body[] = [{ id: nextId++, name: f.part.name, filament: 1, xml: () => meshFor(f.part.object) }];
+    for (const o of obj.mesh.overlays ?? []) {
+      bodies.push({ id: nextId++, name: `${f.part.name} – ${o.name}`, filament: o.filament, xml: () => meshXml(o) });
+    }
+    return { ...f, bodies, wrapId: nextId++, path: `/3D/Objects/object_${f.k}.model` };
+  });
+  const filamentCount = Math.max(1, ...placed.flatMap((p) => p.bodies.map((b) => b.filament)));
+
   const rels: string[] = [];
   const resources: string[] = [];
   const build: string[] = [];
-  for (const f of flat) {
-    const meshId = 2 * f.k - 1;
-    const wrapId = 2 * f.k;
-    const path = `/3D/Objects/object_${f.k}.model`;
-    files[path.slice(1)] = strToU8(
+  for (const f of placed) {
+    files[f.path.slice(1)] = strToU8(
       `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" ${NS}>\n` +
         ` <metadata name="BambuStudio:3mfVersion">1</metadata>\n <resources>\n` +
-        `  <object id="${meshId}" p:UUID="${hex4(f.k)}0000-81cb-4c03-9d28-80fed5dfa1dc" type="model">\n` +
-        meshFor(f.part.object) +
-        `\n  </object>\n </resources>\n <build/>\n</model>\n`,
+        f.bodies
+          .map(
+            (b) =>
+              `  <object id="${b.id}" p:UUID="${hex4(f.k)}${hex4(b.id)}-81cb-4c03-9d28-80fed5dfa1dc" type="model">\n` +
+              b.xml() +
+              `\n  </object>\n`,
+          )
+          .join('') +
+        ` </resources>\n <build/>\n</model>\n`,
     );
     rels.push(
-      ` <Relationship Target="${path}" Id="rel-${f.k}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`,
+      ` <Relationship Target="${f.path}" Id="rel-${f.k}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`,
     );
     resources.push(
-      `  <object id="${wrapId}" p:UUID="${hex8(f.k)}-61cb-4c03-9d28-80fed5dfa1dc" type="model">\n` +
+      `  <object id="${f.wrapId}" p:UUID="${hex8(f.k)}-61cb-4c03-9d28-80fed5dfa1dc" type="model">\n` +
         `   <components>\n` +
-        `    <component p:path="${path}" objectid="${meshId}" p:UUID="${hex4(f.k)}0000-b206-40ff-9872-83e8017abed1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n` +
+        f.bodies
+          .map(
+            (b) =>
+              `    <component p:path="${f.path}" objectid="${b.id}" p:UUID="${hex4(f.k)}${hex4(b.id)}-b206-40ff-9872-83e8017abed1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n`,
+          )
+          .join('') +
         `   </components>\n  </object>`,
     );
     build.push(
-      `  <item objectid="${wrapId}" p:UUID="${hex8(wrapId)}-b1ec-4553-aec9-835e5b724bb4" transform="${matToString(f.world)}" printable="1"/>`,
+      `  <item objectid="${f.wrapId}" p:UUID="${hex8(f.wrapId)}-b1ec-4553-aec9-835e5b724bb4" transform="${matToString(f.world)}" printable="1"/>`,
     );
   }
 
@@ -150,18 +233,19 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
 
   // model_settings.config: objects, plates, assembly
   const cfg: string[] = ['<?xml version="1.0" encoding="UTF-8"?>', '<config>'];
-  for (const f of flat) {
+  for (const f of placed) {
     const name = escapeXml(f.part.name);
-    cfg.push(
-      `  <object id="${2 * f.k}">`,
-      `    <metadata key="name" value="${name}"/>`,
-      `    <metadata key="extruder" value="1"/>`,
-      `    <part id="${2 * f.k - 1}" subtype="normal_part">`,
-      `      <metadata key="name" value="${name}"/>`,
-      `      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>`,
-      `    </part>`,
-      `  </object>`,
-    );
+    cfg.push(`  <object id="${f.wrapId}">`, `    <metadata key="name" value="${name}"/>`, `    <metadata key="extruder" value="1"/>`);
+    for (const b of f.bodies) {
+      cfg.push(
+        `    <part id="${b.id}" subtype="normal_part">`,
+        `      <metadata key="name" value="${escapeXml(b.name)}"/>`,
+        `      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>`,
+        ...(b.filament > 1 ? [`      <metadata key="extruder" value="${b.filament}"/>`] : []),
+        `    </part>`,
+      );
+    }
+    cfg.push(`  </object>`);
   }
   plates.forEach((pl, pi) => {
     cfg.push(
@@ -170,10 +254,10 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
       `    <metadata key="plater_name" value="${escapeXml(pl.name)}"/>`,
       '    <metadata key="locked" value="false"/>',
     );
-    for (const f of flat.filter((x) => x.plate === pi)) {
+    for (const f of placed.filter((x) => x.plate === pi)) {
       cfg.push(
         '    <model_instance>',
-        `      <metadata key="object_id" value="${2 * f.k}"/>`,
+        `      <metadata key="object_id" value="${f.wrapId}"/>`,
         '      <metadata key="instance_id" value="0"/>',
         `      <metadata key="identify_id" value="${1000 + f.k}"/>`,
         '    </model_instance>',
@@ -182,9 +266,9 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
     cfg.push('  </plate>');
   });
   cfg.push('  <assemble>');
-  for (const f of flat) {
+  for (const f of placed) {
     cfg.push(
-      `   <assemble_item object_id="${2 * f.k}" instance_id="0" transform="${matToString(f.world)}" offset="0 0 0" />`,
+      `   <assemble_item object_id="${f.wrapId}" instance_id="0" transform="${matToString(f.world)}" offset="0 0 0" />`,
     );
   }
   cfg.push('  </assemble>', '</config>', '');
@@ -202,7 +286,10 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
       '',
     ].join('\n'),
   );
-  if (input.projectSettings) files['Metadata/project_settings.config'] = strToU8(input.projectSettings);
+  if (input.projectSettings) {
+    const settings = filamentCount > 1 ? withFilaments(input.projectSettings, filamentCount, input.filamentColours) : input.projectSettings;
+    files['Metadata/project_settings.config'] = strToU8(settings);
+  }
 
   files['[Content_Types].xml'] = strToU8(
     [

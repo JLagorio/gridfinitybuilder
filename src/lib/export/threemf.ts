@@ -79,14 +79,34 @@ export function write3MF(objects: ExportObject[], items: ExportItem[], title = '
   xml.push(`<metadata name="Title">${escapeXml(title)}</metadata>\n`);
   xml.push('<metadata name="Application">Gridfit</metadata>\n');
   xml.push('<resources>\n');
-  objects.forEach((o, i) => {
-    xml.push(`<object id="${i + 1}" type="model" name="${escapeXml(o.name)}">`);
-    xml.push(meshXml(o.mesh));
-    xml.push('</object>\n');
+  // Objects with overlays (bodies in another filament) become a wrapper with one component per body,
+  // which slicers import as one object made of several parts.
+  let nextId = 1;
+  const ids = objects.map((o) => {
+    if (!o.mesh.overlays?.length) {
+      const id = nextId++;
+      xml.push(`<object id="${id}" type="model" name="${escapeXml(o.name)}">`);
+      xml.push(meshXml(o.mesh));
+      xml.push('</object>\n');
+      return id;
+    }
+    const bodies = [{ name: o.name, mesh: o.mesh as MeshData }, ...o.mesh.overlays.map((ov) => ({ name: `${o.name} – ${ov.name}`, mesh: ov }))];
+    const bodyIds = bodies.map((b) => {
+      const id = nextId++;
+      xml.push(`<object id="${id}" type="model" name="${escapeXml(b.name)}">`);
+      xml.push(meshXml(b.mesh));
+      xml.push('</object>\n');
+      return id;
+    });
+    const id = nextId++;
+    xml.push(`<object id="${id}" type="model" name="${escapeXml(o.name)}"><components>`);
+    for (const b of bodyIds) xml.push(`<component objectid="${b}"/>`);
+    xml.push('</components></object>\n');
+    return id;
   });
   xml.push('</resources>\n<build>\n');
   for (const it of items) {
-    xml.push(`<item objectid="${it.object + 1}" transform="${matToString(it.transform)}"/>\n`);
+    xml.push(`<item objectid="${ids[it.object]}" transform="${matToString(it.transform)}"/>\n`);
   }
   xml.push('</build>\n</model>\n');
   return zipSync(
