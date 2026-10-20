@@ -22,6 +22,10 @@ class GeometryClient {
   private pending = new Map<number, Pending>();
   private meshes = new Map<string, MeshData>();
   private errors = new Map<string, string>();
+  /** Solid volumes (mm³) by mesh key; small, so kept for the whole session. */
+  private vols = new Map<string, number>();
+  private volsInFlight = new Set<string>();
+  private volsFailed = new Set<string>();
   private wanted: MeshSpec[] = [];
   private busy = false;
   private listeners = new Set<() => void>();
@@ -90,7 +94,10 @@ class GeometryClient {
     this.emit();
     try {
       const res = await this.call({ type: 'mesh', spec: next });
-      if (res.type === 'mesh') this.meshes.set(next.key, res.mesh);
+      if (res.type === 'mesh') {
+        this.meshes.set(next.key, res.mesh);
+        if (res.volume !== undefined) this.vols.set(next.key, res.volume);
+      }
     } catch (e) {
       this.errors.set(next.key, (e as Error).message);
     }
@@ -118,6 +125,48 @@ class GeometryClient {
 
   async exportSingle(spec: MeshSpec, name: string) {
     return this.bytes(await this.call({ type: 'export-single', spec, name }));
+  }
+
+  async exportStlPlate(job: PrintJob, plate: number, onProgress?: Pending['onProgress']) {
+    return this.bytes(await this.call({ type: 'export-stl-plate', job, plate }, onProgress));
+  }
+
+  async exportStlZip(job: PrintJob, onProgress?: Pending['onProgress']) {
+    return this.bytes(await this.call({ type: 'export-stl-zip', job }, onProgress));
+  }
+
+  async exportStlSingle(spec: MeshSpec, name: string) {
+    return this.bytes(await this.call({ type: 'export-stl-single', spec, name }));
+  }
+
+  /** Measured solid volume of a mesh (mm³), if known yet. */
+  volume(key: string): number | undefined {
+    return this.vols.get(key);
+  }
+
+  /** True when a mesh can't be measured (its geometry failed). */
+  volumeFailed(key: string) {
+    return this.volsFailed.has(key) || this.errors.has(key);
+  }
+
+  /** Measure the meshes not measured yet (building them as needed). Listeners hear when it's done. */
+  async measure(specs: MeshSpec[], onProgress?: Pending['onProgress']) {
+    const todo = specs.filter((s) => !this.vols.has(s.key) && !this.volsInFlight.has(s.key) && !this.volumeFailed(s.key));
+    if (!todo.length) return;
+    for (const s of todo) this.volsInFlight.add(s.key);
+    try {
+      const res = await this.call({ type: 'volumes', specs: todo }, onProgress);
+      if (res.type === 'volumes') {
+        for (const s of todo) {
+          const v = res.volumes[s.key];
+          if (v === undefined) this.volsFailed.add(s.key);
+          else this.vols.set(s.key, v);
+        }
+      }
+    } finally {
+      for (const s of todo) this.volsInFlight.delete(s.key);
+      this.emit();
+    }
   }
 
   private bytes(r: WorkerResponse): Uint8Array {

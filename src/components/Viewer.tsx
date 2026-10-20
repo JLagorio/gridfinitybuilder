@@ -45,6 +45,8 @@ export interface ViewerProps {
 }
 
 const SELECT_COLOR = '#f5a524';
+/** Preview colours for bodies printed in filament 2, 3, … (label text etc.). */
+const OVERLAY_COLORS = ['#22262d', '#f2f2f2', '#c12e1f'];
 
 function useGeometryVersion() {
   return useSyncExternalStore(
@@ -116,7 +118,10 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
   const helpers = new THREE.Group();
   scene.add(world, bedGroup, helpers);
 
-  const geoms = new Map<string, { mesh: THREE.BufferGeometry; edges: THREE.BufferGeometry }>();
+  const geoms = new Map<
+    string,
+    { mesh: THREE.BufferGeometry; edges: THREE.BufferGeometry; overlays: { filament: number; mesh: THREE.BufferGeometry }[] }
+  >();
   const mats = new Map<string, THREE.Material>();
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 });
   const placeholderMat = new THREE.MeshBasicMaterial({ color: 0x8a93a3, transparent: true, opacity: 0.12 });
@@ -133,17 +138,24 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
     return m;
   }
 
+  function buildGeometry(positions: Float32Array, indices: Uint32Array) {
+    const bg = new THREE.BufferGeometry();
+    bg.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    bg.setIndex(new THREE.BufferAttribute(indices, 1));
+    const mesh = toCreasedNormals(bg, Math.PI / 7);
+    const edges = new THREE.EdgesGeometry(bg, 28);
+    bg.dispose();
+    mesh.computeBoundingSphere();
+    return { mesh, edges };
+  }
+
   function geometryFor(key: string, data: MeshData) {
     let g = geoms.get(key);
     if (!g) {
-      const bg = new THREE.BufferGeometry();
-      bg.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-      bg.setIndex(new THREE.BufferAttribute(data.indices, 1));
-      const mesh = toCreasedNormals(bg, Math.PI / 7);
-      const edges = new THREE.EdgesGeometry(bg, 28);
-      bg.dispose();
-      mesh.computeBoundingSphere();
-      g = { mesh, edges };
+      g = {
+        ...buildGeometry(data.positions, data.indices),
+        overlays: (data.overlays ?? []).map((o) => ({ filament: o.filament, mesh: buildGeometry(o.positions, o.indices).mesh })),
+      };
       geoms.set(key, g);
     }
     return g;
@@ -172,6 +184,11 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
         const mesh = new THREE.Mesh(g.mesh, material(it.selected ? SELECT_COLOR : it.color));
         mesh.userData.id = it.pickable ? it.id : null;
         obj.add(mesh, new THREE.LineSegments(g.edges, edgeMat));
+        for (const o of g.overlays) {
+          const om = new THREE.Mesh(o.mesh, material(OVERLAY_COLORS[(o.filament - 2) % OVERLAY_COLORS.length]));
+          om.userData.id = mesh.userData.id;
+          obj.add(om);
+        }
       } else {
         const ph = new THREE.Mesh(unitBox, placeholderMat);
         ph.scale.set(it.w, it.d, Math.max(it.h, 1));
@@ -187,6 +204,7 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
       if (!used.has(k)) {
         g.mesh.dispose();
         g.edges.dispose();
+        for (const o of g.overlays) o.mesh.dispose();
         geoms.delete(k);
       }
     }

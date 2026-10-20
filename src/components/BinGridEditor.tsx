@@ -1,89 +1,204 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cellEdge, cellIndexAt, type GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin } from '../lib/project';
-import { canPlace, occupancy, outOfBounds, type CellRect } from '../lib/bins';
+import { binRect, canPlace, occupancy, outOfBounds, type CellRect } from '../lib/bins';
+import { HANDLES, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
+import { useLayoutShortcuts } from './useLayoutShortcuts';
 import { dividerLines } from './dividerLines';
 
 interface Props {
   layout: GridLayout;
   bins: PlacedBin[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
+  /** Selected bin ids, primary first. */
+  selectedIds: string[];
+  /** Replace the selection; `primary` is the bin the Bins panel edits. */
+  onSelect: (ids: string[], primary?: string | null) => void;
   onCreate: (r: CellRect) => void;
-  onMove: (id: string, x: number, y: number) => void;
+  /** Move bins together by whole cells. */
+  onMoveBins: (ids: string[], dx: number, dy: number) => void;
+  /** Give a bin a new position and footprint. */
+  onResize: (id: string, r: CellRect) => void;
 }
 
-type Drag =
-  | { kind: 'draw'; start: [number, number]; cur: [number, number] }
-  | { kind: 'move'; id: string; grab: [number, number]; cur: [number, number]; moved: boolean };
+type Pt = [number, number];
 
-/** Top-down drawer grid. Back of the drawer is at the top. */
-export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, onMove }: Props) {
+type Drag =
+  | { kind: 'draw'; start: Pt; cur: Pt }
+  /** `toggle`: a Shift/Cmd-click on an already selected bin, which deselects it unless it turns into a drag. */
+  | { kind: 'move'; id: string; ids: string[]; start: Pt; cur: Pt; moved: boolean; additive: boolean; toggle: boolean }
+  /** A selection box, in plate mm. `tol` is how far the pointer may wander and still count as a click. */
+  | { kind: 'marquee'; start: Pt; cur: Pt; base: string[]; tol: number }
+  | { kind: 'resize'; id: string; handle: Handle; from: CellRect; cur: CellRect };
+
+const HANDLE_CURSOR: Record<Handle, string> = {
+  n: 'ns-resize',
+  s: 'ns-resize',
+  e: 'ew-resize',
+  w: 'ew-resize',
+  ne: 'nesw-resize',
+  sw: 'nesw-resize',
+  nw: 'nwse-resize',
+  se: 'nwse-resize',
+};
+
+const sameRect = (a: CellRect, b: CellRect) => a.x === b.x && a.y === b.y && a.w === b.w && a.d === b.d;
+
+/**
+ * Top-down drawer grid. Back of the drawer is at the top.
+ * Drag over empty cells to draw, click to select (Shift/Cmd-click to add), Shift-drag
+ * or drag from outside the grid to box-select, drag a selected bin to move the
+ * whole selection, drag a handle to resize. Keyboard: see useLayoutShortcuts.
+ */
+export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize }: Props) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<[number, number] | null>(null);
+  const hoverRef = useRef<Pt | null>(null);
+  hoverRef.current = hover;
+  useLayoutShortcuts(useCallback(() => hoverRef.current, []));
+  // One screen pixel in plate mm, so handles keep their size on screen.
+  const [px, setPx] = useState(1);
   const { nx, ny, pitchX, pitchY, xs, ys, plateW, plateD } = layout;
   const occ = useMemo(() => occupancy(bins, nx, ny), [bins, nx, ny]);
   const pad = 8;
 
+  useLayoutEffect(() => {
+    const el = svg.current;
+    if (!el) return;
+    const measure = () => {
+      const ctm = el.getScreenCTM();
+      if (ctm && ctm.a > 0) setPx(1 / ctm.a);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [plateW, plateD, nx, ny]);
+
   // plate (mm, y up) -> svg (y down)
   const sy = (y: number) => plateD - y;
 
-  const cellAt = (e: React.PointerEvent): [number, number] | null => {
-    const el = svg.current;
-    if (!el) return null;
-    const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(el.getScreenCTM()!.inverse());
-    const px = pt.x;
-    const py = plateD - pt.y;
-    const i = cellIndexAt(xs, px);
-    const j = cellIndexAt(ys, py);
+  const plateAt = (e: React.PointerEvent): Pt | null => {
+    const ctm = svg.current?.getScreenCTM();
+    if (!ctm) return null;
+    const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    return [pt.x, plateD - pt.y];
+  };
+
+  const cellOf = (p: Pt | null): Pt | null => {
+    if (!p) return null;
+    const i = cellIndexAt(xs, p[0]);
+    const j = cellIndexAt(ys, p[1]);
     if (i < 0 || j < 0) return null;
     return [i, j];
   };
 
-  const ghost: { r: CellRect; ok: boolean } | null = (() => {
-    if (!drag) return null;
+  const mmRect = (r: CellRect) => ({
+    x0: cellEdge(xs, r.x, pitchX),
+    x1: cellEdge(xs, r.x + r.w, pitchX),
+    y0: cellEdge(ys, r.y, pitchY),
+    y1: cellEdge(ys, r.y + r.d, pitchY),
+  });
+
+  const marquee = drag?.kind === 'marquee' ? box(drag.start, drag.cur) : null;
+  const marqueeHits = marquee
+    ? bins
+        .filter((b) => {
+          const m = mmRect(binRect(b));
+          return m.x0 < marquee.x1 && m.x1 > marquee.x0 && m.y0 < marquee.y1 && m.y1 > marquee.y0;
+        })
+        .map((b) => b.id)
+    : [];
+  const selected = new Set(drag?.kind === 'marquee' ? [...drag.base, ...marqueeHits] : selectedIds);
+
+  const ghosts: { r: CellRect; ok: boolean }[] = (() => {
+    if (!drag) return [];
     if (drag.kind === 'draw') {
       const x = Math.min(drag.start[0], drag.cur[0]);
       const y = Math.min(drag.start[1], drag.cur[1]);
       const r = { x, y, w: Math.abs(drag.cur[0] - drag.start[0]) + 1, d: Math.abs(drag.cur[1] - drag.start[1]) + 1 };
-      return { r, ok: canPlace(bins, r, nx, ny) };
+      return [{ r, ok: canPlace(bins, r, nx, ny) }];
     }
-    const b = bins.find((bb) => bb.id === drag.id);
-    if (!b || !drag.moved) return null;
-    const r = { x: drag.cur[0] - drag.grab[0], y: drag.cur[1] - drag.grab[1], w: b.opts.unitsX, d: b.opts.unitsY };
-    return { r, ok: canPlace(bins, r, nx, ny, b.id) };
+    // Resizing stops before collisions, so its ghost is always placeable.
+    if (drag.kind === 'resize') return sameRect(drag.cur, drag.from) ? [] : [{ r: drag.cur, ok: true }];
+    if (drag.kind !== 'move' || !drag.moved) return [];
+    const dx = drag.cur[0] - drag.start[0];
+    const dy = drag.cur[1] - drag.start[1];
+    const ok = canMoveGroup(bins, drag.ids, dx, dy, nx, ny);
+    return bins.filter((b) => drag.ids.includes(b.id)).map((b) => ({ r: { ...binRect(b), x: b.x + dx, y: b.y + dy }, ok }));
   })();
 
+  // Handles show on a single selected bin (and follow it while resizing).
+  const single = selectedIds.length === 1 ? bins.find((b) => b.id === selectedIds[0]) : undefined;
+  const handleRect = drag?.kind === 'resize' ? drag.cur : !drag && single ? binRect(single) : null;
+
   const onDown = (e: React.PointerEvent) => {
-    const c = cellAt(e);
-    if (!c) {
-      onSelect(null);
+    if (e.button !== 0) return;
+    const p = plateAt(e);
+    if (!p) return;
+    svg.current?.setPointerCapture?.(e.pointerId);
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    const handle = (e.target as Element).closest?.('[data-handle]')?.getAttribute('data-handle') as Handle | null;
+    if (handle && single) {
+      const r = binRect(single);
+      setDrag({ kind: 'resize', id: single.id, handle, from: r, cur: r });
       return;
     }
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    const id = occ[c[0]][c[1]];
-    if (id) {
-      const b = bins.find((bb) => bb.id === id)!;
-      onSelect(id);
-      setDrag({ kind: 'move', id, grab: [c[0] - b.x, c[1] - b.y], cur: c, moved: false });
-    } else {
+    const c = cellOf(p);
+    const id = c ? occ[c[0]][c[1]] : null;
+    if (c && id) {
+      // Grabbing a selected bin drags the whole selection.
+      const ids = selectedIds.includes(id) ? selectedIds : additive ? [id, ...selectedIds] : [id];
+      if (!selectedIds.includes(id)) onSelect(ids, id);
+      setDrag({ kind: 'move', id, ids, start: c, cur: c, moved: false, additive, toggle: additive && selectedIds.includes(id) });
+    } else if (c && !additive) {
       setDrag({ kind: 'draw', start: c, cur: c });
+    } else {
+      setDrag({ kind: 'marquee', start: p, cur: p, base: additive ? selectedIds : [], tol: 4 * px });
     }
   };
 
   const onMoveEvt = (e: React.PointerEvent) => {
-    const c = cellAt(e);
+    const p = plateAt(e);
+    const c = cellOf(p);
     setHover(c);
-    if (!drag || !c) return;
-    if (drag.kind === 'draw') setDrag({ ...drag, cur: c });
-    else if (c[0] !== drag.cur[0] || c[1] !== drag.cur[1]) setDrag({ ...drag, cur: c, moved: true });
+    if (!drag || !p) return;
+    if (drag.kind === 'marquee') {
+      setDrag({ ...drag, cur: p });
+    } else if (drag.kind === 'resize') {
+      const target = resizeTarget(drag.from, drag.handle, nearestBoundary(xs, p[0]), nearestBoundary(ys, p[1]));
+      const others = bins.filter((b) => b.id !== drag.id);
+      const cur = fitResize(others, drag.from, target, nx, ny);
+      if (!sameRect(cur, drag.cur)) setDrag({ ...drag, cur });
+    } else if (c) {
+      if (drag.kind === 'draw') setDrag({ ...drag, cur: c });
+      else if (c[0] !== drag.cur[0] || c[1] !== drag.cur[1]) setDrag({ ...drag, cur: c, moved: true });
+    }
   };
 
   const onUp = () => {
-    if (drag && ghost?.ok) {
-      if (drag.kind === 'draw') onCreate(ghost.r);
-      else onMove(drag.id, ghost.r.x, ghost.r.y);
+    if (!drag) return;
+    if (drag.kind === 'draw') {
+      if (ghosts[0]?.ok) onCreate(ghosts[0].r);
+    } else if (drag.kind === 'move') {
+      if (drag.moved) {
+        if (ghosts[0]?.ok) onMoveBins(drag.ids, drag.cur[0] - drag.start[0], drag.cur[1] - drag.start[1]);
+      } else if (drag.toggle) {
+        onSelect(selectedIds.filter((x) => x !== drag.id));
+      } else if (!drag.additive && selectedIds.length > 1) {
+        onSelect([drag.id], drag.id);
+      }
+    } else if (drag.kind === 'marquee') {
+      const click = Math.hypot(drag.cur[0] - drag.start[0], drag.cur[1] - drag.start[1]) <= drag.tol;
+      if (!click) {
+        const ids = [...new Set([...drag.base, ...marqueeHits])];
+        onSelect(ids, selectedIds[0] && ids.includes(selectedIds[0]) ? selectedIds[0] : ids[0]);
+      } else if (!drag.base.length) {
+        // A plain click outside the grid clears the selection.
+        onSelect([]);
+      }
+    } else if (drag.kind === 'resize' && !sameRect(drag.cur, drag.from)) {
+      onResize(drag.id, drag.cur);
     }
     setDrag(null);
   };
@@ -106,9 +221,10 @@ export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, on
         onPointerDown={onDown}
         onPointerMove={onMoveEvt}
         onPointerUp={onUp}
+        onPointerCancel={() => setDrag(null)}
         onPointerLeave={() => setHover(null)}
         role="application"
-        aria-label="Drawer grid. Drag to draw a bin."
+        aria-label="Drawer grid. Drag to draw a bin, Shift-drag to select bins."
       >
         <rect className="ge-plate" x={0} y={0} width={plateW} height={plateD} rx={4} />
         {Array.from({ length: nx }, (_, i) =>
@@ -120,7 +236,7 @@ export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, on
         )}
         {bins.map((b) => {
           const r = cellRectSvg({ x: b.x, y: b.y, w: b.opts.unitsX, d: b.opts.unitsY }, 0.6);
-          const sel = b.id === selectedId;
+          const sel = selected.has(b.id);
           const bad = outOfBounds(b, nx, ny);
           const fs = Math.min(10, (Math.min(r.width, r.height) / 4) | 0) || 6;
           return (
@@ -135,7 +251,20 @@ export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, on
             </g>
           );
         })}
-        {ghost && <rect className={`ge-ghost ${ghost.ok ? 'ok' : 'no'}`} {...cellRectSvg(ghost.r, 0.6)} rx={3.75} />}
+        {ghosts.map((g, i) => (
+          <rect key={i} className={`ge-ghost ${g.ok ? 'ok' : 'no'}`} {...cellRectSvg(g.r, 0.6)} rx={3.75} />
+        ))}
+        {marquee && (
+          <rect
+            className="ge-marquee"
+            x={marquee.x0}
+            y={sy(marquee.y1)}
+            width={marquee.x1 - marquee.x0}
+            height={marquee.y1 - marquee.y0}
+            strokeWidth={px}
+          />
+        )}
+        {handleRect && <ResizeHandles r={cellRectSvg(handleRect, 0.6)} px={px} />}
         <text className="ge-caption" x={plateW / 2} y={-2} textAnchor="middle" fontSize={7}>
           back
         </text>
@@ -144,5 +273,53 @@ export function BinGridEditor({ layout, bins, selectedId, onSelect, onCreate, on
         </text>
       </svg>
     </div>
+  );
+}
+
+function box(a: Pt, b: Pt) {
+  return { x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]), y0: Math.min(a[1], b[1]), y1: Math.max(a[1], b[1]) };
+}
+
+/** Edge strips and corner/edge knobs around a bin, in svg coordinates (north = back = up). */
+function ResizeHandles({ r, px }: { r: { x: number; y: number; width: number; height: number }; px: number }) {
+  const { x, y, width: w, height: h } = r;
+  const knob = 9 * px;
+  const grip = 10 * px;
+  const at: Record<Handle, Pt> = {
+    n: [x + w / 2, y],
+    s: [x + w / 2, y + h],
+    e: [x + w, y + h / 2],
+    w: [x, y + h / 2],
+    ne: [x + w, y],
+    nw: [x, y],
+    se: [x + w, y + h],
+    sw: [x, y + h],
+  };
+  const strips: [Handle, { x: number; y: number; width: number; height: number }][] = [
+    ['n', { x, y: y - grip / 2, width: w, height: grip }],
+    ['s', { x, y: y + h - grip / 2, width: w, height: grip }],
+    ['e', { x: x + w - grip / 2, y, width: grip, height: h }],
+    ['w', { x: x - grip / 2, y, width: grip, height: h }],
+  ];
+  return (
+    <g className="ge-handles">
+      {strips.map(([k, s]) => (
+        <rect key={`strip-${k}`} className="ge-handle-strip" data-handle={k} {...s} style={{ cursor: HANDLE_CURSOR[k] }} />
+      ))}
+      {HANDLES.map((k) => (
+        <rect
+          key={k}
+          className="ge-handle"
+          data-handle={k}
+          x={at[k][0] - knob / 2}
+          y={at[k][1] - knob / 2}
+          width={knob}
+          height={knob}
+          rx={1.5 * px}
+          strokeWidth={1.2 * px}
+          style={{ cursor: HANDLE_CURSOR[k] }}
+        />
+      ))}
+    </g>
   );
 }

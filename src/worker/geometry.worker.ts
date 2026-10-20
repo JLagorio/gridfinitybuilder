@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
-import type { MeshData, Wasm } from '../lib/geometry/kernel';
+import { cloneMesh, type MeshData, type Wasm } from '../lib/geometry/kernel';
 import {
   buildMesh,
   exportBambuProject,
@@ -11,6 +11,8 @@ import {
   type MeshSpec,
   type PrintJob,
 } from '../lib/project';
+import { exportPlateSTL, exportPlatesStlZip, writeSTL } from '../lib/export/stl';
+import { meshVolume } from '../lib/geometry/volume';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 import { FONT_URL_PATH, registerFont } from '../lib/geometry/text';
 
@@ -30,6 +32,9 @@ const wasmReady: Promise<Wasm> = Promise.all([Module({ locateFile: () => wasmUrl
 // Small LRU so long editing sessions don't grow without bound.
 const MAX_CACHE = 300;
 const cache = new Map<string, MeshData>();
+// Volumes are measured once per mesh, when it's built, and outlive the mesh cache.
+const MAX_VOLUMES = 5000;
+const volumes = new Map<string, number>();
 
 function getCached(key: string) {
   const m = cache.get(key);
@@ -46,6 +51,8 @@ async function meshFor(spec: MeshSpec): Promise<MeshData> {
   const w = await wasmReady;
   const mesh = buildMesh(w, spec);
   cache.set(spec.key, mesh);
+  volumes.set(spec.key, meshVolume(mesh));
+  while (volumes.size > MAX_VOLUMES) volumes.delete(volumes.keys().next().value!);
   while (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value!);
   return mesh;
 }
@@ -73,7 +80,42 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       case 'mesh': {
         const m = await meshFor(req.spec);
         // Copy so the cached arrays stay usable in this worker.
-        post({ id: req.id, type: 'mesh', mesh: { positions: m.positions.slice(), indices: m.indices.slice() } });
+        const mesh = cloneMesh(m);
+        post({ id: req.id, type: 'mesh', mesh, volume: volumes.get(req.spec.key) });
+        break;
+      }
+      case 'volumes': {
+        const out: Record<string, number> = {};
+        let done = 0;
+        for (const spec of req.specs) {
+          try {
+            await meshFor(spec);
+            // The volume can be evicted while the mesh is still cached.
+            if (!volumes.has(spec.key)) volumes.set(spec.key, meshVolume(getCached(spec.key)!));
+            out[spec.key] = volumes.get(spec.key)!;
+          } catch {
+            // Leave it out; the caller shows the part as unmeasured.
+          }
+          post({ id: req.id, type: 'progress', done: ++done, total: req.specs.length });
+        }
+        post({ id: req.id, type: 'volumes', volumes: out });
+        break;
+      }
+      case 'export-stl-plate': {
+        const get = await ensureJobMeshes(req.id, { ...req.job, plates: [req.job.plates[req.plate]] });
+        const bytes = exportPlateSTL(req.job, req.plate, get);
+        post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'export-stl-zip': {
+        const get = await ensureJobMeshes(req.id, req.job);
+        const bytes = exportPlatesStlZip(req.job, get);
+        post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'export-stl-single': {
+        const bytes = writeSTL([{ mesh: await meshFor(req.spec) }], req.name);
+        post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
         break;
       }
       case 'export-bambu': {

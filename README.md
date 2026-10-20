@@ -26,18 +26,28 @@ Then open http://localhost:5199.
 2. **Bins.** Drag across empty cells to draw a bin, click to select it, drag to move it, press Delete to remove it. Each bin has:
    - height in 7 mm units
    - stacking lip
-   - compartments (columns × rows)
+   - compartments: columns × rows, presets, or walls you place yourself (below)
    - finger scoop
    - label tab (full, left, mid, right)
    - magnet or screw holes
    - rounded inside corners
 
    "Fill empty with 1×1" fills the rest of the drawer.
+
+   **Compartments.** Select a bin and switch the left pane to *Compartments*. Hover inside the bin to see the wall a click would add; it runs wall to wall and snaps to 50 %, thirds and quarters of the space it splits (and of the whole bin), to other walls and to the 42 mm cell seams. Hold Shift to flip its direction, R to lock it, Alt to turn snapping off (1 mm or 1/16″ steps). Drag walls to move them, drag a selected wall's end handles to attach it to a different wall (for L-shaped compartments), click a size to type it (`44.5`, `1 3/4in`). Walls placed by snapping stay proportional when the bin or a neighbour changes; typed sizes stay fixed. The sidebar splits a compartment into equal parts, by ratio (`1:2:1`) or by minimum size, and sets each wall's height (lowered so fingers reach over, or removable: a slide-in plate in slots) and each compartment's scoop, label tab and floor height.
+
+   Shift- or ⌘/Ctrl-click bins, or Shift-drag a box (or drag from outside the grid), to select several; drag them, nudge them with the arrow keys, copy and paste (⌘C / ⌘V pastes at the cell under the pointer), duplicate (⌘D) or delete them together. Drag the handles of a selected bin to resize it. **Templates** save a bin's settings by name; apply one to the selected bins or to new bins, in any drawer.
 3. **Print plates.** Pick the printer (the Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles). Gridfit splits the baseplate on cell boundaries, so every receptacle stays whole. It then packs pieces and bins onto plates. Exports:
    - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected. Open it and press **Slice all plates**.
    - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus `assembly-map.txt` showing which piece goes where.
-   - Any single plate or bin.
-   - **Save / Open project** as a `.gridfit.json` file. The project also autosaves in the browser.
+   - **Plates as STL (.zip):** one binary STL per plate, parts already arranged.
+   - Any single plate or bin, as 3MF or STL.
+   - **Test-fit kit:** a 2 × 2 baseplate sample (split with one connector key when connectors are on) and one 1 × 1 bin, on one plate, to check the fit and the magnets before printing everything.
+   - **Save / Open project** as a `.gridfit.json` file. The project also autosaves in the browser. **Copy share link** puts the whole project, compressed, in the link itself (nothing is uploaded).
+
+   The **bill of materials** counts magnets and screws (four holes per full cell; partial edge cells get none), connector keys, parts and plates, and estimates filament per plate from the mesh volumes: 1.75 mm PLA at 1.24 g/cm³, taking 90 % of the solid volume because the thin walls print almost solid. It downloads as CSV or text.
+
+Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl+Y). Press **?** for all keyboard shortcuts.
 
 ### Split strategies
 
@@ -87,8 +97,11 @@ npx tsx scripts/build-bambu-settings.ts
 ```
 src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (Manifold)
 src/lib/layout/     drawer → grid fit, bed splitting, plate packing
-src/lib/export/     plain 3MF and Bambu Studio project writers
+src/lib/dividers/   bin interior layouts: walls → compartments, edits, snapping (pure TS)
+src/lib/export/     plain 3MF, Bambu Studio project and binary STL writers
 src/lib/project.ts  ties it together: planJob() (cheap, no geometry) + exporters
+src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links
+src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
 src/worker/         geometry Web Worker + client with a mesh queue/cache
 src/components/     React UI (three.js viewer, 2D bin layout editor, panels)
 scripts/            CLI sample generator, Bambu settings baker

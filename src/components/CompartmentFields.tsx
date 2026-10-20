@@ -50,8 +50,12 @@ export function CompartmentsSection({
   const sel = useInteriorSelection(binId ?? null, info.resolved);
   const pane = useStore((s) => s.ui.binPane);
   const setUI = useStore((s) => s.setUI);
+  const updateBin = useStore((s) => s.updateBin);
   const n = info.resolved.compartments.length;
+  // Whole-layout changes (columns × rows, presets) go through onChange, which may cover several selected bins.
   const setLayout = (layout: DividerLayout | null, extra: Partial<BinOptions> = {}) => onChange({ layout, ...extra });
+  // Edits that refer to this bin's own walls and compartments only apply to it.
+  const setOwn = (layout: DividerLayout) => (binId ? updateBin(binId, { opts: { layout } }) : onChange({ layout }));
 
   return (
     <Section
@@ -94,9 +98,9 @@ export function CompartmentsSection({
           setLayout(p.layout, p.defaults ? { scoop: p.defaults.scoop ?? opts.scoop, label: p.defaults.label ?? opts.label } : {})
         }
       />
-      <AutoDivide info={info} compKey={sel.compKey} sized={!!binId} onLayout={(l) => setLayout(l)} />
-      {binId && sel.wallId && <WallFields info={info} wallId={sel.wallId} onLayout={(l) => setLayout(l)} />}
-      {binId && sel.compKey && <CompartmentFields info={info} compKey={sel.compKey} onLayout={(l) => setLayout(l)} />}
+      <AutoDivide info={info} compKey={sel.compKey} sized={!!binId} onLayout={(l, whole) => (whole ? setLayout(l) : setOwn(l))} />
+      {binId && sel.wallId && <WallFields info={info} wallId={sel.wallId} onLayout={setOwn} />}
+      {binId && sel.compKey && <CompartmentFields info={info} compKey={sel.compKey} onLayout={setOwn} />}
       {binId && !sel.wallId && !sel.compKey && pane === 'compartments' && (
         <p className="muted small">Click a wall or a compartment’s size label to edit it here.</p>
       )}
@@ -153,7 +157,8 @@ function AutoDivide({
   info: BinInterior;
   compKey: string | null;
   sized: boolean;
-  onLayout: (l: DividerLayout) => void;
+  /** `whole`: the split replaces the whole bin's layout. */
+  onLayout: (l: DividerLayout, whole: boolean) => void;
 }) {
   const [mode, setMode] = useState<DivideMode>('equal');
   const [orient, setOrient] = useState<Orient>('v');
@@ -180,7 +185,7 @@ function AutoDivide({
     if (res.error !== undefined) setError(res.error);
     else {
       setError(null);
-      onLayout(res.layout);
+      onLayout(res.layout, !compKey);
     }
   };
   return (
