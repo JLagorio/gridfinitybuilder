@@ -1,5 +1,6 @@
 import { baseplateFloor } from './geometry/baseplate';
 import { binCells } from './geometry/bin';
+import { holeSites } from './geometry/holes';
 import { BP_PROFILE_DEPTH, GRID } from './geometry/spec';
 import type { MeshSpec, PrintJob } from './project';
 
@@ -9,7 +10,8 @@ import type { MeshSpec, PrintJob } from './project';
  *
  * Hardware is counted from what's on the plates, using the same rules as the
  * geometry: four magnet (or screw) holes per full cell, none in partial edge
- * cells; one countersunk screw hole per baseplate cell big enough for the head.
+ * cells, only the outer four with corner-only holes, none in flat bins; one
+ * countersunk screw hole per baseplate cell big enough for the head.
  */
 
 /** PLA density, g/cm³. */
@@ -43,7 +45,7 @@ export interface PlateBom {
 
 export interface Bom {
   hardware: HardwareLine[];
-  parts: { pieces: number; bins: number; keys: number };
+  parts: { pieces: number; bins: number; lids: number; keys: number };
   plates: PlateBom[];
   total: PlateBom;
 }
@@ -84,13 +86,14 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
     return out;
   }
   if (spec.kind === 'bin') {
-    const c = binCells(spec.opts, spec.cells);
-    let full = 0;
-    for (const w of c.x) for (const d of c.y) if (Math.min(w, d) >= FULL) full++;
-    const h = String(spec.opts.holes ?? 'none');
+    const o = spec.opts;
+    const h = String(o.holes ?? 'none');
+    if (h === 'none' || o.base === 'flat') return [];
+    const n = holeSites(binCells(o, spec.cells), !!o.holeCorners).length;
     const out = [];
-    if (full && (h === 'both' || h.includes('magnet'))) out.push({ item: 'Magnets 6 × 2 mm (bins)', count: 4 * full });
-    if (full && (h === 'both' || h.includes('screw'))) out.push({ item: 'M3 screws (bins)', count: 4 * full });
+    // Refined slots hold the same 6 × 2 mm magnets, slid in from the side.
+    if (n && (h === 'both' || h === 'magnets' || h === 'refined')) out.push({ item: 'Magnets 6 × 2 mm (bins)', count: n });
+    if (n && (h === 'both' || h === 'screws')) out.push({ item: 'M3 screws (bins)', count: n });
     return out;
   }
   return [];
@@ -102,13 +105,14 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
  */
 export function billOfMaterials(job: PrintJob, volumes: (meshKey: string) => number | undefined = () => undefined): Bom {
   const hardware = new Map<string, HardwareLine>();
-  const parts = { pieces: 0, bins: 0, keys: 0 };
+  const parts = { pieces: 0, bins: 0, lids: 0, keys: 0 };
   const plates: PlateBom[] = job.plates.map((pl) => {
     let volume: number | null = 0;
     for (const p of pl.placements) {
       const part = job.parts[p.key];
       if (part.kind === 'piece') parts.pieces++;
       else if (part.kind === 'bin') parts.bins++;
+      else if (part.kind === 'lid') parts.lids++;
       else parts.keys++;
       for (const h of holesIn(job.meshes[part.meshKey])) {
         const line = hardware.get(h.item) ?? { item: h.item, count: 0, note: h.note };
@@ -147,6 +151,7 @@ export function bomCsv(b: Bom): string {
   for (const h of b.hardware) rows.push(['Hardware', h.item, h.count, '', '', '', h.note ?? '']);
   rows.push(['Parts', 'Baseplate pieces', b.parts.pieces, '', '', '', '']);
   rows.push(['Parts', 'Bins', b.parts.bins, '', '', '', '']);
+  if (b.parts.lids) rows.push(['Parts', 'Lids', b.parts.lids, '', '', '', '']);
   if (b.parts.keys) rows.push(['Parts', 'Connector keys', b.parts.keys, '', '', '', '']);
   b.plates.forEach((p, i) => {
     rows.push(['Plate', `${i + 1}. ${p.name}`, p.parts, r1(p.volume === null ? null : p.volume / 1000), r1(p.grams), r1(p.meters), '']);
@@ -161,7 +166,11 @@ export function bomText(b: Bom): string {
   const lines = ['BILL OF MATERIALS', '='.repeat(40), '', 'Hardware'];
   if (!b.hardware.length) lines.push('  none');
   for (const h of b.hardware) lines.push(`  ${String(h.count).padStart(4)} × ${h.item}${h.note ? ` (${h.note})` : ''}`);
-  lines.push('', 'Parts', `  ${b.parts.pieces} baseplate pieces, ${b.parts.bins} bins${b.parts.keys ? `, ${b.parts.keys} connector keys` : ''}`);
+  lines.push(
+    '',
+    'Parts',
+    `  ${b.parts.pieces} baseplate pieces, ${b.parts.bins} bins${b.parts.lids ? `, ${b.parts.lids} lids` : ''}${b.parts.keys ? `, ${b.parts.keys} connector keys` : ''}`,
+  );
   lines.push('', `Plates (${b.plates.length})`);
   const fil = (p: PlateBom) => (p.grams === null ? 'not measured' : `${Math.round(p.grams)} g, ${r1(p.meters)} m`);
   b.plates.forEach((p, i) => lines.push(`  ${i + 1}. ${p.name}: ${p.parts} parts, ${fil(p)}`));

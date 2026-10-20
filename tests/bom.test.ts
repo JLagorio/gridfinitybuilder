@@ -26,7 +26,7 @@ describe('bill of materials', () => {
     expect(hw(b, /baseplate/)).toBe(6 * 4);
     expect(hw(b, /Magnets.*bins/)).toBe(2 * 4 + 4);
     expect(hw(b, /screws \(bins\)/)).toBe(4);
-    expect(b.parts).toEqual({ pieces: 1, bins: 3, keys: 0 });
+    expect(b.parts).toEqual({ pieces: 1, bins: 3, lids: 0, keys: 0 });
   });
 
   it('partial edge cells get no holes', () => {

@@ -62,7 +62,7 @@ export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
       `gridfinity-drawer-${stamp}-bom.${kind}`,
       kind === 'csv' ? 'text/csv' : 'text/plain',
     );
-  const { pieces, bins, keys } = bom.parts;
+  const { pieces, bins, lids, keys } = bom.parts;
   return (
     <Section title="Bill of materials">
       {bom.hardware.length > 0 ? (
@@ -81,6 +81,7 @@ export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
       )}
       <p className="small">
         {pieces} baseplate piece{pieces === 1 ? '' : 's'} · {bins} bin{bins === 1 ? '' : 's'}
+        {lids > 0 && ` · ${lids} lid${lids === 1 ? '' : 's'}`}
         {keys > 0 && ` · ${keys} connector key${keys === 1 ? '' : 's'}`} · {job.plates.length} plate{job.plates.length === 1 ? '' : 's'}
       </p>
       {job.plates.length > 0 && (

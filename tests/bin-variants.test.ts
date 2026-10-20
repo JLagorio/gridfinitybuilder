@@ -13,6 +13,7 @@ import { DEFAULT_PROJECT, buildMesh, planJob, type MeshSpec, type PlacedBin } fr
 import { DEFAULT_DRAWER } from '../src/lib/layout/drawer';
 import { DEFAULT_BASEPLATE, binSeatHeight } from '../src/lib/geometry/baseplate';
 import { useStore } from '../src/state/store';
+import { billOfMaterials } from '../src/lib/bom';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -439,6 +440,30 @@ describe('lids', () => {
     expect(plan(lidStackHeight(opts)).warnings).toEqual([]);
     expect(plan(total + 1).warnings.join(' ')).toMatch(/with its lid is taller than the drawer/);
     expect(plan(total - 1).warnings.join(' ')).not.toMatch(/with its lid/);
+  });
+});
+
+describe('bill of materials', () => {
+  const bomFor = (bins: PlacedBin[]) => {
+    const b = billOfMaterials(planJob({ ...DEFAULT_PROJECT, bins }));
+    const count = (item: string) => b.hardware.find((h) => h.item.startsWith(item))?.count ?? 0;
+    return { b, magnets: count('Magnets 6'), screws: count('M3 screws') };
+  };
+  const at = (id: string, x: number, o: Partial<BinOptions>): PlacedBin => ({ id, x, y: 0, opts: sanitizeBin(bin(o)) });
+
+  it('counts bin magnets and screws the way the holes are cut', () => {
+    expect(bomFor([at('a', 0, { unitsX: 3, unitsY: 2, holes: 'magnets' })]).magnets).toBe(24);
+    expect(bomFor([at('a', 0, { unitsX: 3, unitsY: 2, holes: 'magnets', holeCorners: true })]).magnets).toBe(4);
+    const both = bomFor([at('a', 0, { unitsX: 2, holes: 'both', holeCorners: true })]);
+    expect([both.magnets, both.screws]).toEqual([4, 4]);
+    expect(bomFor([at('a', 0, { holes: 'refined' })]).magnets).toBe(4);
+    expect(bomFor([at('a', 0, { holes: 'magnets', base: 'flat' })]).magnets).toBe(0);
+    expect(bomFor([at('a', 0, { holes: 'magnets', base: 'lite' })]).magnets).toBe(4);
+  });
+
+  it('lists lids as their own parts', () => {
+    const { b } = bomFor([at('a', 0, { lid: true }), at('b', 1, { lid: true }), at('c', 2, {})]);
+    expect(b.parts).toEqual({ pieces: expect.any(Number), bins: 3, lids: 2, keys: 0 });
   });
 });
 
