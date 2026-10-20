@@ -1,4 +1,4 @@
-import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Vec3, type Wasm } from './kernel';
+import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Wasm } from './kernel';
 import {
   BASE_HEIGHT,
   BASE_PROFILE,
@@ -6,11 +6,9 @@ import {
   BASE_PROFILE_HEIGHT,
   BASE_TOP,
   BASE_TOP_RADIUS,
-  DIVIDER,
   GRID,
   HEIGHT_UNIT,
   HOLE_OFFSET,
-  INNER_RADIUS,
   LIP_DEPTH,
   LIP_HEIGHT,
   LIP_PROFILE,
@@ -20,13 +18,11 @@ import {
   MAGNET_HOLE_DIAMETER,
   SCREW_HOLE_DEPTH,
   SCREW_HOLE_DIAMETER,
-  TAB_DEPTH,
-  TAB_SUPPORT_ANGLE_DEG,
-  TAB_TIP_HEIGHT,
-  TAB_WIDTH_NOMINAL,
   WALL,
 } from './spec';
-import { boxAt, cylinderAt, extrudePolygon, loftRoundedRect, ringAt, roundedRectRing } from './shapes';
+import { cylinderAt, extrudePolygon, loftRoundedRect, roundedRectRing } from './shapes';
+import { buildDividerInsert, insertKey, insertsFor, interiorCuts, type DividerInsert } from './compartments';
+import { layoutKey, resolveLayout, sanitizeLayout, uniformLayout, type DividerLayout, type ResolvedLayout } from '../dividers';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
@@ -39,9 +35,11 @@ export interface BinOptions {
   heightUnits: number;
   lip: boolean;
   holes: HoleStyle;
-  /** Number of compartments along X and Y. */
+  /** Number of compartments along X and Y (used when there is no `layout`). */
   divX: number;
   divY: number;
+  /** Free-form dividers (src/lib/dividers). When set it replaces divX × divY. */
+  layout?: DividerLayout | null;
   /** 0 = none, 1 = largest scoop on the front wall of each compartment. */
   scoop: number;
   label: LabelStyle;
@@ -60,6 +58,7 @@ export const DEFAULT_BIN: BinOptions = {
   scoop: 0,
   label: 'none',
   fillet: true,
+  layout: null,
 };
 
 export const MIN_HEIGHT_UNITS = 2;
@@ -111,12 +110,16 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     Math.round(o.scoop * 100),
     o.label,
     o.fillet ? 'F' : 'n',
+    ...(o.layout ? [`D{${layoutKey(o.layout, new Set(binLayout(o, cells).compartments.map((c) => c.key)))}}`] : []),
   ].join('-');
 }
 
 export function binLabel(o: BinOptions): string {
   const parts = [`${o.unitsX}×${o.unitsY}×${o.heightUnits}u`];
-  if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
+  if (o.layout) {
+    const n = binLayout(o).compartments.length;
+    if (n > 1) parts.push(`${n} compartments`);
+  } else if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
   return parts.join(' ');
 }
 
@@ -165,8 +168,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
 
     // 2. Infill block (floor + dividers), with compartments cut out.
     const block = s.t(extrudePolygon(w, outerRing, BASE_PROFILE_HEIGHT, topInfill));
-    const cutters = compartmentCutters(w, s, o, W, D, zFloor, topInfill);
-    solids.push(cutters.length ? s.t(block.subtract(s.t(w.Manifold.union(cutters)))) : block);
+    const { cut: cutters, add: interiorExtras } = interiorCuts(w, s, o, W, D, zFloor, topInfill);
+    solids.push(cutters.length ? s.t(block.subtract(s.t(w.Manifold.union(cutters)))) : block, ...interiorExtras);
 
     // 3. Outer wall + stacking lip (unioned after the compartments so they never cut into it).
     const wallBottom = BASE_PROFILE_HEIGHT + 0.75;
@@ -230,95 +233,40 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     divX: int(o.divX, 1, 12),
     divY: int(o.divY, 1, 12),
     scoop: Math.min(1, Math.max(0, Number(o.scoop) || 0)),
+    layout: sanitizeLayout(o.layout),
   };
 }
 
-function compartmentCutters(
-  w: Wasm,
-  s: Scope,
-  o: BinOptions,
-  W: number,
-  D: number,
-  zFloor: number,
-  topInfill: number,
-): Manifold[] {
-  const innerH = topInfill - zFloor;
-  if (innerH < 0.5) return [];
-  const eps = 0.01;
-  const ix0 = -W / 2 + WALL;
-  const iy0 = -D / 2 + WALL;
-  const innerW = W - 2 * WALL;
-  const innerD = D - 2 * WALL;
-  const cw = (innerW - (o.divX - 1) * DIVIDER) / o.divX;
-  const cd = (innerD - (o.divY - 1) * DIVIDER) / o.divY;
-  if (cw < 2 || cd < 2) throw new Error('Too many compartments for this bin size.');
+// ---------------------------------------------------------------------------
+// Divider layouts (src/lib/dividers, geometry in ./compartments.ts)
+// ---------------------------------------------------------------------------
 
-  const zTop = topInfill + 1;
-  const rc = Math.min(INNER_RADIUS, cw / 2 - 0.05, cd / 2 - 0.05);
-  const cutters: Manifold[] = [];
-  for (let i = 0; i < o.divX; i++) {
-    for (let j = 0; j < o.divY; j++) {
-      const x0 = ix0 + i * (cw + DIVIDER) - eps;
-      const x1 = x0 + cw + 2 * eps;
-      const y0 = iy0 + j * (cd + DIVIDER) - eps;
-      const y1 = y0 + cd + 2 * eps;
-      const r = rc + eps;
-      let cutter: Manifold;
-      const rf = Math.min(r, innerH / 2 - 0.05);
-      if (o.fillet && rf > 0.3) {
-        // Rounded bottom edges: hull of corner spheres and the top outline.
-        const pts: (Manifold | Vec3)[] = [];
-        for (const [sx, sy] of [
-          [x0 + rf, y0 + rf],
-          [x1 - rf, y0 + rf],
-          [x1 - rf, y1 - rf],
-          [x0 + rf, y1 - rf],
-        ]) {
-          pts.push(s.t(w.Manifold.sphere(rf, 24).translate([sx, sy, zFloor + rf])));
-        }
-        pts.push(...ringAt(roundedRectRing(x0, y0, x1, y1, r), zTop));
-        cutter = s.t(w.Manifold.hull(pts));
-      } else {
-        cutter = s.t(extrudePolygon(w, roundedRectRing(x0, y0, x1, y1, r), zFloor, zTop));
-      }
-
-      // Scoop: a concave ramp on the front (-Y) wall for scooping out small parts.
-      if (o.scoop > 0) {
-        const R = Math.max(2, o.scoop * Math.min(innerH * 0.85, cd * 0.6));
-        const fill = s.t(boxAt(w, x0 - 1, y0 - 1, zFloor - 1, x1 + 1, y0 + R, zFloor + R));
-        const cyl = s.t(
-          w.Manifold.cylinder(x1 - x0 + 4, R, R, 64)
-            .rotate([0, 90, 0])
-            .translate([x0 - 2, y0 + R, zFloor + R]),
-        );
-        cutter = s.t(cutter.subtract(s.t(fill.subtract(cyl))));
-      }
-
-      // Label tab: a shelf on the back (+Y) wall, angled underneath so it prints without support.
-      if (o.label !== 'none') {
-        const tan = Math.tan((TAB_SUPPORT_ANGLE_DEG * Math.PI) / 180);
-        let td = Math.min(TAB_DEPTH, cd * 0.45);
-        if (tan * td + TAB_TIP_HEIGHT > innerH - 1) td = (innerH - 1 - TAB_TIP_HEIGHT) / tan;
-        if (td >= 4) {
-          const th = tan * td + TAB_TIP_HEIGHT;
-          const tw = o.label === 'full' ? cw + 4 * eps : Math.min(cw, TAB_WIDTH_NOMINAL);
-          let tx0: number;
-          if (o.label === 'full') tx0 = x0 - eps;
-          else if (o.label === 'left') tx0 = x0 - eps;
-          else if (o.label === 'right') tx0 = x1 + eps - tw;
-          else tx0 = (x0 + x1) / 2 - tw / 2;
-          const tx1 = tx0 + tw;
-          const yb = y1 + 2 * eps;
-          const yf = y1 - td;
-          const pts: Vec3[] = [];
-          for (const x of [tx0, tx1]) {
-            pts.push([x, yb, topInfill - th], [x, yb, zTop + 0.5], [x, yf, zTop + 0.5], [x, yf, topInfill - TAB_TIP_HEIGHT]);
-          }
-          cutter = s.t(cutter.subtract(s.t(w.Manifold.hull(pts))));
-        }
-      }
-      cutters.push(cutter);
-    }
-  }
-  return cutters;
+/** Inner cavity size (bin size − 2 × WALL). */
+export function binInnerSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null) {
+  const { w, d } = binSize(o, cells);
+  return { w: w - 2 * WALL, d: d - 2 * WALL };
 }
+
+/**
+ * The bin's dividers resolved to cavity mm (origin at the cavity's front-left
+ * corner). Without a layout this is the uniform divX × divY split.
+ */
+export function binLayout(o: BinOptions, cells?: Partial<BinCells> | null): ResolvedLayout {
+  const { w, d } = binInnerSize(o, cells);
+  return resolveLayout(o.layout ?? uniformLayout(o.divX, o.divY), w, d);
+}
+
+/**
+ * Slide-in plates needed for the bin's removable dividers (one per wall
+ * segment; walls crossing a removable wall split it). `cells` are the bin's
+ * cell pitches, as for binSize / buildBin.
+ */
+export function removableInserts(opts: BinOptions, cells?: Partial<BinCells> | null): DividerInsert[] {
+  const o = sanitizeBin(opts);
+  if (!o.layout) return [];
+  const H = HEIGHT_UNIT * o.heightUnits;
+  const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
+  return insertsFor(binLayout(o, cells), o.lip, BASE_HEIGHT, topInfill);
+}
+
+export { buildDividerInsert, insertKey, type DividerInsert };
