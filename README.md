@@ -24,12 +24,16 @@ Then open http://localhost:5199.
    - bottom chamfer
    - bowtie connectors: pockets in the underside wherever a wall or a solid margin crosses a seam, plus one key per pocket. The keys print in the free space next to the pieces. Lay the pieces upside down, press the keys in, then turn the baseplate over into the drawer.
 2. **Bins.** Drag across empty cells to draw a bin, click to select it, drag to move it, press Delete to remove it. Each bin has:
-   - height in 7 mm units
-   - stacking lip
+   - height in 7 mm units, or as an inside depth or overall height in mm
+   - stacking lip: normal, reduced (Gridfinity Extended) or none, with optional anti-slide notches at the cell lines
+   - optional stacking lid, printed as its own part: feet that sit in the lip, and a receptacle per cell on top
+   - base: standard, lite (hollow feet, gridfinity-rebuilt "lite"), efficient floor (Gridfinity Extended) or flat (no feet)
    - compartments: columns × rows, presets, or walls you place yourself (below)
    - finger scoop
    - label tab (full, left, mid, right)
-   - magnet or screw holes
+   - magnet or screw holes, or Gridfinity Refined side-loaded magnet slots; optional crush ribs, chamfered mouths, printable hole tops (no supports) and corner-only holes
+   - wall cutouts, finger slides and a hex wall pattern, per wall
+   - or, instead of compartments, a pocket grid for batteries, coin cells, memory cards, hex bits or screws (or custom round, square or hex pockets), fitted automatically
    - rounded inside corners
 
    "Fill empty with 1×1" fills the rest of the drawer.
@@ -64,7 +68,7 @@ The dimensions follow the community spec (gridfinity.xyz) as implemented by [gri
 - **Walls and dividers:** 0.95 mm walls, 1.2 mm dividers.
 - **Stacking lip:** 0.7 / 1.8 / 1.9 mm.
 - **Baseplate:** 0.7 / 1.8 / 2.15 mm receptacle with 0.35 mm bottom clearance (5 mm spec height). The top ridge is trimmed 0.4 mm by default so it prints cleanly.
-- **Magnet holes:** 6.5 × 2.4 mm, 13 mm from the cell center.
+- **Magnet holes:** 6.5 × 2.4 mm, 13 mm from the cell center. Crush ribs 5.9 mm inside, 8 ribs; refined slots 5.86 × 1.9 mm, 0.4 mm above the bed; printable tops bridge in 0.2 mm layers (all from gridfinity-rebuilt).
 - **Bowtie connectors:** 10 mm long, 3 mm wide at the ends and 1.6 mm at the neck, 2 mm deep, with a 0.4 mm flare at the mouth. Keys are 0.15 mm smaller per side and 1.8 mm thick. A 3 mm pocket fits the 4.3 mm wall with 0.65 mm to spare on each side.
 
 All constants live in `src/lib/geometry/spec.ts`.

@@ -1,4 +1,5 @@
 import { DEFAULT_BIN, binLayout, sanitizeBin, type BinOptions } from './geometry/bin';
+import { heightMmFor } from './geometry/variants';
 import { newId } from './bins';
 
 /**
@@ -49,10 +50,13 @@ export function applyTemplate(t: BinTemplate, target: Pick<BinOptions, 'unitsX' 
 
 /** One-line description: "3u · lip · magnets · 2×1 compartments". */
 export function templateSummary(o: BinOptions): string {
-  const parts = [`${o.heightUnits}u`];
-  if (o.lip) parts.push('lip');
+  const parts = [o.heightMode && o.heightMode !== 'units' ? `${heightMmFor(o, 'external')} mm` : `${o.heightUnits}u`];
+  if (o.base && o.base !== 'standard') parts.push(`${o.base} base`);
+  if (o.lip) parts.push(o.lipStyle === 'reduced' ? 'reduced lip' : 'lip');
+  if (o.lip && o.lid) parts.push('lid');
   if (o.holes && o.holes !== 'none') parts.push(o.holes === 'both' ? 'magnets + screws' : o.holes);
-  if (o.layout) {
+  if (o.interior === 'pockets') parts.push('pocket grid');
+  else if (o.layout) {
     const n = binLayout(o).compartments.length;
     if (n > 1) parts.push(`${n} compartments`);
   } else if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);

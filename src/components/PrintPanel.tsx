@@ -4,7 +4,7 @@ import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
 import { PRINTERS, findPrinter } from '../lib/printers';
 import { assemblyMaps, plateContents, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
-import { pieceColor } from './colors';
+import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
 import { BomSection, TestFitSection } from './PrintExtras';
 import { CopyShareLink } from './ShareLink';
@@ -319,7 +319,7 @@ function PlateThumb({ job, plate, bedW, bedD }: { job: PrintJob; plate: number; 
         const part = job.parts[p.key];
         const w = p.rotated ? p.d : p.w;
         const d = p.rotated ? p.w : p.d;
-        const color = part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : '#cfd5de';
+        const color = part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'lid' ? LID_COLOR : '#cfd5de';
         return (
           <g key={p.key}>
             <rect x={p.x} y={bedD - p.y - d} width={w} height={d} rx={4} fill={color} fillOpacity={0.85} />
