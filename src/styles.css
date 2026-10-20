@@ -1892,3 +1892,39 @@ button.link.danger {
   flex-direction: column;
   gap: 2px;
 }
+
+/* Blocked cells: hatched in the bin layout, toggled on the Drawer tab map. */
+.ge-blocked {
+  stroke: #5a3c40;
+  stroke-width: 0.6;
+  cursor: not-allowed;
+}
+.ge-hatch {
+  stroke: #7a4c52;
+  stroke-width: 1.6;
+}
+.cell-mask {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+  max-height: 220px;
+  margin: 2px 0 6px;
+  user-select: none;
+  touch-action: none;
+}
+.cm-plate {
+  fill: #1a1e25;
+  stroke: #394150;
+}
+.cm-cell {
+  fill: #262c36;
+  stroke: #323a47;
+  cursor: pointer;
+}
+.cm-cell:hover {
+  stroke: var(--accent);
+}
+.cm-cell.on {
+  fill: rgba(240, 97, 106, 0.45);
+  stroke: var(--danger);
+}

@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
 import { computeLayout } from '../lib/layout/drawer';
-import { newId, type CellRect } from '../lib/bins';
+import { newId, withBlocked, type CellRect } from '../lib/bins';
 import type { PlacedBin } from '../lib/project';
 import { besideGroup, canMoveGroup, findSpot, groupBounds, toClip, type ClipBin } from '../lib/binLayout';
 import { selectedIds, useStore } from './store';
@@ -22,7 +22,7 @@ const state = () => useStore.getState();
 
 function grid() {
   const l = computeLayout(state().drawer);
-  return { nx: l.nx, ny: l.ny };
+  return { nx: l.nx, ny: l.ny, mask: l.mask };
 }
 
 /** Select these bins; `primary` (default: the first) is the one the Bins panel edits. */
@@ -54,8 +54,8 @@ export function selectedBins(): PlacedBin[] {
 export function moveBins(ids: string[], dx: number, dy: number): boolean {
   if (!dx && !dy) return false;
   const s = state();
-  const { nx, ny } = grid();
-  if (!canMoveGroup(s.bins, ids, dx, dy, nx, ny)) return false;
+  const { nx, ny, mask } = grid();
+  if (!canMoveGroup(withBlocked(s.bins, mask), ids, dx, dy, nx, ny)) return false;
   const set = new Set(ids);
   useStore.setState({ bins: s.bins.map((b) => (set.has(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b)) });
   return true;
@@ -108,8 +108,8 @@ function place(clip: ClipBin[], [x, y]: [number, number]): string[] {
 /** Paste at the hovered cell if the bins fit there, else at the first free spot. Returns the new ids. */
 export function pasteClipboard(at?: [number, number] | null): string[] {
   if (!clipboard.length) return [];
-  const { nx, ny } = grid();
-  const spot = findSpot(state().bins, clipboard, nx, ny, at ? [at] : []);
+  const { nx, ny, mask } = grid();
+  const spot = findSpot(withBlocked(state().bins, mask), clipboard, nx, ny, at ? [at] : []);
   return spot ? place(clipboard, spot) : [];
 }
 
@@ -118,7 +118,7 @@ export function duplicateSelection(): string[] {
   const bins = selectedBins();
   if (!bins.length) return [];
   const clip = toClip(bins);
-  const { nx, ny } = grid();
-  const spot = findSpot(state().bins, clip, nx, ny, besideGroup(groupBounds(bins)));
+  const { nx, ny, mask } = grid();
+  const spot = findSpot(withBlocked(state().bins, mask), clip, nx, ny, besideGroup(groupBounds(bins)));
   return spot ? place(clip, spot) : [];
 }

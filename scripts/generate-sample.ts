@@ -125,6 +125,51 @@ job.plates.forEach((pl, i) =>
       : '',
   ),
 );
+// Baseplate variants: every style and joint, magnet extras and blocked cells,
+// on a drawer with partial edge cells. One plates zip per variant.
+const variantDrawer = { ...state.drawer, width: 320, depth: 270, fill: 'fit' as const, alignX: 0, alignY: 0 };
+const variants: [string, Partial<ProjectState['drawer']>, Partial<ProjectState['baseplate']>][] = [
+  ['weighted-puzzle', {}, { style: 'weighted', connector: 'puzzle', magnets: true, magnetRibs: true, magnetChamfer: true, magnetSlot: true }],
+  ['skeleton-screws', {}, { style: 'skeletonized', connector: 'screw', magnets: true, screws: true }],
+  [
+    'solid-pins-cutout',
+    { mask: ['0,0', '3,2', '7,5'], maskStyle: 'void' },
+    { style: 'solid', connector: 'pin', magnets: true, magnetSide: 'bottom', magnetChamfer: true },
+  ],
+  ['frame-bowtie-filled', { mask: ['2,2', '2,3'], maskStyle: 'solid' }, { connector: 'bowtie', screws: true }],
+  ['frame-inserts', {}, { connector: 'screw', screwFastener: 'insert', magnets: true, magnetRelease: true, bottomChamfer: 0.6 }],
+];
+const variantDir = join(outDir, 'baseplate-variants');
+mkdirSync(variantDir, { recursive: true });
+for (const [name, d, bp] of variants) {
+  const t = performance.now();
+  const v: ProjectState = {
+    ...state,
+    drawer: { ...variantDrawer, ...d },
+    baseplate: { ...DEFAULT_BASEPLATE, ...bp },
+    bins: [],
+    include: { baseplate: true, bins: false },
+  };
+  const vjob = planJob(v);
+  const meshes = new Map<string, MeshData>();
+  const bad: string[] = [];
+  for (const [key, spec] of Object.entries(vjob.meshes)) {
+    const mesh = buildMesh(wasm, spec);
+    meshes.set(key, mesh);
+    const m = wasm.Manifold.ofMesh(new wasm.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
+    const parts = m.decompose();
+    if (m.status() !== 'NoError' || parts.length !== 1) bad.push(`${spec.kind === 'piece' ? `piece ${spec.piece.id}` : spec.key}: ${m.status()}, ${parts.length} components`);
+    parts.forEach((p) => p.delete());
+    m.delete();
+  }
+  if (bad.length) ok = false;
+  writeFileSync(join(variantDir, `${name}.zip`), exportPlatesZip(vjob, v.setup, (k) => meshes.get(k)!));
+  console.log(
+    `Variant ${name}: ${vjob.layout.nx}×${vjob.layout.ny} cells, ${vjob.plan.pieces.length} pieces, ${vjob.sites.length} joints, ` +
+      `${vjob.plates.length} plates, ${Math.round(performance.now() - t)} ms${bad.length ? ` — BAD: ${bad.join('; ')}` : ''}`,
+  );
+}
+
 if (!ok) {
   console.error('Some meshes are invalid or have more than one component');
   process.exit(1);

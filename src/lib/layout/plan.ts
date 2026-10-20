@@ -54,6 +54,18 @@ export interface BaseplatePlan {
 
 const pieceKey = (id: number) => `piece:${id}`;
 
+export interface PlanOptions {
+  /** How far a piece can stick out past its right / back edge (puzzle tabs), mm. */
+  protrude?: number;
+  /** Pieces to leave out (nothing to print, e.g. fully cut-out blocked cells). */
+  skip?: (p: PieceDef) => boolean;
+}
+
+/** Printed footprint of a piece, including anything that sticks out past its right / back edge. */
+export function pieceFootprint(p: PieceDef, protrude = 0): { w: number; d: number } {
+  return { w: p.x1 - p.x0 + (p.outer.right ? 0 : protrude), d: p.y1 - p.y0 + (p.outer.back ? 0 : protrude) };
+}
+
 function greedyFromEnd(total: number, cuts: number[], maxLen: number): AxisPartition | null {
   const mirrored = cuts.map((c) => total - c).reverse();
   const p = greedyPartition(total, mirrored, maxLen);
@@ -79,9 +91,11 @@ function candidatesFor(total: number, cuts: number[], maxLen: number, style: Spl
  * Split the baseplate into pieces that fit the printer and lay them out on plates.
  * 'auto' tries every minimum-piece split and keeps the one needing the fewest plates.
  */
-export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplatePlan {
-  const UW = setup.bedW - 2 * setup.plateMargin;
-  const UD = setup.bedD - 2 * setup.plateMargin;
+export function planBaseplate(layout: GridLayout, setup: PrintSetup, opts: PlanOptions = {}): BaseplatePlan {
+  const protrude = opts.protrude ?? 0;
+  const keep = (p: PieceDef) => !opts.skip?.(p);
+  const UW = setup.bedW - 2 * setup.plateMargin - protrude;
+  const UD = setup.bedD - 2 * setup.plateMargin - protrude;
   if (UW <= 0 || UD <= 0) return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Bed margin leaves no room.' };
   if (layout.plateW <= 0 || layout.plateD <= 0)
     return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Drawer is too small for a baseplate.' };
@@ -101,11 +115,9 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplateP
         const nPieces = (xs.length - 1) * (ys.length - 1);
         let nPlates = nPieces;
         if (setup.splitStyle === 'auto' && setup.nest && nPieces > 1) {
-          const items: PackItem[] = makePieces(layout, xs, ys).map((p) => ({
-            key: pieceKey(p.id),
-            w: p.x1 - p.x0,
-            d: p.y1 - p.y0,
-          }));
+          const items: PackItem[] = makePieces(layout, xs, ys)
+            .filter(keep)
+            .map((p) => ({ key: pieceKey(p.id), ...pieceFootprint(p, protrude) }));
           nPlates = packPlates(items, { ...setup, bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin }).plates
             .length;
         }
@@ -123,9 +135,9 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplateP
       error: 'Could not split the baseplate to fit this bed. Try allowing margin splits or a larger printer.',
     };
   }
-  const pieces = makePieces(layout, best.xs, best.ys);
+  const pieces = makePieces(layout, best.xs, best.ys).filter(keep);
   const { plates } = packPlates(
-    pieces.map((p) => ({ key: pieceKey(p.id), w: p.x1 - p.x0, d: p.y1 - p.y0 })),
+    pieces.map((p) => ({ key: pieceKey(p.id), ...pieceFootprint(p, protrude) })),
     { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, spacing: setup.spacing, nest: setup.nest },
   );
   return { pieces, plates, cols: best.xs.length - 1, rows: best.ys.length - 1 };
@@ -149,7 +161,14 @@ export function connectorSteps(keys: number): string[] {
 }
 
 /** Text map of which piece covers which cell — handy taped inside the drawer. */
-export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKeys = 0, plateOffset = 0): string {
+export function assemblyMap(
+  layout: GridLayout,
+  plan: BaseplatePlan,
+  connectorKeys = 0,
+  plateOffset = 0,
+  /** Extra assembly notes (joints without keys). */
+  steps: string[] = [],
+): string {
   const lines: string[] = [];
   lines.push('BASEPLATE ASSEMBLY MAP');
   lines.push('='.repeat(40));
@@ -171,7 +190,8 @@ export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKe
     let row = String(layout.ny - j).padStart(3) + ' ';
     for (let i = 0; i < layout.nx; i++) {
       const p = plan.pieces.find((pc) => i >= pc.cells.x0 && i < pc.cells.x1 && j >= pc.cells.y0 && j < pc.cells.y1);
-      row += String(p?.id ?? '?').padStart(w + 1);
+      const blocked = layout.mask?.includes(`${i},${j}`);
+      row += String(blocked ? (layout.maskStyle === 'void' ? '.' : '#') : (p?.id ?? '?')).padStart(w + 1);
     }
     lines.push(row);
   }
@@ -187,6 +207,8 @@ export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKe
     lines.push(`Plate ${plateOffset + i + 1}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
   });
   if (connectorKeys) lines.push('', ...connectorSteps(connectorKeys));
+  if (steps.length) lines.push('', ...steps);
+  if (layout.mask?.length) lines.push('', `Blocked cells: ${layout.mask.length} (${layout.maskStyle === 'void' ? '. = cut out' : '# = solid'}).`);
   return lines.join('\n') + '\n';
 }
 

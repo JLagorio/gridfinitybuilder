@@ -56,3 +56,12 @@ describe('divider layouts on bin variants', () => {
     expect(removableInserts({ ...base, interior: 'pockets' } as BinOptions)).toEqual([]);
   });
 });
+
+describe('tool bins and blocked cells', () => {
+  it('"Make a bin" skips blocked cells', async () => {
+    const { firstFreeSpot } = await import('../src/lib/tools');
+    const { computeLayout, DEFAULT_DRAWER } = await import('../src/lib/layout/drawer');
+    const layout = computeLayout({ ...DEFAULT_DRAWER, mode: 'grid', gridX: 4, gridY: 2, mask: ['0,0', '1,0'] });
+    expect(firstFreeSpot(layout, [], 2, 1)).toEqual({ x: 2, y: 0 });
+  });
+});

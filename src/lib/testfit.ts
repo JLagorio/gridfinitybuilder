@@ -1,9 +1,9 @@
 import { baseplateHeight, type BaseplateOptions } from './geometry/baseplate';
 import { binLabel, binSize, binTotalHeight, sanitizeBin, type BinOptions } from './geometry/bin';
-import { connectorKeySize, connectorSites, sitesOnPiece } from './geometry/connectors';
+import { connectorKeySize, connectorSites, jointSteps, pieceProtrusion, sitesOnPiece } from './geometry/connectors';
 import { DEFAULT_DRAWER, computeLayout } from './layout/drawer';
 import { packPlates, type PackItem } from './layout/pack';
-import type { PrintSetup } from './layout/plan';
+import { pieceFootprint, type PrintSetup } from './layout/plan';
 import { makePieces } from './layout/split';
 import { binSpec, pieceMeshKey, type JobPart, type MeshSpec, type PrintJob } from './project';
 
@@ -18,7 +18,9 @@ export function planTestFit(baseplate: BaseplateOptions, bin: BinOptions, setup:
   const layout = computeLayout({ ...DEFAULT_DRAWER, mode: 'grid', gridX: 2, gridY: 2, pitchX: pitch.x, pitchY: pitch.y });
   const split = baseplate.connector !== 'none';
   const pieces = makePieces(layout, split ? [0, layout.xs[1], layout.plateW] : [0, layout.plateW], [0, layout.plateD]);
-  const connectors = connectorSites(layout, pieces, baseplate);
+  const sites = connectorSites(layout, pieces, baseplate);
+  // Only bowtie joints print keys.
+  const connectors = baseplate.connector === 'bowtie' ? sites : [];
 
   const parts: Record<string, JobPart> = {};
   const meshes: Record<string, MeshSpec> = {};
@@ -30,7 +32,7 @@ export function planTestFit(baseplate: BaseplateOptions, bin: BinOptions, setup:
   };
 
   for (const piece of pieces) {
-    const mine = sitesOnPiece(connectors, piece);
+    const mine = sitesOnPiece(sites, piece);
     const meshKey = pieceMeshKey(layout, piece, baseplate, mine);
     const side = pieces.length > 1 ? (piece.col === 0 ? ' (left)' : ' (right)') : '';
     add(
@@ -39,8 +41,7 @@ export function planTestFit(baseplate: BaseplateOptions, bin: BinOptions, setup:
         name: `Test-fit baseplate${side}`,
         kind: 'piece',
         meshKey,
-        w: piece.x1 - piece.x0,
-        d: piece.y1 - piece.y0,
+        ...pieceFootprint(piece, pieceProtrusion(baseplate)),
         h: baseplateHeight(baseplate),
         pieceId: piece.id,
       },
@@ -95,7 +96,20 @@ export function planTestFit(baseplate: BaseplateOptions, bin: BinOptions, setup:
     layout,
     plan,
     connectors,
-    drawers: [{ id: 'test-fit', name: 'Test-fit kit', layout, plan, connectors, plateOffset: 0, plateCount: plates.length }],
+    sites,
+    drawers: [
+      {
+        id: 'test-fit',
+        name: 'Test-fit kit',
+        layout,
+        plan,
+        connectors,
+        sites,
+        steps: jointSteps(baseplate, baseplate.connector === 'bowtie' ? 0 : sites.length),
+        plateOffset: 0,
+        plateCount: plates.length,
+      },
+    ],
     parts,
     meshes,
     plates,

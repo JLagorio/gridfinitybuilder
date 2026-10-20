@@ -1,7 +1,9 @@
-import { baseplateFloor } from './geometry/baseplate';
+import { baseplateFloor, screwPlacement } from './geometry/baseplate';
+import { lowSideOf } from './geometry/connectors';
+import { maskSet } from './geometry/mask';
 import { binCells } from './geometry/bin';
 import { holeSites } from './geometry/holes';
-import { BP_PROFILE_DEPTH, GRID } from './geometry/spec';
+import { BP_PROFILE_DEPTH, GRID, PIN, SCREW_JOIN } from './geometry/spec';
 import type { MeshSpec, PrintJob } from './project';
 
 /**
@@ -11,7 +13,9 @@ import type { MeshSpec, PrintJob } from './project';
  * Hardware is counted from what's on the plates, using the same rules as the
  * geometry: four magnet (or screw) holes per full cell, none in partial edge
  * cells, only the outer four with corner-only holes, none in flat bins; one
- * countersunk screw hole per baseplate cell big enough for the head.
+ * countersunk screw hole per baseplate cell big enough for the head (four, in
+ * the corner bosses, for weighted and skeletonized plates); nothing in blocked
+ * cells. Seam joints: one pin, or one screw and nut / insert, per joint.
  */
 
 /** PLA density, g/cm³. */
@@ -61,20 +65,35 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
   if (!spec) return [];
   if (spec.kind === 'piece') {
     const o = spec.opts;
+    const out = [];
+    // Joints are shared by two pieces: count each on one side (pins: left / front; screws: the head side).
+    const low = spec.connectors.filter((s) => lowSideOf(s, spec.piece));
+    if (o.connector === 'pin' && low.length) {
+      out.push({ item: `Filament pins 1.75 × ${PIN.length - 0.5} mm (joints)`, count: low.length, note: 'cut from filament' });
+    }
+    const heads = spec.connectors.filter((s) => lowSideOf(s, spec.piece) !== !!s.flip).length;
+    if (o.connector === 'screw' && heads) {
+      out.push({ item: `${SCREW_JOIN.screw} socket head screws (joints)`, count: heads });
+      out.push({ item: o.screwFastener === 'insert' ? 'M3 heat-set inserts (joints)' : 'M3 hex nuts (joints)', count: heads });
+    }
     const floor = baseplateFloor(o);
-    if (floor <= 0) return [];
+    if (floor <= 0) return out;
     let magnets = 0;
     let screws = 0;
     const { xs, ys } = spec.layout;
+    const blocked = maskSet(spec.layout);
+    const sp = screwPlacement(o);
     for (let i = spec.piece.cells.x0; i < spec.piece.cells.x1; i++) {
       for (let j = spec.piece.cells.y0; j < spec.piece.cells.y1; j++) {
+        if (blocked.has(`${i},${j}`)) continue;
         const cw = xs[i + 1] - xs[i];
         const cd = ys[j + 1] - ys[j];
-        if (o.magnets && Math.min(cw, cd) >= FULL) magnets += 4;
-        if (o.screws && Math.min(cw, cd) >= o.screwHeadDiameter + 2 * BP_PROFILE_DEPTH) screws++;
+        const full = Math.min(cw, cd) >= FULL;
+        if (o.magnets && full) magnets += 4;
+        if (sp === 'center' && Math.min(cw, cd) >= o.screwHeadDiameter + 2 * BP_PROFILE_DEPTH) screws++;
+        if (sp === 'corner' && full) screws += 4;
       }
     }
-    const out = [];
     if (magnets) {
       out.push({
         item: `Magnets ${o.magnetDiameter} × ${o.magnetHeight} mm (baseplate)`,
@@ -82,7 +101,10 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
         note: o.magnetSide === 'bottom' ? 'pressed in from below' : 'pressed in from above',
       });
     }
-    if (screws) out.push({ item: `M${o.screwDiameter} countersunk screws (baseplate)`, count: screws, note: 'one hole per cell; use as many as you need' });
+    if (screws) {
+      const where = sp === 'corner' ? 'four holes per cell' : 'one hole per cell';
+      out.push({ item: `M${o.screwDiameter} countersunk screws (baseplate)`, count: screws, note: `${where}; use as many as you need` });
+    }
     return out;
   }
   if (spec.kind === 'bin') {
