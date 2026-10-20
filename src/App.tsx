@@ -12,6 +12,7 @@ import { DrawerPanel } from './components/DrawerPanel';
 import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
+import { BinInteriorEditor, BinPaneHeader, useInteriorPane } from './components/BinInteriorEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { Segmented } from './components/fields';
 import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, pieceColor } from './components/colors';
@@ -103,6 +104,7 @@ function platesScene(job: PrintJob, plate: number, bedW: number, bedD: number): 
 export default function App() {
   const state = useStore();
   const { ui } = state;
+  const interiorBin = useInteriorPane();
   // Plan with bins always included so the drawer view can show them.
   const project = projectOf(state);
   const job = useMemo(
@@ -149,7 +151,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('input, textarea, select, [contenteditable]')) return;
+      // Handled already (e.g. by the compartment editor, which owns Delete/Escape while it's open).
+      if (e.defaultPrevented || t.closest('input, textarea, select, [contenteditable]')) return;
       const s = useStore.getState();
       if ((e.key === 'Delete' || e.key === 'Backspace') && s.ui.selectedBinId && s.ui.tab === 'bins') {
         s.removeBin(s.ui.selectedBinId);
@@ -255,15 +258,19 @@ export default function App() {
           {ui.tab === 'bins' ? (
             <div className="split">
               <div className="pane pane-2d">
-                <div className="pane-title">Layout — drag to draw bins</div>
-                <BinGridEditor
-                  layout={job.layout}
-                  bins={state.bins}
-                  selectedId={ui.selectedBinId}
-                  onSelect={(id) => state.setUI({ selectedBinId: id })}
-                  onCreate={(r) => state.addBin(r.x, r.y, r.w, r.d)}
-                  onMove={(id, x, y) => state.updateBin(id, { x, y })}
-                />
+                <BinPaneHeader />
+                {interiorBin ? (
+                  <BinInteriorEditor binId={interiorBin} grid={job.layout} />
+                ) : (
+                  <BinGridEditor
+                    layout={job.layout}
+                    bins={state.bins}
+                    selectedId={ui.selectedBinId}
+                    onSelect={(id) => state.setUI({ selectedBinId: id })}
+                    onCreate={(r) => state.addBin(r.x, r.y, r.w, r.d)}
+                    onMove={(id, x, y) => state.updateBin(id, { x, y })}
+                  />
+                )}
               </div>
               <div className="pane pane-3d">{viewer}</div>
             </div>
