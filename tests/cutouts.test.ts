@@ -299,7 +299,11 @@ describe('tools and bin fitting', () => {
 
 describe('tool library in the store', () => {
   const s = () => useStore.getState();
-  beforeEach(() => s().resetAll());
+  // The library survives a reset (like templates), so clear it too.
+  beforeEach(() => {
+    s().resetAll();
+    useStore.setState({ tools: [] });
+  });
 
   it('adds, updates (bins follow, in every drawer) and removes tools', () => {
     const id = s().addTool({ name: 'Pliers', outline: rect(120, 40).map(([x, y]) => [x + 500, y + 500] as Pt), depth: 15, clearance: 1 });

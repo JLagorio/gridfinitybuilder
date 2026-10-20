@@ -81,6 +81,14 @@ export function cleanTools(v: unknown): Tool[] {
   return out;
 }
 
+/** Library + incoming tools: same id takes the incoming version, new ones are appended. */
+export function mergeTools(current: Tool[], incoming: Tool[]): Tool[] {
+  const byId = new Map(incoming.map((t) => [t.id, t]));
+  const out = current.map((t) => byId.get(t.id) ?? t);
+  for (const t of incoming) if (!current.some((c) => c.id === t.id)) out.push(t);
+  return out;
+}
+
 /** Outline bounding-box size, mm. */
 export function toolSize(t: Pick<Tool, 'outline'>): { w: number; d: number } {
   const b = bounds(t.outline);
