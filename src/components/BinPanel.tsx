@@ -6,6 +6,7 @@ import { canPlace } from '../lib/bins';
 import { binSpec, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
+import { TemplatesSection } from './TemplatesSection';
 
 function BinFields({
   opts,
@@ -161,6 +162,8 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <BinFields opts={newBin} onChange={setNewBin} sizeEditable={false} />
         </Section>
       )}
+
+      <TemplatesSection />
 
       <Section title="Layout">
         <div className="button-row">
