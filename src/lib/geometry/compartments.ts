@@ -15,6 +15,8 @@
  *   (with rounded corners), protecting tabs, scoop ramps and raised floors.
  * - Removable walls: a slot through the wall's footprint (+ clearance) down into
  *   the floor, and guide ribs at each end (returned in `add`).
+ * - Label tabs are also listed without building anything (`labelTabs`), for the
+ *   label text and label-plate recesses in labels.ts.
  */
 import type { Manifold, MeshData, Vec3, Wasm } from './kernel';
 import { Scope, assertValid, toMeshData } from './kernel';
@@ -25,6 +27,7 @@ import {
   TAB_SUPPORT_ANGLE_DEG,
   TAB_TIP_HEIGHT,
   TAB_WIDTH_NOMINAL,
+  LIP_DEPTH,
   WALL,
 } from './spec';
 import { boxAt, extrudePolygon, ringAt, roundedRectRing, type CornerRadii } from './shapes';
@@ -38,6 +41,7 @@ import {
   removableSegments,
   resolveLayout,
   type CompRect,
+  type Compartment,
   type ResolvedLayout,
 } from '../dividers';
 
@@ -59,6 +63,69 @@ export interface CutterSpec {
   label: LabelStyle;
   /** Top of the label tab when the back wall is lowered (default: the infill top). */
   tabTop?: number;
+  /** Compartment this cutter belongs to (for its label text). */
+  key?: string;
+  /** How far the stacking lip overhangs the back of the tab, hiding it from above. */
+  backInset?: number;
+}
+
+/** A label tab's flat top, in bin coordinates. */
+export interface LabelTab {
+  /** Compartment key (`g<i>,<j>` in a uniform grid). */
+  key: string;
+  /** Ends of the tab. */
+  x0: number;
+  x1: number;
+  /** Front edge, and the back edge of the part you can see from above (clear of the lip). */
+  y0: number;
+  y1: number;
+  /** Height of the flat top. */
+  z: number;
+}
+
+interface TabShape {
+  tx0: number;
+  tx1: number;
+  /** Back (in the wall) and front edge. */
+  yb: number;
+  yf: number;
+  /** Thickness at the back. */
+  th: number;
+  tabTop: number;
+  /** Top of the hull (above the infill unless the tab is lowered). */
+  zt: number;
+}
+
+/** Where a cutter's label tab goes, or null when it has none (or no room for one). */
+function tabShape(c: CutterSpec): TabShape | null {
+  if (c.label === 'none') return null;
+  const eps = 0.01;
+  const { x0, x1, y1, cw, cd, zFloor, topInfill, zTop } = c;
+  const tabTop = c.tabTop ?? topInfill;
+  const lowered = tabTop < topInfill - 1e-6;
+  const room = tabTop - zFloor;
+  const tan = Math.tan((TAB_SUPPORT_ANGLE_DEG * Math.PI) / 180);
+  let td = Math.min(TAB_DEPTH, cd * 0.45);
+  if (tan * td + TAB_TIP_HEIGHT > room - 1) td = (room - 1 - TAB_TIP_HEIGHT) / tan;
+  if (!(td >= 4)) return null;
+  const th = tan * td + TAB_TIP_HEIGHT;
+  const tw = c.label === 'full' ? cw + 4 * eps : Math.min(cw, TAB_WIDTH_NOMINAL);
+  let tx0: number;
+  if (c.label === 'full') tx0 = x0 - eps;
+  else if (c.label === 'left') tx0 = x0 - eps;
+  else if (c.label === 'right') tx0 = x1 + eps - tw;
+  else tx0 = (x0 + x1) / 2 - tw / 2;
+  return { tx0, tx1: tx0 + tw, yb: y1 + 2 * eps, yf: y1 - td, th, tabTop, zt: lowered ? tabTop : zTop + 0.5 };
+}
+
+/** The flat top of a cutter's label tab (clipped to the compartment, clear of the lip). */
+function tabOf(c: CutterSpec): LabelTab | null {
+  const t = tabShape(c);
+  if (!t) return null;
+  const eps = 0.01;
+  const y1 = c.y1 - eps - (c.backInset ?? 0);
+  if (y1 - t.yf < 1) return null;
+  return { key: c.key ?? '', x0: Math.max(t.tx0, c.x0 + eps), x1: Math.min(t.tx1, c.x1 - eps), y0: t.yf, y1, z: t.tabTop };
 }
 
 /**
@@ -67,8 +134,7 @@ export interface CutterSpec {
  * Solids that later cuts must not remove (tab, scoop ramp) are pushed to `keep`.
  */
 export function compartmentCutter(w: Wasm, s: Scope, c: CutterSpec, keep?: Manifold[]): Manifold {
-  const { x0, y0, x1, y1, cw, cd, zFloor, topInfill, zTop } = c;
-  const eps = 0.01;
+  const { x0, y0, x1, y1, cd, zFloor, topInfill, zTop } = c;
   const innerH = topInfill - zFloor;
   let cutter: Manifold;
   const r = typeof c.radius === 'number' ? c.radius : Math.max(...c.radius);
@@ -105,33 +171,15 @@ export function compartmentCutter(w: Wasm, s: Scope, c: CutterSpec, keep?: Manif
   }
 
   // Label tab: a shelf on the back (+Y) wall, angled underneath so it prints without support.
-  if (c.label !== 'none') {
-    const tabTop = c.tabTop ?? topInfill;
-    const lowered = tabTop < topInfill - 1e-6;
-    const room = tabTop - zFloor;
-    const tan = Math.tan((TAB_SUPPORT_ANGLE_DEG * Math.PI) / 180);
-    let td = Math.min(TAB_DEPTH, cd * 0.45);
-    if (tan * td + TAB_TIP_HEIGHT > room - 1) td = (room - 1 - TAB_TIP_HEIGHT) / tan;
-    if (td >= 4) {
-      const th = tan * td + TAB_TIP_HEIGHT;
-      const tw = c.label === 'full' ? cw + 4 * eps : Math.min(cw, TAB_WIDTH_NOMINAL);
-      let tx0: number;
-      if (c.label === 'full') tx0 = x0 - eps;
-      else if (c.label === 'left') tx0 = x0 - eps;
-      else if (c.label === 'right') tx0 = x1 + eps - tw;
-      else tx0 = (x0 + x1) / 2 - tw / 2;
-      const tx1 = tx0 + tw;
-      const yb = y1 + 2 * eps;
-      const yf = y1 - td;
-      const zt = lowered ? tabTop : zTop + 0.5;
-      const pts: Vec3[] = [];
-      for (const x of [tx0, tx1]) {
-        pts.push([x, yb, tabTop - th], [x, yb, zt], [x, yf, zt], [x, yf, tabTop - TAB_TIP_HEIGHT]);
-      }
-      const tab = s.t(w.Manifold.hull(pts));
-      cutter = s.t(cutter.subtract(tab));
-      if (keep) keep.push(tab);
+  const t = tabShape(c);
+  if (t) {
+    const pts: Vec3[] = [];
+    for (const x of [t.tx0, t.tx1]) {
+      pts.push([x, t.yb, t.tabTop - t.th], [x, t.yb, t.zt], [x, t.yf, t.zt], [x, t.yf, t.tabTop - TAB_TIP_HEIGHT]);
     }
+    const tab = s.t(w.Manifold.hull(pts));
+    cutter = s.t(cutter.subtract(tab));
+    if (keep) keep.push(tab);
   }
   return cutter;
 }
@@ -159,8 +207,33 @@ export function interiorCuts(
   return layoutCuts(w, s, o, resolveLayout(o.layout, innerW, innerD), -W / 2 + WALL, -D / 2 + WALL, zFloor, topInfill);
 }
 
+/**
+ * The flat tops of a bin's label tabs, with the same sizes `interiorCuts` gives
+ * them (same arguments). No geometry is built. Empty for non-compartment interiors.
+ */
+export function labelTabs(o: BinOptions, W: number, D: number, zFloor: number, topInfill: number): LabelTab[] {
+  if (o.interior && o.interior !== 'compartments') return [];
+  let specs: CutterSpec[];
+  if (!o.layout) {
+    try {
+      specs = uniformSpecs(o, W, D, zFloor, topInfill);
+    } catch {
+      return [];
+    }
+  } else {
+    const r = resolveLayout(o.layout, W - 2 * WALL, D - 2 * WALL);
+    specs = layoutSpecs(o, r, -W / 2 + WALL, -D / 2 + WALL, zFloor, topInfill).flatMap((x) => x.specs);
+  }
+  return specs.map(tabOf).filter((t): t is LabelTab => !!t);
+}
+
 /** The classic divX × divY grid (geometry identical to before layouts existed). */
 function uniformCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: number, zFloor: number, topInfill: number): Manifold[] {
+  return uniformSpecs(o, W, D, zFloor, topInfill).map((c) => compartmentCutter(w, s, c));
+}
+
+/** Cutter specs of the uniform grid, front-left first, column by column. */
+function uniformSpecs(o: BinOptions, W: number, D: number, zFloor: number, topInfill: number): CutterSpec[] {
   const innerH = topInfill - zFloor;
   if (innerH < 0.5) return [];
   const eps = 0.01;
@@ -174,34 +247,37 @@ function uniformCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: number, 
 
   const zTop = topInfill + 1;
   const rc = Math.min(INNER_RADIUS, cw / 2 - 0.05, cd / 2 - 0.05);
-  const cutters: Manifold[] = [];
+  const specs: CutterSpec[] = [];
   for (let i = 0; i < o.divX; i++) {
     for (let j = 0; j < o.divY; j++) {
       const x0 = ix0 + i * (cw + DIVIDER) - eps;
       const x1 = x0 + cw + 2 * eps;
       const y0 = iy0 + j * (cd + DIVIDER) - eps;
       const y1 = y0 + cd + 2 * eps;
-      cutters.push(
-        compartmentCutter(w, s, {
-          x0,
-          y0,
-          x1,
-          y1,
-          cw,
-          cd,
-          radius: rc + eps,
-          zFloor,
-          topInfill,
-          zTop,
-          fillet: o.fillet,
-          scoop: o.scoop,
-          label: o.label,
-        }),
-      );
+      specs.push({
+        x0,
+        y0,
+        x1,
+        y1,
+        cw,
+        cd,
+        radius: rc + eps,
+        zFloor,
+        topInfill,
+        zTop,
+        fillet: o.fillet,
+        scoop: o.scoop,
+        label: o.label,
+        key: `g${i},${j}`,
+        backInset: j === o.divY - 1 ? lipInset(o) : 0,
+      });
     }
   }
-  return cutters;
+  return specs;
 }
+
+/** How far the stacking lip reaches in over the back of a tab against the outer wall. */
+const lipInset = (o: BinOptions) => (o.lip ? LIP_DEPTH - WALL : 0);
 
 const rectRadius = (r: { x0: number; x1: number; y0: number; y1: number }) =>
   Math.max(0, Math.min(INNER_RADIUS, (r.x1 - r.x0) / 2 - 0.05, (r.y1 - r.y0) / 2 - 0.05));
@@ -209,6 +285,71 @@ const rectRadius = (r: { x0: number; x1: number; y0: number; y1: number }) =>
 /** Rounded only at the outline's convex corners. */
 const strapRadii = (rc: CompRect, r: number, eps: number): CornerRadii =>
   rc.convex.map((cv) => (cv && r > 0 ? r + eps : 0)) as CornerRadii;
+
+/** Cutter specs of a layout's compartments (one per rect), with each compartment's floor. */
+function layoutSpecs(
+  o: BinOptions,
+  r: ResolvedLayout,
+  ix0: number,
+  iy0: number,
+  zFloor: number,
+  topInfill: number,
+): { c: Compartment; floor: number; specs: CutterSpec[] }[] {
+  const innerH = topInfill - zFloor;
+  if (innerH < 0.5) return [];
+  const eps = 0.01;
+  const zTop = topInfill + 1;
+  const maxLower = Math.max(0, innerH - 2);
+  const box = (rc: { x0: number; y0: number; x1: number; y1: number }, grow: number) => ({
+    x0: ix0 + rc.x0 - grow,
+    y0: iy0 + rc.y0 - grow,
+    x1: ix0 + rc.x1 + grow,
+    y1: iy0 + rc.y1 + grow,
+  });
+  const backInset = (rc: CompRect) => (rc.y1 >= r.innerD - 1e-6 ? lipInset(o) : 0);
+
+  return r.compartments.map((c) => {
+    const co = o.layout?.comps?.[c.key];
+    const scoop = co?.scoop ?? o.scoop;
+    const label = co?.label ?? o.label;
+    const floor = Math.min(Math.max(0, co?.floor ?? 0), Math.max(0, innerH - 2));
+    const zf = zFloor + floor;
+    const spec = { zFloor: zf, topInfill, zTop, key: c.key };
+    if (c.isRect) {
+      const rc = c.rects[0];
+      const b = box(rc, eps);
+      const one: CutterSpec = {
+        ...b,
+        ...spec,
+        cw: rc.x1 - rc.x0,
+        cd: rc.y1 - rc.y0,
+        radius: rectRadius(rc) + eps,
+        fillet: o.fillet,
+        scoop,
+        label,
+        tabTop: topInfill - Math.min(rc.backLower, maxLower),
+        backInset: backInset(rc),
+      };
+      return { c, floor, specs: [one] };
+    }
+    const tabStrip = c.rects.filter((x) => x.open.back).sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0))[0];
+    const specs = c.rects.map(
+      (rc): CutterSpec => ({
+        ...box(rc, eps),
+        ...spec,
+        cw: rc.x1 - rc.x0,
+        cd: rc.y1 - rc.y0,
+        radius: strapRadii(rc, rectRadius(rc), eps),
+        fillet: false,
+        scoop: rc.open.front ? scoop : 0,
+        label: rc === tabStrip ? label : 'none',
+        tabTop: topInfill - Math.min(rc.backLower, maxLower),
+        backInset: backInset(rc),
+      }),
+    );
+    return { c, floor, specs };
+  });
+}
 
 function layoutCuts(
   w: Wasm,
@@ -235,59 +376,9 @@ function layoutCuts(
     y1: iy0 + rc.y1 + grow,
   });
 
-  for (const c of r.compartments) {
-    const co = o.layout?.comps?.[c.key];
-    const scoop = co?.scoop ?? o.scoop;
-    const label = co?.label ?? o.label;
-    const floor = Math.min(Math.max(0, co?.floor ?? 0), Math.max(0, innerH - 2));
-    const zf = zFloor + floor;
-    const spec = { zFloor: zf, topInfill, zTop };
-    if (c.isRect) {
-      const rc = c.rects[0];
-      const b = box(rc, eps);
-      cut.push(
-        compartmentCutter(
-          w,
-          s,
-          {
-            ...b,
-            ...spec,
-            cw: rc.x1 - rc.x0,
-            cd: rc.y1 - rc.y0,
-            radius: rectRadius(rc) + eps,
-            fillet: o.fillet,
-            scoop,
-            label,
-            tabTop: topInfill - Math.min(rc.backLower, maxLower),
-          },
-          keep,
-        ),
-      );
-    } else {
-      const tabStrip = c.rects.filter((x) => x.open.back).sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0))[0];
-      for (const rc of c.rects) {
-        const b = box(rc, eps);
-        cut.push(
-          compartmentCutter(
-            w,
-            s,
-            {
-              ...b,
-              ...spec,
-              cw: rc.x1 - rc.x0,
-              cd: rc.y1 - rc.y0,
-              radius: strapRadii(rc, rectRadius(rc), eps),
-              fillet: false,
-              scoop: rc.open.front ? scoop : 0,
-              label: rc === tabStrip ? label : 'none',
-              tabTop: topInfill - Math.min(rc.backLower, maxLower),
-            },
-            keep,
-          ),
-        );
-      }
-    }
-    if (floor > 0) for (const rc of c.rects) keep.push(s.t(prism(w, box(rc, 0), zFloor - 1, zf)));
+  for (const { c, floor, specs } of layoutSpecs(o, r, ix0, iy0, zFloor, topInfill)) {
+    for (const spec of specs) cut.push(compartmentCutter(w, s, spec, keep));
+    if (floor > 0) for (const rc of c.rects) keep.push(s.t(prism(w, box(rc, 0), zFloor - 1, zFloor + floor)));
   }
 
   // Lowered walls: re-cut the merged space above each lowered height.

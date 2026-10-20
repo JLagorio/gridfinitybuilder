@@ -53,6 +53,8 @@ export interface CompartmentOptions {
   label?: LabelStyle;
   /** Raise this compartment's floor by this many mm (shallower compartment). */
   floor?: number;
+  /** Text on this compartment's label tab (else the bin's `labelText`). */
+  labelText?: string;
 }
 
 export interface DividerLayout {

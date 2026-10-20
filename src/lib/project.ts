@@ -10,13 +10,20 @@ import {
   DEFAULT_BIN,
   binKey,
   binLabel,
+  binLabelPlates,
+  binLabelTexts,
   binSize,
   binTotalHeight,
   buildBin,
+  buildDividerInsert,
   fullCells,
+  insertKey,
+  removableInserts,
   type BinCells,
   type BinOptions,
+  type DividerInsert,
 } from './geometry/bin';
+import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } from './geometry/labels';
 import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
 import {
   buildConnectorKey,
@@ -91,12 +98,16 @@ export type MeshSpec =
     }
   | { kind: 'bin'; key: string; opts: BinOptions; cells?: BinCells }
   | { kind: 'lid'; key: string; opts: BinOptions; cells?: BinCells }
-  | { kind: 'key'; key: string; opts: BaseplateOptions };
+  | { kind: 'key'; key: string; opts: BaseplateOptions }
+  /** Slide-in plate for a removable divider. */
+  | { kind: 'divider'; key: string; insert: DividerInsert }
+  /** Swappable label plate. */
+  | { kind: 'label'; key: string; plate: LabelPlate };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin' | 'lid' | 'key';
+  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label';
   meshKey: string;
   w: number;
   d: number;
@@ -247,7 +258,9 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       const { w, d: dd } = binSize(b.opts, spec.cells);
       const h = binTotalHeight(b.opts);
       meshes[spec.key] = spec;
-      parts[key] = { key, name: `${label}Bin ${binLabel(b.opts)}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
+      const texts = [...new Set(binLabelTexts(b.opts, spec.cells))];
+      const caption = texts.length ? ` “${texts.slice(0, 3).join(' · ').replace(/\n/g, ' ')}${texts.length > 3 ? ' …' : ''}”` : '';
+      parts[key] = { key, name: `${label}Bin ${binLabel(b.opts)}${caption}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
       if (h > setup.maxH) warn(`Bin ${binLabel(b.opts)} is taller than the printer allows.`);
       if (h > room + 1e-6) warn(`Bin ${binLabel(b.opts)} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
       if (include.bins) binItems.push({ key, w, d: dd });
@@ -261,6 +274,25 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         if (h <= room + 1e-6 && stack > room + 1e-6) warn(`Bin ${binLabel(b.opts)} with its lid is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
         if (include.bins) binItems.push({ key: lidPart, w: size.w, d: size.d });
       }
+      // Removable divider plates and swappable label plates print with the bins.
+      const owner = `bin ${b.opts.unitsX}×${b.opts.unitsY}`;
+      removableInserts(b.opts, spec.cells).forEach((ins, i) => {
+        const meshKey = insertKey(ins);
+        meshes[meshKey] = { kind: 'divider', key: meshKey, insert: ins };
+        const k = `${prefix}divider:${b.id}:${i}`;
+        const name = `${label}Divider ${round1(ins.length)} × ${round1(ins.height)} mm (${owner})`;
+        parts[k] = { key: k, name, kind: 'divider', meshKey, w: ins.length, d: ins.height, h: ins.thickness, drawer: d.id };
+        if (include.bins) binItems.push({ key: k, w: ins.length, d: ins.height });
+      });
+      binLabelPlates(b.opts, spec.cells).forEach((pl, i) => {
+        const meshKey = labelPlateKey(pl);
+        meshes[meshKey] = { kind: 'label', key: meshKey, plate: pl };
+        const k = `${prefix}label:${b.id}:${i}`;
+        const text = pl.text.trim() ? `“${pl.text.trim().replace(/\s*\n\s*/g, ' ')}”` : `${round1(pl.width)} × ${round1(pl.depth)} mm`;
+        const name = `${label}Label plate ${text} (${owner})`;
+        parts[k] = { key: k, name, kind: 'label', meshKey, w: pl.width, d: pl.depth, h: labelPlateHeight(pl), drawer: d.id };
+        if (include.bins) binItems.push({ key: k, w: pl.width, d: pl.depth });
+      });
     }
   }
 
@@ -289,6 +321,8 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
     return translateMesh(m, -spec.piece.x0, -spec.piece.y0, 0);
   }
   if (spec.kind === 'key') return buildConnectorKey(w);
+  if (spec.kind === 'divider') return buildDividerInsert(w, spec.insert);
+  if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);
   if (spec.kind === 'lid') {
     const { w: W, d: D } = lidSize(spec.opts, spec.cells);
     return translateMesh(buildBinLid(w, spec.opts, spec.cells), W / 2, D / 2, 0);
@@ -340,7 +374,28 @@ export function exportBambuProject(
     bedD: setup.bedD,
     projectSettings,
     title: 'Gridfinity drawer',
+    // Filament 2 prints inlaid label text.
+    filamentColours: setup.labelColour ? [setup.labelColour.toUpperCase()] : undefined,
   });
+}
+
+/**
+ * True when a part on the job's plates may print in a second filament (inlaid
+ * label text on a bin or a label plate). Planning can't lay out text, so a
+ * label too small to print still counts.
+ */
+export function usesSecondFilament(job: PrintJob): boolean {
+  for (const pl of job.plates) {
+    for (const p of pl.placements) {
+      const spec = job.meshes[job.parts[p.key].meshKey];
+      if (spec?.kind === 'label' && spec.plate.style === 'inlaid' && spec.plate.text.trim()) return true;
+      if (spec?.kind === 'bin' && spec.opts.labelStyle === 'inlaid' && binLabelTexts(spec.opts, spec.cells).length) {
+        // With label plates the text is on the plates (unless a tab is too small for one).
+        if (!spec.opts.labelPlates || binLabelPlates(spec.opts, spec.cells).length < binLabelTexts(spec.opts, spec.cells).length) return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function exportPlate3MF(job: PrintJob, plateIndex: number, getMesh: MeshLookup): Uint8Array {
@@ -405,19 +460,27 @@ function readme(job: PrintJob, setup: PrintSetup) {
   return lines.join('\n');
 }
 
-/** Names of the parts on a plate, with connector keys counted rather than listed. */
+/** Names of the parts on a plate, with connector keys, dividers and label plates counted rather than listed. */
 export function plateContents(job: PrintJob, pl: JobPlate): string[] {
   const names: string[] = [];
   let keys = 0;
+  let dividers = 0;
+  let labels = 0;
   for (const p of pl.placements) {
     const part = job.parts[p.key];
     if (part.kind === 'key') keys++;
+    else if (part.kind === 'divider') dividers++;
+    else if (part.kind === 'label') labels++;
     else names.push(part.name);
   }
   if (keys) names.push(`${keys} connector key${keys === 1 ? '' : 's'}`);
+  if (dividers) names.push(`${dividers} divider${dividers === 1 ? '' : 's'}`);
+  if (labels) names.push(`${labels} label plate${labels === 1 ? '' : 's'}`);
   return names;
 }
 
 function round(v: number) {
   return Math.round(v * 100) / 100;
 }
+
+const round1 = (v: number) => Math.round(v * 10) / 10;

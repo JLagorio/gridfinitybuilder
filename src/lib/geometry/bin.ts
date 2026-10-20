@@ -11,7 +11,7 @@ import {
   WALL,
 } from './spec';
 import { extrudePolygon, loftRoundedRect, roundedRectRing } from './shapes';
-import { buildDividerInsert, insertKey, insertsFor, interiorCuts, type DividerInsert } from './compartments';
+import { buildDividerInsert, insertKey, insertsFor, interiorCuts, labelTabs, type DividerInsert, type LabelTab } from './compartments';
 import { layoutKey, resolveLayout, sanitizeLayout, uniformLayout, type DividerLayout, type ResolvedLayout } from '../dividers';
 import {
   DEFAULT_VARIANTS,
@@ -28,12 +28,22 @@ import { clipToHollow, hollowFloor, isHollowBase } from './binbase';
 import { lipCavityKnots, lipNotches } from './lip';
 import { fingerSlides, wallCutouts, wallPattern } from './walls';
 import { pocketCutters, pocketLayout } from './pockets';
+import {
+  DEFAULT_LABELS,
+  compartmentLabelText,
+  labelKeyParts,
+  planTabLabels,
+  sanitizeLabelOptions,
+  tabLabelGeometry,
+  type BinLabelOptions,
+  type LabelPlate,
+} from './labels';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
 
-/** Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts. */
-export interface BinOptions extends BinVariantOptions {
+/** Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts; label text in labels.ts. */
+export interface BinOptions extends BinVariantOptions, BinLabelOptions {
   /** Footprint in grid units. */
   unitsX: number;
   unitsY: number;
@@ -67,6 +77,7 @@ export const DEFAULT_BIN: BinOptions = {
   fillet: true,
   layout: null,
   ...DEFAULT_VARIANTS,
+  ...DEFAULT_LABELS,
 };
 
 export const MIN_HEIGHT_UNITS = 2;
@@ -120,6 +131,7 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     o.fillet ? 'F' : 'n',
     ...(o.layout ? [`D{${layoutKey(o.layout, new Set(binLayout(o, cells).compartments.map((c) => c.key)))}}`] : []),
     ...variantKeyParts(o),
+    ...labelKeyParts(o),
   ].join('-');
 }
 
@@ -210,6 +222,9 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     solids.push(s.t(shell.subtract(cavity)));
 
     let bin = s.t(w.Manifold.union(solids));
+    // Label text / label-plate recesses on the tabs (labels.ts).
+    const labels = tabLabelGeometry(w, s, o, labelTabs(o, W, D, cutFloor, topInfill), H, W, D);
+    bin = labels.apply(bin);
 
     // Wall cutouts, down to just above the floor (or the pocket fill).
     const cutLow = pockets ? Math.max(zFloor + 1, pocketLayout(o, W, D, zFloor, topInfill).fillTop + 0.5) : zFloor + 1;
@@ -217,14 +232,18 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     // Hex pattern: from above the floor to below the lip's support.
     const patternTop = !o.lip ? H - 1 : o.lipStyle === 'reduced' ? H : H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL) - 0.5;
     cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop));
-    if (cutouts.length) bin = s.t(bin.subtract(s.t(w.Manifold.union(cutouts))));
+    if (cutouts.length) {
+      const cu = s.t(w.Manifold.union(cutouts));
+      bin = s.t(bin.subtract(cu));
+      labels.clip(cu);
+    }
 
     // 4. Magnet / screw holes in the bottom.
     const holes = holeCutters(w, s, o, sites);
     if (holes.length) bin = s.t(bin.subtract(s.t(w.Manifold.union(holes))));
 
     assertValid(bin, 'bin');
-    return toMeshData(bin);
+    return labels.finish(toMeshData(bin));
   } finally {
     s.dispose();
   }
@@ -248,6 +267,7 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     scoop: Math.min(1, Math.max(0, Number(o.scoop) || 0)),
     layout: sanitizeLayout(o.layout),
     ...sanitizeVariants({ ...o, heightUnits, lip }),
+    ...sanitizeLabelOptions(o),
   };
 }
 
@@ -284,3 +304,34 @@ export function removableInserts(opts: BinOptions, cells?: Partial<BinCells> | n
 }
 
 export { buildDividerInsert, insertKey, type DividerInsert };
+
+// ---------------------------------------------------------------------------
+// Label tabs, text and plates (geometry in ./labels.ts)
+// ---------------------------------------------------------------------------
+
+/** The flat tops of the bin's label tabs (bin-centered mm), as buildBin makes them. */
+export function binLabelTabs(opts: BinOptions, cells?: Partial<BinCells> | null): LabelTab[] {
+  const o = sanitizeBin(opts);
+  const { w: W, d: D } = binSize(o, cells);
+  const H = binBodyHeight(o);
+  const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
+  // Same floor buildBin cuts the compartments from.
+  const hollowCut = isHollowBase(o.base) && o.interior !== 'pockets' && !o.layout?.walls.some((wall) => wall.removable);
+  return labelTabs(o, W, D, hollowCut ? hollowFloor(o.base) : binFloorZ(o), topInfill);
+}
+
+/** Swappable label plates the bin needs (one per tab when `labelPlates` is on). */
+export function binLabelPlates(opts: BinOptions, cells?: Partial<BinCells> | null): LabelPlate[] {
+  const o = sanitizeBin(opts);
+  if (!o.labelPlates) return [];
+  return planTabLabels(o, binLabelTabs(o, cells), binBodyHeight(o)).flatMap((l) => (l.plate ? [l.plate.plate] : []));
+}
+
+/** Label text of each tab, in tab order (blank tabs left out). */
+export function binLabelTexts(opts: BinOptions, cells?: Partial<BinCells> | null): string[] {
+  const o = sanitizeBin(opts);
+  if (!labelKeyParts(o).some((p) => p.startsWith('T"')) && !Object.values(o.layout?.comps ?? {}).some((c) => c.labelText?.trim())) return [];
+  return binLabelTabs(o, cells)
+    .map((t) => compartmentLabelText(o, t.key))
+    .filter(Boolean);
+}

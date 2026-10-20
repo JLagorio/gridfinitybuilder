@@ -28,6 +28,8 @@ export interface PrintSetup {
   splitMargins: boolean;
   /** Put several baseplate pieces on one plate when they fit. */
   nest: boolean;
+  /** Colour of filament 2 (inlaid label text) in Bambu projects, #RRGGBB. */
+  labelColour?: string;
 }
 
 export const DEFAULT_SETUP: PrintSetup = {

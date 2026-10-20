@@ -1,5 +1,6 @@
 import { EDGE, MAX_WALLS, type CompartmentOptions, type DividerLayout, type DividerWall, type WallPos } from './types';
 import type { LabelStyle } from '../geometry/bin';
+import { sanitizeLabelText } from '../geometry/labels';
 
 const LABELS: LabelStyle[] = ['none', 'full', 'left', 'center', 'right'];
 const num = (v: unknown) => (typeof v === 'number' ? v : Number(v));
@@ -30,6 +31,10 @@ export function cleanCompartmentOptions(c: unknown): CompartmentOptions | null {
   if (o.floor !== undefined && o.floor !== null && Number.isFinite(num(o.floor))) {
     const f = Math.min(200, Math.max(0, num(o.floor)));
     if (f > 0) out.floor = round(f, 3);
+  }
+  if (typeof o.labelText === 'string') {
+    const t = sanitizeLabelText(o.labelText);
+    if (t) out.labelText = t;
   }
   return Object.keys(out).length ? out : null;
 }
@@ -135,7 +140,8 @@ export function layoutKey(l: DividerLayout | null | undefined, live?: Set<string
     .sort()
     .map((k) => {
       const c = l.comps![k];
-      return `${k}=${c.scoop === undefined ? '' : round(c.scoop, 3)}/${c.label ?? ''}/${c.floor ?? ''}`;
+      const text = c.labelText === undefined ? '' : `/${JSON.stringify(c.labelText)}`;
+      return `${k}=${c.scoop === undefined ? '' : round(c.scoop, 3)}/${c.label ?? ''}/${c.floor ?? ''}${text}`;
     });
   return `${walls.join(';')}|${comps.join(';')}`;
 }

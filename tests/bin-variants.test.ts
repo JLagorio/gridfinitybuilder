@@ -473,7 +473,7 @@ describe('bill of materials', () => {
 
   it('lists lids as their own parts', () => {
     const { b } = bomFor([at('a', 0, { lid: true }), at('b', 1, { lid: true }), at('c', 2, {})]);
-    expect(b.parts).toEqual({ pieces: expect.any(Number), bins: 3, lids: 2, keys: 0 });
+    expect(b.parts).toEqual({ pieces: expect.any(Number), bins: 3, lids: 2, keys: 0, dividers: 0, labels: 0 });
   });
 });
 
