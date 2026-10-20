@@ -95,8 +95,10 @@ npx tsx scripts/build-bambu-settings.ts
 ```
 src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (Manifold)
 src/lib/layout/     drawer → grid fit, bed splitting, plate packing
-src/lib/export/     plain 3MF and Bambu Studio project writers
+src/lib/export/     plain 3MF, Bambu Studio project and binary STL writers
 src/lib/project.ts  ties it together: planJob() (cheap, no geometry) + exporters
+src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links
+src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
 src/worker/         geometry Web Worker + client with a mesh queue/cache
 src/components/     React UI (three.js viewer, 2D bin layout editor, panels)
 scripts/            CLI sample generator, Bambu settings baker

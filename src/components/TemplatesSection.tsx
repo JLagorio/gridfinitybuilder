@@ -1,7 +1,7 @@
 import { useStore } from '../state/store';
 import { useSelectedIds } from '../state/selection';
 import { applyTemplateToBins, applyTemplateToNew, deleteTemplate, renameTemplate, saveTemplate } from '../state/templates';
-import { binLabel, sanitizeBin } from '../lib/geometry/bin';
+import { sanitizeBin } from '../lib/geometry/bin';
 import { DEFAULT_BIN } from '../lib/project';
 import { templateSummary } from '../lib/templates';
 import { Section } from './fields';
@@ -17,7 +17,8 @@ export function TemplatesSection() {
   const source = primary?.opts ?? newBin;
 
   const save = () => {
-    const name = prompt('Name for this template', primary ? binLabel(primary.opts) : 'My bin');
+    // Applying a template keeps each bin's size, so the suggested name leaves it out.
+    const name = prompt('Name for this template', templateSummary(sanitizeBin({ ...DEFAULT_BIN, ...source })));
     if (name !== null) saveTemplate(name, source);
   };
   const target = selected.length ? `${selected.length} selected bin${selected.length > 1 ? 's' : ''}` : 'new bins';
