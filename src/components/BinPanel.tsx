@@ -114,12 +114,14 @@ export function BinPanel({ job }: { job: PrintJob }) {
     for (const id of many ? selIds : [sel.id]) updateBin(id, { opts: p });
   };
 
-  const downloadSelected = async () => {
+  const downloadSelected = async (format: '3mf' | 'stl' = '3mf') => {
     if (!sel) return;
     setBusy(true);
     try {
-      const bytes = await geometry.exportSingle(binSpec(job.layout, sel), binLabel(sel.opts));
-      downloadBytes(bytes, `gridfinity-bin-${sel.opts.unitsX}x${sel.opts.unitsY}x${sel.opts.heightUnits}u.3mf`, 'model/3mf');
+      const spec = binSpec(job.layout, sel);
+      const name = `gridfinity-bin-${sel.opts.unitsX}x${sel.opts.unitsY}x${sel.opts.heightUnits}u`;
+      if (format === 'stl') downloadBytes(await geometry.exportStlSingle(spec, binLabel(sel.opts)), `${name}.stl`, 'model/stl');
+      else downloadBytes(await geometry.exportSingle(spec, binLabel(sel.opts)), `${name}.3mf`, 'model/3mf');
     } finally {
       setBusy(false);
     }
@@ -150,8 +152,11 @@ export function BinPanel({ job }: { job: PrintJob }) {
               Delete
             </button>
           </div>
-          <button className="primary wide" onClick={downloadSelected} disabled={busy}>
+          <button className="primary wide" onClick={() => downloadSelected()} disabled={busy}>
             {busy ? 'Building…' : 'Download this bin (.3mf)'}
+          </button>
+          <button className="link" onClick={() => downloadSelected('stl')} disabled={busy}>
+            Download as STL
           </button>
         </Section>
       ) : (
