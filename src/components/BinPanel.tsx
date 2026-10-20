@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useStore } from '../state/store';
 import { Section, Segmented, Slider, Stepper, Toggle } from './fields';
-import { binLabel, binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinOptions } from '../lib/geometry/bin';
+import { binLabel, type BinOptions } from '../lib/geometry/bin';
+import { hasLid } from '../lib/geometry/lid';
 import { canPlace } from '../lib/bins';
-import { binSpec, type PrintJob } from '../lib/project';
+import { binSpec, lidSpec, type PrintJob } from '../lib/project';
+import { BaseField, HeightField, HoleFields, InteriorFields, LipFields, WallFields } from './BinVariantFields';
 import { downloadBytes, geometry } from '../worker/client';
 
 function BinFields({
@@ -17,7 +19,6 @@ function BinFields({
   sizeEditable: boolean;
   sizeError?: string | null;
 }) {
-  const { w, d } = binSize(opts);
   return (
     <>
       {sizeEditable && (
@@ -29,15 +30,8 @@ function BinFields({
           {sizeError && <div className="field-error">{sizeError}</div>}
         </>
       )}
-      <Stepper
-        label="Height"
-        value={opts.heightUnits}
-        min={MIN_HEIGHT_UNITS}
-        max={30}
-        suffix="u"
-        onChange={(heightUnits) => onChange({ heightUnits })}
-        hint={`${7 * opts.heightUnits} mm walls, ${Math.round(binTotalHeight(opts) * 10) / 10} mm overall · footprint ${w} × ${d} mm`}
-      />
+      <HeightField opts={opts} onChange={onChange} />
+      <InteriorFields opts={opts} onChange={onChange} />
       <div className="row2">
         <Stepper label="Columns" value={opts.divX} min={1} max={12} onChange={(divX) => onChange({ divX })} />
         <Stepper label="Rows" value={opts.divY} min={1} max={12} onChange={(divY) => onChange({ divY })} />
@@ -64,19 +58,10 @@ function BinFields({
         ]}
         onChange={(label) => onChange({ label })}
       />
-      <Segmented
-        label="Bottom holes"
-        value={opts.holes}
-        options={[
-          { value: 'none', label: 'None' },
-          { value: 'magnets', label: 'Magnets' },
-          { value: 'screws', label: 'Screws' },
-          { value: 'both', label: 'Both' },
-        ]}
-        onChange={(holes) => onChange({ holes })}
-        hint={opts.holes === 'magnets' || opts.holes === 'both' ? '6 × 2 mm magnets (6.5 mm pockets).' : undefined}
-      />
-      <Toggle label="Stacking lip" checked={opts.lip} onChange={(lip) => onChange({ lip })} />
+      <BaseField opts={opts} onChange={onChange} />
+      <HoleFields opts={opts} onChange={onChange} />
+      <LipFields opts={opts} onChange={onChange} />
+      <WallFields opts={opts} onChange={onChange} />
       <Toggle label="Rounded inside corners" checked={opts.fillet} onChange={(fillet) => onChange({ fillet })} />
     </>
   );
@@ -121,6 +106,16 @@ export function BinPanel({ job }: { job: PrintJob }) {
       setBusy(false);
     }
   };
+  const downloadLid = async () => {
+    if (!sel) return;
+    setBusy(true);
+    try {
+      const bytes = await geometry.exportSingle(lidSpec(job.layout, sel), `Lid ${sel.opts.unitsX}×${sel.opts.unitsY}`);
+      downloadBytes(bytes, `gridfinity-lid-${sel.opts.unitsX}x${sel.opts.unitsY}.3mf`, 'model/3mf');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const counts = new Map<string, number>();
   for (const b of bins) counts.set(binLabel(b.opts), (counts.get(binLabel(b.opts)) ?? 0) + 1);
@@ -149,6 +144,11 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <button className="primary wide" onClick={downloadSelected} disabled={busy}>
             {busy ? 'Building…' : 'Download this bin (.3mf)'}
           </button>
+          {hasLid(sel.opts) && (
+            <button className="wide" onClick={downloadLid} disabled={busy}>
+              Download its lid (.3mf)
+            </button>
+          )}
         </Section>
       ) : (
         <Section title="New bin settings">
