@@ -3,10 +3,18 @@ import { createPortal } from 'react-dom';
 import { useUnits } from '../state/store';
 import { PAPERS, combinedMapSvg, drawerMaps, mapSvg, tilePlan, type DrawerMap, type Tile } from '../lib/inventory';
 import { downloadBytes } from '../worker/client';
-import { Segmented } from './fields';
+import { Segmented, Toggle } from './fields';
+import { encodeQr, qrRects } from '../lib/qrEncode';
+import type { QrEcc } from '../lib/qr';
 import { useAllDrawers, type Scope } from './DrawerMap';
 
 type Scale = 'fit' | 'actual';
+
+/** The map's QR encoder (inventory.ts MapOptions.qr). */
+const mapQr = (text: string, ecc: QrEcc) => {
+  const code = encodeQr(text, ecc);
+  return code && { size: code.size, rects: qrRects(code) };
+};
 
 /** Page margin, caption height and overlap of actual-size pages (mm). */
 const MARGIN = 10;
@@ -38,8 +46,14 @@ export function DrawerMapDialog({ initialScope = 'active', onClose }: { initialS
   const [paperId, setPaperId] = useState(units === 'in' ? 'letter' : 'a4');
   const paper = PAPERS.find((p) => p.id === paperId) ?? PAPERS[0];
   const shown = useMemo(() => (scope === 'all' ? docs : docs.filter((d) => d.id === activeDrawerId)), [docs, scope, activeDrawerId]);
+  // Bins with a QR code get it on the map too (off: just the text).
+  const anyQr = shown.some((d) => d.bins.some((b) => b.opts.qr && b.opts.qr !== 'none'));
+  const [codes, setCodes] = useState(true);
   // Stacked bins get a map per level.
-  const maps = useMemo(() => shown.flatMap((d) => drawerMaps(d, { units, precision })), [shown, units, precision]);
+  const maps = useMemo(
+    () => shown.flatMap((d) => drawerMaps(d, { units, precision, ...(codes ? { qr: mapQr } : {}) })),
+    [shown, units, precision, codes],
+  );
   const pages = useMemo<Page[]>(
     () =>
       scale === 'fit'
@@ -107,6 +121,7 @@ export function DrawerMapDialog({ initialScope = 'active', onClose }: { initialS
           onChange={setScale}
         />
         <Segmented value={paperId} options={PAPERS.map((p) => ({ value: p.id, label: p.name }))} onChange={setPaperId} />
+        {anyQr && <Toggle label="QR codes" checked={codes} onChange={setCodes} />}
         <span className="gfm-note">
           {pages.length} page{pages.length === 1 ? '' : 's'} · {nBins} bin{nBins === 1 ? '' : 's'}
           {scale === 'actual' ? ' · print at 100% scale, then check the scale bar' : ''}

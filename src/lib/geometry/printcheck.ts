@@ -415,8 +415,11 @@ export function checkPart(w: Wasm, mesh: MeshData, options: PartCheckOptions = {
   // Fits the printer, either way round.
   if (options.bed) {
     const size = [0, 1, 2].map((k) => b.max[k] - b.min[k]);
-    const over = partOvershoot(size[0], size[1], size[2], options.bed);
-    if (over > 1e-6) add('bed-fit', 'error', `${size.map(r1).join(' × ')} mm doesn't fit the printer (${options.bed.w} × ${options.bed.d} × ${options.bed.h} mm) by ${r1(over)} mm.`);
+    const bed = options.bed;
+    const over = partOvershoot(size[0], size[1], size[2], bed);
+    // A printer that keeps part of its bed free takes less (bedfit.ts Bed.clear).
+    const clear = bed.clear ? `; ${bed.clear.map((c) => `${r1(c.w)} × ${r1(c.d)}`).join(' or ') || 'nothing'} clear of its ${bed.keepClear ?? 'exclusion area'}` : '';
+    if (over > 1e-6) add('bed-fit', 'error', `${size.map(r1).join(' × ')} mm doesn't fit the printer (${bed.w} × ${bed.d} × ${bed.h} mm${clear}) by ${r1(over)} mm.`);
   }
 
   // Overlays touch the body without overlapping it, and print with it.

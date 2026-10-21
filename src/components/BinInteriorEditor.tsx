@@ -182,7 +182,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
         return;
       }
       const t = e.target as HTMLElement | null;
-      if (t?.closest?.('input, textarea, select, [contenteditable]')) return;
+      if (t?.closest?.('input, textarea, select, [role="combobox"], [contenteditable]')) return;
       const { info: inf, sel: s, drag: d } = latest.current;
       if (!inf) return;
       const stop = () => {

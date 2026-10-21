@@ -186,6 +186,8 @@ const SUBSET: [string, PrintIssueKind[]][] = [
   ['placement/stretched.stl', ['overhang']],
   // The walls beside bowtie pockets are 0.65 mm (README, CONNECTOR_MIN_WALL), one line.
   ['baseplates/bowtie.piece-4.stl', ['thin']],
+  // A vase-mode bin is drawn as it prints: one line of wall above its bottom layers.
+  ['vase/3x2-dividers.stl', ['thin']],
 ];
 
 describe('sampler parts', () => {

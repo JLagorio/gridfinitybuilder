@@ -310,6 +310,21 @@ const labels = binGroup('labels', 'Label styles: raised, engraved, inlaid, swapp
   { id: 'front-per-compartment', opts: { unitsX: 3, heightUnits: 4, frontLabel: 'engraved', layout: withComps({ unitsX: 3 }, uniformLayout(3, 1), [[0, { labelText: 'A' }], [1, { labelText: 'B' }], [2, { labelText: 'C' }]]) } },
 ]);
 
+const QR_URL = 'https://example.com/inventory/bin/42';
+const qrFront = (o: Partial<BinOptions>): Partial<BinOptions> => ({ unitsX: 2, unitsY: 1, heightUnits: 6, qr: 'front', qrContent: 'custom', qrText: QR_URL, ...o });
+const QR_LIST: Partial<PlacedBin> = { contents: 'M3 × 8 socket screws\nM3 × 12 socket screws\nM3 nuts\nM3 washers' };
+const qr = binGroup('qr', 'QR codes: front wall (inlaid, raised, engraved beside a front label), stacking and sliding lids, stick-on plates; from What’s in it or custom text', [
+  { id: 'front-inlaid', opts: qrFront({}) },
+  { id: 'front-raised', opts: qrFront({ qrStyle: 'raised' }) },
+  { id: 'front-engraved-label', opts: qrFront({ unitsX: 3, qrStyle: 'engraved', label: 'none', labelText: 'Bits', frontLabel: 'engraved' }) },
+  { id: 'lid-inlaid-contents', opts: { unitsX: 1, unitsY: 1, heightUnits: 3, lid: true, labelText: 'M3', qr: 'lid', qrContent: 'contents' }, place: QR_LIST },
+  { id: 'lid-engraved', opts: { unitsX: 2, unitsY: 1, heightUnits: 3, lid: true, qr: 'lid', qrStyle: 'engraved', qrContent: 'custom', qrText: QR_URL } },
+  { id: 'slide-lid-inlaid', opts: { unitsX: 2, unitsY: 2, heightUnits: 5, lip: false, slideLid: true, slideLidText: 'Bits', qr: 'lid', qrContent: 'custom', qrText: QR_URL } },
+  { id: 'plate-inlaid-contents', opts: { unitsX: 1, unitsY: 1, heightUnits: 3, labelText: 'M3', qr: 'plate', qrContent: 'contents' }, place: QR_LIST },
+  { id: 'plate-raised', opts: { qr: 'plate', qrStyle: 'raised', qrContent: 'custom', qrText: QR_URL } },
+  { id: 'plate-engraved-h', opts: { qr: 'plate', qrStyle: 'engraved', qrEcc: 'H', qrContent: 'custom', qrText: QR_URL } },
+]);
+
 const HALF: Partial<DrawerInput> = { halfGrid: true };
 const placement = binGroup('placement', 'Half-grid bins, bins on partial edge cells, stretched bins', [
   { id: 'half-1x1', opts: { unitsX: 1, unitsY: 1, heightUnits: 3, holes: 'magnets' }, drawer: HALF },
@@ -334,6 +349,17 @@ const placement = binGroup('placement', 'Half-grid bins, bins on partial edge ce
     drawer: { mode: 'drawer', width: 42 + 12.5, depth: 42 + 12.5, fill: 'solid', alignX: 0, alignY: 0 },
     place: { stretch: { right: 20, back: 20 } },
   },
+]);
+
+const vase = (o: Partial<BinOptions>, v: Record<string, unknown> = {}): Partial<BinOptions> => ({ ...o, container: 'vase', containers: { vase: v } });
+const vaseBins = binGroup('vase', 'Vase-mode bins, sliced in spiral vase mode: 1×1, 2×1, 3×2 with dividers, dividers across the depth, magnets, refined slots, a wide line, flat, half grid', [
+  { id: '1x1', opts: vase({}) },
+  { id: '2x1', opts: vase({ unitsX: 2 }) },
+  { id: '3x2-dividers', opts: vase({ unitsX: 3, unitsY: 2, heightUnits: 4 }, { dividers: 2 }) },
+  { id: '2x3-dividers-across-magnets', opts: vase({ unitsX: 2, unitsY: 3, heightUnits: 5, holes: 'magnets' }, { dividers: 3, axis: 'y' }) },
+  { id: '2x1-refined-wide-line', opts: vase({ unitsX: 2, heightUnits: 4, holes: 'refined' }, { dividers: 1, line: 0.8 }) },
+  { id: '1x1-flat-divider', opts: vase({ base: 'flat' }, { dividers: 1 }) },
+  { id: 'half-3x2-magnets', opts: vase({ unitsX: 3, unitsY: 2, holes: 'magnets' }, { line: 0.45 }), drawer: HALF },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -470,7 +496,9 @@ export const SAMPLE_GROUPS: SampleGroup[] = [
   pocketGrids,
   toolBins,
   labels,
+  qr,
   placement,
+  vaseBins,
   baseplates,
   enclosures,
   testFit('bowtie-magnets', { connector: 'bowtie', magnets: true }, { holes: 'magnets' }),
@@ -496,6 +524,7 @@ export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
   { file: /^containers\/drawers-/, what: /^overhang$|Long bridging/, why: 'shelves bridge each bay; the planner warns past 60 mm (use more columns, or supports)' },
   { file: /^compartments\/removable-tab/, what: /^overhang$/, why: 'a tab in front of a removable divider bridges its compartment, side wall to side wall' },
   { file: /pattern/, what: /Thin fragile part/, why: 'the hex wall pattern leaves 0.95 mm thick webs (Gridfinity Extended)' },
+  { file: /^vase\//, what: /^thin$/, why: 'a vase-mode bin is drawn as it prints: one line of wall above the bottom layers, its dividers two lines a slit apart' },
   { file: /\.(key|lidkey|pin)-\d|spacer-(front|back)-|\.foot-/, what: /Low bed adhesion/, why: 'small or narrow part: a brim helps' },
   { file: /./, what: /Long bridging extrusions/, why: 'bridges in the design (weight pockets, keyhole slots, hole roofs, half-grid foot gaps): PrusaSlicer flags any long bridge' },
   { file: /./, what: /Floating bridge anchors/, why: 'small bridges anchored on thin features (hinge-pin holes, pocket roofs): no mid-air islands or long ledges found there' },

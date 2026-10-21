@@ -13,8 +13,11 @@ import { BaseField, HeightField, HoleFields, InteriorFields, LipFields, WallFiel
 import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
 import { BinPresets, TemplatesSection } from './TemplatesSection';
+import { MyBinsSection } from './MyBinsSection';
+import { SaveToMyBinsButton, SaveToMyBinsForm } from './MyBinsSave';
 import { CompartmentTools, EditWallsLink } from './CompartmentFields';
 import { LabelFields } from './LabelFields';
+import { QrSection } from './QrFields';
 import { ToolLibrary } from './ToolLibrary';
 import { BinContentsFields } from './ContentsField';
 import { AccessoryFields, accessoriesActive, accessoryStatus } from './AccessoryFields';
@@ -33,6 +36,9 @@ import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { BIN_INDEX } from './panelIndex';
 import { BinColourField } from './ColourFields';
+import { ExternalBinButtons, ExternalBinPanel } from './ExternalBinPanel';
+import { externalKind, externalSize } from '../lib/external';
+import { isVaseBin } from '../lib/geometry/containers/vase';
 
 type FieldProps = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -236,6 +242,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const fillEmpty = useStore((s) => s.fillEmpty);
   const clearBins = useStore((s) => s.clearBins);
   const setUI = useStore((s) => s.setUI);
+  const setPrintScope = useStore((s) => s.setPrintScope);
   const templates = useStore((s) => s.templates.length);
   const tools = useStore((s) => s.tools.length);
   const [sizeError, setSizeError] = useState<string | null>(null);
@@ -288,7 +295,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     setBusy(true);
     try {
       const spec = binSpec(job.layout, sel);
-      const name = `gridfinity-bin-${binUnitsText(job.layout, sel.opts).replace('×', 'x')}x${sel.opts.heightUnits}u`;
+      const name = `gridfinity-${isVaseBin(sel.opts) ? 'vase-' : ''}bin-${binUnitsText(job.layout, sel.opts).replace('×', 'x')}x${sel.opts.heightUnits}u`;
       const label = binLabel(sel.opts, spec.cells);
       if (format === 'stl') downloadBytes(await geometry.exportStlSingle(spec, label), `${name}.stl`, 'model/stl');
       else if (format === 'step') downloadBytes(await geometry.exportStepSingle(spec, `Bin ${label}`), `${name}.step`, 'model/step');
@@ -311,7 +318,8 @@ export function BinPanel({ job }: { job: PrintJob }) {
 
   const counts = new Map<string, number>();
   for (const b of bins) {
-    const label = binLabel(b.opts, binCellsAt(job.layout, b));
+    // Bins from elsewhere by name (lib/external.ts).
+    const label = b.external ? `${b.external.name || externalSize(b, half)} (${externalKind(b)})` : binLabel(b.opts, binCellsAt(job.layout, b));
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
 
@@ -322,7 +330,8 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const cells = sel ? binCellsAt(job.layout, sel) : undefined;
   const container = activeContainer(opts);
   const stacked = !!one && (!!one.on || bins.some((b) => b.on === one.id));
-  const stretchable = !!one && (hasStretch(one.stretch) || STRETCH_SIDES.some((k) => job.layout.margins[k] >= 0.5));
+  // Vase-mode bins don't stretch: one wall can't print the overhang.
+  const stretchable = !!one && !isVaseBin(one.opts) && (hasStretch(one.stretch) || STRETCH_SIDES.some((k) => job.layout.margins[k] >= 0.5));
   const toolBin = !!sel && (sel.opts.interior === 'cutouts' || usesToolCompartments(sel.opts));
 
   const layout = (
@@ -337,6 +346,12 @@ export function BinPanel({ job }: { job: PrintJob }) {
           Clear all
         </button>
       </div>
+      {/* Bins from elsewhere (lib/external.ts): ones you already have, and STL / 3MF downloads. */}
+      <Find id="external">
+        <div className="button-row">
+          <ExternalBinButtons />
+        </div>
+      </Find>
       {bins.length > 0 ? (
         <ul className="bin-counts">
           {[...counts.entries()].map(([label, n]) => (
@@ -351,6 +366,18 @@ export function BinPanel({ job }: { job: PrintJob }) {
       )}
     </Section>
   );
+
+  // A bin from elsewhere has its own fields: none of the options Gridfit builds apply (ExternalBinPanel.tsx).
+  if (sel?.external) {
+    return (
+      <FindPanel index={BIN_INDEX} placeholder="Find a setting…">
+        <ExternalBinPanel key={sel.id} job={job} bin={sel} many={selIds.length} onChange={changeSelected} sizeError={sizeError} />
+        <TemplatesSection />
+        <ToolLibrary job={job} />
+        {layout}
+      </FindPanel>
+    );
+  }
 
   return (
     <FindPanel index={BIN_INDEX} placeholder="Find a setting…">
@@ -416,6 +443,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
               )}
             </Section>
             <LabelSection opts={opts} onChange={onChange} />
+            <QrSection opts={opts} onChange={onChange} bin={one} cells={cells} many={many} />
           </>
         )}
 
@@ -457,7 +485,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
             ids={[
               // Without compartments the front label has no section in Basic (LabelSection).
               ...(container || opts.interior === 'compartments' ? [] : ([['front-label', opts.frontLabel !== 'none']] as [string, boolean][])),
-              ...(container ? [] : ([['walls', wallsActive(opts)], ['trays', accessoriesActive(opts)], ['inserts', insertsActive(opts)]] as [string, boolean][])),
+              ...(container ? [] : ([['walls', wallsActive(opts)], ['trays', accessoriesActive(opts)], ['inserts', insertsActive(opts)], ['qr', opts.qr !== 'none']] as [string, boolean][])),
               ...(one ? ([['stack', stacked]] as [string, boolean][]) : []),
               ...(stretchable ? ([['stretch', hasStretch(one!.stretch)]] as [string, boolean][]) : []),
               ['templates', templates > 0],
@@ -472,7 +500,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           </Section>
         )}
         {one && <StackSection job={job} bin={one} />}
-        {one && <StretchSection layout={job.layout} bin={one} />}
+        {stretchable && <StretchSection layout={job.layout} bin={one} />}
 
         {sel && (
           <Section find="actions" title={many ? `These ${selIds.length} bins` : 'This bin'}>
@@ -481,10 +509,22 @@ export function BinPanel({ job }: { job: PrintJob }) {
               <button onClick={() => setNewBin({ ...sel.opts })} title="New bins you draw will use these settings">
                 Use for new bins
               </button>
+              <SaveToMyBinsButton />
               <button className="danger" onClick={() => removeSelection()}>
                 Delete
               </button>
+              {/* Print plates with just these bins (and their lids, inserts), no baseplate. */}
+              <button
+                onClick={() => {
+                  setPrintScope('selected');
+                  setUI({ tab: 'print' });
+                }}
+                title="Open Print plates with just the selected bins, without the baseplate"
+              >
+                {many ? `Print these ${selIds.length}` : 'Print just this'}
+              </button>
             </div>
+            <SaveToMyBinsForm />
             {one && (
               <div className="field">
                 <span className="field-label">{busy ? 'Building…' : 'Download this bin'}</span>
@@ -511,6 +551,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
         )}
       </Fragment>
 
+      <MyBinsSection job={job} />
       <TemplatesSection />
       <ToolLibrary job={job} />
       {sel && layout}

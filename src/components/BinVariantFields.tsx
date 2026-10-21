@@ -5,9 +5,11 @@ import { PocketSettings } from './PocketFields';
 import { binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { binBodyHeight, binFloorZ, heightMmFor, heightMmRange, WALLS, type HeightMode, type Wall, type WallMask } from '../lib/geometry/variants';
 import { pocketLayout } from '../lib/geometry/pockets';
+import { standingNoteFor } from '../lib/geometry/itemHeight';
 import { LID_HEIGHT } from '../lib/geometry/lid';
 import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
 import { LidTopFields, ShadowFloorField } from './InsertFields';
+import { VASE, isVaseBin } from '../lib/geometry/containers/vase';
 import { Find } from './findContext';
 
 type Props = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
@@ -67,6 +69,7 @@ export function HeightField({ opts, onChange, cells }: Props & { cells?: BinCell
 
 /** Compartments or a pocket grid ("item holder"). */
 export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinCells }) {
+  const { fmt } = useUnits();
   const pockets = opts.interior === 'pockets';
   const layout = useMemo(() => {
     if (!pockets) return null;
@@ -74,6 +77,8 @@ export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinC
     const body = binBodyHeight(opts);
     return pocketLayout(opts, w, d, binFloorZ(opts), opts.lip ? body - LIP_SUPPORT_HEIGHT : body);
   }, [pockets, opts, cells]);
+  // Rounds and other tall items: how tall the bin has to be for them.
+  const standing = useMemo(() => (pockets ? standingNoteFor(opts, cells, 'bin', undefined, fmt) : undefined), [pockets, opts, cells, fmt]);
   return (
     <>
       <Find id="interior">
@@ -96,7 +101,13 @@ export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinC
       {pockets && (
         <Find id="pockets">
           <div className="indent">
-            <PocketSettings value={opts} onChange={onChange} layout={layout} note="Compartment, scoop and label settings are not used." find />
+            <PocketSettings
+              value={opts}
+              onChange={onChange}
+              layout={layout}
+              note={[standing, 'Compartment, scoop and label settings are not used.'].filter(Boolean).join(' ')}
+              find
+            />
           </div>
         </Find>
       )}
@@ -106,6 +117,26 @@ export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinC
 
 /** Foot style. */
 export function BaseField({ opts, onChange }: Props) {
+  // Vase-mode bins: hollow feet drawn as they print, or none (geometry/containers/vase.ts).
+  if (isVaseBin(opts)) {
+    const flat = opts.base === 'flat';
+    return (
+      <Segmented
+        label="Base"
+        value={flat ? 'flat' : 'standard'}
+        options={[
+          { value: 'standard', label: 'Feet', title: 'Gridfinity feet, hollow, printed as the bottom layers' },
+          { value: 'flat', label: 'Flat', title: 'No feet: a flat bottom' },
+        ]}
+        onChange={(base) => onChange({ base })}
+        hint={
+          flat
+            ? 'No feet: a flat-bottomed box for loose use. It does not lock into a baseplate.'
+            : `Gridfinity feet, hollow, with walls two lines thick, joined up to ${VASE.start} mm. A single wall can't go round separate feet, so they print as ordinary bottom layers and the spiral starts above them.`
+        }
+      />
+    );
+  }
   const hints: Record<BinOptions['base'], string> = {
     standard: 'Solid Gridfinity feet.',
     lite: 'Hollow feet with thin walls (gridfinity-rebuilt “lite”): much less plastic. The floor follows the feet.',

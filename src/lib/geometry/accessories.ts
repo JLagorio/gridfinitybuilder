@@ -36,6 +36,8 @@ import {
   type DividerLayout,
 } from '../dividers';
 import type { JobPart, PrintJob } from '../project';
+import { QR, qrSide, qrSpotIn, qrSpotKey, sanitizeQrOptions, type BinQrOptions, type QrError, type QrSpot } from './qrCode';
+import type { QrFit } from '../qr';
 
 /** '' = none; 'x' = plates at positions along X (they run front to back); 'y' = along Y; 'xy' = both. */
 export type RailMode = '' | 'x' | 'y' | 'xy';
@@ -202,7 +204,7 @@ export function sanitizeAccessoryOptions(o: Partial<BinAccessoryOptions>): BinAc
 }
 
 /** What the planning needs from a bin's options. */
-export type AccessoryOpts = Partial<BinAccessoryOptions> & {
+export type AccessoryOpts = Partial<BinAccessoryOptions> & Partial<BinQrOptions> & {
   unitsX: number;
   unitsY: number;
   heightUnits: number;
@@ -475,6 +477,8 @@ export interface SlideLidPart {
   W: number;
   D: number;
   text: string;
+  /** A QR code on top (qrCode.ts), lid-centered like slideLidBox. */
+  qr?: QrSpot;
 }
 
 export interface RailPlatePart {
@@ -500,12 +504,51 @@ export function slideLidBox(W: number, D: number) {
   return { x0: -(W / 2 - face + e), x1: W / 2 - face + e, y0: -D / 2, y1: D / 2 - face + e, chamfer: e };
 }
 
+/** Where the grip ridges across the lid's top end, toward the back (lid-centered, like slideLidBox). */
+const ridgesEnd = (b: ReturnType<typeof slideLidBox>) => b.y0 + 3 + (SLIDE.ridges - 1) * SLIDE.ridgePitch + 0.6;
+
+/** Where the lid's engraved text goes: behind the grip ridges, inside the edge chamfer, left of a QR code. */
+export function slideLidTextBox(W: number, D: number, qr?: QrSpot | null) {
+  const b = slideLidBox(W, D);
+  const c = b.chamfer;
+  const x1 = b.x1 - c - 2;
+  return { x0: b.x0 + c + 2, x1: qr ? Math.min(x1, qr.cx - qrSide(qr) / 2 - 1.5) : x1, y0: ridgesEnd(b) - 0.6 + 3, y1: b.y1 - c - 2 };
+}
+
+export interface SlideLidQrPlan {
+  spot: QrSpot | null;
+  error?: QrError;
+  fit: QrFit | null;
+  /** Side of the largest square behind the grip ridges, mm. */
+  room: number;
+}
+
+/**
+ * Where the bin's QR code goes on its sliding lid (`qr: 'lid'`): behind the
+ * grip ridges, at the right-hand end when the lid has text too. Null when it
+ * goes elsewhere or the bin has no sliding lid.
+ */
+export function planSlideLidQr(o: AccessoryOpts, W: number, D: number): SlideLidQrPlan | null {
+  if (o.qr !== 'lid' || !planAccessories(o, W, D).slide) return null;
+  const b = slideLidBox(W, D);
+  const m = QR.margin;
+  const x0 = b.x0 + b.chamfer + m;
+  const x1 = b.x1 - b.chamfer - m;
+  const y0 = ridgesEnd(b) + 1;
+  const y1 = b.y1 - b.chamfer - m;
+  const room = Math.min(x1 - x0, y1 - y0);
+  const r = qrSpotIn(sanitizeQrOptions(o), room, 0, (y0 + y1) / 2);
+  if (!r.spot) return r;
+  const side = qrSide(r.spot);
+  return { ...r, spot: { ...r.spot, cx: labelLines(o.slideLidText) ? x1 - side / 2 : (x0 + x1) / 2 } };
+}
+
 /** Height of a sliding lid including its grip ridges. */
 export const SLIDE_LID_HEIGHT = SLIDE.thickness + SLIDE.ridgeHeight;
 
 export function accessoryPartKey(p: AccessoryPart): string {
   if (p.type === 'tray') return `tray|${JSON.stringify([p.w, p.d, p.h, p.radius, p.divX, p.divY])}`;
-  if (p.type === 'slideLid') return `slidelid|${JSON.stringify([r3(p.W), r3(p.D), labelLines(p.text)])}`;
+  if (p.type === 'slideLid') return `slidelid|${JSON.stringify([r3(p.W), r3(p.D), labelLines(p.text)])}${p.qr ? `|${qrSpotKey(p.qr)}` : ''}`;
   return `railplate|${JSON.stringify([p.length, p.height, p.thickness, p.slotsFrom, p.slots, p.slotWidth, p.slotDepth])}`;
 }
 
@@ -568,6 +611,8 @@ export function accessoryParts(o: AccessoryOpts, W: number, D: number): Accessor
   if (p.slide) {
     const b = slideLidBox(W, D);
     const part: SlideLidPart = { type: 'slideLid', W: r3(W), D: r3(D), text: o.slideLidText ?? '' };
+    const qr = planSlideLidQr(o, W, D)?.spot;
+    if (qr) part.qr = qr;
     const text = labelLines(part.text);
     out.push({
       slot: 'slidelid',

@@ -11,7 +11,9 @@
  *
  * --slice also slices every STL with PrusaSlicer (0.4 mm nozzle, 0.2 mm
  * layers, the default printer's bed) and records its warnings and `--info`
- * (manifold, repairs, parts). --only keeps groups or parts whose path contains
+ * (manifold, repairs, parts). Vase-mode bins are sliced in spiral vase mode
+ * with the bottom layers and wall line they are drawn for, and their G-code is
+ * read back to check that it is one continuous spiral (scripts/gcode-spiral.ts). --only keeps groups or parts whose path contains
  * the text. Results go to report.json and report.md in outDir (see
  * docs/print-check.md); findings listed in KNOWN_FINDINGS are marked as by
  * design. `--report <report.json>` only writes report.md again from a run.
@@ -38,6 +40,8 @@ import { FONT_URL_PATH, registerFont } from '../src/lib/geometry/text';
 import { writeSTL } from '../src/lib/export/stl';
 import { usableBed } from '../src/lib/bedfit';
 import { KNOWN_FINDINGS, SAMPLE_GROUPS, SAMPLE_SETUP, printedParts } from './sampler-cases';
+import { spiralReport, type SpiralReport } from './gcode-spiral';
+import { vaseBottomLayers, type SpiralPrint } from '../src/lib/geometry/containers/vase';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -67,6 +71,8 @@ interface SlicerResult {
   noise: number;
   /** `--info` fields: manifold, number_of_parts, facets_removed, open_edges, … */
   info: Record<string, string>;
+  /** Vase-mode bins: the G-code read back (spiral vase mode). */
+  spiral?: SpiralReport;
 }
 
 interface PartRecord {
@@ -87,6 +93,8 @@ interface PartRecord {
   issues: PrintIssue[];
   error?: string;
   slicer?: SlicerResult;
+  /** Vase-mode bins: how they print (sliced in spiral vase mode). */
+  spiral?: SpiralPrint;
 }
 
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
@@ -125,6 +133,7 @@ for (const group of fromReport ? [] : SAMPLE_GROUPS) {
   for (const { part, file, same } of printedParts(group, job)) {
     if (only && !file.includes(only)) continue;
     const rec: PartRecord = { group: group.name, file, part: part.key, name: part.name, kind: part.kind, same, size: [], triangles: 0, volume: 0, overlayBodies: 0, ms: 0, issues: [] };
+    if (part.spiral) rec.spiral = part.spiral;
     records.push(rec);
     const t = performance.now();
     let mesh: MeshData;
@@ -206,7 +215,13 @@ async function sliceOne(rec: PartRecord): Promise<void> {
   const fields: Record<string, string> = {};
   for (const m of info.out.matchAll(/^(\w+) = (.*)$/gm)) fields[m[1]] = m[2].trim();
   const gcode = stl.replace(/\.stl$/, '.gcode');
-  const s = await run(['--loglevel', '2', '--load', ini, '--export-gcode', '--output', gcode, stl]);
+  // Vase-mode bins: spiral vase, one wall of their line, bottom layers up to the spiral's start.
+  const bottom = rec.spiral ? vaseBottomLayers(rec.spiral.start, 0.2, 0.2) : 0;
+  const vase = rec.spiral
+    ? ['--spiral-vase', '--perimeters', '1', '--top-solid-layers', '0', '--fill-density', '0%', '--bottom-solid-layers', String(bottom), '--external-perimeter-extrusion-width', String(rec.spiral.line), '--perimeter-extrusion-width', String(rec.spiral.line)]
+    : [];
+  const s = await run(['--loglevel', '2', '--load', ini, ...vase, '--export-gcode', '--output', gcode, stl]);
+  const spiral = rec.spiral && s.code === 0 && existsSync(gcode) ? spiralReport(readFileSync(gcode, 'utf8'), bottom) : undefined;
   rmSync(gcode, { force: true });
   const lines = s.out
     .split('\n')
@@ -229,10 +244,11 @@ async function sliceOne(rec: PartRecord): Promise<void> {
     if (log && /Voronoi|wall line causes/.test(log[2])) noise++;
     else messages.push(log ? `${log[1]}: ${log[2]}` : l);
   }
-  rec.slicer = { ok: s.code === 0, messages, stability, noise, info: fields };
+  rec.slicer = { ok: s.code === 0, messages, stability, noise, info: fields, ...(spiral ? { spiral } : {}) };
   const bad = !rec.slicer.ok || messages.length || stability.length || fields.manifold !== 'yes';
   const notes = [...stability.map((t) => `stability: ${t}`), ...messages];
-  console.log(`${bad ? '!' : '·'} ${rec.file}: ${fields.manifold === 'yes' ? 'manifold' : `manifold=${fields.manifold}`}, parts ${fields.number_of_parts}${notes.length ? `, ${notes.join('; ')}` : ''}`);
+  const sp = spiral ? `, spiral ${spiral.continuous}/${spiral.spiral} layers continuous after ${spiral.bottom} bottom layers, turn ${spiral.turn} mm` : '';
+  console.log(`${bad ? '!' : '·'} ${rec.file}: ${fields.manifold === 'yes' ? 'manifold' : `manifold=${fields.manifold}`}, parts ${fields.number_of_parts}${sp}${notes.length ? `, ${notes.join('; ')}` : ''}`);
 }
 
 if (slice && !fromReport) {
@@ -359,6 +375,15 @@ function slicerFindings(r: PartRecord): string[] {
   const parts = Number(info.number_of_parts);
   if (parts !== 1 + r.overlayBodies) out.push(`${parts} parts (expected ${1 + r.overlayBodies})`);
   out.push(...sl.stability.map((t) => `stability: ${t}`), ...sl.messages);
+  // Vase-mode bins: one continuous spiral, going round every slit (the turn is the outline plus both sides of each).
+  if (r.spiral && !sl.spiral && sl.ok) out.push('spiral: no G-code to read');
+  if (r.spiral && sl.spiral) {
+    const g = sl.spiral;
+    if (!g.spiral) out.push('spiral: no layers after the bottom layers');
+    if (g.firstBreak) out.push(`spiral: ${g.spiral - g.continuous} of ${g.spiral} layers not one continuous line, from layer ${g.firstBreak.layer} (z ${g.firstBreak.z}): ${g.firstBreak.why}`);
+    // The slicer's line runs half a line inside the outline: a turn is a few mm shorter than the outline.
+    if (Math.abs(g.turn - r.spiral.path) > 0.03 * r.spiral.path) out.push(`spiral: a turn is ${g.turn} mm, the outline and slits ${r.spiral.path} mm`);
+  }
   return out;
 }
 const slicerNotes = records.filter((r) => slicerFindings(r).length);
@@ -399,6 +424,16 @@ if (colourPlates.length) {
     const res = !sl ? '' : c.strategy === 'height' ? `M600 at ${sl.m600.join(', ') || 'none'}` : `tools ${sl.tools.join(', ')}`;
     const ok = !sl || (sl.ok && (c.strategy === 'height' ? sl.m600.join() === c.changes.join() : sl.tools.join() === c.slots.join()));
     md.push(`| \`${c.file}\` | ${c.strategy} | ${c.slots.join(', ')} | ${c.changes.join(', ')} | ${sl ? `${ok ? 'as asked' : 'differs'}: ${res}` : ''} |`);
+  }
+  md.push('');
+}
+const vases = records.filter((r) => r.slicer?.spiral);
+if (vases.length) {
+  md.push('## Spiral vase', '', 'Vase-mode bins sliced in spiral vase mode, their G-code read back.', '');
+  md.push('| Part | Layers | Bottom layers | Spiral layers continuous | One turn (mm) | Outline + slits (mm) |', '|---|---|---|---|---|---|');
+  for (const r of vases) {
+    const g = r.slicer!.spiral!;
+    md.push(`| \`${r.file}\` | ${g.layers} | ${g.bottom} | ${g.continuous} / ${g.spiral} | ${g.turn} | ${r.spiral?.path ?? ''} |`);
   }
   md.push('');
 }

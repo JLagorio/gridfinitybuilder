@@ -13,11 +13,20 @@ import { build, type Rolldown } from 'vite';
 const root = resolve(__dirname, '..');
 /**
  * The app's own JS on the first screen (the entry and what it imports, minus the React and three.js
- * chunks), bytes. It was ~460 kB when the split was made; everything in one chunk was 1.5 MB.
- * Multi-colour planning and the 3D view's filament colours run on the first screen (~19 kB, with
- * the Colours section, the palette and the presets loaded with the print tab): 520 → 540 kB.
+ * chunks), bytes, as this test builds it (development JSX, so more than `npm run build` writes).
+ * It was ~460 kB when the split was made (everything in one chunk was 1.5 MB), ~520 kB by the time
+ * the native selects gave way to hand-drawn pick lists (components/select.tsx), ~529 kB after, and
+ * ~533 kB with "Just bins" (the Drawer panel's choice and the not-printed grid in the 3D view), and
+ * ~543 kB with the ammunition presets and their height check (the bin grid's check marks need them).
+ * QR codes on bins added ~14 kB (559 kB with all of the above): planning where a code goes and how big, its print checks, the drawer
+ * map's and settings search's share. Their encoder and geometry stay out: the encoder loads with the
+ * panels that draw codes, the geometry only with the mesh builders. Vase-mode bins' planning (and,
+ * like every container type, geometry) is on the first screen too: ~7 kB, 567 kB in all.
+ * Multi-colour planning (colours.ts, colourPlan.ts, plates by colour) and the 3D view's filament
+ * colours and bands are on it too, ~26 kB (593 kB in all); the Colours section, its palette,
+ * presets, texts and checks load with the print tab.
  */
-const FIRST_SCREEN_BUDGET = 540_000;
+const FIRST_SCREEN_BUDGET = 600_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
@@ -68,6 +77,10 @@ describe('bundle', () => {
       'src/components/DrawerMapDialog.tsx',
       'src/components/InventoryList.tsx',
       'src/components/LabelIconPicker.tsx',
+      'src/components/MyBinsSection.tsx',
+      'src/components/MyBinsDrop.tsx',
+      'src/state/myBins.ts',
+      'src/lib/myBins.ts',
       'src/lib/trace/pipeline.ts',
       'src/lib/trace/svg.ts',
       'src/lib/trace/dxf.ts',
@@ -80,6 +93,13 @@ describe('bundle', () => {
       'src/lib/colourPresets.ts',
       'src/lib/colourText.ts',
       'src/lib/colourChecks.ts',
+      // Bins from elsewhere: the import dialog, the file readers, the mesh store, the share-link codec.
+      'src/components/ExternalBinDialog.tsx',
+      'src/lib/imported/parse.ts',
+      'src/lib/imported/meshStore.ts',
+      'src/lib/share.ts',
+      'src/lib/qrEncode.ts',
+      'src/components/QrFields.tsx',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).

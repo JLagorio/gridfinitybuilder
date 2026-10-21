@@ -1,5 +1,5 @@
 import type { GridLayout } from './drawer';
-import { packPlates, type PackItem, type PlateLayout } from './pack';
+import { clearAreas, packPlates, plateBed, type PackItem, type PlateLayout } from './pack';
 import { cleanPrinters, type PrinterSetup } from './fleet';
 import { cleanColourFields, type ColourSetup, type FilamentSlot } from '../colours';
 
@@ -154,6 +154,8 @@ function candidatesFor(total: number, cuts: number[], maxLen: number, style: Spl
 /**
  * Split the baseplate into pieces that fit the printer and lay them out on plates.
  * 'auto' tries every minimum-piece split and keeps the one needing the fewest plates.
+ * Where the printer keeps part of its bed free (printers.ts `exclude`), every
+ * piece fits beside or behind that area, clear of it by the spacing.
  */
 export function planBaseplate(layout: GridLayout, setup: PrintSetup, opts: PlanOptions = {}): BaseplatePlan {
   const protrude = opts.protrude ?? 0;
@@ -164,8 +166,15 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup, opts: PlanO
   if (layout.plateW <= 0 || layout.plateD <= 0)
     return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Drawer is too small for a baseplate.' };
 
-  const orientations: [number, number][] = [[UW, UD]];
-  if (Math.abs(UW - UD) > 1e-6) orientations.push([UD, UW]);
+  const bed = plateBed(setup);
+  // The biggest piece, either way round: the usable bed, or where the printer keeps an area free, the part of it beside or behind the area (pack.ts clearAreas).
+  const orientations: [number, number][] = [];
+  for (const a of clearAreas({ ...bed, spacing: setup.spacing })) {
+    for (const o of [[a.w - protrude, a.d - protrude] as [number, number], [a.d - protrude, a.w - protrude] as [number, number]]) {
+      if (o[0] > 0 && o[1] > 0 && !orientations.some((p) => Math.abs(p[0] - o[0]) <= 1e-6 && Math.abs(p[1] - o[1]) <= 1e-6)) orientations.push(o);
+    }
+  }
+  if (!orientations.length) return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Bed margin leaves no room.' };
 
   type Cand = { xs: AxisPartition; ys: AxisPartition; score: number[] };
   let best: Cand | null = null;
@@ -182,8 +191,7 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup, opts: PlanO
           const items: PackItem[] = makePieces(layout, xs, ys)
             .filter(keep)
             .map((p) => ({ key: pieceKey(p.id), ...pieceFootprint(p, protrude) }));
-          nPlates = packPlates(items, { ...setup, bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin }).plates
-            .length;
+          nPlates = packPlates(items, { ...bed, spacing: setup.spacing, nest: setup.nest }).plates.length;
         }
         const score = [nPlates, nPieces, balanceScore(xs) + balanceScore(ys)];
         if (!best || lexLess(score, best.score)) best = { xs, ys, score };
@@ -202,7 +210,7 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup, opts: PlanO
   const pieces = makePieces(layout, best.xs, best.ys).filter(keep);
   const { plates } = packPlates(
     pieces.map((p) => ({ key: pieceKey(p.id), ...pieceFootprint(p, protrude) })),
-    { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, spacing: setup.spacing, nest: setup.nest },
+    { ...bed, spacing: setup.spacing, nest: setup.nest },
   );
   return { pieces, plates, cols: best.xs.length - 1, rows: best.ys.length - 1 };
 }

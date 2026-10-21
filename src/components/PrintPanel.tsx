@@ -1,13 +1,15 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { allDrawers, printDrawers, projectFile, useStore, useUnits } from '../state/store';
-import { LengthInput, Section, Segmented, Select, Toggle } from './fields';
-import { findPrinter } from '../lib/printers';
+import { allDrawers, history, printDrawers, projectFile, selectedIds, useStore, useUnits } from '../state/store';
+import { LengthInput, Section, Segmented, Toggle } from './fields';
+import { Combobox } from './combobox';
+import { bedExclusion, findPrinter, type BedRect } from '../lib/printers';
+import { bedText, usableBed } from '../lib/bedfit';
 import { assemblyMaps, jobForPrinter, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
 import { BomSection, TestFitSection, plateSummary, useJobEstimate } from './PrintExtras';
-import { CopyShareLink } from './ShareLink';
+import { CopyShareLink } from './CopyShareLink';
 import { ContentsSection } from './InventoryList';
 import { NozzleField, PrintChecksSection } from './PrintChecks';
 import { baseplatePrinter, jobPrinters, printerNames, printerSetup, shortName } from '../lib/layout/fleet';
@@ -22,6 +24,9 @@ import { PRINT_INDEX } from './panelIndex';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { LazyPart, lazyNamed, once } from './lazy';
 import { colourChecks } from '../lib/colourChecks';
+import { HaveBaseplateNotes, NothingToPrint } from './PrintWhat';
+import { isOwned } from '../lib/external';
+import { adoptMeshes, projectWithMeshes } from '../lib/imported/meshStore';
 
 // The Colours section (palette, roles, strategies) loads with the print tab's first render, beside it.
 const loadColours = once(() => import('./ColourSection'));
@@ -49,10 +54,17 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const drawers = allDrawers(store);
   const printing = printDrawers(store);
   const multi = job.drawers.length > 1;
+  // Just the bins selected on the Bins tab (store PrintScope 'selected').
+  const selected = store.printScope === 'selected';
+  const nSelected = selectedIds(ui).filter((id) => store.bins.some((b) => b.id === id)).length;
   const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const stamp = multi ? `${job.drawers.length}-drawers` : slug(printing[0]?.name ?? '') || `${job.layout.nx}x${job.layout.ny}`;
-  const nPieces = job.drawers.reduce((t, d) => t + d.plan.pieces.length, 0);
-  const nBins = printing.reduce((t, d) => t + d.bins.length, 0);
+  const stamp = (multi ? `${job.drawers.length}-drawers` : slug(printing[0]?.name ?? '') || `${job.layout.nx}x${job.layout.ny}`) + (selected ? '-selected-bins' : '');
+  // Pieces of a baseplate you have ("Just bins") are only drawn, never printed.
+  const nPieces = job.drawers.reduce((t, d) => t + (d.haveBaseplate ? 0 : d.plan.pieces.length), 0);
+  // Bins you already have (lib/external.ts) never print.
+  const nBins = printing.reduce((t, d) => t + d.bins.filter((b) => !isOwned(b)).length, 0);
+  const allHave = printing.every((d) => d.drawer.haveBaseplate);
+  const someHave = printing.filter((d) => d.drawer.haveBaseplate);
   // Several printers (fleet.ts): each gets its own project, with its plates and settings.
   const printers = jobPrinters(setup);
   const names = printerNames(setup);
@@ -114,22 +126,32 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     );
 
   const fileInput = useRef<HTMLInputElement>(null);
+  // With the meshes of imported bins in it, so the file opens complete anywhere (lib/imported/meshStore.ts).
   const saveProject = () =>
-    downloadBytes(
-      new TextEncoder().encode(JSON.stringify(projectFile(store), null, 2)),
-      `gridfinity-drawer-${stamp}.gridfit.json`,
-      'application/json',
-    );
+    run('Saving the project', async () => {
+      const file = await projectWithMeshes(projectFile(store));
+      downloadBytes(new TextEncoder().encode(JSON.stringify(file, null, 2)), `gridfinity-drawer-${stamp}.gridfit.json`, 'application/json');
+    });
+  const [started, setStarted] = useState(false);
   const openProject = async (file: File) => {
     setError(null);
+    setStarted(false);
     try {
-      store.loadProject(JSON.parse(await file.text()));
+      const data = JSON.parse(await file.text());
+      // Imported bins' meshes first (version 3 files), then the project.
+      adoptMeshes(data?.meshes);
+      store.loadProject(data);
     } catch (e) {
       setError(`Couldn't open ${file.name}: ${(e as Error).message}`);
     }
   };
 
   const twoColour = usesSecondFilament(job);
+  // Imported bins that aren't closed solids can't be STEP solids (export/step.ts stepSkips).
+  const notInStep = job.plates.flatMap((pl) => pl.placements).filter((p) => {
+    const spec = job.meshes[job.parts[p.key].meshKey];
+    return spec?.kind === 'imported' && !!spec.open;
+  }).length;
   const estimate = useJobEstimate(job);
   // Multi-colour checks (colourChecks.ts) go with the others.
   const extraChecks = useMemo(() => colourChecks(job, setup, estimate.plates), [job, setup, estimate.plates]);
@@ -149,7 +171,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const firstPrinter = (
     <>
       <Find id="printer-model">
-        <Select label="Model" value={setup.printerId} options={PRINTER_OPTIONS} onChange={(id) => store.setPrinter(id)} />
+        <Combobox label="Model" value={setup.printerId} options={PRINTER_OPTIONS} onChange={(id) => store.setPrinter(id)} />
         {setup.printerId === 'custom' && (
           <div className="row3">
             <LengthInput label="Bed X" value={setup.bedW} min={80} max={1000} onChange={(bedW) => store.setSetup({ bedW })} />
@@ -165,7 +187,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           value={setup.plateMargin}
           max={40}
           onChange={(plateMargin) => store.setSetup({ plateMargin })}
-          hint={`Usable bed ${fmt(Math.max(0, setup.bedW - 2 * setup.plateMargin))} × ${fmt(Math.max(0, setup.bedD - 2 * setup.plateMargin))}`}
+          hint={`Usable bed ${bedText(usableBed({ ...setup, bedW: Math.max(setup.bedW, 2 * setup.plateMargin), bedD: Math.max(setup.bedD, 2 * setup.plateMargin) }), fmt)}`}
         />
       </Find>
     </>
@@ -173,15 +195,20 @@ export function PrintPanel({ job }: { job: PrintJob }) {
 
   return (
     <FindPanel index={PRINT_INDEX} placeholder="Find a setting…">
-      {drawers.length > 1 && (
-        <Section title="Drawers to print" find="print-drawers">
+      {(drawers.length > 1 || nSelected > 0 || selected) && (
+        <Section title={drawers.length > 1 ? 'Drawers to print' : 'What to print'} find="print-drawers">
           <Segmented
-            ariaLabel="Drawers to print"
+            ariaLabel={drawers.length > 1 ? 'Drawers to print' : 'What to print'}
             value={store.printScope}
             options={[
               { value: 'active', label: 'This drawer' },
-              { value: 'all', label: `All ${drawers.length}` },
-              { value: 'pick', label: 'Choose' },
+              ...(drawers.length > 1
+                ? [
+                    { value: 'all' as const, label: `All ${drawers.length}` },
+                    { value: 'pick' as const, label: 'Choose' },
+                  ]
+                : []),
+              { value: 'selected', label: `Selected bins (${nSelected})`, title: 'Just the bins selected on the Bins tab, without the baseplate' },
             ]}
             onChange={(scope) =>
               store.setPrintScope(scope, scope === 'pick' && !store.printPick.length ? [store.activeDrawerId] : undefined)
@@ -204,10 +231,19 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               ))}
             </div>
           )}
-          <p className="muted small">
-            Each drawer's baseplate prints on its own plates. Bins from every drawer share plates, and their names say which
-            drawer they're for.
-          </p>
+          {selected ? (
+            <p className="muted small">
+              Only the bins selected on the Bins tab print, with their lids and inserts, and no baseplate. Select more there with Shift-click,
+              or Shift-drag around them.
+            </p>
+          ) : (
+            drawers.length > 1 && (
+              <p className="muted small">
+                Each drawer's baseplate prints on its own plates. Bins from every drawer share plates, and their names say which
+                drawer they're for.
+              </p>
+            )
+          )}
         </Section>
       )}
       <Section title={setup.printers ? 'Printers' : 'Printer'} find="printers">
@@ -250,7 +286,21 @@ export function PrintPanel({ job }: { job: PrintJob }) {
 
       <Section title="Export" find="export">
         <Find id="export-what">
-          <Toggle label="Baseplate" checked={include.baseplate} onChange={(v) => store.setInclude({ baseplate: v })} />
+          <HaveBaseplateNotes drawers={printing} selected={selected} />
+          <Toggle
+            label="Baseplate"
+            checked={include.baseplate}
+            onChange={(v) => store.setInclude({ baseplate: v })}
+            hint={
+              selected
+                ? 'Not with the selected bins.'
+                : allHave
+                  ? 'No difference here: no baseplate prints (see above).'
+                  : someHave.length
+                    ? `Not for ${someHave.map((d) => d.name).join(', ')}: you have ${someHave.length > 1 ? 'theirs' : 'its'}.`
+                    : undefined
+            }
+          />
           <Toggle
             label={`Bins (${nBins})`}
             checked={include.bins}
@@ -266,6 +316,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             {w}
           </div>
         ))}
+        <NothingToPrint plates={job.plates.length} leftOut={job.leftOut?.length ?? 0} drawers={printing} include={include} selected={selected} />
         <Find id="export-files">
           <button className="primary wide" disabled={!!progress || !platesFor(0)} onClick={() => exportBambu(job.printers ? 0 : undefined)}>
             {printer.bambu ? 'Bambu Studio project' : 'Slicer project'}{job.printers ? ` · ${shortName(names[0])}` : ''} (.3mf)
@@ -305,6 +356,12 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                 {multi ? 'Drawers assembled (.step)' : 'Drawer assembled (.step)'}
               </button>
             </div>
+            {notInStep > 0 && (
+              <div className="field-hint">
+                STEP files leave out {notInStep === 1 ? 'the imported bin that isn’t' : `the ${notInStep} imported bins that aren’t`} a closed solid; the 3MF,
+                Bambu and STL files have {notInStep === 1 ? 'it' : 'them'}.
+              </div>
+            )}
             <div className="button-row">
               <button disabled={!nPieces} onClick={exportMap}>
                 {multi ? 'Assembly maps (.txt)' : 'Assembly map (.txt)'}
@@ -338,7 +395,13 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               )}
               <div className={`plate-card ${ui.plate === i ? 'active' : ''}`}>
                 <button className="plate-thumb" onClick={() => store.setUI({ plate: i })} title="Show this plate">
-                  <PlateThumb job={job} plate={i} bedW={printers[pl.printer ?? 0]?.bedW ?? setup.bedW} bedD={printers[pl.printer ?? 0]?.bedD ?? setup.bedD} />
+                  <PlateThumb
+                    job={job}
+                    plate={i}
+                    bedW={printers[pl.printer ?? 0]?.bedW ?? setup.bedW}
+                    bedD={printers[pl.printer ?? 0]?.bedD ?? setup.bedD}
+                    exclude={bedExclusion(printers[pl.printer ?? 0]?.printerId ?? setup.printerId)}
+                  />
                 </button>
                 <div className="plate-meta">
                   <b>
@@ -363,9 +426,11 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             </Fragment>
           ))}
         </div>
-        <MoreInAll ids={[['split', splitSet]]} />
+        <MoreInAll ids={nPieces ? [['split', splitSet]] : []} />
       </Section>
 
+      {/* Nothing to split when no baseplate prints (you have them, or just the selected bins). */}
+      {nPieces > 0 && (
       <Section title="Baseplate split" find="split" set={splitSet}>
         <Segmented
           label="Strategy"
@@ -397,9 +462,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               job.drawers.map((d) => (
                 <div key={d.id} className="dl-row">
                   <dt>{d.name}</dt>
-                  <dd>
-                    {d.plan.cols} × {d.plan.rows} pieces
-                  </dd>
+                  <dd>{d.haveBaseplate ? 'not printed' : `${d.plan.cols} × ${d.plan.rows} pieces`}</dd>
                 </div>
               ))
             ) : (
@@ -411,12 +474,11 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               </>
             )}
             <dt>{setup.printers ? `Split for the ${names[baseAt]}` : 'Usable bed'}</dt>
-            <dd>
-              {fmt(printers[baseAt].bedW - 2 * printers[baseAt].plateMargin)} × {fmt(printers[baseAt].bedD - 2 * printers[baseAt].plateMargin)}
-            </dd>
+            <dd>{bedText(usableBed({ ...printers[baseAt], spacing: setup.spacing }), fmt)}</dd>
           </dl>
         </div>
       </Section>
+      )}
 
       <Find id="bom">
         <BomSection job={job} stamp={stamp} estimate={estimate} />
@@ -429,10 +491,21 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       </Find>
 
       <Section title="Project" find="project">
-        <p className="muted small">Your work is kept in this browser automatically. Save a file to back it up or move it to another computer.</p>
+        <p className="muted small">
+          Your work is kept in this browser automatically. Save a file to back it up or move it to another computer: it holds imported bins&apos; meshes too. A share
+          link has them as plain boxes.
+        </p>
         <div className="button-row">
           <button onClick={saveProject}>Save project</button>
           <button onClick={() => fileInput.current?.click()}>Open project…</button>
+          <button
+            onClick={() => {
+              store.newProject();
+              setStarted(true);
+            }}
+          >
+            New project
+          </button>
           <CopyShareLink />
           <input
             ref={fileInput}
@@ -446,6 +519,20 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             }}
           />
         </div>
+        {started && (
+          <p className="muted small" role="status">
+            Started a new project. Printers, templates, the tool library and My bins are kept.{' '}
+            <button
+              className="link"
+              onClick={() => {
+                history.undo();
+                setStarted(false);
+              }}
+            >
+              Undo
+            </button>
+          </p>
+        )}
       </Section>
     </FindPanel>
   );
@@ -465,11 +552,25 @@ function PrinterHeading({ job, printer, seconds }: { job: PrintJob; printer: num
   );
 }
 
-function PlateThumb({ job, plate, bedW, bedD }: { job: PrintJob; plate: number; bedW: number; bedD: number }) {
+/** A plate's parts on its bed, front at the bottom; the areas the printer keeps free (printers.ts `exclude`) hatched. */
+function PlateThumb({ job, plate, bedW, bedD, exclude }: { job: PrintJob; plate: number; bedW: number; bedD: number; exclude: readonly BedRect[] }) {
   const pl = job.plates[plate];
   return (
     <svg viewBox={`0 0 ${bedW} ${bedD}`} className="thumb">
       <rect x={0} y={0} width={bedW} height={bedD} className="thumb-bed" />
+      {exclude.length > 0 && (
+        <defs>
+          <pattern id="thumb-hatch" width={10} height={10} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width={10} height={10} className="thumb-exclude" />
+            <line x1={5} y1={0} x2={5} y2={10} className="thumb-hatch" />
+          </pattern>
+        </defs>
+      )}
+      {exclude.map((e, k) => (
+        <rect key={k} x={e.x} y={bedD - e.y - e.d} width={e.w} height={e.d} fill="url(#thumb-hatch)">
+          <title>Kept free by the printer: Bambu Studio won’t slice a part here</title>
+        </rect>
+      ))}
       {pl.placements.map((p) => {
         const part = job.parts[p.key];
         const w = p.rotated ? p.d : p.w;

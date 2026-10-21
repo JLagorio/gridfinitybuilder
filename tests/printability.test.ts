@@ -10,6 +10,7 @@ import { DEFAULT_DRAWER, type DrawerInput } from '../src/lib/layout/drawer';
 import { DEFAULT_SETUP, NOZZLES, cleanSetup } from '../src/lib/layout/plan';
 import { setCompartmentOptions, setWallProps, uniformLayout, type DividerLayout } from '../src/lib/dividers';
 import type { BinCutout } from '../src/lib/geometry/cutouts';
+import { findPocketPreset, presetFields } from '../src/lib/geometry/pocketPresets';
 import {
   binChecks,
   drawerChecks,
@@ -292,6 +293,103 @@ describe('overhangs, holes and tipping', () => {
     expect(binChecks(DEFAULT_BIN, at(2))).toEqual([]);
     expect(find(binChecks(DEFAULT_BIN, at(5)), 'stretch-overhang')?.severity).toBe('info');
     expect(find(binChecks(DEFAULT_BIN, at(12)), 'stretch-overhang')?.severity).toBe('warn');
+  });
+});
+
+describe('rounds standing in their pockets', () => {
+  const ammo = (id: string, o: Partial<BinOptions> = {}) => bin({ unitsX: 2, unitsY: 2, interior: 'pockets', ...presetFields(findPocketPreset(id)!), ...o });
+  const item = (o: BinOptions, opts?: CheckOptions) => find(binChecks(o, null, opts), 'item-height');
+
+  it('stay quiet when the bin is tall enough, and for presets without a height', () => {
+    expect(binChecks(ammo('ammo-9mm', { unitsX: 3, heightUnits: 6 }))).toEqual([]);
+    expect(binChecks(ammo('ammo-308', { heightUnits: 12, lid: true }))).toEqual([]);
+    // Under the rim but in the lip: fine until something sits on it.
+    expect(item(ammo('ammo-9mm', { heightUnits: 5 }))).toBeUndefined();
+    // AA batteries stick out by design.
+    expect(item(ammo('aa', { heightUnits: 3 }))).toBeUndefined();
+  });
+
+  it('sticking out above the rim is a tip, with a fix that clears a lid or a stacked bin', () => {
+    const c = expectFixed(ammo('ammo-9mm', { heightUnits: 3 }), 'item-height');
+    expect(c).toMatchObject({ severity: 'info', part: 'Pockets', fix: { label: 'Make it 6u', bin: { heightMode: 'units', heightUnits: 6 } } });
+    expect(c.message).toBe('Rounds stick out 11.69 mm above the rim: they stand 29.69 mm tall, their tips 36.69 mm above the bin’s bottom. 6u keeps them under a lid or a bin stacked on top.');
+    // Given in mm, the fix switches to units.
+    expect(item(ammo('ammo-9mm', { heightMode: 'internal', heightMm: 14 }))?.fix?.bin).toEqual({ heightMode: 'units', heightUnits: 6 });
+    // Without a lip: under the walls.
+    expect(expectFixed(ammo('ammo-9mm', { heightUnits: 3, lip: false }), 'item-height').fix?.label).toBe('Make it 6u');
+    // Shotshells on a flat base.
+    expect(expectFixed(ammo('ammo-12ga', { heightUnits: 4, base: 'flat' }), 'item-height').message).toMatch(/^Shells stick out/);
+    // Pockets edited away from the preset keep the height, and the check.
+    const edited = expectFixed(ammo('ammo-9mm', { heightUnits: 3, pocketPreset: 'custom', pocketSpacing: 2.5 }), 'item-height');
+    expect(edited).toMatchObject({ severity: 'info', fix: { label: 'Make it 6u' } });
+    expect(edited.message).toMatch(/^Items stick out 11\.69 mm above the rim/);
+    // Turned off: no check.
+    expect(item(ammo('ammo-9mm', { heightUnits: 3, pocketItemH: -1 }))).toBeUndefined();
+  });
+
+  it('holding up a lid or a stacked bin is a problem', () => {
+    const lid = ammo('ammo-9mm', { heightUnits: 5, lid: true });
+    const c = expectFixed(lid, 'item-height');
+    expect(c).toMatchObject({ severity: 'warn', fix: { label: 'Make it 6u' } });
+    expect(c.message).toMatch(/higher than the lid sits \(34\.65 mm\), so it won’t sit down\. 6u keeps them under a lid or a bin stacked on top\.$/);
+    const stacked = item(ammo('ammo-9mm', { heightUnits: 5 }), { stacked: true });
+    expect(stacked).toMatchObject({ severity: 'warn', fix: { label: 'Make it 6u' } });
+    expect(stacked?.message).toMatch(/the bin stacked on it sits/);
+    // A pocket compartment's rounds count too.
+    const split = { unitsX: 3, unitsY: 2, heightUnits: 6, lid: true, layout: uniformLayout(2, 1) };
+    const key = binLayout(bin(split)).compartments[0].key;
+    const layout = setCompartmentOptions(split.layout, key, { inside: 'pockets', pockets: presetFields(findPocketPreset('ammo-308')!) });
+    expect(expectFixed(bin({ ...split, layout }), 'item-height').fix?.label).toBe('Make it 12u');
+  });
+
+  it('raises the bin only as far as the printer and the drawer allow', () => {
+    // .308 under a lid needs 12u (88 mm with the lip, 89.6 with the lid on); under the rim 11u.
+    expect(item(ammo('ammo-308', { heightUnits: 6 }), { room: 100 })?.fix?.label).toBe('Make it 12u');
+    const rim = item(ammo('ammo-308', { heightUnits: 6 }), { room: 85 });
+    expect(rim?.fix?.label).toBe('Make it 11u');
+    expect(rim?.message).toMatch(/11u keeps them under the rim\.$/);
+    const lid = item(ammo('ammo-308', { heightUnits: 6, lid: true }), { room: 85 });
+    expect(lid).toMatchObject({ severity: 'warn' });
+    expect(lid?.fix).toBeUndefined();
+    expect(lid?.message).toMatch(/At 12u the bin is too tall for the drawer\.$/);
+    // A short printer.
+    const bed = { w: 250, d: 250, h: 60 };
+    const short = item(ammo('ammo-3006', { heightUnits: 6 }), { bed });
+    expect(short?.fix).toBeUndefined();
+    expect(short?.message).toMatch(/too tall for the printer\.$/);
+    expect(item(ammo('ammo-9mm', { heightUnits: 3 }), { bed })?.fix?.label).toBe('Make it 6u');
+  });
+
+  it('taller than the drawer: the drawer won’t close, even on a pocket-grid lid', () => {
+    const tall = item(ammo('ammo-12ga', { heightUnits: 6 }), { room: 60 });
+    expect(tall).toMatchObject({ severity: 'warn', part: 'Pockets' });
+    expect(tall?.fix).toBeUndefined();
+    expect(tall?.message).toMatch(/more than the 60 mm of room above the bin, so the drawer won’t close\.$/);
+    const onLid = bin({ unitsX: 2, heightUnits: 4, lid: true, lidStyle: 'pockets', lidPockets: presetFields(findPocketPreset('ammo-45acp')!) });
+    expect(item(onLid)).toBeUndefined();
+    expect(item(onLid, { room: 50 })).toMatchObject({ severity: 'warn', part: 'Pocket-grid lid' });
+  });
+
+  it('project checks know the drawer’s height and what is stacked', () => {
+    const o = ammo('ammo-9mm', { heightUnits: 5 });
+    const drawers = (height: number, on = false) => [
+      {
+        id: 'd1',
+        name: 'D',
+        drawer: { ...DEFAULT_DRAWER, height },
+        baseplate: DEFAULT_BASEPLATE,
+        bins: [{ id: 'b1', x: 0, y: 0, opts: o }, ...(on ? [{ id: 'b2', x: 0, y: 0, on: 'b1', opts: bin({ unitsX: 2, unitsY: 2 }) }] : [])],
+      },
+    ];
+    const at = (height: number, on = false) => projectChecks(drawers(height, on), DEFAULT_SETUP, { baseplate: false, bins: true }).filter((c) => c.rule === 'item-height');
+    expect(at(0)).toEqual([]);
+    expect(at(0, true)).toMatchObject([{ severity: 'warn', binId: 'b1', fix: { label: 'Make it 6u' } }]);
+    // 36.69 mm tips in 35 mm of room above the plate.
+    expect(at(36)).toMatchObject([{ severity: 'warn', binId: 'b1' }]);
+    // With a bin on it, raising it raises that bin too: no room for 6u under a 60 mm drawer.
+    const stuck = at(60, true);
+    expect(stuck[0]?.fix).toBeUndefined();
+    expect(stuck[0]?.message).toMatch(/too tall for the drawer/);
   });
 });
 

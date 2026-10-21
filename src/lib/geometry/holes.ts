@@ -178,15 +178,14 @@ export function holeCutters(w: Wasm, s: Scope, o: HoleOpts, sites: HoleSite[]): 
 }
 
 /**
- * Solid bosses around each hole, for hollow (lite / efficient) bases: the holes
- * grown by one wall, so they stay closed toward the inside of the bin.
+ * Solid bosses around each hole, for hollow (lite / efficient, vase) bases: the
+ * holes grown by `t` (one wall), so they stay closed toward the inside of the bin.
  */
-export function holeBosses(w: Wasm, s: Scope, o: HoleOpts, sites: HoleSite[], zMax: number): Manifold[] {
+export function holeBosses(w: Wasm, s: Scope, o: HoleOpts, sites: HoleSite[], zMax: number, t = WALL): Manifold[] {
   if (o.holes === 'none') return [];
   const magnets = o.holes === 'magnets' || o.holes === 'both';
   const screws = o.holes === 'screws' || o.holes === 'both';
   const out: Manifold[] = [];
-  const t = WALL;
   const cap = (z: number) => Math.min(z, zMax);
   for (const site of sites) {
     const { x, y } = site;

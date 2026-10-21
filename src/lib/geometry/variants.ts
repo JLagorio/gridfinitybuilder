@@ -8,6 +8,7 @@
  * This module must not import bin.ts at runtime (bin.ts imports it).
  */
 import { BASE_HEIGHT, GRID, HEIGHT_UNIT, LIP_HEIGHT, LIP_TOP_FLAT } from './spec';
+import { findPocketPreset } from './pocketPresets';
 
 /**
  * - standard: solid Gridfinity feet, floor at 7 mm.
@@ -116,6 +117,14 @@ export interface BinVariantOptions {
   pocketSizeLabels: PocketSizeLabels;
   /** Graduated set: added to each item size, in mm. */
   pocketClearance: number;
+  /**
+   * How tall what stands in each pocket is, mm (a cartridge's overall
+   * length), for the height note and print check (itemHeight.ts). 0: the
+   * preset's, which sanitizing fills in (bins saved before it existed, a
+   * preset just picked); -1: none, even if the preset has one (turned off).
+   * UI only, like pocketPreset: no mesh key includes it.
+   */
+  pocketItemH: number;
   /** Print a stacking lid with this bin. Only used when the bin has a lip. */
   lid: boolean;
 }
@@ -158,6 +167,8 @@ export const DEFAULT_VARIANTS: BinVariantOptions = {
   pocketSizeNames: [],
   pocketSizeLabels: 'mm',
   pocketClearance: 0.4,
+  // The preset's: AA batteries have none.
+  pocketItemH: 0,
   lid: false,
 };
 
@@ -322,7 +333,17 @@ export function sanitizePocketFields(o: Partial<PocketFields>): PocketFields {
     pocketSizeNames: names.some(Boolean) ? names : [],
     pocketSizeLabels: pick(o.pocketSizeLabels, POCKET_SIZE_LABELS, d.pocketSizeLabels),
     pocketClearance: round2(num(o.pocketClearance, 0, 5, d.pocketClearance)),
+    pocketItemH: pocketItemHOf(o),
   };
+}
+
+/** A pocket grid's item height as sanitized: the one it carries, -1 when turned off, else (0 or missing) its preset's, or 0. */
+export function pocketItemHOf(o: Partial<PocketFields>): number {
+  const v = Number(o.pocketItemH);
+  if (Number.isFinite(v) && v < 0) return -1;
+  if (Number.isFinite(v) && v > 0) return round2(Math.min(400, v));
+  const preset = typeof o.pocketPreset === 'string' && o.pocketPreset ? o.pocketPreset : DEFAULT_VARIANTS.pocketPreset;
+  return findPocketPreset(preset)?.itemH ?? 0;
 }
 
 /**

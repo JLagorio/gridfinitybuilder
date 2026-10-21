@@ -1,4 +1,5 @@
 import type { FindEntry } from '../lib/panelSearch';
+import { POCKET_PRESETS } from '../lib/geometry/pocketPresets';
 
 /**
  * What "Find a setting" searches (lib/panelSearch.ts), panel by panel, in the
@@ -18,6 +19,17 @@ export const BIN_INDEX: FindEntry[] = [
     id: 'layout',
     title: 'Layout',
     words: ['draw', 'fill', 'empty', 'fill from a list', 'list', 'autofill', 'clear all', 'remove', 'count', 'how many', 'bins in this drawer'],
+    children: [
+      // ExternalBins.tsx (lib/external.ts): placeholders and imported meshes.
+      {
+        id: 'external',
+        title: 'Bins from elsewhere',
+        words: [
+          'import', 'stl', '3mf', 'obj', 'mesh', 'placeholder', 'bought', 'downloaded', 'existing bin', 'bin i already have', 'already have',
+          'own', 'printables', 'makerworld', 'thingiverse', 'other generator', 'model', 'file',
+        ],
+      },
+    ],
   },
   // BinPanel: the selected bin (or the settings for new bins).
   {
@@ -28,12 +40,15 @@ export const BIN_INDEX: FindEntry[] = [
       {
         id: 'quick',
         title: 'Start from',
-        words: ['preset', 'quick start', 'starting point', 'screws', 'small parts', 'batteries', 'deep bin', 'tall', 'tool tray', 'label everything', 'one click'],
+        words: ['preset', 'quick start', 'starting point', 'screws', 'small parts', 'batteries', 'ammo', 'ammunition', 'cartridge', 'deep bin', 'tall', 'tool tray', 'label everything', 'one click'],
       },
       {
         id: 'type',
         title: 'Type',
-        words: ['container', 'kind', 'plain bin', 'drawer unit', 'chest', 'drawers', 'parts box', 'box', 'hinged lid', 'hopper', 'tool rack', 'dispenser'],
+        words: [
+          'container', 'kind', 'plain bin', 'drawer unit', 'chest', 'drawers', 'parts box', 'box', 'hinged lid', 'hopper', 'tool rack', 'dispenser',
+          'vase', 'vase mode', 'spiral', 'spiral vase', 'spiralize', 'single wall', 'one wall', 'fast', 'quick print', 'little filament', 'cheap',
+        ],
       },
       { id: 'size', title: 'Width and depth', words: ['size', 'width', 'depth', 'units', 'footprint', 'bigger', 'smaller', 'resize'] },
       {
@@ -49,8 +64,9 @@ export const BIN_INDEX: FindEntry[] = [
   {
     id: 'container',
     title: 'Container options',
-    when: 'for a drawer unit, parts box, hopper, tool rack or dispenser (Type)',
+    when: 'for a vase-mode bin, drawer unit, parts box, hopper, tool rack or dispenser (Type)',
     words: [
+      'vase', 'vase mode', 'spiral', 'spiral vase', 'single wall', 'one wall', 'fast', 'wall line', 'line width', 'slit', 'bottom layers',
       'drawer unit', 'drawers', 'chest', 'pull', 'knob', 'stop', 'parts box', 'box', 'lid', 'hinge', 'latch', 'magnet', 'snap',
       'hopper', 'slope', 'front lip', 'tool rack', 'screwdriver', 'hex key', 'allen', 'file', 'plier', 'wrench', 'spanner', 'lean',
       'engrave', 'dispenser', 'battery', 'coin cell', 'tape', 'zip tie', 'magazine', 'compartments', 'scoop', 'label', 'columns', 'rows',
@@ -77,9 +93,14 @@ export const BIN_INDEX: FindEntry[] = [
           {
             id: 'pocket-holds',
             title: 'Holds',
-            words: ['battery', 'bits', 'sd card', 'card', 'drill', 'socket', 'hex key', 'marker', 'pen', 'paint', 'nozzle', 'coin', 'test tube', 'sizes', 'set', 'fit an item', 'measure'],
+            words: [
+              'battery', 'bits', 'sd card', 'card', 'drill', 'socket', 'hex key', 'marker', 'pen', 'paint', 'nozzle', 'coin', 'test tube', 'sizes', 'set', 'fit an item', 'measure',
+              'ammunition', 'bullet', 'round', 'reloading block', 'caliber', 'calibre',
+              // What the presets go by ("556", "9x19", "12 gauge").
+              ...new Set(POCKET_PRESETS.flatMap((p) => p.aliases ?? [])),
+            ],
           },
-          { id: 'pocket-shape', title: 'Pocket shape and size', words: ['round', 'square', 'hex', 'diameter', 'size', 'depth', 'spacing', 'chamfer', 'clearance'] },
+          { id: 'pocket-shape', title: 'Pocket shape and size', words: ['round', 'square', 'hex', 'diameter', 'size', 'depth', 'spacing', 'chamfer', 'clearance', 'item height', 'overall length', 'oal'] },
           { id: 'pocket-bottom', title: 'Pocket bottom', words: ['flat', 'round', 'cone', 'point', 'stepped', 'bore', 'collar'] },
           { id: 'pocket-lean', title: 'Lean', words: ['lean', 'tilt', 'angle', 'tip'] },
           { id: 'pocket-access', title: 'Finger access', words: ['finger', 'groove', 'notch', 'thumb', 'grab'] },
@@ -122,6 +143,21 @@ export const BIN_INDEX: FindEntry[] = [
       { id: 'label-style', title: 'Raised, engraved or inlaid', words: ['label', 'text style', 'raised', 'embossed', 'engraved', 'debossed', 'inlaid', 'two colour', 'color', 'ams'], basic: false },
       { id: 'label-plates', title: 'Swappable label plates', words: ['label', 'plate', 'swap', 'relabel', 'removable', 'cullenect', 'pred', 'socket', 'gflabel'], basic: false },
       { id: 'front-label', title: 'Front label', words: ['label', 'front wall', 'outside', 'text', 'raised', 'engraved', 'inlaid', 'two colour', 'letter height'], basic: false },
+    ],
+  },
+  // BinPanel + QrFields: a code a phone camera reads to show what's in the bin.
+  {
+    id: 'qr',
+    title: 'QR code',
+    when: 'for a plain bin (Type)',
+    basic: false,
+    words: ['qr', 'barcode', 'scan', 'code', 'phone', 'camera', 'inventory', 'tag', 'sticker'],
+    children: [
+      { id: 'qr-surface', title: 'Where the code goes', words: ['front wall', 'lid', 'plate', 'stick on', 'tag', 'label'] },
+      { id: 'qr-content', title: 'What it says', words: ['contents', 'what’s in it', 'list', 'text', 'url', 'link', 'website', 'custom'] },
+      { id: 'qr-style', title: 'Inlaid, raised or engraved', words: ['inlaid', 'two colour', 'color', 'ams', 'filament', 'raised', 'engraved', 'contrast'] },
+      { id: 'qr-ecc', title: 'Error correction', words: ['error correction', 'ecc', 'damage', 'scuff', 'robust'] },
+      { id: 'qr-size', title: 'Size', words: ['size', 'module', 'big', 'small', 'auto', 'plate size'] },
     ],
   },
   // BinPanel: the folding option groups.
@@ -219,7 +255,20 @@ export const BIN_INDEX: FindEntry[] = [
     id: 'actions',
     title: 'This bin',
     when: 'when a bin is selected',
-    words: ['duplicate', 'copy', 'delete', 'remove', 'use for new bins', 'download', 'export', '3mf', 'stl', 'step', 'cad', 'lid'],
+    words: ['duplicate', 'copy', 'delete', 'remove', 'use for new bins', 'save to my bins', 'download', 'export', '3mf', 'stl', 'step', 'cad', 'lid', 'print these', 'print selected', 'just these'],
+  },
+  // MyBinsSection.tsx: whole bins kept in the browser, for every project.
+  {
+    id: 'my-bins',
+    title: 'My bins',
+    words: ['library', 'my bins', 'saved bins', 'save bin', 'favourite', 'favorite', 'reuse', 'every project', 'whole bin', 'place', 'drag', 'collection', 'keep'],
+    children: [
+      {
+        id: 'my-bins-transfer',
+        title: 'Export and import My bins',
+        words: ['export', 'import', 'json', 'file', 'backup', 'another computer', 'other device', 'browser', 'move', 'transfer', 'share'],
+      },
+    ],
   },
   // TemplatesSection.tsx
   { id: 'templates', title: 'Templates', basic: false, words: ['template', 'save', 'reuse', 'apply', 'preset', 'saved settings', 'favourite', 'favorite'] },
@@ -242,6 +291,14 @@ export const DRAWER_INDEX: FindEntry[] = [
     title: 'Drawer',
     words: [],
     children: [
+      {
+        id: 'print-what',
+        title: 'Print for this drawer',
+        words: [
+          'just bins', 'bins only', 'only bins', 'already have', 'have the plate', 'have a baseplate', 'own', 'existing baseplate', 'bought',
+          'skip baseplate', 'no baseplate', 'without baseplate', 'reprint bins', 'baseplate and bins', 'not printed',
+        ],
+      },
       { id: 'drawer-name', title: 'Name', words: ['name', 'rename', 'title'] },
       { id: 'drawer-size', title: 'Size', words: ['size', 'width', 'depth', 'measure', 'inside', 'grid units', 'size from', 'not square', 'samples'] },
       { id: 'drawer-height', title: 'Inside height', words: ['height', 'tall', 'deep', 'tallest bin', 'clearance above'] },
@@ -299,7 +356,12 @@ export const DRAWER_INDEX: FindEntry[] = [
 // ---------------------------------------------------------------------------
 
 export const PRINT_INDEX: FindEntry[] = [
-  { id: 'print-drawers', title: 'Drawers to print', when: 'with several drawers', words: ['drawers', 'all drawers', 'this drawer', 'choose', 'which'] },
+  {
+    id: 'print-drawers',
+    title: 'What to print',
+    when: 'with several drawers, or bins selected on the Bins tab',
+    words: ['drawers', 'all drawers', 'this drawer', 'choose', 'which', 'selected bins', 'just these', 'only selected', 'these bins', 'some bins'],
+  },
   {
     id: 'printers',
     title: 'Printer',
@@ -327,8 +389,8 @@ export const PRINT_INDEX: FindEntry[] = [
       {
         id: 'label-colour',
         title: 'Label filament',
-        when: 'with inlaid labels or two-colour pocket floors, and multi-colour off',
-        words: ['label colour', 'label color', 'second filament', 'slot 2', 'inlaid', 'text colour', 'text color'],
+        when: 'with inlaid labels, inlaid QR codes or two-colour pocket floors, and multi-colour off',
+        words: ['label colour', 'label color', 'second filament', 'slot 2', 'inlaid', 'text colour', 'text color', 'two colour', 'qr'],
       },
       {
         id: 'colour-strategy',
@@ -352,7 +414,11 @@ export const PRINT_INDEX: FindEntry[] = [
     title: 'Export',
     words: [],
     children: [
-      { id: 'export-what', title: 'Baseplate and bins', words: ['include', 'baseplate', 'bins', 'leave out'] },
+      {
+        id: 'export-what',
+        title: 'Baseplate and bins',
+        words: ['include', 'baseplate', 'bins', 'leave out', 'just bins', 'bins only', 'already have', 'skip baseplate', 'not printed', 'nothing to print'],
+      },
       {
         id: 'export-files',
         title: 'Files',
@@ -380,5 +446,5 @@ export const PRINT_INDEX: FindEntry[] = [
   },
   { id: 'testfit', title: 'Test-fit kit', words: ['test', 'sample', 'fit', 'tolerance', 'check fit', 'try first'] },
   { id: 'contents-list', title: 'Drawer map & contents', words: ['map', 'drawer map', 'print', 'paper', 'svg', 'contents', 'list', 'csv', 'inventory', 'labels'] },
-  { id: 'project', title: 'Project', words: ['save', 'open', 'load', 'file', 'json', 'backup', 'share', 'link', 'url', 'copy'] },
+  { id: 'project', title: 'Project', words: ['save', 'open', 'load', 'file', 'json', 'backup', 'share', 'link', 'url', 'copy', 'new project', 'start over', 'blank', 'empty', 'reset', 'imported meshes'] },
 ];

@@ -21,6 +21,12 @@
  * need the label font: without it (on the main thread before it has loaded)
  * they are left out rather than guessed.
  *
+ * Rounds (and anything else whose pocket grid carries an item height,
+ * itemHeight.ts) that stick out of the bin, or would hold up its lid, a bin
+ * stacked on it, or the drawer: placed bins know the room above them, what is
+ * stacked on them and the printers they print on (placeChecks), so a fix that
+ * raises the bin stays within them.
+ *
  * Generators that already warn in their planning notes (drawer-unit bays and
  * hopper lintels that bridge far, racks that may tip over in the drawer,
  * text that doesn't fit a box lid or a hopper lip) aren't repeated here.
@@ -39,11 +45,15 @@ import {
   type BinOptions,
 } from './geometry/bin';
 import { binBodyHeight } from './geometry/variants';
+import { MAX_HEIGHT_UNITS, standingBinHeight, standingGrids, tipLimits, unitsToCover, unitsUnderRim, type StandingGrid } from './geometry/itemHeight';
 import { BASE_PROFILE_DEPTH, BASE_TOP, BOWTIE_CLEARANCE, GRID, LIP_SUPPORT_HEIGHT, PUZZLE, WALL } from './geometry/spec';
 import { LABEL_TEXT, capFor, fitText, labelLines, planTabLabels, plateTextBox, type Box, type LabelTextStyle } from './geometry/labels';
 import { labelPlainText } from './geometry/labelIcons';
 import { hasFont, textOutline } from './geometry/text';
-import { RAIL, SLIDE, TRAY, accessoryInfillTop, planAccessories, slideLidBox } from './geometry/accessories';
+import { RAIL, SLIDE, TRAY, accessoryInfillTop, planAccessories, planSlideLidQr, slideLidTextBox } from './geometry/accessories';
+import { binQrPlan, type BinQrPlan } from './geometry/binQr';
+import { QR } from './geometry/qrCode';
+import { QR_ECCS, QR_QUIET, qrByteLength, qrCapacity, type QrEcc } from './qr';
 import { planInserts } from './geometry/cups';
 import { CUP, compartmentWantsCup } from './geometry/insertOptions';
 import { compartmentInside, compartmentPocketOpts } from './geometry/compartments';
@@ -51,11 +61,15 @@ import { POCKET_LABEL_SIZE, pocketLayout } from './geometry/pockets';
 import { cutoutArea, cutoutStyle } from './geometry/cutouts';
 import { hasLid } from './geometry/lid';
 import { isPocketLid } from './geometry/pocketLid';
-import { stretchOf } from './geometry/placement';
+import { hasStretch, stretchOf } from './geometry/placement';
+import { bedOvershoot, usableBeds, type Beds } from './bedfit';
+import { drawerRoom } from './bins';
+import { columnOf, stackPlaces, type StackPlace } from './stacking';
 import { activeContainer } from './geometry/containers';
 import { DRAWER_UNIT, type DrawerUnitOptions } from './geometry/containers/drawers';
 import { magazineLayout, type DispenserOptions } from './geometry/containers/dispenser';
 import { BOX } from './geometry/containers/box';
+import { VASE, vaseLineFor, type VaseOptions } from './geometry/containers/vase';
 import { caseFrame, sanitizeCase } from './geometry/case';
 import { SPACER } from './geometry/spacers';
 import { DEFAULT_BASEPLATE, type BaseplateOptions } from './geometry/baseplate';
@@ -63,7 +77,8 @@ import { RIB_THICKNESS, SLOT_CLEARANCE, T as DIVIDER_T, setWallProps } from './d
 import { computeLayout, spacerMargins, type DrawerInput, type GridLayout } from './layout/drawer';
 import { DEFAULT_NOZZLE, type PrintSetup } from './layout/plan';
 import { findPrinter } from './printers';
-import { binSpec, type NamedDrawer, type PlacedBin, type ProjectState } from './project';
+import { binSpec, printsBaseplate, type NamedDrawer, type PlacedBin, type ProjectState } from './project';
+import { meshSize, printsMesh } from './external';
 
 export type CheckSeverity = 'warn' | 'info';
 
@@ -91,6 +106,13 @@ export type CheckRule =
   | 'joint-fit'
   | 'nozzle-walls'
   | 'bambu-nozzle'
+  | 'item-height'
+  | 'mesh-open'
+  | 'qr-fit'
+  | 'qr-module'
+  | 'qr-contrast'
+  | 'qr-swaps'
+  | 'vase-line'
   // Multi-colour (colourChecks.ts).
   | 'colour-purge'
   | 'colour-band'
@@ -124,7 +146,19 @@ export interface CheckOptions {
   nozzle?: number;
   /** How lengths are written (default: mm, two decimals at most). */
   fmt?: (mm: number) => string;
+  /**
+   * Where the bin is placed (placeChecks works these out from its drawer).
+   * `room`: how tall it may stand, mm from its bottom with its lid on: the
+   * room above the baseplate less where it stands in a stack and what is
+   * stacked on it (missing: no limit). `stacked`: a bin stands on it. `bed`:
+   * the printers' beds, which a fix never makes it too big for.
+   */
+  room?: number;
+  stacked?: boolean;
+  bed?: Beds;
 }
+
+type Place = Pick<CheckOptions, 'room' | 'stacked' | 'bed'>;
 
 // ---------------------------------------------------------------------------
 // Thresholds
@@ -151,6 +185,10 @@ export const CHECK = {
   /** Snug fits (slots, keys, tabs, hinges) want this share of the nozzle a side, sliding drawers `slide`. */
   snug: 0.3,
   slide: 0.6,
+  /** QR code modules want this many nozzle widths across, or they blur together and the code won't scan. */
+  qrLines: 2,
+  /** Layer height the layer count of a vertical two-colour code is worked out with. */
+  layer: 0.2,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -327,10 +365,8 @@ function labelChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
   if (lidText) {
     const { w: W, d: D } = binSize(o, cells);
     if (planAccessories(o, W, D).slide) {
-      // As slidingLid.ts lays it out: behind the grip ridges, inside the edge chamfer.
-      const b = slideLidBox(W, D);
-      const c = b.chamfer;
-      const box = { x0: b.x0 + c + 2, x1: b.x1 - c - 2, y0: b.y0 + 3 + (SLIDE.ridges - 1) * SLIDE.ridgePitch + 3, y1: b.y1 - c - 2 };
+      // As slidingLid.ts lays it out: behind the grip ridges, inside the edge chamfer, left of a QR code.
+      const box = slideLidTextBox(W, D, planSlideLidQr(o, W, D)?.spot);
       const cap = fittedCap(lidText, box, Math.min(LABEL_TEXT.maxCap, 0.6 * (box.y1 - box.y0)));
       out.push(...textChecks([{ text: lidText, cap, style: 'engraved' }], { part: 'Sliding lid', noun: 'label', on: ['on the sliding lid', 'on the sliding lid'] }, x));
     }
@@ -365,6 +401,128 @@ function labelChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
       p.label ? [{ text: p.label.text, cap: textOutline(p.label.text, { size: POCKET_LABEL_SIZE, maxWidth: p.label.w + 0.01 }).size, style: 'engraved' }] : [],
     );
     out.push(...textChecks(spots, { part: 'Size labels', noun: 'size', on: ['in front of its pocket', 'in front of their pockets'] }, x));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// QR codes
+// ---------------------------------------------------------------------------
+
+/** Most bytes (or characters, in the text's mode) a code on a square `room` mm across holds with modules `module` mm. */
+function qrMostFits(room: number, module: number, ecc: QrEcc, mode: NonNullable<BinQrPlan['fit']>['mode'] | undefined): number {
+  const v = Math.min(40, Math.floor((room / module - 2 * QR_QUIET - 17) / 4 + 1e-9));
+  return v >= 1 ? qrCapacity(v, ecc, mode ?? 'byte') : 0;
+}
+
+/**
+ * QR codes (binQr.ts): left off (nothing to say, too long, no room, no lid),
+ * modules under two lines of the nozzle (with the change that clears it, or
+ * what to do when none does: the text is too long for the surface), one-colour
+ * codes that only shadows make readable, and two-colour codes on the front
+ * wall that change filament on every layer.
+ */
+function qrChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
+  const plan = binQrPlan(o, cells);
+  if (!plan) return [];
+  const out: PrintCheck[] = [];
+  const part = 'QR code';
+  const min = CHECK.qrLines * x.nozzle;
+  const len = plan.fit ? plan.fit.length : qrByteLength(plan.text);
+  const what = plan.fit?.mode === 'byte' || !plan.fit ? `${len} byte${len === 1 ? '' : 's'}` : `${len} characters`;
+  const where = `the ${plan.where}`;
+  // A change of these options that gets modules of at least `min`.
+  const clears = (patch: Partial<BinOptions>) => {
+    const p = binQrPlan({ ...o, ...patch }, cells);
+    return !!p?.spot && p.spot.module >= min - 1e-6;
+  };
+  const lowerEcc = () => {
+    const i = QR_ECCS.indexOf(o.qrEcc);
+    for (let k = i - 1; k >= 0; k--) if (clears({ qrEcc: QR_ECCS[k] })) return QR_ECCS[k];
+    return null;
+  };
+  const elsewhere = (): { label: string; bin: Partial<BinOptions> } | null => {
+    if (o.qr !== 'plate' && clears({ qr: 'plate', qrSize: 0 })) return { label: 'Print it on a plate', bin: { qr: 'plate', qrSize: 0 } };
+    if (o.qr !== 'lid' && clears({ qr: 'lid', qrSize: 0 })) return { label: 'Put it on the lid', bin: { qr: 'lid', qrSize: 0 } };
+    return null;
+  };
+  const fixFor = (): CheckFix | undefined => {
+    const e = lowerEcc();
+    if (e) return { label: `Use error correction ${e}`, bin: { qrEcc: e } };
+    if (o.qrSize > 0 && clears({ qrSize: 0 })) return { label: o.qr === 'plate' ? 'Make the plate as large as reads well' : 'Make it as large as fits', bin: { qrSize: 0 } };
+    if (o.qr === 'plate' && plan.fit) {
+      const side = Math.ceil((plan.fit.size + 2 * QR_QUIET) * min);
+      if (side <= QR.maxPlate && clears({ qrSize: side })) return { label: `Make the plate ${x.fmt(side)}`, bin: { qrSize: side } };
+    }
+    return elsewhere() ?? undefined;
+  };
+  const advice = (room: number) => {
+    const most = qrMostFits(room, min, o.qrEcc, plan.fit?.mode);
+    return `${most ? `At most ${most} ${plan.fit?.mode === 'byte' || !plan.fit ? 'bytes' : 'characters'} fit ${where} at ${x.fmt(min)} modules (two lines of the ${x.nz}). ` : ''}Shorten the text, pick a bigger surface (a plate) or lower error correction, or print with a finer nozzle.`;
+  };
+
+  if (!plan.spot) {
+    if (plan.error === 'empty') {
+      out.push({
+        rule: 'qr-fit',
+        severity: 'info',
+        part,
+        message:
+          o.qrContent === 'custom'
+            ? 'The QR code has no text yet, so it’s left off.'
+            : 'The QR code has nothing to say yet: the bin has no label and nothing in What’s in it, so it’s left off.',
+      });
+      return out;
+    }
+    if (plan.error === 'no-surface') {
+      const fix: CheckFix = o.lip && !hasStretch(cells.stretch) ? { label: 'Add a stacking lid', bin: { lid: true } } : { label: 'Print it on a plate', bin: { qr: 'plate' } };
+      out.push({ rule: 'qr-fit', severity: 'warn', part, message: 'The bin has no lid to put the QR code on, so it’s left off.', fix });
+      return out;
+    }
+    const fix = fixFor();
+    out.push({
+      rule: 'qr-fit',
+      severity: 'warn',
+      part,
+      message:
+        plan.error === 'no-room'
+          ? `${where[0].toUpperCase()}${where.slice(1)} has no room for a QR code (${x.fmt(Math.max(0, plan.room))} across; the smallest needs ${x.fmt((21 + 2 * QR_QUIET) * QR.minModule)}), so it’s left off.`
+          : `The QR code’s text (${what}) is too long for ${where}, so it’s left off: ${plan.fit ? `it needs ${plan.fit.size} × ${plan.fit.size} modules (version ${plan.fit.version}, error correction ${o.qrEcc})` : 'no QR code holds that much'} and ${where} has ${x.fmt(plan.room)}. ${advice(plan.room)}`,
+      ...(fix ? { fix } : {}),
+    });
+    return out;
+  }
+
+  const spot = plan.spot;
+  if (spot.module < min - 1e-6) {
+    const fix = fixFor();
+    const size = `${spot.modules} × ${spot.modules} modules (version ${spot.version}) of ${x.fmt(spot.module)}`;
+    out.push(
+      fix
+        ? { rule: 'qr-module', severity: 'warn', part, message: `The QR code comes out ${size}, under two lines of the ${x.nz}: they blur together and it may not scan.`, fix }
+        : { rule: 'qr-fit', severity: 'warn', part, message: `The QR code’s text (${what}) is too long for ${where}: it comes out ${size}, under two lines of the ${x.nz}, and won’t scan reliably. ${advice(plan.room)}` },
+    );
+  }
+  if (spot.style !== 'inlaid') {
+    const lidFallback = o.qrStyle === 'raised' && spot.style === 'engraved';
+    out.push({
+      rule: 'qr-contrast',
+      severity: 'info',
+      part,
+      message: `A one-colour QR code (${spot.style}${lidFallback ? ': raised codes are engraved on a stacking lid' : ''}) scans poorly: only shadows show its modules, so light it from the side. Inlaid in a second filament it reads at a glance.`,
+      fix: { label: 'Make it inlaid (2 colours)', bin: { qrStyle: 'inlaid' } },
+    });
+  }
+  if (spot.style === 'inlaid' && plan.surface === 'front') {
+    const layers = Math.round((spot.modules * spot.module) / CHECK.layer);
+    const move = elsewhere();
+    out.push({
+      rule: 'qr-swaps',
+      severity: 'info',
+      part,
+      message: `An inlaid QR code on the front wall changes filament on every layer it spans (about ${layers} layers), which is slow and purges a lot. On a plate or a lid only its top ${Math.round(QR.depth / CHECK.layer)} layers do.`,
+      ...(move ? { fix: move } : {}),
+    });
   }
   return out;
 }
@@ -537,8 +695,96 @@ function holeCheck(o: BinOptions): PrintCheck | null {
   };
 }
 
-function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
-  const out: (PrintCheck | null)[] = [...labelChecks(o, cells, x), pocketWallCheck(o, cells, x)];
+const capital = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/** The grid inside the bin (not on its lid) whose tips reach highest, or null. */
+const insideTop = (grids: StandingGrid[]) => grids.filter((g) => g.where !== 'lid').reduce<StandingGrid | null>((a, g) => (!a || g.top > a.top ? g : a), null);
+
+/**
+ * The lowest bin height, from each wanted one up, that clears what stands in
+ * it (`clears`, asked of the raised bin) and still fits the printers and the
+ * room it has; or, when none does, why.
+ */
+function raiseFix(o: BinOptions, cells: BinCells, at: Place, wants: { u: number; under: string; clears: (next: BinOptions) => boolean }[]): { fix?: CheckFix; why: string } {
+  let why = '';
+  for (const want of wants) {
+    for (let u = want.u; u <= MAX_HEIGHT_UNITS; u++) {
+      const next = sanitizeBin({ ...o, heightMode: 'units', heightUnits: u });
+      if (binBodyHeight(next) <= binBodyHeight(o) + 1e-6 || !want.clears(next)) continue;
+      // Taller won't fit any better.
+      if (at.bed && bedOvershoot(next, cells, at.bed) > 1e-6) {
+        why ||= ` At ${u}u the bin is too tall for the printer.`;
+        break;
+      }
+      if (standingBinHeight(next, cells) > (at.room ?? Infinity) + 1e-6) {
+        why ||= ` At ${u}u the bin is too tall for the drawer.`;
+        break;
+      }
+      return { fix: { label: `Make it ${u}u`, bin: { heightMode: 'units', heightUnits: u } }, why: ` ${u}u keeps them under ${want.under}.` };
+    }
+  }
+  return { why: why || ` Bins go up to ${MAX_HEIGHT_UNITS}u.` };
+}
+
+/**
+ * Items standing in pockets (rounds) that reach higher than where a lid or a
+ * stacked bin sits, than the drawer, or than the rim; and on a pocket-grid
+ * lid, higher than the drawer.
+ */
+function standingChecks(o: BinOptions, cells: BinCells, x: Ctx, at: Place): PrintCheck[] {
+  const grids = standingGrids(o, cells);
+  if (!grids.length) return [];
+  const out: PrintCheck[] = [];
+  const room = at.room ?? Infinity;
+  const stand = (s: StandingGrid) => `${capital(s.noun)} stand ${x.fmt(s.itemH)} tall`;
+  const s = insideTop(grids);
+  if (s) {
+    const { seat, rim } = tipLimits(o);
+    const on = hasLid(o) && !hasStretch(cells.stretch) ? 'the lid' : at.stacked ? 'the bin stacked on it' : null;
+    const what = `${stand(s)}, their tips ${x.fmt(s.top)} above the bin’s bottom`;
+    const topIn = (b: BinOptions) => insideTop(standingGrids(b, cells))?.top ?? 0;
+    const underSeat = {
+      u: unitsToCover(s.top, o.lip),
+      under: 'a lid or a bin stacked on top',
+      clears: (b: BinOptions) => topIn(b) <= (tipLimits(b).seat ?? tipLimits(b).rim) + 1e-6,
+    };
+    const underRim = { u: unitsUnderRim(s.top, o.lip), under: 'the rim', clears: (b: BinOptions) => topIn(b) <= tipLimits(b).rim + 1e-6 };
+    if (on && seat !== null && s.top > seat + 1e-6) {
+      const r = raiseFix(o, cells, at, [underSeat]);
+      out.push({
+        rule: 'item-height',
+        severity: 'warn',
+        part: 'Pockets',
+        message: `${what}: higher than ${on} sits (${x.fmt(seat)}), so it won’t sit down.${r.why}`,
+        ...(r.fix ? { fix: r.fix } : {}),
+      });
+    } else if (!on && s.top > room + 1e-6) {
+      out.push({ rule: 'item-height', severity: 'warn', part: 'Pockets', message: `${what}: more than the ${x.fmt(room)} of room above the bin, so the drawer won’t close.` });
+    } else if (!on && s.top > rim + 1e-6) {
+      const r = raiseFix(o, cells, at, o.lip ? [underSeat, underRim] : [underRim]);
+      out.push({
+        rule: 'item-height',
+        severity: 'info',
+        part: 'Pockets',
+        message: `${capital(s.noun)} stick out ${x.fmt(s.top - rim)} above the rim: they stand ${x.fmt(s.itemH)} tall, their tips ${x.fmt(s.top)} above the bin’s bottom.${r.why}`,
+        ...(r.fix ? { fix: r.fix } : {}),
+      });
+    }
+  }
+  const l = grids.find((g) => g.where === 'lid');
+  if (l && l.top > room + 1e-6) {
+    out.push({
+      rule: 'item-height',
+      severity: 'warn',
+      part: 'Pocket-grid lid',
+      message: `${stand(l)}: on the closed bin they reach ${x.fmt(l.top)}, more than the ${x.fmt(room)} of room above it, so the drawer won’t close.`,
+    });
+  }
+  return out;
+}
+
+function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx, at: Place = {}): PrintCheck[] {
+  const out: (PrintCheck | null)[] = [...labelChecks(o, cells, x), ...qrChecks(o, cells, x), pocketWallCheck(o, cells, x)];
   if (o.patternWalls) {
     out.push(wallCheck('hex-struts', 'Hex pattern', 'The struts between hex holes are', o.patternWeb, x, (v) => ({ label: `Make them ${x.fmt(v)}`, bin: { patternWeb: v } })));
     if (o.patternSize / 2 > CHECK.hexReach) {
@@ -555,7 +801,7 @@ function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
   if (planInserts(o, cells).crates.length) {
     out.push(wallCheck('crate-walls', 'Grid inserts', 'The grid insert walls are', o.crateWall, x, (v) => ({ label: `Make them ${x.fmt(v)}`, bin: { crateWall: v } })));
   }
-  out.push(fixedPartsCheck(o, cells, x), floatingTabCheck(o, cells, x), fingerCheck(o, cells, x));
+  out.push(fixedPartsCheck(o, cells, x), floatingTabCheck(o, cells, x), fingerCheck(o, cells, x), ...standingChecks(o, cells, x, at));
   const { w: W, d: D } = binSize(o, cells);
   const acc = planAccessories(o, W, D);
   if ((acc.rails || removableInserts(o, cells).length) && SLOT_CLEARANCE < CHECK.snug * x.nozzle) {
@@ -613,6 +859,25 @@ function containerChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
       }
     }
   }
+  if (c.def.kind === 'vase') {
+    // The wall is one line: narrower than the nozzle it breaks up, much wider the nozzle can't spread it evenly.
+    const v = c.opts as VaseOptions;
+    const lo = VASE.lineShare.min * x.nozzle;
+    const hi = VASE.lineShare.max * x.nozzle;
+    if (v.line < lo - 1e-6 || v.line > hi + 1e-6) {
+      const best = vaseLineFor(x.nozzle);
+      out.push({
+        rule: 'vase-line',
+        severity: 'warn',
+        part: 'Vase wall',
+        message:
+          v.line < lo
+            ? `The wall line is ${r2(v.line)} mm, narrower than the ${x.nz}: the one-line wall comes out thin and full of gaps.`
+            : `The wall line is ${r2(v.line)} mm, over twice the ${x.nz}: it can't lay a line that wide evenly.`,
+        fix: { label: `Use ${r2(best)} mm`, bin: own({ line: best }) },
+      });
+    }
+  }
   if (c.def.kind === 'box' && BOX.hinge.play < CHECK.snug * x.nozzle) {
     out.push({
       rule: 'hinge-fit',
@@ -633,15 +898,72 @@ export function binChecks(opts: BinOptions, cellsIn?: Partial<BinCells> | null, 
   const x = context(o);
   const b = sanitizeBin(opts);
   const cells = binCells(b, cellsIn);
-  const out = activeContainer(b) ? containerChecks(b, cells, x) : plainBinChecks(b, cells, x);
+  const out = activeContainer(b) ? containerChecks(b, cells, x) : plainBinChecks(b, cells, x, { room: o?.room, stacked: o?.stacked, bed: o?.bed });
   for (const c of [holeCheck(b), tipCheck(b, cells, x), stretchCheck(cells, x)]) if (c) out.push(c);
   return sortChecks(out);
 }
 
-/** Checks for a bin where it is placed (its cells, stretch and `{contents}` labels). */
+/** Checks for a bin where it is placed (its cells, stretch and `{contents}` labels). Pass placeChecks' answer for its room, stack and beds. */
 export function placedBinChecks(layout: GridLayout, b: PlacedBin, o?: CheckOptions): PrintCheck[] {
+  if (b.external) return externalChecks(b, o);
   const spec = binSpec(layout, b);
   return binChecks(spec.opts, spec.cells, o);
+}
+
+/**
+ * Where a drawer's bins stand, for their checks (CheckOptions `room`,
+ * `stacked`, `bed`): the room above the baseplate (when the drawer's inside
+ * height is set) less where each bin stands in its stack and what is stacked
+ * on it, whether a bin stands on it, and the printers' beds.
+ */
+export function placeChecks(d: Pick<NamedDrawer, 'drawer' | 'baseplate' | 'bins'>, layout: GridLayout, setup: PrintSetup): (b: PlacedBin) => Place {
+  const room = drawerRoom(d.drawer, d.baseplate);
+  const bed = usableBeds(setup);
+  let places: Map<string, StackPlace> | null = null;
+  return (b) => {
+    const col = columnOf(d.bins, b.id);
+    const stacked = col.length > 1 && col.some((c) => c.id === b.id) && col[col.length - 1].id !== b.id;
+    if (!Number.isFinite(room)) return { stacked, bed };
+    places ??= stackPlaces(layout, d.bins);
+    const me = places.get(b.id);
+    if (!me) return { room, stacked, bed };
+    // Raising this bin raises everything on it: it may stand the room less the rest of its column above it.
+    const top = Math.max(...col.map((c) => places!.get(c.id)?.top ?? 0));
+    return { room: room - top + (me.top - me.z), stacked, bed };
+  };
+}
+
+/**
+ * Bins from elsewhere (external.ts): only an imported mesh that prints has
+ * anything to check. Gridfit didn't make it, so all it can tell is whether
+ * it's a closed solid and whether it stands steady.
+ */
+function externalChecks(b: PlacedBin, o?: CheckOptions): PrintCheck[] {
+  if (!printsMesh(b)) return [];
+  const x = context(o);
+  const m = b.external!.mesh!;
+  const out: PrintCheck[] = [];
+  if (!m.closed) {
+    out.push({
+      rule: 'mesh-open',
+      severity: 'warn',
+      part: 'Imported mesh',
+      message: 'It isn’t a closed solid (it has holes or flipped faces). It still exports as it is, but the slicer may fill or drop parts of it: let the slicer repair it.',
+    });
+  }
+  const s = meshSize(m);
+  const foot = Math.min(s.w, s.d);
+  const k = s.h / Math.max(1, foot);
+  if (k > CHECK.tip) {
+    const fall = k > CHECK.fall;
+    out.push({
+      rule: 'tip-over',
+      severity: fall ? 'warn' : 'info',
+      part: 'Imported mesh',
+      message: `It's ${x.fmt(Math.round(s.h))} tall on a base ${x.fmt(Math.round(foot))} wide, so it ${fall ? 'will likely tip over' : 'may wobble'} while printing. Add a brim in the slicer.`,
+    });
+  }
+  return sortChecks(out);
 }
 
 // ---------------------------------------------------------------------------
@@ -733,12 +1055,15 @@ export interface FoundCheck extends PrintCheck {
 /** Every check for what is being printed: the setup, then each drawer's baseplate and bins. */
 export function projectChecks(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include'], o?: CheckOptions): FoundCheck[] {
   const opts = { ...o, nozzle: o?.nozzle ?? nozzleOf(setup) };
-  const out: FoundCheck[] = [...setupChecks(setup, { bins: include.bins && drawers.some((d) => d.bins.length) }, opts)];
+  // Gridfit's own bins: bins from elsewhere (external.ts) aren't its walls.
+  const out: FoundCheck[] = [...setupChecks(setup, { bins: include.bins && drawers.some((d) => d.bins.some((b) => !b.external)) }, opts)];
   for (const d of drawers) {
-    if (include.baseplate) out.push(...drawerChecks(d.drawer, d.baseplate, opts).map((c) => ({ ...c, drawerId: d.id })));
+    // Not for a baseplate that's there already ("Just bins"): it isn't printed.
+    if (printsBaseplate(d, include)) out.push(...drawerChecks(d.drawer, d.baseplate, opts).map((c) => ({ ...c, drawerId: d.id })));
     if (!include.bins) continue;
     const layout = computeLayout(d.drawer);
-    for (const b of d.bins) out.push(...placedBinChecks(layout, b, opts).map((c) => ({ ...c, drawerId: d.id, binId: b.id })));
+    const at = placeChecks(d, layout, setup);
+    for (const b of d.bins) out.push(...placedBinChecks(layout, b, { ...opts, ...at(b) }).map((c) => ({ ...c, drawerId: d.id, binId: b.id })));
   }
   return out;
 }

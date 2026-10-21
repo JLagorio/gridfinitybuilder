@@ -18,6 +18,8 @@
  *   is thickened on the inside behind the label to FRONT_LABEL.wall (with a 45°
  *   underside, so it prints without support), except over removable-divider
  *   slots.
+ * - A QR code on the front wall too (qrFront.ts) takes the right-hand end of
+ *   the face; the text keeps to the left of it.
  * - Raised text stands 0.6 mm proud, more than the 0.5 mm between neighbouring
  *   bins: fine on the front row of a drawer or a shelf; planning warns when a
  *   bin sits right in front of it (`frontLabelClashes`).
@@ -33,6 +35,7 @@ import { cutoutSize } from './walls';
 import { planAccessories } from './accessories';
 import { compartmentLabelText, fitText, inlayStyle, type Box, type ExtraLabelParts, type FrontLabelStyle } from './labels';
 import { resolveLayout } from '../dividers';
+import { frontQrReserve } from './qrFront';
 import type { BinOptions } from './bin';
 
 export const FRONT_LABEL = {
@@ -141,6 +144,7 @@ export function planFrontLabel(o: FrontOpts, W: number, D: number, zBottom: numb
     else runs.push({ ...c });
   }
   const segments: FrontSegment[] = [];
+  const qr = frontQrReserve(o, W, D, zBottom);
   runs.forEach((run, i) => {
     if (!run.text) return;
     let x0 = i === 0 ? -xEdge : Math.max(-xEdge, (runs[i - 1].x1 + run.x0) / 2 + F.gap / 2);
@@ -152,6 +156,7 @@ export function planFrontLabel(o: FrontOpts, W: number, D: number, zBottom: numb
       if (left >= right) x1 = notch.x0;
       else x0 = notch.x1;
     }
+    if (qr && qr.z0 < z1 && qr.z1 > z0) x1 = Math.min(x1, qr.x0);
     if (x1 - x0 < F.minWidth) return;
     segments.push({ text: run.text, box: { x0, y0: z0, x1, y1: z1 } });
   });
@@ -249,8 +254,9 @@ export function frontLabelInlay(o: FrontOpts, W: number, D: number, zBottom: num
   return inlayStyle(o.frontLabel) && !!planFrontLabel(o, W, D, zBottom);
 }
 
-/** True when the style stands proud of the front face. */
-export const frontLabelRaised = (o: Pick<FrontOpts, 'frontLabel'>) => o.frontLabel === 'raised' || o.frontLabel === 'two-tone';
+/** True when the style stands proud of the front face: a raised front label, or a raised QR code there (qrFront.ts). */
+export const frontLabelRaised = (o: Pick<FrontOpts, 'frontLabel'> & Partial<Pick<FrontOpts, 'qr' | 'qrStyle'>>) =>
+  o.frontLabel === 'raised' || o.frontLabel === 'two-tone' || (o.qr === 'front' && o.qrStyle === 'raised');
 
 /**
  * Bins whose raised front label would touch a bin right in front of them
@@ -258,7 +264,7 @@ export const frontLabelRaised = (o: Pick<FrontOpts, 'frontLabel'>) => o.frontLab
  * that bin is lower than the label. `labelBottom` gives the lowest the bin's
  * label text goes (null: no front label); `height` a bin's overall height.
  */
-export function frontLabelClashes<B extends { id: string; x: number; y: number; opts: Pick<FrontOpts, 'unitsX' | 'unitsY' | 'frontLabel'> }>(
+export function frontLabelClashes<B extends { id: string; x: number; y: number; opts: Pick<FrontOpts, 'unitsX' | 'unitsY' | 'frontLabel'> & Partial<Pick<FrontOpts, 'qr' | 'qrStyle'>> }>(
   bins: B[],
   labelBottom: (b: B) => number | null,
   height: (b: B) => number,

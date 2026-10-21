@@ -185,6 +185,36 @@ describe('every pocket option builds one closed solid with the right outside siz
 
 /** Area of the 48-sided polygon round pockets are cut with. */
 const area48 = (r: number) => 24 * r * r * Math.sin((2 * Math.PI) / 48);
+
+describe('cartridge blocks build one closed solid with a pocket per round', () => {
+  it.each<{ name: string; id: string; o: Partial<BinOptions>; least: number }>([
+    { name: '.22 LR, 2 × 1 × 6u', id: 'ammo-22lr', o: { unitsX: 2, heightUnits: 6 }, least: 30 },
+    { name: '9mm Luger, 3 × 2 × 6u', id: 'ammo-9mm', o: { unitsX: 3, unitsY: 2, heightUnits: 6 }, least: 60 },
+    { name: '.308 Win, 2 × 2 × 12u', id: 'ammo-308', o: { unitsX: 2, unitsY: 2, heightUnits: 12 }, least: 25 },
+    { name: '12 ga 2¾″, 2 × 2 × 11u', id: 'ammo-12ga', o: { unitsX: 2, unitsY: 2, heightUnits: 11 }, least: 9 },
+    { name: '12 ga 2¾″, one shell in a 1 × 1, flat base', id: 'ammo-12ga', o: { heightUnits: 10, base: 'flat' }, least: 1 },
+  ])('$name', ({ id, o, least }) => {
+    const p = findPocketPreset(id)!;
+    const opts = bin({ ...o, ...preset(id) });
+    const L = layoutOf(opts);
+    expect(L.pockets.length).toBeGreaterThanOrEqual(least);
+    expect(L.depth).toBeCloseTo(p.depth, 6);
+    const mesh = buildBin(w, opts);
+    const c = check(mesh);
+    expect(c.status).toBe('NoError');
+    expect(c.components).toBe(1);
+    const b = meshBounds(mesh);
+    const size = binSize(opts);
+    expect(b.max[0] - b.min[0]).toBeCloseTo(size.w, 3);
+    expect(b.max[1] - b.min[1]).toBeCloseTo(size.d, 3);
+    expect(b.max[2]).toBeCloseTo(binTotalHeight(opts), 3);
+    // Every pocket is cut its full depth (and no more than its chamfered mouth): compared with the same fill without pockets.
+    const solid = check(buildBin(w, bin({ ...o, ...preset(id), pocketW: 199 }))).volume;
+    const removed = solid - c.volume;
+    expect(removed).toBeGreaterThan(L.pockets.length * area48(p.w / 2) * p.depth * 0.999);
+    expect(removed).toBeLessThan(L.pockets.length * area48(p.w / 2 + p.chamfer) * p.depth);
+  });
+});
 const fmt = (v: number) => `${Math.round(v * 100) / 100} mm`;
 const DEG = Math.PI / 180;
 
@@ -265,7 +295,7 @@ describe('mesh keys', () => {
   });
 
   it('pocketFields picks out every pocket option and nothing else', () => {
-    expect(POCKET_KEYS).toHaveLength(19);
+    expect(POCKET_KEYS).toHaveLength(20);
     const f = pocketFields(bin({ pocketTilt: 12 }));
     expect(Object.keys(f).sort()).toEqual([...POCKET_KEYS].sort());
     expect(f.pocketTilt).toBe(12);
@@ -334,7 +364,7 @@ describe('presets', () => {
   it('has unique ids, survives sanitizing, and lists sets smallest first', () => {
     expect(new Set(POCKET_PRESETS.map((p) => p.id)).size).toBe(POCKET_PRESETS.length);
     expect(POCKET_PRESETS.length).toBeGreaterThanOrEqual(55);
-    expect(POCKET_GROUPS).toEqual(['Batteries', 'Memory & cards', 'Bits & drivers', 'Router bits', 'Screws', 'Hobby', 'Coins', 'Graduated sets']);
+    expect(POCKET_GROUPS).toEqual(['Batteries', 'Memory & cards', 'Bits & drivers', 'Router bits', 'Screws', 'Hobby', 'Coins', 'Ammunition', 'Graduated sets']);
     for (const p of POCKET_PRESETS) {
       const f = presetFields(p);
       const s = sanitizePocketFields(f);

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { parseLine, parseList } from '../src/lib/autofill/parse';
 import { matchItem, matchTools, type Holder } from '../src/lib/autofill/match';
-import { cellsFor, fillBin } from '../src/lib/autofill/size';
+import { cellsFor, fillBin, type Proposal, type SizeContext } from '../src/lib/autofill/size';
 import { packBins } from '../src/lib/autofill/pack';
 import { drawerRoom, planFill, plannedBins, propose, sizeContext, type FillContext, type FillPlan } from '../src/lib/autofill';
 import { DEFAULT_BIN, binTotalHeight } from '../src/lib/geometry/bin';
@@ -14,6 +14,8 @@ import { binCellsAt, type PlacedBin } from '../src/lib/project';
 import { fitBinForTools, type Tool } from '../src/lib/tools';
 import { resolveContentLabels } from '../src/lib/geometry/labelContents';
 import { allDrawers, history, projectFile, useStore } from '../src/state/store';
+import { standingGrids, tipLimits } from '../src/lib/geometry/itemHeight';
+import { binChecks } from '../src/lib/printability';
 
 const item = (line: string) => parseLine(line)!;
 const square = (name: string, w: number, d: number): Tool => ({
@@ -331,6 +333,122 @@ describe('sizing a bin', () => {
   it('labels with a short name, or {contents} when the name is the whole line', () => {
     const { proposals } = propose('calipers\n200 M3 screws\nhex keys 1.5–10 mm', ctx, [], false);
     expect(proposals.map((p) => p.label)).toEqual(['{contents}', 'M3 screws', '{contents}']);
+  });
+});
+
+describe('ammunition', () => {
+  const ctx = sizeContext(context({ height: 0 }));
+  const kind = (line: string) => matchItem(item(line), []);
+  const cartridge = (line: string) => {
+    const h = kind(line);
+    return h.kind === 'pockets' ? { preset: h.preset.id, count: h.count, label: h.label, counted: h.counted } : { kind: h.kind };
+  };
+  const filled = (p: Proposal, c: SizeContext = ctx) => fillBin(p, p.size, cellsFor(c, p.size.ux, p.size.uy), c);
+
+  it('reads cartridges and how many, however they are written', () => {
+    expect(cartridge('100 rounds 9mm')).toEqual({ preset: 'ammo-9mm', count: 100, label: '9mm', counted: 'given' });
+    expect(cartridge('9mm x 50')).toMatchObject({ preset: 'ammo-9mm', count: 50 });
+    expect(cartridge('200 .22LR')).toEqual({ preset: 'ammo-22lr', count: 200, label: '.22LR', counted: 'given' });
+    expect(cartridge('20 rounds .308')).toMatchObject({ preset: 'ammo-308', count: 20, label: '.308' });
+    expect(cartridge('box of 5.56')).toEqual({ preset: 'ammo-223', count: 20, label: '5.56', counted: 'box' });
+    expect(cartridge('2 boxes of 9mm')).toMatchObject({ preset: 'ammo-9mm', count: 100, counted: 'box' });
+    expect(cartridge('box of 50 9mm')).toMatchObject({ preset: 'ammo-9mm', count: 50, counted: 'given' });
+    expect(cartridge('brick of 22lr')).toMatchObject({ preset: 'ammo-22lr', count: 500 });
+    expect(cartridge('Federal 9mm 115gr FMJ x 50')).toMatchObject({ preset: 'ammo-9mm', count: 50 });
+    expect(cartridge('9mm 50rds')).toMatchObject({ preset: 'ammo-9mm', count: 50 });
+    expect(cartridge('9x19 x 50')).toMatchObject({ preset: 'ammo-9mm', count: 50 });
+    expect(cartridge('50 .45 ACP')).toMatchObject({ preset: 'ammo-45acp', count: 50 });
+    expect(cartridge('300 blackout x 40')).toMatchObject({ preset: 'ammo-300blk', count: 40 });
+    expect(cartridge('7.62x51 x 20')).toMatchObject({ preset: 'ammo-308' });
+    expect(cartridge('7.62x39 x 100')).toMatchObject({ preset: 'ammo-762x39', count: 100 });
+    expect(cartridge('30-06 x 20')).toMatchObject({ preset: 'ammo-3006', count: 20 });
+    expect(cartridge('22-250 x 20')).toMatchObject({ preset: 'ammo-22-250' });
+    expect(cartridge('357 sig x 50')).toMatchObject({ preset: 'ammo-357sig' });
+    expect(cartridge('.357 magnum x 50')).toMatchObject({ preset: 'ammo-357mag' });
+    // A number up front that's the cartridge isn't how many.
+    expect(item('308 Win x 40').qty).toBe(40);
+    expect(item('223 ammo').qty).toBeNull();
+    expect(cartridge('223 ammo')).toEqual({ preset: 'ammo-223', count: 20, label: '223', counted: 'default' });
+    // No count: a box.
+    expect(cartridge('9mm')).toMatchObject({ preset: 'ammo-9mm', count: 50, counted: 'default' });
+  });
+
+  it('reads shotshells by gauge and length', () => {
+    expect(item('12 gauge shells x 25').qty).toBe(25);
+    expect(cartridge('12 gauge shells x 25')).toEqual({ preset: 'ammo-12ga', count: 25, label: '12 ga 2¾″', counted: 'given' });
+    expect(cartridge('25 12ga 3" shells')).toMatchObject({ preset: 'ammo-12ga-3', count: 25 });
+    expect(cartridge('12ga 3.5 inch x 10')).toMatchObject({ preset: 'ammo-12ga-35', count: 10 });
+    expect(cartridge('2 boxes of 12ga')).toMatchObject({ preset: 'ammo-12ga', count: 50 });
+    expect(cartridge('20 ga x 25')).toMatchObject({ preset: 'ammo-20ga' });
+    expect(cartridge('.410 3 inch x 10')).toMatchObject({ preset: 'ammo-410-3', count: 10 });
+    expect(cartridge('box of .410')).toMatchObject({ preset: 'ammo-410', count: 25 });
+  });
+
+  it('leaves alone what only looks like a caliber', () => {
+    expect(cartridge('9mm socket')).toEqual({ kind: 'set' });
+    expect(cartridge('10mm wrench')).toEqual({ kind: 'objects' });
+    expect(cartridge('12 gauge wire')).toEqual({ kind: 'general' });
+    expect(cartridge('200 M3 screws')).toEqual({ kind: 'loose' });
+    expect(cartridge('12 AA batteries')).toMatchObject({ preset: 'aa' });
+    expect(item('12 AA batteries').qty).toBe(12);
+    // Unless the line says it is ammunition.
+    expect(cartridge('9mm hollow point rounds x 50')).toMatchObject({ preset: 'ammo-9mm', count: 50 });
+  });
+
+  it('sizes a cartridge block for the count, tall enough for a lid over the rounds', () => {
+    const [p] = propose('100 rounds 9mm', ctx, []).proposals;
+    const f = filled(p);
+    expect(f.ok).toBe(true);
+    expect(f.cap).toBeGreaterThanOrEqual(100);
+    expect(f.holds).toBe('100 of 100');
+    expect(f.opts).toMatchObject({ interior: 'pockets', pocketPreset: 'ammo-9mm', pocketItemH: 29.69, heightUnits: 6, labelText: '9mm' });
+    // Other pocket grids from a list carry no height.
+    const [aa] = propose('12 AA batteries', ctx, []).proposals;
+    expect(filled(aa).opts.pocketItemH).toBe(0);
+    expect(f.contents).toBe('100 rounds 9mm');
+    expect(p.cluster).toBe('Ammunition');
+    expect(p.reason).toBe('Cartridge block for 100 rounds of 9mm Luger (9×19), tall enough for a lid over them.');
+    // The rounds clear a lid, so the print checks have nothing to say.
+    const [g] = standingGrids(f.opts);
+    expect(g.top).toBeLessThanOrEqual(tipLimits(f.opts).seat!);
+    expect(binChecks(f.opts).map((c) => c.rule)).not.toContain('item-height');
+    // Every smaller footprint holds fewer.
+    for (let ux = 1; ux <= 4; ux++)
+      for (let uy = 1; uy <= 4; uy++) if (ux * uy < p.size.ux * p.size.uy) expect(fillBin(p, { ux, uy, h: p.size.h }, cellsFor(ctx, ux, uy), ctx).ok).toBe(false);
+    // Rifle rounds need a taller bin; no count gives a box.
+    const [rifle] = propose('20 rounds .308', ctx, []).proposals;
+    expect(rifle.size.h).toBe(12);
+    const [box] = propose('9mm', ctx, []).proposals;
+    expect(filled(box).cap).toBeGreaterThanOrEqual(50);
+    expect(box.reason).toMatch(/No count given: a box\.$/);
+  });
+
+  it('splits a count no printable bin holds into several bins', () => {
+    const parts = propose('1000 rounds 5.56', ctx, []).proposals;
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.part?.of === parts.length && p.label === '5.56')).toBe(true);
+    expect(parts.reduce((t, p) => t + filled(p).cap, 0)).toBeGreaterThanOrEqual(1000);
+    for (const p of parts) expect(bedOvershoot(filled(p).opts, null, ctx.bed)).toBe(0);
+  });
+
+  it('stays within the drawer and the printer: under the rim if a lid won’t fit, else as tall as allowed, and says so', () => {
+    const fits = (h: number) => sizeContext(context({ height: h }));
+    // 9mm under a lid needs 6u (46 mm): a 45 mm drawer takes 5u, under the rim.
+    const rim = fits(45);
+    const [p] = propose('100 rounds 9mm', rim, []).proposals;
+    expect(p.size.h).toBe(5);
+    expect(p.reason).toMatch(/under the rim: the drawer is too low for a lid over them\.$/);
+    expect(binTotalHeight(filled(p, rim).opts)).toBeLessThanOrEqual(rim.room);
+    // .308 stands taller than a 60 mm drawer.
+    const low = fits(60);
+    const [q] = propose('20 rounds .308', low, []).proposals;
+    expect(binTotalHeight(filled(q, low).opts)).toBeLessThanOrEqual(low.room + 1e-6);
+    expect(q.warnings.join(' ')).toMatch(/more than the drawer has room for/);
+    // A short printer.
+    const short = sizeContext(context({ height: 0 }, { setup: { ...DEFAULT_SETUP, maxH: 70 } }));
+    const [r] = propose('20 rounds .30-06', short, []).proposals;
+    expect(binTotalHeight(filled(r, short).opts)).toBeLessThanOrEqual(70);
+    expect(r.warnings.join(' ')).toMatch(/the printer can’t print a bin tall enough/);
   });
 });
 

@@ -3,6 +3,10 @@
  * Gridfinity feet (one per cell, like a bin) and has a lip-style receptacle
  * per cell on top, so another bin stacks on the lid exactly as it would on a
  * bin. After Gridfinity Extended's baseplate lid. Prints feet down, like a bin.
+ *
+ * A QR code (qrCode.ts, `qr: 'lid'`) goes on the floor of one receptacle: the
+ * largest, nearest the middle of the front row. A bin stacked on the lid
+ * stands on that floor, so a raised code is engraved instead.
  */
 import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Wasm } from './kernel';
 import { BASE_PROFILE, BASE_PROFILE_DEPTH, BASE_PROFILE_HEIGHT, BASE_TOP, BASE_TOP_RADIUS, GRID, LIP_HEIGHT, LIP_PROFILE, LIP_TOP_FLAT, LIP_DEPTH } from './spec';
@@ -10,6 +14,9 @@ import { extrudePolygon, loftRoundedRect, roundedRectRing } from './shapes';
 import { binCells, binSize, type BinCells, type BinOptions } from './bin';
 import { binBodyHeight, cellRects } from './variants';
 import { buildPocketLid, isPocketLid, pocketLidHeight, pocketLidKeyPart } from './pocketLid';
+import { QR, emptyQrParts, qrKeyParts, qrSpotIn, sanitizeQrOptions, type QrError, type QrSpot } from './qrCode';
+import { applyQrParts, qrInto, withQrInlay } from './qrSolid';
+import type { QrFit } from '../qr';
 
 /** Solid plate between the top of the feet and the bottom of the receptacles. */
 export const LID_PLATE = 1.25;
@@ -46,10 +53,35 @@ export function lidSize(o: LidOpts, cells?: Partial<BinCells> | null) {
   return { w, d, h: lidHeight(o) };
 }
 
-/** Stable key: stacking lids only depend on the footprint; pocket-grid lids also on their pockets. */
+/** Stable key: stacking lids only depend on the footprint (and a QR code on them); pocket-grid lids also on their pockets. */
 export function lidKey(o: LidOpts, cells?: Partial<BinCells> | null): string {
   const c = binCells(o, cells);
-  return `${c.x.join('/')}x${c.y.join('/')}${isPocketLid(o) ? `|${pocketLidKeyPart(o)}` : ''}`;
+  const qr = isPocketLid(o) ? [] : qrKeyParts(o, 'lid');
+  return `${c.x.join('/')}x${c.y.join('/')}${isPocketLid(o) ? `|${pocketLidKeyPart(o)}` : ''}${qr.length ? `|${qr.join('-')}` : ''}`;
+}
+
+export interface LidQrPlan {
+  spot: QrSpot | null;
+  error?: QrError;
+  fit: QrFit | null;
+  /** Side of the receptacle floor the code may use, mm. */
+  room: number;
+}
+
+/**
+ * Where the bin's QR code goes on its stacking lid (lid-centered, like the
+ * lid's mesh before it is moved to its corner), or null when it goes
+ * elsewhere or the bin has no stacking lid.
+ */
+export function planLidQr(o: LidOpts, cellsIn?: Partial<BinCells> | null): LidQrPlan | null {
+  if (o.qr !== 'lid' || !hasLid({ lid: o.lid ?? false, lip: o.lip ?? true }) || isPocketLid(o)) return null;
+  const q = sanitizeQrOptions(o);
+  const cells = binCells(o, cellsIn);
+  const gap = GRID - BASE_TOP;
+  // The receptacle floor: the cell less the lip's depth all round.
+  const floors = cellRects(cells).map((c) => ({ c, room: Math.min(c.cw, c.cd) - gap - 2 * LIP_DEPTH - 2 * QR.margin }));
+  const best = floors.reduce((b, f) => (f.room > b.room + 1e-6 || (Math.abs(f.room - b.room) < 1e-6 && (Math.abs(f.c.cx) < Math.abs(b.c.cx) - 1e-6 || (Math.abs(Math.abs(f.c.cx) - Math.abs(b.c.cx)) < 1e-6 && f.c.cy < b.c.cy))) ? f : b));
+  return qrSpotIn(q, best.room, best.c.cx, best.c.cy, q.qrStyle === 'raised' ? 'engraved' : q.qrStyle);
 }
 
 /** Build a lid centered on the origin in XY with its bottom at z = 0. */
@@ -91,8 +123,17 @@ export function buildBinLid(w: Wasm, o: LidOpts, cellsIn?: Partial<BinCells> | n
     const plate = s.t(extrudePolygon(w, roundedRectRing(-W / 2, -D / 2, W / 2, D / 2, BASE_TOP_RADIUS), BASE_PROFILE_HEIGHT, LID_HEIGHT));
     solids.push(s.t(plate.subtract(s.t(w.Manifold.union(receptacles)))));
     const lid = s.t(w.Manifold.union(solids));
-    assertValid(lid, 'lid');
-    return toMeshData(lid);
+    // A QR code on a receptacle's floor.
+    const spot = planLidQr(o, cells)?.spot;
+    if (!spot) {
+      assertValid(lid, 'lid');
+      return toMeshData(lid);
+    }
+    const parts = emptyQrParts();
+    qrInto(w, s, spot, LID_FLOOR, parts);
+    const done = applyQrParts(w, s, lid, parts);
+    assertValid(done.body, 'lid');
+    return withQrInlay(toMeshData(done.body), done.inlay);
   } finally {
     s.dispose();
   }

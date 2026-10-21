@@ -20,6 +20,7 @@ import { cleanEnclosure } from '../lib/enclosureOptions';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
+import { cleanExternal, cleanExternalOpts, patchExternalOpts } from '../lib/external';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -55,8 +56,12 @@ export interface DrawerDoc extends NamedDrawer {
   fillList?: string;
 }
 
-/** Which drawers the print tab exports. */
-export type PrintScope = 'active' | 'all' | 'pick';
+/**
+ * Which drawers the print tab exports. 'selected': just the bins selected in
+ * the active drawer (and their lids, inserts, …), without its baseplate. The
+ * selection isn't saved, so neither is 'selected' (it opens as 'active').
+ */
+export type PrintScope = 'active' | 'all' | 'pick' | 'selected';
 
 export interface Store extends ProjectState {
   ui: UIState;
@@ -82,6 +87,13 @@ export interface Store extends ProjectState {
   /** Remove a tool and its pockets from every bin. */
   removeTool(id: string): void;
   setDrawer(p: Partial<DrawerInput>): void;
+  /**
+   * "Just bins" for the active drawer (DrawerInput.haveBaseplate), as one undo
+   * step. Turned on for a drawer with no bins yet that is sized to a drawer,
+   * the size switches to grid units, the natural way to give a baseplate you
+   * have (the drawer size is kept for a switch back).
+   */
+  setHaveBaseplate(on: boolean): void;
   setBaseplate(p: Partial<BaseplateOptions>): void;
   setSetup(p: Partial<PrintSetup>): void;
   setPrinter(id: string): void;
@@ -112,7 +124,8 @@ export interface Store extends ProjectState {
   /** Remember the list typed in "Fill from a list" for the active drawer (not an undo step of its own). */
   setFillList(text: string): void;
   // Drawers
-  addDrawer(name?: string): string;
+  /** A new drawer after the others; `haveBaseplate`: for a baseplate you have ("Just bins", sized in grid units). */
+  addDrawer(name?: string, o?: { haveBaseplate?: boolean }): string;
   duplicateDrawer(id: string): string;
   removeDrawer(id: string): void;
   renameDrawer(id: string, name: string): void;
@@ -126,7 +139,15 @@ export interface Store extends ProjectState {
   /** Go to a bin found by search: switch to its drawer, open the Bins tab and select it (just the drawer without a bin). */
   locateBin(drawerId: string, binId?: string | null): void;
   resetAll(): void;
-  /** Replace the project with one loaded from a saved file. */
+  /**
+   * Start over with one empty drawer, as one undo step. Printers and print settings, templates,
+   * the tool library and the settings for new bins are kept: they belong to the user, not the project.
+   */
+  newProject(): void;
+  /**
+   * Replace the project with one loaded from a saved file. A version 3 file's
+   * `meshes` (imported bins) go in first, through imported/meshStore.ts adoptMeshes.
+   */
   loadProject(data: unknown): void;
   /**
    * Put a divider layout (walls, diagonal walls, per-compartment options) into
@@ -194,6 +215,9 @@ function cleanDrawer(d: Partial<DrawerInput> | undefined): DrawerInput {
   // Half grid: only kept when on, so drawers saved before it existed stay as they were.
   if (out.halfGrid === true) out.halfGrid = true;
   else delete out.halfGrid;
+  // "Just bins" likewise: drawers saved before it existed print their baseplate.
+  if (out.haveBaseplate === true) out.haveBaseplate = true;
+  else delete out.haveBaseplate;
   return cleanEnclosure(out);
 }
 
@@ -204,22 +228,26 @@ function withStretch(b: PlacedBin, stretch: unknown): PlacedBin {
   return st ? { ...rest, stretch: st } : rest;
 }
 
-function cleanBins(bins: unknown): PlacedBin[] {
+/** Bins from a saved file or storage, made valid (also My bins' entries, state/myBins.ts). */
+export function cleanBins(bins: unknown): PlacedBin[] {
   if (!Array.isArray(bins)) return [];
   // Stacked bins keep the bin they stand on, and its footprint (stacking.ts).
-  return cleanStacks(bins.map((b) =>
-    withStretch(
+  return cleanStacks(bins.map((b) => {
+    // Bins from elsewhere (external.ts): footprint and height only, never stretched.
+    const external = cleanExternal(b?.external);
+    return withStretch(
       {
         id: String(b?.id ?? newId()),
         x: Math.round(Number(b?.x) || 0),
         y: Math.round(Number(b?.y) || 0),
-        opts: sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
+        opts: external ? cleanExternalOpts(b?.opts, external) : sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
         ...cleanBinContents(b),
         ...(typeof b?.on === 'string' ? { on: b.on } : {}),
+        ...(external ? { external } : {}),
       },
-      b?.stretch,
-    ),
-  ));
+      external ? undefined : b?.stretch,
+    );
+  }));
 }
 
 /** Patches that can change a bin's compartments (and so where per-compartment contents belong). */
@@ -248,10 +276,19 @@ export function activeDrawer(s: Store): DrawerDoc {
   return allDrawers(s).find((d) => d.id === s.activeDrawerId) ?? allDrawers(s)[0];
 }
 
-/** The drawers the print tab should export, in workspace order. */
+/**
+ * The drawers the print tab should export, in workspace order. With the
+ * 'selected' scope, the active drawer with just its selected bins, planned
+ * like a bins-only drawer (haveBaseplate) so no baseplate prints.
+ */
 export function printDrawers(s: Store): DrawerDoc[] {
   const all = allDrawers(s);
   if (s.printScope === 'all') return all;
+  if (s.printScope === 'selected') {
+    const doc = all.find((d) => d.id === s.activeDrawerId) ?? all[0];
+    const ids = new Set(selectedIds(s.ui));
+    return [{ ...doc, drawer: { ...doc.drawer, haveBaseplate: true }, bins: doc.bins.filter((b) => ids.has(b.id)) }];
+  }
   if (s.printScope === 'pick') {
     const picked = all.filter((d) => s.printPick.includes(d.id));
     if (picked.length) return picked;
@@ -269,6 +306,9 @@ function synced(s: Store): DrawerDoc[] {
   return allDrawers(s);
 }
 
+/** The print scope as saved: the bin selection isn't, so 'selected' opens as 'active'. */
+const savedScope = (p: PrintScope): PrintScope => (p === 'selected' ? 'active' : p);
+
 /** What autosave keeps. Undo/redo covers the same keys, minus `ui` (see `history` below). */
 function persisted(s: Store) {
   return {
@@ -280,7 +320,7 @@ function persisted(s: Store) {
     newBin: s.newBin,
     drawers: allDrawers(s),
     activeDrawerId: s.activeDrawerId,
-    printScope: s.printScope,
+    printScope: savedScope(s.printScope),
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,
@@ -310,6 +350,16 @@ export const useStore = create<Store>()(
       templates: [],
       tools: [],
       setDrawer: (p) => set((s) => ({ drawer: { ...s.drawer, ...p } })),
+      setHaveBaseplate: (on) => {
+        const s = get();
+        if (!!s.drawer.haveBaseplate === on) return;
+        const { haveBaseplate: _, ...rest } = s.drawer;
+        // Nothing drawn yet: a baseplate you have is easiest given by its cells.
+        const grid = on && !s.bins.length && s.drawer.mode === 'drawer' ? { mode: 'grid' as const } : {};
+        history.checkpoint();
+        set({ drawer: on ? { ...rest, ...grid, haveBaseplate: true } : rest });
+        history.checkpoint();
+      },
       setBaseplate: (p) => set((s) => ({ baseplate: { ...s.baseplate, ...p } })),
       setSetup: (p) => set((s) => ({ setup: { ...s.setup, ...p } })),
       setPrinter: (id) => {
@@ -356,9 +406,10 @@ export const useStore = create<Store>()(
               ...b,
               x: patch.x ?? b.x,
               y: patch.y ?? b.y,
-              opts: patch.opts ? sanitizeBin({ ...b.opts, ...patch.opts }) : b.opts,
+              // A bin from elsewhere only takes its footprint, height and stackable (external.ts).
+              opts: patch.opts ? (b.external ? patchExternalOpts(b, patch.opts) : sanitizeBin({ ...b.opts, ...patch.opts })) : b.opts,
             };
-            const stretched = patch.stretch !== undefined ? withStretch(next, patch.stretch) : next;
+            const stretched = patch.stretch !== undefined && !b.external ? withStretch(next, patch.stretch) : next;
             // Per-compartment contents follow their compartments when the walls change.
             const walls = b.compContents && patch.opts && WALL_KEYS.some((k) => k in patch.opts!);
             const out = walls ? carryContents({ ...stretched, opts: b.opts }, stretched.opts) : stretched;
@@ -391,7 +442,7 @@ export const useStore = create<Store>()(
             const r = { x: i, y: j, w: src.opts.unitsX, d: src.opts.unitsY };
             if (canPlace(withBlocked(s.bins, mask), r, nx, ny)) {
               const nid = newId();
-              set({ bins: [...s.bins, { id: nid, x: i, y: j, opts: { ...src.opts } }], ui: { ...s.ui, selectedBinId: nid } });
+              set({ bins: [...s.bins, { id: nid, x: i, y: j, opts: { ...src.opts }, ...(src.external ? { external: structuredClone(src.external) } : {}) }], ui: { ...s.ui, selectedBinId: nid } });
               return nid;
             }
           }
@@ -456,7 +507,7 @@ export const useStore = create<Store>()(
         history.silently(() => set({ drawers: s.drawers.map((d) => (d.id === s.activeDrawerId ? next(d) : d)) }));
       },
 
-      addDrawer: (name) => {
+      addDrawer: (name, o = {}) => {
         const s = get();
         const id = newId();
         const docs = synced(s);
@@ -470,6 +521,8 @@ export const useStore = create<Store>()(
             clearance: s.drawer.clearance,
             fill: s.drawer.fill,
             ...(s.drawer.halfGrid ? { halfGrid: true } : {}),
+            // For a baseplate you have: given by its cells, and nothing of it prints.
+            ...(o.haveBaseplate ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
           },
           baseplate: { ...s.baseplate },
           bins: [],
@@ -610,7 +663,8 @@ export const useStore = create<Store>()(
           if (!ids) return doc.bins;
           const grid = computeLayout(doc.drawer);
           return doc.bins.map((b) => {
-            if (!ids.has(b.id)) return b;
+            // Bins from elsewhere (lib/external.ts) have no walls of Gridfit's.
+            if (!ids.has(b.id) || b.external) return b;
             let patch: Partial<BinOptions> = { divX: src.divX, divY: src.divY, layout: null };
             if (src.layout) {
               const fit = fitLayout(src.layout, binInnerSize(b.opts, binCellsAt(grid, b)));
@@ -632,6 +686,12 @@ export const useStore = create<Store>()(
       },
 
       resetAll: () => set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, ui: { ...DEFAULT_UI, units: get().ui.units }, newBin: DEFAULT_BIN }),
+      newProject: () => {
+        const s = get();
+        history.checkpoint();
+        set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, setup: s.setup, ui: { ...DEFAULT_UI, units: s.ui.units } });
+        history.checkpoint();
+      },
       loadProject: (data) => {
         const p = (data ?? {}) as Partial<Store> & { app?: string };
         if (typeof p !== 'object' || (p.app !== undefined && p.app !== 'gridfit')) throw new Error('Not a Gridfit project file.');
@@ -701,16 +761,21 @@ export const useStore = create<Store>()(
   ),
 );
 
-/** Contents of a saved .gridfit.json file. */
+/**
+ * Contents of a saved .gridfit.json file. Version 3: bins may be from
+ * elsewhere (`external`, external.ts), and a saved file adds the bytes of their
+ * meshes as `meshes` (imported/meshStore.ts projectWithMeshes); 1 and 2 load as
+ * before.
+ */
 export function projectFile(s: Store) {
   return {
     app: 'gridfit',
-    version: 2,
+    version: 3,
     ...projectOf(s),
     newBin: s.newBin,
     drawers: allDrawers(s),
     activeDrawerId: s.activeDrawerId,
-    printScope: s.printScope,
+    printScope: savedScope(s.printScope),
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,

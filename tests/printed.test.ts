@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_BIN, type BinOptions } from '../src/lib/geometry/bin';
+import { DEFAULT_BIN, binLayout, sanitizeBin, type BinOptions } from '../src/lib/geometry/bin';
+import { findPocketPreset, presetFields } from '../src/lib/geometry/pocketPresets';
+import { setCompartmentOptions, uniformLayout } from '../src/lib/dividers';
 import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput } from '../src/lib/layout/drawer';
 import { DEFAULT_SETUP } from '../src/lib/layout/plan';
@@ -94,6 +96,41 @@ describe('marking plates as printed', () => {
     const moved = bins.map((b) => (b.id === 'a' ? { ...b, x: 6, y: 4 } : b.id === 'd' ? { ...b, opts: { ...b.opts, heightUnits: 5 } } : b));
     const marks = binPrintMarks(asDrawer(planJob({ ...DEFAULT_PROJECT, drawer: grid(8, 6), bins: [...moved, bin('n', 0, 5, 1, 1)] }), 'd1'), rec);
     expect(marks).toEqual({ a: 'printed', b: 'printed', c: 'printed', d: 'changed' });
+  });
+});
+
+describe('item heights', () => {
+  it('never make a printed part look changed: they are not geometry', () => {
+    const nine = presetFields(findPocketPreset('ammo-9mm')!);
+    const split = uniformLayout(2, 1);
+    const key = binLayout(sanitizeBin({ ...DEFAULT_BIN, unitsX: 3, unitsY: 2, layout: split })).compartments[0].key;
+    const comps = (h?: number) => setCompartmentOptions(split, key, { inside: 'pockets', pockets: { ...nine, ...(h === undefined ? {} : { pocketItemH: h }) } });
+    const bins = [
+      bin('p', 0, 0, 2, 2, { interior: 'pockets', ...nine, heightUnits: 6 }),
+      bin('c', 2, 0, 3, 2, { heightUnits: 6, layout: comps() }),
+      bin('l', 5, 0, 2, 2, { heightUnits: 4, lid: true, lidStyle: 'pockets', lidPockets: nine }),
+    ];
+    // The bin's own field, a compartment's and a pocket-grid lid's.
+    const withH = (b: PlacedBin, h: number): PlacedBin =>
+      b.id === 'p'
+        ? { ...b, opts: { ...b.opts, pocketItemH: h } }
+        : b.id === 'c'
+          ? { ...b, opts: { ...b.opts, pocketItemH: h, layout: comps(h) } }
+          : { ...b, opts: { ...b.opts, pocketItemH: h, lidPockets: { ...nine, pocketItemH: h } } };
+    const job = plan(bins);
+    const rec = markPrinted(NO_PRINTS, job, all(job));
+    for (const h of [-1, 0, 40, 123.45]) {
+      const changed = bins.map((b) => withH(b, h));
+      for (const [i, b] of changed.entries()) {
+        expect(binSpec(layout, b).key, `${b.id} ${h}`).toBe(binSpec(layout, bins[i]).key);
+        if (b.opts.lid) expect(lidSpec(layout, b).key, `${b.id} lid ${h}`).toBe(lidSpec(layout, bins[i]).key);
+      }
+      const marks = binPrintMarks(asDrawer(planJob({ ...DEFAULT_PROJECT, drawer: grid(8, 6), bins: changed }), 'd1'), rec);
+      expect(marks).toEqual({ p: 'printed', c: 'printed', l: 'printed' });
+    }
+    // A change to the pockets still shows.
+    const wider = bins.map((b) => (b.id === 'p' ? { ...b, opts: { ...b.opts, pocketSpacing: 2.5 } } : b));
+    expect(binPrintMarks(asDrawer(planJob({ ...DEFAULT_PROJECT, drawer: grid(8, 6), bins: wider }), 'd1'), rec).p).toBe('changed');
   });
 });
 

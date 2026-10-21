@@ -6,6 +6,7 @@ import { jobPrinters } from '../layout/fleet';
 import { findPrinter } from '../printers';
 import { changesText, meshBodySlots, plateChanges, prusaLayerChanges, slotColours } from './colourExport';
 import { slotLabel, type ColourSetupFields } from '../colours';
+import { spiralNotes } from './spiralNotes';
 
 /** 3MF affine transform: m00 m01 m02 m10 m11 m12 m20 m21 m22 tx ty tz (row-vector convention). */
 export type Mat12 = [number, number, number, number, number, number, number, number, number, number, number, number];
@@ -295,13 +296,15 @@ function readme(job: PrintJob, setup: PrintSetup) {
     ...job.drawers.map(
       (d) =>
         `${d.name ? `${d.name}: ` : ''}baseplate ${round(d.layout.plateW)} × ${round(d.layout.plateD)} mm, ` +
-        `${d.layout.nx} × ${d.layout.ny} cells, ${d.plan.pieces.length} pieces`,
+        `${d.layout.nx} × ${d.layout.ny} cells, ${d.haveBaseplate ? 'not printed (you have it): just bins' : `${d.plan.pieces.length} pieces`}`,
     ),
     '',
     'Each .3mf file is one print plate with parts already arranged.',
-    'Baseplate pieces are numbered; see the assembly map for where each one goes.',
+    ...(job.drawers.some((d) => !d.haveBaseplate) ? ['Baseplate pieces are numbered; see the assembly map for where each one goes.'] : []),
     ...(keys ? ['', ...connectorSteps(keys)] : []),
     ...job.drawers.flatMap((d) => (d.steps.length ? ['', ...(job.drawers.length > 1 ? [`${d.name}:`] : []), ...d.steps] : [])),
+    // Vase-mode bins need the slicer set up for them (layout/spiral.ts).
+    ...(spiralNotes(job).length ? ['', ...spiralNotes(job)] : []),
     '',
     ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}${on(pl)}): ${plateContents(job, pl).join(', ')}`),
     ...colourNotes(job),

@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
-import { history, printDrawers, useStore, useUnits } from '../state/store';
+import { history, printDrawers, selectedIds, useStore, useUnits } from '../state/store';
 import { Section, Segmented } from './fields';
 import { useLabelFont } from './labelFont';
 import { geometry } from '../worker/client';
 import { formatLength } from '../lib/units';
 import { DEFAULT_NOZZLE, NOZZLES } from '../lib/layout/plan';
-import { nozzleOf, placedBinChecks, projectChecks, worstSeverity, type CheckFix, type CheckSeverity, type FoundCheck, type PrintCheck } from '../lib/printability';
+import { nozzleOf, placeChecks, placedBinChecks, projectChecks, worstSeverity, type CheckFix, type CheckSeverity, type FoundCheck, type PrintCheck } from '../lib/printability';
 import type { GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin, PrintJob } from '../lib/project';
 import './printChecks.css';
@@ -60,14 +60,24 @@ function CheckItem({ check, at }: { check: PrintCheck; at: FixTarget }) {
   );
 }
 
+/** Where the active drawer's bins stand (room, stacking, printers), for checks about their height. */
+function usePlaceChecks(layout: GridLayout) {
+  const drawer = useStore((s) => s.drawer);
+  const baseplate = useStore((s) => s.baseplate);
+  const bins = useStore((s) => s.bins);
+  const setup = useStore((s) => s.setup);
+  return useMemo(() => placeChecks({ drawer, baseplate, bins }, layout, setup), [drawer, baseplate, bins, layout, setup]);
+}
+
 /** The selected bin's print checks, with their fixes. Nothing when there are none. */
 export function BinChecksNotice({ bin, layout }: { bin: PlacedBin; layout: GridLayout }) {
   const font = useLabelFont();
   const fmt = useCheckFmt();
   const nozzle = useStore((s) => nozzleOf(s.setup));
   const drawerId = useStore((s) => s.activeDrawerId);
+  const at = usePlaceChecks(layout);
   // `font`: text checks only run once the label font is in.
-  const checks = useMemo(() => placedBinChecks(layout, bin, { nozzle, fmt }), [layout, bin, nozzle, fmt, font]);
+  const checks = useMemo(() => placedBinChecks(layout, bin, { nozzle, fmt, ...at(bin) }), [layout, bin, nozzle, fmt, font, at]);
   if (!checks.length) return null;
   const warns = checks.filter((c) => c.severity === 'warn').length;
   const tips = checks.length - warns;
@@ -97,15 +107,16 @@ export function useBinCheckMarks(layout: GridLayout, bins: PlacedBin[]): Readonl
   const firstView = useSyncExternalStore((cb) => geometry.subscribe(cb), () => geometry.firstViewIn);
   const font = useLabelFont(firstView && bins.length > 0);
   const nozzle = useStore((s) => nozzleOf(s.setup));
+  const at = usePlaceChecks(layout);
   return useMemo(() => {
     const out = new Map<string, CheckSeverity>();
     for (const b of bins) {
-      const worst = worstSeverity(placedBinChecks(layout, b, { nozzle }));
+      const worst = worstSeverity(placedBinChecks(layout, b, { nozzle, ...at(b) }));
       if (worst) out.set(b.id, worst);
     }
     return out;
     // `font`: text checks only run once the label font is in.
-  }, [layout, bins, nozzle, font]);
+  }, [layout, bins, nozzle, font, at]);
 }
 
 /** Nozzle size, next to the printer. The print checks measure lines and fits against it. */
@@ -144,10 +155,12 @@ export function PrintChecksSection({ job, extra = [] }: { job: PrintJob; extra?:
   const store = useStore();
   const [all, setAll] = useState(false);
   const { setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick } = store;
+  // Printing the selected bins: the checks follow the selection.
+  const selection = printScope === 'selected' ? selectedIds(store.ui).join() : '';
   const own = useMemo(
     () => projectChecks(printDrawers(store), setup, include, { fmt }),
     // `store` changes on every edit; these are what the checks read (and `font`: text checks wait for it).
-    [setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick, fmt, font],
+    [setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick, selection, fmt, font],
   );
   // Checks found elsewhere (multi-colour: colourChecks.ts) go first: they're about every plate.
   const checks = useMemo(() => [...extra, ...own], [extra, own]);

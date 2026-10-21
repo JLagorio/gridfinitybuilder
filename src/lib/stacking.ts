@@ -273,6 +273,8 @@ export function tallestStack(bins: readonly { opts: BinOptions; id?: string; on?
 /** Why a bin can't take a bin on top, in a short sentence about "it" (null when it can). */
 export function stackProblem(layout: GridLayout, b: PlacedBin, wall = false): string | null {
   if (wall) return 'Bins on a wall grid don’t stack.';
+  // Bins from elsewhere (external.ts): a flat top unless marked stackable.
+  if (b.external) return b.opts.lip ? null : 'Its top is flat: if it has a stacking lip, mark it stackable.';
   const c = activeContainer(b.opts);
   if (c) {
     if (c.def.kind === 'drawers') return (c.opts as DrawerUnitOptions).top === 'flat' ? 'Its flat top can’t hold a bin: give it a stacking lip or bin sockets on top.' : null;
@@ -288,6 +290,9 @@ export function stackProblem(layout: GridLayout, b: PlacedBin, wall = false): st
 
 const round = (v: number) => Math.round(v * 100) / 100;
 
+/** "Bin 2×1×3u", or a bin from elsewhere by its name. */
+const binName = (layout: GridLayout, b: PlacedBin) => (b.external?.name ? `“${b.external.name}”` : `Bin ${binLabel(b.opts, binCellsAt(layout, b))}`);
+
 /** Planning warnings: stacks on bins that can't hold them, and stacks taller than the room above the baseplate floor. */
 export function stackWarnings(layout: GridLayout, bins: readonly PlacedBin[], room: number, wall = false): string[] {
   const out: string[] = [];
@@ -296,13 +301,13 @@ export function stackWarnings(layout: GridLayout, bins: readonly PlacedBin[], ro
     if (col.length < 2) continue;
     for (const b of col.slice(0, -1)) {
       const why = stackProblem(layout, b, wall);
-      if (why) out.push(`Bin ${binLabel(b.opts, binCellsAt(layout, b))} can’t hold the bin stacked on it. ${why}`);
+      if (why) out.push(`${binName(layout, b)} can’t hold the bin stacked on it. ${why}`);
     }
     const top = places.get(col[col.length - 1].id)!.top;
     // Bins too tall on their own already have a warning (project.ts).
     const alone = col.every((b) => places.get(b.id)!.top - places.get(b.id)!.z <= room + EPS);
     if (top > room + EPS && alone) {
-      out.push(`The stack on bin ${binLabel(col[0].opts, binCellsAt(layout, col[0]))} is ${round(top)} mm tall, taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+      out.push(`The stack on ${binName(layout, col[0]).replace(/^Bin/, 'bin')} is ${round(top)} mm tall, taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
     }
   }
   return out;

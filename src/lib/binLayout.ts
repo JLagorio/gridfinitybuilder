@@ -33,6 +33,8 @@ export interface ClipBin {
   compContents?: Record<string, string>;
   /** Stacked on another copied bin: its index in the clip (stacking.ts). */
   on?: number;
+  /** A bin from elsewhere (external.ts): copies show the same box or mesh. */
+  external?: PlacedBin['external'];
 }
 
 export function toClip(bins: PlacedBin[]): ClipBin[] {
@@ -44,6 +46,7 @@ export function toClip(bins: PlacedBin[]): ClipBin[] {
     opts: structuredClone(b.opts),
     ...(b.contents ? { contents: b.contents } : {}),
     ...(b.compContents ? { compContents: { ...b.compContents } } : {}),
+    ...(b.external ? { external: structuredClone(b.external) } : {}),
     // A bin stacked on a bin that isn't copied lands on the floor.
     ...(b.on && index.has(b.on) ? { on: index.get(b.on) } : {}),
   }));

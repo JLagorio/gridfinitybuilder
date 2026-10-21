@@ -9,6 +9,8 @@ import { LIP_SUPPORT_HEIGHT } from '../src/lib/geometry/spec';
 import { binSeatHeight } from '../src/lib/geometry/baseplate';
 import { computeLayout } from '../src/lib/layout/drawer';
 import { placedOvershoot, usableBeds } from '../src/lib/bedfit';
+import { standingGrids, tipLimits } from '../src/lib/geometry/itemHeight';
+import { binChecks } from '../src/lib/printability';
 
 const s = () => useStore.getState();
 const opts = (id: string) => s().bins.find((b) => b.id === id)!.opts;
@@ -21,7 +23,7 @@ beforeEach(() => {
 
 describe('bin presets', () => {
   it('has the starting points the panel offers, each with a name and a hint', () => {
-    expect(BIN_PRESETS.map((p) => p.id)).toEqual(['small-parts', 'batteries', 'deep', 'tool-tray', 'label-all']);
+    expect(BIN_PRESETS.map((p) => p.id)).toEqual(['small-parts', 'batteries', 'ammo', 'deep', 'tool-tray', 'label-all']);
     for (const p of BIN_PRESETS) {
       expect(p.name.trim()).not.toBe('');
       expect(p.hint).toMatch(/\.$/);
@@ -46,6 +48,34 @@ describe('bin presets', () => {
     expect(L.depth).toBeGreaterThanOrEqual(o.pocketDepth - 0.01);
     // Never lower than the bin was.
     expect(applyPreset(preset('batteries'), { ...DEFAULT_BIN, heightUnits: 8 }).heightUnits).toBe(8);
+  });
+
+  it('ammo: a 9mm cartridge block, tall enough for a lid over the rounds', () => {
+    const o = applyPreset(preset('ammo'), { ...DEFAULT_BIN, unitsX: 3, unitsY: 2 });
+    expect(o).toMatchObject({ interior: 'pockets', pocketPreset: 'ammo-9mm', pocketItemH: 29.69, heightMode: 'units', heightUnits: 6, unitsX: 3, unitsY: 2 });
+    // Batteries afterwards: AA pockets carry no height.
+    expect(applyPreset(preset('batteries'), o).pocketItemH).toBe(0);
+    const { w, d } = binSize(o);
+    const body = binBodyHeight(o);
+    // As many as the hint says.
+    expect(pocketLayout(o, w, d, binFloorZ(o), body - LIP_SUPPORT_HEIGHT).centers).toHaveLength(67);
+    expect(preset('ammo').hint).toContain('a 3 × 2 bin holds 67');
+    const [g] = standingGrids(o);
+    expect(g.top).toBeLessThanOrEqual(tipLimits(o).seat!);
+    // Nothing to fix, with or without a lid.
+    expect(binChecks(o)).toEqual([]);
+    expect(binChecks({ ...o, lid: true })).toEqual([]);
+    // A flat base sits the rounds lower; without a lip only the rim counts; never lower than the bin was.
+    expect(applyPreset(preset('ammo'), { ...DEFAULT_BIN, base: 'flat' }).heightUnits).toBe(5);
+    expect(applyPreset(preset('ammo'), { ...DEFAULT_BIN, lip: false }).heightUnits).toBe(6);
+    expect(applyPreset(preset('ammo'), { ...DEFAULT_BIN, heightUnits: 9 }).heightUnits).toBe(9);
+    // A low drawer caps it: in 40 mm the tips still sit inside the lip; in 33 mm they stick out, and the print check says so.
+    const lip = applyPreset(preset('ammo'), DEFAULT_BIN, { mm: 40 });
+    expect(lip.heightUnits).toBe(5);
+    expect(binChecks(lip, null, { room: 40 })).toEqual([]);
+    const low = applyPreset(preset('ammo'), DEFAULT_BIN, { mm: 33 });
+    expect(binTotalHeight(low)).toBeLessThanOrEqual(33);
+    expect(binChecks(low, null, { room: 33 }).find((c) => c.rule === 'item-height')).toMatchObject({ severity: 'warn' });
   });
 
   it('deep bin: one tall compartment, no taller than the drawer allows', () => {

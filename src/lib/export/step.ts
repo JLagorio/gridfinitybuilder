@@ -818,26 +818,56 @@ export interface StepAssembly {
 /** B-reps are worth keeping between files of one export (the same bin on several plates). */
 export type BodyCache = Map<string, StepBody[]>;
 
-/** Placed parts as one assembly; parts with the same mesh share one product. */
+/**
+ * Imported bins (external.ts) go in like Gridfit's own meshes, as faceted
+ * solids, when they're closed; an open mesh can't be a STEP solid, so it's
+ * left out (as is one the B-rep conversion can't close after all). The 3MF,
+ * Bambu and STL exports have them all.
+ */
+export const isImportedKey = (meshKey: string) => meshKey.startsWith('imported|');
+
+/** True for an imported mesh STEP leaves out (not a closed solid). */
+export function stepSkips(job: Pick<PrintJob, 'meshes'>, meshKey: string): boolean {
+  const spec = job.meshes[meshKey];
+  return spec?.kind === 'imported' && !!spec.open;
+}
+
+/** Multi-colour: an item's body colours (none for an imported mesh that isn't there). */
+function itemColours(cs: ColourSetupFields, it: StepItem, getMesh: MeshLookup): string[] | undefined {
+  try {
+    return meshBodyColours(cs, it.part, getMesh(it.meshKey));
+  } catch (e) {
+    if (!isImportedKey(it.meshKey)) throw e;
+    return undefined;
+  }
+}
+
+/** Placed parts as one assembly; parts with the same mesh (and colours) share one product. */
 export function assemblySTEP(asm: StepAssembly, getMesh: MeshLookup, cache: BodyCache = new Map()): string {
   const parts: StepPart[] = [];
   const index = new Map<string, number>();
-  const instances: StepInstance[] = asm.items.map((it) => {
+  const instances: StepInstance[] = asm.items.flatMap((it) => {
     // Parts share a product when they share the mesh and its colours.
-    const colours = asm.colours ? meshBodyColours(asm.colours, it.part, getMesh(it.meshKey)) : undefined;
+    const colours = asm.colours ? itemColours(asm.colours, it, getMesh) : undefined;
     const key = colours ? `${it.meshKey}|${colours.join()}` : it.meshKey;
     let i = index.get(key);
     if (i === undefined) {
       let bodies = cache.get(it.meshKey);
       if (!bodies) {
-        bodies = meshBodies(it.name, getMesh(it.meshKey));
+        try {
+          bodies = meshBodies(it.name, getMesh(it.meshKey));
+        } catch (e) {
+          if (!isImportedKey(it.meshKey)) throw e;
+          bodies = [];
+        }
         cache.set(it.meshKey, bodies);
       }
+      if (!bodies.length || bodies.every((b) => !b.shells.length)) return [];
       i = parts.length;
       parts.push({ name: it.name, bodies: colours ? bodies.map((b, k) => ({ ...b, colour: colours[k] })) : bodies });
       index.set(key, i);
     }
-    return { part: i, name: it.name, transform: it.transform };
+    return [{ part: i, name: it.name, transform: it.transform }];
   });
   return writeStep({ name: asm.name, parts, instances, fileName: `${slug(asm.name)}.step` });
 }
@@ -852,10 +882,12 @@ export function plateAssembly(job: PrintJob, plateIndex: number): StepAssembly {
   const pl = job.plates[plateIndex];
   return {
     name: pl.name,
-    items: pl.placements.map((p) => {
-      const part = job.parts[p.key];
-      return { name: part.name, meshKey: part.meshKey, transform: placeTransform(p.x, p.y, p.rotated, part.d), ...partColour(job, part) };
-    }),
+    items: pl.placements
+      .filter((p) => !stepSkips(job, job.parts[p.key].meshKey))
+      .map((p) => {
+        const part = job.parts[p.key];
+        return { name: part.name, meshKey: part.meshKey, transform: placeTransform(p.x, p.y, p.rotated, part.d), ...partColour(job, part) };
+      }),
     ...(job.colours ? { colours: job.colours } : {}),
   };
 }
@@ -904,7 +936,8 @@ const partColour = (job: PrintJob, part: JobPart): Pick<StepItem, 'part'> =>
  * Each drawer of a job as it goes together: baseplate pieces in place, bins
  * seated on it with their lids, trays, sliding lids, container parts and
  * label plates where the drawer view shows them. Connector keys and loose
- * divider plates are left out (they're on the print plates).
+ * divider plates are left out (they're on the print plates), and so is a
+ * baseplate that's there already ("Just bins"): its bins sit where they would on it.
  */
 export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): StepAssembly[] {
   const multi = job.drawers.length > 1;
@@ -914,9 +947,9 @@ export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): Step
     const items: StepItem[] = [];
     const add = (key: string, x: number, y: number, z: number) => {
       const part = job.parts[key];
-      if (part) items.push({ name: part.name, meshKey: part.meshKey, transform: translate(x, y, z), ...partColour(job, part) });
+      if (part && !stepSkips(job, part.meshKey)) items.push({ name: part.name, meshKey: part.meshKey, transform: translate(x, y, z), ...partColour(job, part) });
     };
-    for (const p of dj.plan.pieces) add(`${prefix}piece:${p.id}`, p.x0, p.y0, 0);
+    if (!dj.haveBaseplate) for (const p of dj.plan.pieces) add(`${prefix}piece:${p.id}`, p.x0, p.y0, 0);
     if (doc) {
       const seat = binSeatHeight(doc.baseplate);
       // Stacked bins stand on the bin below (stacking.ts).

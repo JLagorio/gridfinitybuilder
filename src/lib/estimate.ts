@@ -3,6 +3,7 @@ import { meshVolume } from './geometry/volume';
 import { DEFAULT_MOTION, findPrinter, type PrinterMotion } from './printers';
 import type { PrintSetup } from './layout/plan';
 import type { JobPart, MeshSpec, PrintJob } from './project';
+import type { SpiralPrint } from './geometry/containers/vase';
 import {
   bandSlot,
   luminance,
@@ -42,6 +43,16 @@ import { bodySlots, partProfile } from './colourPlan';
  *   1.20, 4×4 with magnets 0.82, 3×3 weighted 0.92, a plate of 12 bins 1.05,
  *   a mixed plate with label plates 1.06. Bambu Studio slices a little
  *   differently, so expect ±25 % against it.
+ *
+ * Vase-mode bins (geometry/containers/vase.ts) print differently: their bottom
+ * layers are all solid with one wall per edge (the hollow feet are drawn as
+ * they print), then one line of the bin's wall width along the outline per
+ * layer, at outer-wall speed, with no travel and no layer change. A plate of
+ * them prints one bin after another ("by object"), so each bin's layers wait
+ * for the minimum layer time on their own: a small bin's spiral is mostly
+ * that wait. Against PrusaSlicer set up the same way in spiral vase mode
+ * (30 bottom layers, a 0.6 mm wall line), model / slicer: 1x1x3u 0.96
+ * (9.4 min), 2x2x6u 1.01; filament 1.03 and 1.03 (4.4 g and 19.4 g).
  *
  * The volume those lines lay down (`PlateEstimate.extruded`) is the BOM's
  * filament once a plate is sliced. Grams of PLA, model ÷ slicer:
@@ -482,6 +493,8 @@ export interface EstimatePart {
   d: number;
   /** Its colours; unset: the main body in filament 1, overlays in filament 2. */
   colour?: PartColours;
+  /** A vase-mode bin: printed in spiral vase mode. */
+  spiral?: SpiralPrint;
 }
 
 /** How a plate's colours change. */
@@ -518,8 +531,138 @@ function layerSlots(p: EstimatePart, k: number, z: number, into: Map<number, num
   if (second > 1e-9) into.set(2, (into.get(2) ?? 0) + second / A);
 }
 
+
+/**
+ * One layer of a vase-mode bin: below the spiral's start a solid layer with one
+ * wall per edge, above it one turn of the spiral (`sp.path`: the outline and
+ * both sides of every slit).
+ */
+function spiralLayer(s: MeshPrintStats, k: number, sp: SpiralPrint, mo: Motion, wall: { v: number; a: number }, footprint: number, into: TimeBreakdown) {
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const h = P.layerHeight;
+  const A = s.area[k];
+  const perim = s.perimeter[k];
+  if (A <= 0 || perim <= 0) return { seconds: 0, volume: 0 };
+  const t0 = into.walls + into.skin + into.travel;
+  if ((k + 0.5) * h > sp.start) {
+    into.walls += moveTime(sp.path, sp.path / M.wallStops, wall.v, wall.a);
+    return { seconds: into.walls + into.skin + into.travel - t0, volume: sp.path * sp.line * h };
+  }
+  const corner = perim / Math.max(1, s.contours[k] * M.wallStops);
+  const first = k === 0;
+  const w = first ? P.width.first : sp.line;
+  const wallArea = Math.min(A, perim * w);
+  const inside = A - wallArea;
+  const line = Math.max(1, (Math.PI * Math.max(inside, 0)) / perim);
+  const lineMove = first ? mo.firstWall : wall;
+  const fill = first ? mo.firstInfill : mo.solid;
+  into.walls += moveTime(wallArea / w, corner, lineMove.v, lineMove.a);
+  into.skin += moveTime((inside * M.skinLength) / P.width.solid, line, fill.v, fill.a, P.width.solid);
+  const hop = Math.sqrt(Math.max(footprint, 1));
+  into.travel += Math.max(1, s.islands[k]) * (M.island + moveTime(hop, hop, mo.travel.v, mo.travel.a)) + s.contours[k] * M.contour + M.layer;
+  return { seconds: into.walls + into.skin + into.travel - t0, volume: A * h };
+}
+
+/**
+ * Filament swaps through a sequence of layers, each the set of slots it prints
+ * (multi-colour): a layer starts with the slot the last one ended on, when it
+ * prints that one, and ends on one the next layer prints too (so two colours
+ * on every layer cost one swap a layer). Purge by the slot swapped to.
+ */
+function countSwaps(used: readonly Set<number>[], opts: PlateColourOptions) {
+  const M = ESTIMATE_MODEL;
+  let swaps = 0;
+  let lastSwap = -1;
+  let flush = 0;
+  const slotWaste: number[] = [];
+  let current: number | null = null;
+  for (let k = 0; k < used.length; k++) {
+    const here = [...used[k]];
+    if (!here.length) continue;
+    const next = used[k + 1] ?? new Set<number>();
+    const first: number = current !== null && used[k].has(current) ? current : here[0];
+    const rest = here.filter((x) => x !== first);
+    rest.sort((a, b) => Number(next.has(a)) - Number(next.has(b)));
+    const order: number[] = [first, ...rest];
+    const changes: [number, number][] = [];
+    if (current !== null && current !== first) changes.push([current, first]);
+    for (let i = 1; i < order.length; i++) changes.push([order[i - 1], order[i]]);
+    for (const [a, b] of changes) {
+      const g = opts.colourOf ? flushGrams(opts.colourOf(a), opts.colourOf(b)) : M.flushGrams;
+      flush += g;
+      addAt(slotWaste, b, g);
+    }
+    if (changes.length) {
+      swaps += changes.length;
+      lastSwap = k;
+    }
+    current = order[order.length - 1];
+  }
+  return { swaps, lastSwap, flush, slotWaste };
+}
+
+function addAt(arr: number[], i: number, v: number) {
+  while (arr.length <= i) arr.push(0);
+  arr[i] += v;
+}
+
+/**
+ * A plate of vase-mode bins, printed one bin after another. With colours, each
+ * bin's colour changes come as it rises, and the next bin starts in its first
+ * colour; spiral vase has no prime tower, so a swap only purges.
+ */
+function estimateSpiralPlate(parts: EstimatePart[], motion: PrinterMotion, opts: PlateColourOptions = {}): PlateEstimate {
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const mo = featureMotion(motion);
+  const breakdown = emptyBreakdown();
+  let print = 0;
+  let extruded = 0;
+  // Multi-colour: the slots of each layer, bin after bin.
+  const used: Set<number>[] = [];
+  const slotVolume: number[] = [];
+  for (const p of parts) {
+    const sp = p.spiral!;
+    const wall = { v: Math.min(P.speed.outer, motion.speed, motion.flow / (sp.line * P.layerHeight)), a: Math.min(P.accel.outer, motion.accel) };
+    for (let k = 0; k < p.stats.area.length; k++) {
+      const r = spiralLayer(p.stats, k, sp, mo, wall, p.w * p.d, breakdown);
+      extruded += r.volume;
+      breakdown.cooling += Math.max(0, P.minLayerTime - r.seconds);
+      print += Math.max(r.seconds, P.minLayerTime);
+      if (p.colour) {
+        const share = new Map<number, number>();
+        layerSlots(p, k, (k + 0.5) * P.layerHeight, share);
+        for (const [slot, f] of share) addAt(slotVolume, slot, r.volume * f);
+        used.push(new Set(share.keys()));
+      }
+    }
+    // Lift and move to the next bin.
+    breakdown.travel += 2 * M.island;
+    print += 2 * M.island;
+  }
+  const layers = parts.reduce((t, p) => Math.max(t, p.stats.area.length), 0);
+  const colour = used.length ? countSwaps(used, opts) : null;
+  const swaps = colour?.swaps ?? 0;
+  breakdown.swaps = swaps * (opts.manual ? M.manualSwap : motion.swap);
+  print += breakdown.swaps;
+  return {
+    seconds: print + (layers ? motion.prepare : 0),
+    printSeconds: print,
+    prepareSeconds: layers ? motion.prepare : 0,
+    layers,
+    swaps,
+    wasteGrams: colour?.flush ?? 0,
+    extruded,
+    breakdown,
+    ...(colour ? { slotVolume, slotWaste: colour.slotWaste } : {}),
+    ...(opts.manual && swaps ? { manual: true } : {}),
+  };
+}
+
 /** Print time of one plate on a printer. */
 export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEFAULT_MOTION, opts: PlateColourOptions = {}): PlateEstimate {
+  if (parts.length && parts.every((p) => p.spiral)) return estimateSpiralPlate(parts, motion, opts);
   const P = STANDARD_PROCESS;
   const M = ESTIMATE_MODEL;
   const mo = featureMotion(motion);
@@ -527,15 +670,7 @@ export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEF
   const breakdown = emptyBreakdown();
   let print = 0;
   let extruded = 0;
-  let swaps = 0;
-  let lastSwap = -1;
-  let flush = 0;
   const slotVolume: number[] = [];
-  const slotWaste: number[] = [];
-  const addAt = (arr: number[], i: number, v: number) => {
-    while (arr.length <= i) arr.push(0);
-    arr[i] += v;
-  };
   // Which slots print each layer; the swaps between them come after.
   const used: Set<number>[] = [];
   for (let k = 0; k < layers; k++) {
@@ -559,31 +694,7 @@ export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEF
     breakdown.cooling += Math.max(0, P.minLayerTime - t);
     print += Math.max(t, P.minLayerTime);
   }
-  // A layer starts with the slot the last one ended on, when it prints that one, and ends on one the next layer
-  // prints too (so two colours on every layer cost one swap a layer).
-  let current: number | null = null;
-  for (let k = 0; k < layers; k++) {
-    const here = [...used[k]];
-    if (!here.length) continue;
-    const next = used[k + 1] ?? new Set<number>();
-    const first: number = current !== null && used[k].has(current) ? current : here[0];
-    const rest = here.filter((x) => x !== first);
-    rest.sort((a, b) => Number(next.has(a)) - Number(next.has(b)));
-    const order: number[] = [first, ...rest];
-    const changes: [number, number][] = [];
-    if (current !== null && current !== first) changes.push([current, first]);
-    for (let i = 1; i < order.length; i++) changes.push([order[i - 1], order[i]]);
-    for (const [a, b] of changes) {
-      const g = opts.colourOf ? flushGrams(opts.colourOf(a), opts.colourOf(b)) : M.flushGrams;
-      flush += g;
-      addAt(slotWaste, b, g);
-    }
-    if (changes.length) {
-      swaps += changes.length;
-      lastSwap = k;
-    }
-    current = order[order.length - 1];
-  }
+  const { swaps, lastSwap, flush, slotWaste } = countSwaps(used, opts);
   // The prime tower is printed on every layer up to the last swap (not for swaps by hand), in that layer's filaments.
   const tower = opts.manual ? 0 : lastSwap + 1;
   for (let k = 0; k < tower; k++) for (const slot of used[k]) addAt(slotWaste, slot, M.towerGrams / Math.max(1, used[k].size));
@@ -646,7 +757,7 @@ export function estimateJob(
       const s = stats(part.meshKey);
       if (!s) return null;
       const colour = colours ? partColours(colours, part, job.meshes[part.meshKey], s) : null;
-      parts.push({ stats: s, w: part.w, d: part.d, ...(colour ? { colour } : {}) });
+      parts.push({ stats: s, w: part.w, d: part.d, ...(colour ? { colour } : {}), ...(part.spiral ? { spiral: part.spiral } : {}) });
     }
     if (!colours) return estimatePlate(parts, motion);
     const est = estimatePlate(parts, motion, { colourOf });

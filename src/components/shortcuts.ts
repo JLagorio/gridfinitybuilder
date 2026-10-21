@@ -10,13 +10,22 @@ export const isMod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'color', 'file', 'image']);
 
-/** True while the user is typing somewhere that has its own undo, copy and arrow keys. */
+/**
+ * True while the user is typing somewhere that has its own undo, copy and arrow
+ * keys, pick lists included (their letters jump to an option, fields.tsx Select).
+ */
 export function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el || typeof el.closest !== 'function') return false;
-  if (el.closest('textarea, select, [contenteditable]:not([contenteditable="false"])')) return true;
+  if (el.closest('textarea, select, [role="combobox"], [contenteditable]:not([contenteditable="false"])')) return true;
   const input = el.closest('input') as HTMLInputElement | null;
   return !!input && !NON_TEXT_INPUTS.has(input.type);
+}
+
+/** An open pick list (fields.tsx Select / Combobox) has the focus: Escape is its, to close it. */
+export function inOpenList(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && typeof el.closest === 'function' && !!el.closest('[role="combobox"][aria-expanded="true"]');
 }
 
 /** Letter of a key press, independent of Shift and of the keyboard layout where possible. */

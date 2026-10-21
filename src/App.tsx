@@ -4,7 +4,7 @@ import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from
 import { asDrawer, binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
 import { plateOrigin } from './lib/export/bambu';
-import { findPrinter } from './lib/printers';
+import { bedExclusion, findPrinter } from './lib/printers';
 import { geometry } from './worker/client';
 import { Viewer, type SceneBed, type SceneItem } from './components/Viewer';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -33,6 +33,8 @@ import { colourLegend, partPaint } from './components/sceneColours';
 import { partRoleSlot, paletteOf, type ColourRole } from './lib/colours';
 import { stackPlaces } from './lib/stacking';
 import { PhoneNav, usePhoneView } from './components/PhoneNav';
+import { externalBox, importedSpec } from './lib/external';
+import { hasImported, importedVersion, subscribeImported } from './lib/imported/registry';
 import { useCoarsePointer } from './components/touch';
 import './components/workflow.css';
 
@@ -84,6 +86,8 @@ function drawerScene(
   const gap = explode ? 14 : 0;
   // A carry case, wall grid or spacer strips (enclosures.ts): pieces start where their meshes do, plus the extra parts.
   const enc = job.drawers[0]?.enclosure;
+  // "Just bins": the baseplate (case, wall grid) is there already. It's drawn not printed, with the bins seated on it on both tabs.
+  const have = !!job.drawers[0]?.haveBaseplate;
   const items: SceneItem[] = job.plan.pieces.map((p) => {
     const part = job.parts[`piece:${p.id}`];
     const at = enc?.pieceAt[p.id] ?? [p.x0, p.y0, 0];
@@ -97,10 +101,11 @@ function drawerScene(
       d: part.d,
       h: part.h,
       color: withBins ? BASEPLATE_COLOR : pieceColor(p.id),
-      ...paintOf(job, part.key),
+      // Not printed (you have it): see-through, not in a filament's colour.
+      ...(have ? { ghost: true } : paintOf(job, part.key)),
     };
   });
-  if (withBins || enc?.showBins) {
+  if (withBins || enc?.showBins || have) {
     const seat = enc?.seat ?? binSeatHeight(state.baseplate);
     // Container parts that sit in their container (drawers in a drawer unit, …), by bin.
     const placedParts = new Map<string, JobPart[]>();
@@ -108,6 +113,28 @@ function drawerScene(
     // Stacked bins stand in the lip of the bin below; Lift spreads the levels apart (stacking.ts).
     const stacked = stackPlaces(job.layout, state.bins);
     for (const b of state.bins) {
+      // Bins from elsewhere (external.ts): the imported mesh once it's in memory, else a see-through box in the bin's colour.
+      if (b.external) {
+        const box = externalBox(job.layout, b);
+        const view = importedSpec(b, true);
+        const shown = view && hasImported(view.hash) ? view.key : null;
+        items.push({
+          id: b.id,
+          meshKey: shown ?? `ghost:${b.id}`,
+          x: box.x,
+          y: box.y,
+          z: seat + (stacked.get(b.id)?.z ?? 0),
+          w: box.w,
+          d: box.d,
+          h: box.h,
+          color: b.external.color,
+          ...(shown ? {} : { boxColor: b.external.color }),
+          selected: selectedIds(state.ui).includes(b.id),
+          pickable: true,
+          lift: (stacked.get(b.id)?.level ?? 0) + 1,
+        });
+        continue;
+      }
       const part = job.parts[`bin:${b.id}`];
       if (!part) continue;
       // The mesh's front-left corner: its feet sit on the bin's cells, a stretched body reaches past them.
@@ -204,8 +231,8 @@ function drawerScene(
     const cs = job.colours;
     const pal = cs ? paletteOf(cs, 16) : null;
     const over = cs && state.baseplate.colour ? { plate: state.baseplate.colour } : undefined;
-    const encPaint = cs ? (role: string) => ({ main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }) : undefined;
-    items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint));
+    const encPaint = cs && !have ? (role: string) => ({ main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }) : undefined;
+    items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint).map((it) => (have ? { ...it, ghost: true } : it)));
   }
   return {
     items: shiftItems(items, enc?.shift),
@@ -228,12 +255,14 @@ function platesScene(job: PrintJob, plate: number, setup: PrintSetup): Scene {
     const pl = job.plates[pi];
     const pr = printers[pl.printer ?? 0] ?? printers[0];
     const on = job.printers ? ` · ${job.printers[pl.printer ?? 0]}` : '';
-    beds.push({ x: ox, y: oy, w: pr.bedW, d: pr.bedD, label: `${pi + 1}  ${pl.name}${on}` });
+    const exclude = bedExclusion(pr.printerId);
+    beds.push({ x: ox, y: oy, w: pr.bedW, d: pr.bedD, label: `${pi + 1}  ${pl.name}${on}`, ...(exclude.length ? { exclude } : {}) });
     for (const p of pl.placements) {
       const part = job.parts[p.key];
       items.push({
         id: `${pi}:${p.key}`,
-        meshKey: part.meshKey,
+        // A big imported mesh shows decimated (JobPart.preview).
+        meshKey: part.preview ?? part.meshKey,
         x: ox + p.x,
         y: oy + p.y,
         z: 0,
@@ -272,11 +301,13 @@ export default function App() {
 
   // Carry case: lid closed, open or off in the drawer view.
   const [lidView, setLidView] = useState<LidView>('open');
+  // Imported meshes coming in (from IndexedDB or a project file) replace their boxes.
+  const meshesIn = useSyncExternalStore(subscribeImported, importedVersion);
   const scene = useMemo<Scene>(() => {
     if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup);
     return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup, lidView]);
+  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup, lidView, meshesIn]);
 
   // Ask the worker for exactly the meshes on screen (selected bin first).
   useEffect(() => {
@@ -307,7 +338,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       // Handled already (e.g. by the compartment editor, which owns Delete/Escape while it's open).
-      if (e.defaultPrevented || t.closest('input, textarea, select, [contenteditable]')) return;
+      if (e.defaultPrevented || t.closest('input, textarea, select, [role="combobox"], [contenteditable]')) return;
       const s = useStore.getState();
       if ((e.key === 'Delete' || e.key === 'Backspace') && s.ui.selectedBinId && s.ui.tab === 'bins') {
         removeSelection();
@@ -330,6 +361,13 @@ export default function App() {
   // Multi-colour: the filament slots on screen.
   const legend = useMemo(() => colourLegend(ui.tab === 'print' ? printJob : viewJob), [ui.tab, printJob, viewJob]);
   const phone3d = usePhoneView((s) => s.view3d);
+  // "Just bins": the grid in the view is the baseplate you have, drawn see-through.
+  const have = !!viewJob.drawers[0]?.haveBaseplate;
+  const haveNote = have && (
+    <span className="viewer-note" title="Just bins: you have this baseplate, so it isn’t printed (Drawer tab)">
+      {viewJob.drawers[0]?.enclosure?.kind === 'case' ? 'Case' : viewJob.drawers[0]?.enclosure?.kind === 'wall' ? 'Wall grid' : 'Baseplate'} not printed
+    </span>
+  );
 
   // Its own boundary, so a 3D problem never blanks the panels and editors.
   const viewer = (
@@ -350,6 +388,7 @@ export default function App() {
       >
         {ui.tab === 'bins' && (
           <div className="viewer-tools">
+            {haveNote}
             <button className={!focusing ? 'active' : ''} onClick={() => setFocusSel(false)}>
               Whole drawer
             </button>
@@ -360,9 +399,12 @@ export default function App() {
         )}
         {ui.tab === 'drawer' && (
           <div className="viewer-tools">
-            <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
-              Spread pieces
-            </button>
+            {/* A baseplate you have is one piece, not printed: nothing to spread. */}
+            {haveNote || (
+              <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
+                Spread pieces
+              </button>
+            )}
             {viewJob.drawers[0]?.enclosure?.kind === 'case' &&
               (['closed', 'open', 'off'] as const).map((v) => (
                 <button key={v} className={lidView === v ? 'active' : ''} onClick={() => setLidView(v)}>
@@ -418,7 +460,8 @@ export default function App() {
             {state.setup.printers ? printerNames(state.setup).map(shortName).join(' + ') : `${printer.name} · ${state.setup.bedW}×${state.setup.bedD}`}
           </span>
           <span className="chip">
-            {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} · {job.plan.pieces.length} pieces ·{' '}
+            {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} ·{' '}
+            {job.drawers[0]?.haveBaseplate ? 'just bins' : `${job.plan.pieces.length} pieces`} ·{' '}
             {printJob.plates.length} plates
           </span>
           <ShortcutsHelp />

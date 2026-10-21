@@ -29,7 +29,7 @@ describe('bins from a list', () => {
   it('build as valid solids, labels and all', () => {
     const drawer = { ...DEFAULT_DRAWER, height: 70 };
     const plan = planFill(
-      '200 M3 screws\n50 M3 nuts\n100 M3 washers\n12 AA batteries\n10 CR2032\nhex keys 2-6mm\nzip ties\nsharpies x6\nmisc small parts\nelectrical tape',
+      '200 M3 screws\n50 M3 nuts\n100 M3 washers\n12 AA batteries\n100 rounds 9mm\n10 CR2032\nhex keys 2-6mm\nzip ties\nsharpies x6\nmisc small parts\nelectrical tape',
       { layout: computeLayout(drawer), drawer, baseplate: DEFAULT_BASEPLATE, setup: DEFAULT_SETUP, bins: [], tools: [], newBin: DEFAULT_BIN },
     );
     const bins: PlacedBin[] = plannedBins(plan.placed).map((b, i) => ({ id: `b${i}`, ...b }));

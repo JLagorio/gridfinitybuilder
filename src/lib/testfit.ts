@@ -2,7 +2,7 @@ import { baseplateHeight, type BaseplateOptions } from './geometry/baseplate';
 import { binLabel, binSize, binTotalHeight, sanitizeBin, type BinOptions } from './geometry/bin';
 import { connectorKeySize, connectorSites, jointSteps, pieceProtrusion, sitesOnPiece } from './geometry/connectors';
 import { DEFAULT_DRAWER, computeLayout } from './layout/drawer';
-import { packPlates, type PackItem } from './layout/pack';
+import { packPlates, plateBed, type PackItem } from './layout/pack';
 import { pieceFootprint, type PrintSetup } from './layout/plan';
 import { makePieces } from './layout/split';
 import { binSpec, pieceMeshKey, type JobPart, type MeshSpec, type PrintJob } from './project';
@@ -16,12 +16,16 @@ import { binSpec, pieceMeshKey, type JobPart, type MeshSpec, type PrintJob } fro
  *
  * On a half grid (`pitch.halfGrid`) the sample is 3 × 3 half cells (1.5 × 1.5 u)
  * and the bin is 1 × 1 u on 2 × 2 half feet, so it can be tried at a half-cell offset too.
+ *
+ * `o.haveBaseplate` (a "Just bins" drawer, DrawerInput.haveBaseplate): the
+ * baseplate is there already, so the kit is just the bin, to try in it.
  */
 export function planTestFit(
   baseplate: BaseplateOptions,
   bin: BinOptions,
   setup: PrintSetup,
   pitch: { x: number; y: number; halfGrid?: boolean } = { x: 42, y: 42 },
+  o: { haveBaseplate?: boolean } = {},
 ): PrintJob {
   const half = !!pitch.halfGrid;
   const layout = computeLayout({
@@ -33,8 +37,8 @@ export function planTestFit(
     pitchY: pitch.y,
     ...(half ? { halfGrid: true } : {}),
   });
-  const split = baseplate.connector !== 'none';
-  const pieces = makePieces(layout, split ? [0, layout.xs[1], layout.plateW] : [0, layout.plateW], [0, layout.plateD]);
+  const split = baseplate.connector !== 'none' && !o.haveBaseplate;
+  const pieces = o.haveBaseplate ? [] : makePieces(layout, split ? [0, layout.xs[1], layout.plateW] : [0, layout.plateW], [0, layout.plateD]);
   const sites = connectorSites(layout, pieces, baseplate);
   // Only bowtie joints print keys.
   const connectors = baseplate.connector === 'bowtie' ? sites : [];
@@ -92,9 +96,7 @@ export function planTestFit(
   );
 
   const packed = packPlates(items, {
-    bedW: setup.bedW,
-    bedD: setup.bedD,
-    margin: setup.plateMargin,
+    ...plateBed(setup),
     spacing: Math.max(setup.spacing, 2),
     nest: true,
   });
@@ -126,6 +128,7 @@ export function planTestFit(
         steps: jointSteps(baseplate, baseplate.connector === 'bowtie' ? 0 : sites.length),
         plateOffset: 0,
         plateCount: plates.length,
+        ...(o.haveBaseplate ? { haveBaseplate: true as const } : {}),
       },
     ],
     parts,

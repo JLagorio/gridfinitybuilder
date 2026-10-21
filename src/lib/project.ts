@@ -15,6 +15,7 @@ import {
   binLabelTexts,
   binLayout,
   binFrontLabel,
+  binFrontQr,
   binSize,
   binTotalHeight,
   binUsesInlay,
@@ -33,7 +34,10 @@ import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } fro
 import { resolveContentLabels } from './geometry/labelContents';
 import { labelPlainText } from './geometry/labelIcons';
 import { frontLabelBottom, frontLabelClashes } from './geometry/frontLabel';
-import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
+import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight, planLidQr } from './geometry/lid';
+import { binQrPlate, resolveQrText } from './geometry/binQr';
+import { qrPlateHeight, qrPlateKey, type QrPlatePart } from './geometry/qrCode';
+import { buildQrPlate } from './geometry/qrSolid';
 import { accessoryParts, planAccessories, type AccessoryPart } from './geometry/accessories';
 import { buildAccessoryPart } from './geometry/accessoryGeometry';
 import { insertParts, planInserts } from './geometry/cups';
@@ -55,9 +59,9 @@ import { pieceIsVoid } from './geometry/mask';
 import { hasStretch, stretchOf, type BinStretch } from './geometry/placement';
 import { BASE_TOP, GRID } from './geometry/spec';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
-import { DEFAULT_DRAWER, cellEdge, cellSizes, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
+import { DEFAULT_DRAWER, cellEdge, cellSizes, computeLayout, insideHeight, type DrawerInput, type GridLayout } from './layout/drawer';
 import { effectiveStretch } from './layout/stretch';
-import { fitsOnBed, packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
+import { fitsOnBed, movePlate, packIntoPlates, packPlates, plateBed, type PackItem, type PackOptions, type Placement } from './layout/pack';
 import {
   DEFAULT_SETUP,
   assemblyMap,
@@ -84,8 +88,12 @@ import {
 import { stackPlaces, stackWarnings } from './stacking';
 import { specRole as specRoleOf, splitByRoles } from './geometry/colourRegions';
 import type { ColourOverride, ColourRole, ColourSetupFields } from './colours';
-import { cleanSlot, colourSetupOf } from './colours';
+import { cleanSlot, colourSetupOf, strategyOf } from './colours';
 import { groupName, plateGroup, plateGroups, soloGroup, tagColours, useSplitMeshes } from './colourPlan';
+import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
+import { buildImported, type ImportedSpec } from './imported/registry';
+import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
+import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
 export interface PlacedBin {
@@ -111,6 +119,11 @@ export interface PlacedBin {
    * that bin's footprint. Unset = on the baseplate.
    */
   on?: string;
+  /**
+   * A bin Gridfit doesn't build (external.ts): one you already have, or an
+   * imported STL/3MF mesh. `opts` then holds only its footprint and height.
+   */
+  external?: ExternalBin;
 }
 
 /** One drawer's design. */
@@ -161,6 +174,8 @@ export type MeshSpec =
   | { kind: 'divider'; key: string; insert: DividerInsert }
   /** Swappable label plate. */
   | { kind: 'label'; key: string; plate: LabelPlate }
+  /** Stick-on QR code plate (qrCode.ts). */
+  | { kind: 'qrPlate'; key: string; plate: QrPlatePart }
   /** Lift-out tray, sliding lid or rail plate (accessories.ts). */
   | { kind: 'accessory'; key: string; part: AccessoryPart }
   /** Lift-out cup or grid insert (cups.ts), or a baseplate's TPU pad (pads.ts). */
@@ -170,7 +185,9 @@ export type MeshSpec =
   /** Case lid, hinge pin, handle, foot, spacer strip, wall cleat (enclosures.ts); `view` poses it for the drawer view. */
   | { kind: 'enclosure'; key: string; part: EnclosurePart; view?: EnclosureView }
   /** `base` cut into a volume per colour role (multi-colour 'feature': geometry/colourRegions.ts); key: colours.ts splitMeshKey. */
-  | { kind: 'split'; key: string; base: MeshSpec };
+  | { kind: 'split'; key: string; base: MeshSpec }
+  /** An imported bin's mesh, as it is (external.ts, imported/registry.ts). */
+  | ImportedSpec;
 
 export interface JobPart {
   key: string;
@@ -194,6 +211,10 @@ export interface JobPart {
   role?: ColourRole;
   /** Its bin's or its drawer's own colour over the roles' (colourPlan.ts tagColours). */
   colour?: ColourOverride;
+  /** Mesh key the 3D view shows instead of `meshKey` (a big imported mesh, decimated). */
+  preview?: string;
+  /** Vase-mode bins: how the slicer must print them (geometry/containers/vase.ts). */
+  spiral?: SpiralPrint;
 }
 
 export interface JobPlate {
@@ -202,6 +223,8 @@ export interface JobPlate {
   placements: Placement[];
   /** The printer it's for, with several (fleet.ts jobPrinters); unset: the first. */
   printer?: number;
+  /** Vase-mode bins only, printed in spiral vase mode (layout/spiral.ts). */
+  spiral?: boolean;
 }
 
 /** One drawer's baseplate within a print job. */
@@ -225,6 +248,12 @@ export interface DrawerJob {
   room?: number;
   /** The assembly map's name for each of `plan.plates` when they aren't together from `plateOffset` (several printers). */
   plateNames?: string[];
+  /**
+   * The grid is there already ("Just bins", DrawerInput.haveBaseplate): `plan`
+   * is it in one piece, for the drawer view only. None of it is on the plates,
+   * and it has no assembly map or steps.
+   */
+  haveBaseplate?: true;
 }
 
 export interface PrintJob {
@@ -260,6 +289,18 @@ export interface PlanPrintOptions {
   seconds?: (part: JobPart, printer: number) => number | undefined;
 }
 
+/**
+ * True when the job prints the drawer's baseplate (and the rest of its grid:
+ * keys, pads, spacer strips, a case or wall grid): it isn't there already
+ * (DrawerInput.haveBaseplate) and the export takes baseplates (`include`).
+ */
+export function printsBaseplate(d: { drawer: Pick<DrawerInput, 'haveBaseplate'> }, include: ProjectState['include']): boolean {
+  return include.baseplate && !d.drawer.haveBaseplate;
+}
+
+/** A bed nothing is too big for: a baseplate that's there already is planned in one piece, just to be drawn. */
+const ANY_BED = 100_000;
+
 export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, connectors: ConnectorSite[] = []) {
   const id = o.pieceNumbers ? piece.id : 0; // numbered pieces are all different
   return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, geometryOf(o), connectors, id])}`;
@@ -289,13 +330,13 @@ export function binCellsAt(layout: GridLayout, b: PlacedBin): BinCells | undefin
 }
 
 /**
- * The mesh spec for a placed bin. Label text that asks for `{contents}` is
- * filled in from what's in the bin here (labelContents.ts), so only then does
- * the key follow the contents.
+ * The mesh spec for a placed bin. Label text that asks for `{contents}`, and a
+ * QR code that lists them, are filled in from what's in the bin here
+ * (labelContents.ts, binQr.ts), so only then does the key follow the contents.
  */
 export function binSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'bin' }> {
   const cells = binCellsAt(layout, b);
-  const opts = resolveContentLabels(b.opts, b);
+  const opts = resolveQrText(resolveContentLabels(b.opts, b), b, cells);
   return { kind: 'bin', key: `bin|${binKey(opts, cells)}`, opts, cells };
 }
 
@@ -304,11 +345,12 @@ export function binStretched(layout: GridLayout, b: PlacedBin): boolean {
   return hasStretch(binCellsAt(layout, b)?.stretch);
 }
 
-/** The mesh spec for a placed bin's stacking lid (lids depend only on the footprint; stretched bins get none). */
+/** The mesh spec for a placed bin's stacking lid (lids depend only on the footprint, and a QR code on them; stretched bins get none). */
 export function lidSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'lid' }> {
   const at = binCellsAt(layout, b);
   const cells = at && { x: at.x, y: at.y };
-  return { kind: 'lid', key: `lid|${lidKey(b.opts, cells)}`, opts: b.opts, cells };
+  const opts = b.opts.qr === 'lid' ? resolveQrText(b.opts, b, at) : b.opts;
+  return { kind: 'lid', key: `lid|${lidKey(opts, cells)}`, opts, cells };
 }
 
 /**
@@ -316,6 +358,8 @@ export function lidSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { k
  * coordinates, for the assembled drawer: the feet sit on the bin's cells.
  */
 export function binOrigin(layout: GridLayout, b: PlacedBin): { x: number; y: number } {
+  // Bins from elsewhere sit centred on their cells (external.ts).
+  if (b.external) return externalBox(layout, b);
   const st = stretchOf(binCellsAt(layout, b)?.stretch);
   const inset = (GRID - BASE_TOP) / 2;
   return {
@@ -378,7 +422,8 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
   const printers = jobPrinters(setup);
   const baseAt = baseplatePrinter(setup);
   const base = printerSetup(setup, baseAt);
-  const bed = { bedW: base.bedW, bedD: base.bedD, margin: base.plateMargin };
+  // Its bed, edge margin and exclusion areas (printers.ts): every plate keeps clear of them.
+  const bed = plateBed(base);
   // Parts printed already ("only what's changed").
   const keep = (it: PackItem) => !skip?.has(it.key);
 
@@ -390,13 +435,17 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     const label = multi ? `${d.name} · ` : '';
     const warn = (msg: string) => warnings.add(multi ? `${d.name}: ${msg}` : msg);
     const layout = computeLayout(d.drawer);
+    // "Just bins": the grid is there already, so it's planned whole (on a bed nothing is too big for) to be drawn, and nothing of it prints.
+    const have = !!d.drawer.haveBaseplate;
+    const gridSetup = have ? { ...base, bedW: ANY_BED, bedD: ANY_BED, maxH: ANY_BED } : base;
+    const printBase = include.baseplate && !have;
     // A carry case, wall grid or spacer strips plan their own floor pieces and extra parts (enclosures.ts).
-    const enc = planEnclosure(d, layout, base);
+    const enc = planEnclosure(d, layout, gridSetup);
     const pieceLayout = enc?.pieceLayout ?? layout;
     const bpo = enc?.baseplate ?? d.baseplate;
     const protrude = pieceProtrusion(bpo);
-    let plan = enc?.plan ?? planBaseplate(layout, base, { protrude, skip: (p) => pieceIsVoid(layout, p) });
-    if (plan.error && !enc) warn(plan.error);
+    let plan = enc?.plan ?? planBaseplate(layout, gridSetup, { protrude, skip: (p) => pieceIsVoid(layout, p) });
+    if (plan.error && !enc && !have) warn(plan.error);
 
     const bpH = baseplateHeight(bpo);
     const sites = connectorSites(pieceLayout, plan.pieces, bpo);
@@ -410,7 +459,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       meshes[meshKey] = { kind: 'piece', key: meshKey, layout: pieceLayout, piece, opts: bpo, connectors: mine, ...(ep ? { enclosure: ep.enclosure } : {}) };
       parts[key] = {
         key,
-        name: `${label}${ep?.name ?? `Baseplate piece ${piece.id}`}`,
+        name: `${label}${have ? `${ep?.name ?? 'Baseplate'} (not printed: you have it)` : (ep?.name ?? `Baseplate piece ${piece.id}`)}`,
         kind: 'piece',
         meshKey,
         ...(ep ? { w: ep.w, d: ep.d } : pieceFootprint(piece, protrude)),
@@ -420,7 +469,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       };
     }
     const plateOffset = plates.length;
-    if (include.baseplate) {
+    if (printBase) {
       // Keys print in the free space next to the pieces; any that don't fit get their own plate.
       const keys: PackItem[] = [];
       if (connectors.length) {
@@ -477,7 +526,8 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     }
     // ---- Enclosure parts: case lid, hinge pins, handle, feet, spacer strips, wall cleat (enclosures.ts) ----
     if (enc) {
-      for (const msg of enc.warnings) warn(msg);
+      // One that's there already only warns about the bins in it.
+      for (const msg of have ? enc.binNotes : enc.warnings) warn(msg);
       for (const v of enc.views) meshes[v.meshKey] = { kind: 'enclosure', key: v.meshKey, part: v.part, view: v.view };
       const items: PackItem[] = [];
       for (const p of enc.parts) {
@@ -488,7 +538,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         if (p.part) parts[k].enclosure = p.part.kind;
         items.push({ key: k, w: p.w, d: p.d });
       }
-      if (include.baseplate && items.some(keep)) {
+      if (printBase && items.some(keep)) {
         // Multi-colour (colourPlan.ts): each colour on plates of its own.
         const encColour = (k: string) => {
           const p = enc.parts.find((x) => prefix + x.key === k);
@@ -515,7 +565,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         for (const o of packed.oversize) warn(`${parts[o.key].name} is larger than the print bed and was left out.`);
       }
     }
-    const steps = [...jointSteps(bpo, bpo.connector === 'bowtie' ? 0 : sites.length), ...(enc?.steps ?? [])];
+    const steps = have ? [] : [...jointSteps(bpo, bpo.connector === 'bowtie' ? 0 : sites.length), ...(enc?.steps ?? [])];
     drawerJobs.push({
       id: d.id,
       name: d.name,
@@ -527,26 +577,51 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       plateOffset,
       plateCount: plates.length - plateOffset,
       ...(enc ? { enclosure: enc.scene } : {}),
+      ...(have ? { haveBaseplate: true as const } : {}),
     });
 
     // TPU pads (pads.ts) lift the whole plate a little.
     const lift = padStyle(bpo) ? PAD.proud : 0;
-    const room = enc ? enc.room - lift : d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) - lift : Infinity;
+    const inside = insideHeight(d.drawer);
+    const room = enc ? enc.room - lift : inside > 0 ? inside - binSeatHeight(d.baseplate) - lift : Infinity;
     drawerJobs[drawerJobs.length - 1].room = room;
     // Stacked bins (stacking.ts): each stands on a bin that can hold it, and every stack fits the drawer.
     const stacked = stackPlaces(layout, d.bins);
     for (const msg of stackWarnings(layout, d.bins, room, d.drawer.enclosure === 'wall')) warn(msg);
-    // Raised front labels stand proud of the 0.5 mm gap to the bin in front (a stack in front fills it up to its top).
-    const clashes = frontLabelClashes(
-      d.bins,
-      (x) => offset(frontLabelBottom(binFrontLabel(resolveContentLabels(x.opts, x), binCellsAt(layout, x))), stacked.get(x.id)?.z),
-      (x) => (stacked.get(x.id)?.z ?? 0) + binTotalHeight(x.opts),
-    );
+    // Raised front labels and QR codes stand proud of the 0.5 mm gap to the bin in front (a stack in front fills it up to its top).
+    const raisedLabel = (x: PlacedBin) => x.opts.frontLabel === 'raised' || x.opts.frontLabel === 'two-tone';
+    const raisedQr = (x: PlacedBin) => x.opts.qr === 'front' && x.opts.qrStyle === 'raised';
+    const raisedBottom = (x: PlacedBin) => {
+      const cells = binCellsAt(layout, x);
+      const o = resolveContentLabels(x.opts, x);
+      const zs = [
+        raisedLabel(x) ? frontLabelBottom(binFrontLabel(o, cells)) : null,
+        raisedQr(x) ? (binFrontQr(resolveQrText(o, x, cells), cells)?.box?.z0 ?? null) : null,
+      ].filter((z): z is number => z !== null);
+      return offset(zs.length ? Math.min(...zs) : null, stacked.get(x.id)?.z);
+    };
+    const clashes = frontLabelClashes(d.bins, raisedBottom, (x) => (stacked.get(x.id)?.z ?? 0) + binTotalHeight(x.opts));
     for (const b of clashes) {
-      warn(`Bin ${binLabel(b.opts)}: its raised front label touches the bin in front of it (make it inlaid or engraved).`);
+      const what = raisedLabel(b) && raisedQr(b) ? 'front label and QR code touch' : raisedQr(b) ? 'QR code on the front touches' : 'front label touches';
+      warn(`Bin ${binLabel(b.opts)}: its raised ${what} the bin in front of it (make it inlaid or engraved).`);
     }
     for (const b of d.bins) {
       const key = `${prefix}bin:${b.id}`;
+      // Bins from elsewhere (external.ts) are never built; an imported mesh that prints goes on the plates as it is.
+      if (b.external) {
+        const name = b.external.name ? `“${b.external.name}”` : `Bin ${externalSize(b, layout.halfGrid)}`;
+        const mesh = b.external.mesh && meshSize(b.external.mesh);
+        if ((mesh?.h ?? binTotalHeight(b.opts)) > room + 1e-6) warn(`${name} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+        const view = importedSpec(b, true);
+        if (view) meshes[view.key] = view;
+        const spec = printsMesh(b) ? importedSpec(b) : null;
+        if (spec && mesh) {
+          meshes[spec.key] = spec;
+          parts[key] = { key, name: `${label}${name} (imported)`, kind: 'bin', meshKey: spec.key, ...mesh, drawer: d.id, ...(view && view.key !== spec.key ? { preview: view.key } : {}) };
+          if (include.bins) binItems.push({ key, w: mesh.w, d: mesh.d });
+        }
+        continue;
+      }
       const spec = binSpec(layout, b);
       const { w, d: dd } = binSize(b.opts, spec.cells);
       const h = binTotalHeight(b.opts);
@@ -556,6 +631,9 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       const caption = texts.length ? ` “${texts.slice(0, 3).join(' · ').replace(/\n/g, ' ')}${texts.length > 3 ? ' …' : ''}”` : '';
       const binName = binLabel(b.opts, spec.cells);
       parts[key] = { key, name: `${label}Bin ${binName}${caption}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
+      // Vase-mode bins print in spiral vase mode, on plates of their own (layout/spiral.ts); the name says how.
+      const spiral = binSpiral(spec.opts, spec.cells);
+      if (spiral) Object.assign(parts[key], { spiral, name: `${parts[key].name} [spiral vase: ${spiralSettingsText(spiral)}]` });
       // Drawer units, parts boxes, … (containers/) check their height with their parts in place.
       const container = activeContainer(b.opts);
       const closed = container?.def.closedHeight?.(sanitizeBin(b.opts), container.opts) ?? h;
@@ -612,6 +690,16 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         if (platePlaces[i]) parts[k].assembled = platePlaces[i];
         if (include.bins) binItems.push({ key: k, w: pl.width, d: pl.depth });
       });
+      // A stick-on QR code plate (binQr.ts).
+      const qrPlate = binQrPlate(spec.opts, spec.cells)?.part;
+      if (qrPlate) {
+        const meshKey = qrPlateKey(qrPlate);
+        meshes[meshKey] = { kind: 'qrPlate', key: meshKey, plate: qrPlate };
+        const k = `${prefix}qr:${b.id}`;
+        const side = qrPlate.side;
+        parts[k] = { key: k, name: `${label}QR plate ${round1(side)} × ${round1(side)} mm (${owner})`, kind: 'label', meshKey, w: side, d: side, h: qrPlateHeight(qrPlate), drawer: d.id };
+        if (include.bins) binItems.push({ key: k, w: side, d: side });
+      }
       // Lift-out trays, sliding lids and rail plates (accessories.ts).
       const acc = sanitizeBin(spec.opts);
       for (const msg of planAccessories(acc, w, dd).notes) warn(`Bin ${binLabel(b.opts)}: ${msg}`);
@@ -647,15 +735,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
   });
   if (several) plates.splice(0, plates.length, ...sharePlates(setup, parts, plates, printable, drawerJobs, warnings, opts.seconds, groupOf));
   else if (printable.length) {
-    // One colour group after another (colourPlan.ts); a single group without multi-colour.
-    const groups = plateGroups(setup, printable, groupOf, (it) => parts[it.key].h);
-    let n = 0;
-    for (const [g, list] of groups) {
-      const packed = packPlates(list, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
-      for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
-      const tag = groups.length > 1 ? ` · ${groupName(setup, g)}` : '';
-      packed.plates.forEach((pl) => plates.push({ name: `Bins ${++n}${tag}`, group: 'bins', placements: pl.placements }));
-    }
+    plates.push(...binPlates(setup, printable, parts, groupOf, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true }, setup.printerId, warnings, { bins: 0, vases: 0 }));
   }
   const first = drawerJobs[0];
   return {
@@ -673,19 +753,72 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
   };
 }
 
-/** Where a plate's parts are: their bounding box on the bed, mm. */
-function plateBox(placements: Placement[]) {
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const p of placements) {
-    x0 = Math.min(x0, p.x);
-    y0 = Math.min(y0, p.y);
-    x1 = Math.max(x1, p.x + (p.rotated ? p.d : p.w));
-    y1 = Math.max(y1, p.y + (p.rotated ? p.w : p.d));
+/**
+ * Bins and the rest on plates (bed: plateBed's, clear of its exclusion areas):
+ * one colour group after another (colourPlan.ts; one group without
+ * multi-colour), and in each the vase-mode bins on plates of their own.
+ * `count` numbers the plates on, across printers.
+ */
+function binPlates(
+  setup: PrintSetup,
+  items: PackItem[],
+  parts: Record<string, JobPart>,
+  groupOf: (it: PackItem) => string,
+  bed: PackOptions,
+  printerId: string,
+  warnings: Set<string>,
+  count: { bins: number; vases: number },
+  printer?: number,
+): JobPlate[] {
+  const out: JobPlate[] = [];
+  const at = printer === undefined ? {} : { printer };
+  const groups = plateGroups(setup, items, groupOf, (it) => parts[it.key].h);
+  for (const [g, list] of groups) {
+    const tag = groups.length > 1 ? ` · ${groupName(setup, g)}` : '';
+    const packed = packPlates(
+      list.filter((it) => !parts[it.key].spiral),
+      bed,
+    );
+    for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
+    packed.plates.forEach((pl) => out.push({ name: `Bins ${++count.bins}${tag}`, group: 'bins', placements: pl.placements, ...at }));
+    // By height, a vase bin that changes colour prints alone: several on a plate print by object,
+    // and Bambu Studio only makes per-layer changes on plates printed by layer.
+    const vase = list.filter((it) => parts[it.key].spiral);
+    const alone = strategyOf(setup) === 'height' ? vase.filter((it) => groupOf(it).includes('|')) : [];
+    for (const batch of [vase.filter((it) => !alone.includes(it)), ...alone.map((it) => [it])]) {
+      const plates = vasePlates(batch, parts, bed, printerId, warnings, count.vases, printer, tag);
+      count.vases += plates.length;
+      out.push(...plates);
+    }
   }
-  return placements.length ? { x: x0, y: y0, w: x1 - x0, d: y1 - y0 } : { x: 0, y: 0, w: 0, d: 0 };
+  return out;
+}
+
+/**
+ * The vase-mode bins among `items` on plates of their own (layout/spiral.ts),
+ * numbered on from `first`.
+ */
+function vasePlates(
+  items: PackItem[],
+  parts: Record<string, JobPart>,
+  bed: Pick<PackOptions, 'bedW' | 'bedD' | 'margin' | 'exclude'>,
+  printerId: string,
+  warnings: Set<string>,
+  first: number,
+  printer?: number,
+  tag = '',
+): JobPlate[] {
+  const mine = items.filter((it) => parts[it.key].spiral).map((it) => ({ ...it, h: parts[it.key].h }));
+  if (!mine.length) return [];
+  const packed = packSpiral(mine, bed, spiralClearance(printerId));
+  for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
+  return packed.plates.map((pl, i) => ({
+    name: `Vase bins ${first + i + 1}${tag}`,
+    group: 'bins',
+    placements: pl.placements,
+    spiral: true,
+    ...(printer === undefined ? {} : { printer }),
+  }));
 }
 
 /**
@@ -711,13 +844,12 @@ function sharePlates(
   const baseAt = baseplatePrinter(setup);
   const pinned = baseplatePicked(setup);
   const motions = printers.map((p) => findPrinter(p.printerId).motion ?? DEFAULT_MOTION);
-  const beds = printers.map((p) => ({ bedW: p.bedW, bedD: p.bedD, margin: p.plateMargin, spacing: Math.max(setup.spacing, 2), nest: true }));
+  const beds = printers.map((p) => ({ ...plateBed(p), spacing: Math.max(setup.spacing, 2), nest: true }));
   const time = (key: string, k: number) => seconds?.(parts[key], k) ?? roughSeconds(parts[key], motions[k]);
   const items: ShareItem[] = plates.map((pl, i) => {
-    const box = plateBox(pl.placements);
     const tall = Math.max(0, ...pl.placements.map((p) => parts[p.key].h));
-    const takes = (p: (typeof printers)[number], k: number) =>
-      k === baseAt || (box.w <= p.bedW - 2 * p.plateMargin + EPS && box.d <= p.bedD - 2 * p.plateMargin + EPS && tall <= p.maxH + EPS);
+    // Another printer takes the whole plate when it fits its bed, clear of that printer's exclusion areas.
+    const takes = (p: (typeof printers)[number], k: number) => k === baseAt || (tall <= p.maxH + EPS && !!movePlate(pl.placements, beds[k]));
     return {
       key: `#plate:${i}`,
       plate: true,
@@ -744,28 +876,18 @@ function sharePlates(
   }
   const out: JobPlate[] = [];
   const moved = new Map<number, number>();
-  let bins = 0;
+  const count = { bins: 0, vases: 0 };
   printers.forEach((_, k) => {
     plates.forEach((pl, i) => {
       if (at.get(`#plate:${i}`) !== k) return;
       moved.set(i, out.length);
       if (k === baseAt) out.push({ ...pl, printer: k });
-      else {
-        // Centred on this printer's bed.
-        const box = plateBox(pl.placements);
-        const dx = (beds[k].bedW - box.w) / 2 - box.x;
-        const dy = (beds[k].bedD - box.d) / 2 - box.y;
-        out.push({ ...pl, printer: k, placements: pl.placements.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) });
-      }
+      // Centred on this printer's bed, as far as its exclusion areas let it (it takes the plate, so there is room).
+      else out.push({ ...pl, printer: k, placements: movePlate(pl.placements, beds[k]) ?? pl.placements });
     });
     const mine = binItems.filter((it) => at.get(it.key) === k);
     if (!mine.length) return;
-    // One colour group after another (colourPlan.ts).
-    const groups = plateGroups(setup, mine, groupOf, (it) => parts[it.key].h);
-    for (const [g, list] of groups) {
-      const tag = groups.length > 1 ? ` · ${groupName(setup, g)}` : '';
-      packPlates(list, beds[k]).plates.forEach((pl) => out.push({ name: `Bins ${++bins}${tag}`, group: 'bins', placements: pl.placements, printer: k }));
-    }
+    out.push(...binPlates(setup, mine, parts, groupOf, beds[k], printers[k].printerId, warnings, count, k));
   });
   // The assembly map names the plate (and printer) each piece's plate ended up as.
   for (const dj of drawerJobs) {
@@ -789,8 +911,10 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'key') return buildConnectorKey(w);
   if (spec.kind === 'divider') return buildDividerInsert(w, spec.insert);
   if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);
+  if (spec.kind === 'qrPlate') return buildQrPlate(w, spec.plate);
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
   if (spec.kind === 'insertPart') return buildInsertPart(w, spec.part);
+  if (spec.kind === 'imported') return buildImported(spec);
   if (spec.kind === 'container') {
     const def = containerDef(spec.type);
     if (!def?.buildPart) throw new Error(`No part builder for container type “${spec.type}”.`);
@@ -834,6 +958,10 @@ export function usesSecondFilament(job: PrintJob): boolean {
       const spec = baseSpec(job.meshes[job.parts[p.key].meshKey]);
       if (spec?.kind === 'bin' && binHasShadow(spec)) return true;
       if (spec?.kind === 'label' && spec.plate.style === 'inlaid' && spec.plate.text.trim()) return true;
+      // Inlaid QR codes: on a plate, a stacking lid, a sliding lid (an inlaid one on the front wall is binUsesInlay's).
+      if (spec?.kind === 'qrPlate' && spec.plate.spot.style === 'inlaid') return true;
+      if (spec?.kind === 'lid' && planLidQr(spec.opts, spec.cells)?.spot?.style === 'inlaid') return true;
+      if (spec?.kind === 'accessory' && spec.part.type === 'slideLid' && spec.part.qr?.style === 'inlaid') return true;
       // Inlaid tab text (with label plates it's on the plates, unless a tab is too small for one), two-tone or inlaid front labels.
       if (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) return true;
     }
@@ -843,10 +971,11 @@ export function usesSecondFilament(job: PrintJob): boolean {
 
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'drawer';
 
-/** Assembly maps for every drawer in the job, keyed by file name. */
+/** Assembly maps for every drawer in the job, keyed by file name (none for a baseplate that's there already). */
 export function assemblyMaps(job: PrintJob): Record<string, string> {
   const out: Record<string, string> = {};
   for (const d of job.drawers) {
+    if (d.haveBaseplate) continue;
     const name = job.drawers.length > 1 ? `assembly-map-${slug(d.name)}.txt` : 'assembly-map.txt';
     const head = job.drawers.length > 1 ? `${d.name}\n` : '';
     out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset, d.steps, d.plateNames);

@@ -4,6 +4,7 @@ import { assemblyMaps, printerFolder, type MeshLookup, type PrintJob } from '../
 import { colourNotes, placeTransform, type Mat12 } from './threemf';
 import { meshBodySlots, plateChanges } from './colourExport';
 import { slotName, strategyOf } from '../colours';
+import { spiralNotes } from './spiralNotes';
 
 export interface StlItem {
   mesh: MeshData;
@@ -170,5 +171,8 @@ export function exportPlatesStlZip(job: PrintJob, getMesh: MeshLookup): Uint8Arr
       : ['Colours: STL has none. Add these colour changes by height (filament change / M600 at that height) in your slicer:'];
     files['README.txt'] = strToU8([...head, ...notes.slice(2), ''].join('\n'));
   }
+  // Vase-mode bins need the slicer set up for them (layout/spiral.ts).
+  const vase = spiralNotes(job);
+  if (vase.length) files['spiral-vase.txt'] = strToU8(`${vase.join('\n')}\n`);
   return zipSync(files);
 }
