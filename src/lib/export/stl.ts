@@ -1,7 +1,9 @@
 import { strToU8, zipSync } from 'fflate';
 import type { MeshData } from '../geometry/kernel';
 import { assemblyMaps, printerFolder, type MeshLookup, type PrintJob } from '../project';
-import { placeTransform, type Mat12 } from './threemf';
+import { colourNotes, placeTransform, type Mat12 } from './threemf';
+import { meshBodySlots, plateChanges } from './colourExport';
+import { slotName, strategyOf } from '../colours';
 
 export interface StlItem {
   mesh: MeshData;
@@ -118,12 +120,55 @@ export function exportPlateSTL(job: PrintJob, plateIndex: number, getMesh: MeshL
   return writeSTL(items, pl.name);
 }
 
-/** Every plate as its own STL, plus the assembly map(s). */
+/**
+ * A plate's bodies by filament slot (multi-colour): every part's bodies in
+ * that slot, placed on the bed. STL has no colours, so each slot is a file of
+ * its own; loaded together as one multi-part object they make the plate.
+ */
+export function plateSlotItems(job: PrintJob, plateIndex: number, getMesh: MeshLookup): Map<number, StlItem[]> {
+  const cs = job.colours;
+  const out = new Map<number, StlItem[]>();
+  if (!cs) return out;
+  const base = plateChanges(cs, job, plateIndex, cs.printerId)?.base;
+  for (const p of job.plates[plateIndex].placements) {
+    const part = job.parts[p.key];
+    const mesh = getMesh(part.meshKey);
+    const transform = placeTransform(p.x, p.y, p.rotated, part.d);
+    const slots = meshBodySlots(cs, job, p.key, mesh, base);
+    [mesh, ...(mesh.overlays ?? [])].forEach((b, i) => {
+      // Bodies touch face to face: all but the main one a hair in (STL_OVERLAY_INSET), so a slicer doesn't weld them.
+      const body = i ? insetMesh(b, STL_OVERLAY_INSET) : { positions: b.positions, indices: b.indices };
+      out.set(slots[i], [...(out.get(slots[i]) ?? []), { mesh: body, transform }]);
+    });
+  }
+  return out;
+}
+
+/**
+ * Every plate as its own STL, plus the assembly map(s). With multi-colour
+ * (by part or by feature) a plate in several filaments is one STL per slot,
+ * named for it (`01-bins-1.slot2-black.stl`); by height, one STL a plate and
+ * the change heights in the README.
+ */
 export function exportPlatesStlZip(job: PrintJob, getMesh: MeshLookup): Uint8Array {
   const files: Record<string, Uint8Array | [Uint8Array, { level: 0 | 6 }]> = {};
+  const split = !!job.colours && strategyOf(job.colours) !== 'height';
   job.plates.forEach((pl, i) => {
-    files[`${printerFolder(job, pl)}${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.stl`] = [exportPlateSTL(job, i, getMesh), { level: 6 }];
+    const name = `${printerFolder(job, pl)}${String(i + 1).padStart(2, '0')}-${slug(pl.name)}`;
+    const bySlot = split ? plateSlotItems(job, i, getMesh) : null;
+    if (bySlot && bySlot.size > 1) {
+      for (const [slot, items] of [...bySlot].sort((a, b) => a[0] - b[0])) {
+        files[`${name}.slot${slot}-${slug(slotName(job.colours!, slot))}.stl`] = [writeSTL(items, `${pl.name} slot ${slot}`), { level: 6 }];
+      }
+    } else files[`${name}.stl`] = [exportPlateSTL(job, i, getMesh), { level: 6 }];
   });
   for (const [name, text] of Object.entries(assemblyMaps(job))) files[name] = strToU8(text);
+  const notes = colourNotes(job);
+  if (notes.length) {
+    const head = split
+      ? ['Colours: STL has none, so a plate in several filaments has one STL per filament slot (.slotN-colour.stl).', 'Load them together as one object with several parts and give each part its slot.']
+      : ['Colours: STL has none. Add these colour changes by height (filament change / M600 at that height) in your slicer:'];
+    files['README.txt'] = strToU8([...head, ...notes.slice(2), ''].join('\n'));
+  }
   return zipSync(files);
 }

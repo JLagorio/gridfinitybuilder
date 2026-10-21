@@ -2,6 +2,8 @@ import { zipSync, strToU8 } from 'fflate';
 import { collectObjects, escapeXml, matToString, meshXml, placeTransform, type ExportObject, type Mat12 } from './threemf';
 import type { MeshLookup, PrintJob } from '../project';
 import type { PrintSetup } from '../layout/plan';
+import { bambuLayerChanges, meshBodySlots, plateChanges, slotColours, type PlateChanges } from './colourExport';
+import { coloursOn, paletteOf } from '../colours';
 
 /**
  * Bambu Studio project 3MF with one plate per print plate.
@@ -14,6 +16,11 @@ import type { PrintSetup } from '../layout/plan';
  *    (col · 1.2 · bedW, −row · 1.2 · bedD) with cols = ceil-ish(√n), exactly
  *    like PartPlateList::compute_origin.
  *  - Metadata/project_settings.config (optional) selects printer/process/filament.
+ *  - Multi-colour (colours.ts): each part's bodies get their filament
+ *    (`<metadata key="extruder">` on the object and on parts that differ),
+ *    the filament lists grow to the slots used (withFilaments), and plates
+ *    with colour changes by height get Metadata/custom_gcode_per_layer.xml
+ *    (colourExport.ts).
  */
 
 export const BAMBU_VERSION = '02.08.04.61';
@@ -24,11 +31,15 @@ export interface BambuPart {
   /** Transform on the plate (bed coordinates, bed front-left = 0,0). */
   transform: Mat12;
   name: string;
+  /** Filament slot of each body (the mesh, then its overlays); unset: 1, and each overlay's own `filament`. */
+  bodies?: number[];
 }
 
 export interface BambuPlate {
   name: string;
   parts: BambuPart[];
+  /** Filament changes by height on this plate (colours.ts 'height'). */
+  changes?: PlateChanges | null;
 }
 
 export interface BambuProjectInput {
@@ -41,18 +52,97 @@ export interface BambuProjectInput {
   title?: string;
   /** Colours for filament slots 2+ when overlays use them (default: black, white, red…). */
   filamentColours?: string[];
+  /** Multi-colour: every slot's colour from slot 1 (the palette); slot 1 then replaces the preset's. */
+  palette?: string[];
+  /** The per-layer changes file (colourExport.ts bambuLayerChanges), when plates have changes. */
+  layerChanges?: string | null;
 }
 
 const EXTRA_COLOURS = ['#161616', '#FFFFFF', '#C12E1F', '#0A2989', '#F4EE2A'];
 
 /**
- * Grow single-filament project settings to `count` filaments. Bambu Studio
- * takes the filament count from `filament_diameter` and fills any shorter
- * per-filament list from its first entry, so only the lists that identify a
- * filament need to grow. Per-extruder lists (nozzle_diameter, extruder_*)
- * must not change on a single-nozzle printer.
+ * Per-filament settings with one value per extruder variant of the printer
+ * (BambuStudio PrintConfig.cpp `filament_options_with_variant`): a filament's
+ * values sit together, `filament_self_index` says which filament each belongs
+ * to, and `filament_extruder_variant` which variant. Bambu Studio refuses a
+ * project whose `filament_extruder_variant` has fewer entries than filaments.
  */
-export function withFilaments(settingsJson: string, count: number, colours: string[] = []): string {
+export const FILAMENT_VARIANT_KEYS = [
+  'filament_flow_ratio',
+  'filament_max_volumetric_speed',
+  'filament_ramming_volumetric_speed',
+  'filament_pre_cooling_temperature',
+  'filament_ramming_travel_time',
+  'filament_ramming_volumetric_speed_nc',
+  'filament_pre_cooling_temperature_nc',
+  'filament_ramming_travel_time_nc',
+  'filament_extruder_variant',
+  'filament_retraction_length',
+  'filament_retract_length_nc',
+  'filament_z_hop',
+  'filament_z_hop_types',
+  'filament_retract_restart_extra',
+  'filament_retraction_speed',
+  'filament_deretraction_speed',
+  'filament_retraction_minimum_travel',
+  'filament_retract_when_changing_layer',
+  'filament_wipe',
+  'filament_wipe_distance',
+  'filament_retract_before_wipe',
+  'filament_long_retractions_when_cut',
+  'filament_retraction_distances_when_cut',
+  'long_retractions_when_ec',
+  'retraction_distances_when_ec',
+  'nozzle_temperature_initial_layer',
+  'nozzle_temperature',
+  'filament_flush_volumetric_speed',
+  'filament_flush_temp',
+  'filament_flush_temp_fast',
+  'filament_enable_overhang_speed',
+  'filament_bridge_speed',
+  'filament_overhang_1_4_speed',
+  'filament_overhang_2_4_speed',
+  'filament_overhang_3_4_speed',
+  'filament_overhang_4_4_speed',
+  'filament_overhang_totally_speed',
+  'override_process_overhang_speed',
+  'volumetric_speed_coefficients',
+  'filament_adaptive_volumetric_speed',
+  'filament_preheat_temperature_delta',
+  'filament_cooling_before_tower',
+  'slow_down_min_speed',
+] as const;
+
+/** One value per filament: grown by repeating the last (Bambu Studio would fill them from the first anyway). */
+const FILAMENT_KEYS = [
+  'filament_diameter',
+  'filament_settings_id',
+  'filament_type',
+  'filament_ids',
+  'filament_vendor',
+  'filament_density',
+  'filament_cost',
+  'filament_map',
+  'filament_nozzle_map',
+  'filament_volume_map',
+  'filament_is_mixed',
+  'filament_extruder_compatibility',
+  'default_filament_colour',
+] as const;
+
+/**
+ * Grow single-filament project settings to `count` filaments, all copies of
+ * filament 1's preset (PLA Basic), coloured `colours[i]` for slot i + 2
+ * (default: black, white, red…) and slot 1 `first` when given.
+ *
+ * Bambu Studio takes the filament count from `filament_diameter`. Lists of
+ * one value per filament grow by repeating the last; lists with a value per
+ * filament and extruder variant (FILAMENT_VARIANT_KEYS) get filament 1's
+ * block again for each new filament, with `filament_self_index` numbering
+ * them; per-extruder lists (nozzle_diameter, extruder_*) don't change. The
+ * flush volume matrix is count × count per nozzle (as PresetBundle sizes it).
+ */
+export function withFilaments(settingsJson: string, count: number, colours: string[] = [], first?: string): string {
   let cfg: Record<string, unknown>;
   try {
     cfg = JSON.parse(settingsJson) as Record<string, unknown>;
@@ -60,7 +150,7 @@ export function withFilaments(settingsJson: string, count: number, colours: stri
     return settingsJson;
   }
   const have = Array.isArray(cfg.filament_diameter) ? cfg.filament_diameter.length : 1;
-  if (have >= count) return settingsJson;
+  if (have >= count && !first) return settingsJson;
   const grow = (key: string, fill?: (i: number) => string) => {
     const v = cfg[key];
     if (!Array.isArray(v) || !v.length) return;
@@ -68,34 +158,52 @@ export function withFilaments(settingsJson: string, count: number, colours: stri
     while (out.length < count) out.push(fill ? fill(out.length) : out[out.length - 1]);
     cfg[key] = out;
   };
-  for (const key of [
-    'filament_diameter',
-    'filament_settings_id',
-    'filament_type',
-    'filament_ids',
-    'filament_vendor',
-    'filament_density',
-    'filament_cost',
-    'filament_map',
-    'filament_nozzle_map',
-    'filament_volume_map',
-    'filament_is_mixed',
-    'filament_extruder_compatibility',
-    'filament_flow_ratio',
-    'filament_max_volumetric_speed',
-    'nozzle_temperature',
-    'nozzle_temperature_initial_layer',
-    'default_filament_colour',
-  ]) {
-    grow(key);
+  if (have < count) {
+    for (const key of FILAMENT_KEYS) grow(key);
+    // Values per filament and extruder variant: filament 1's block once more for each new filament.
+    const self = Array.isArray(cfg.filament_self_index) ? (cfg.filament_self_index as string[]).map(String) : null;
+    const variants = Array.isArray(cfg.filament_extruder_variant) ? (cfg.filament_extruder_variant as unknown[]).length : 0;
+    if (self && self.length === variants && variants >= have) {
+      const block = self.map((v, i) => (v === '1' ? i : -1)).filter((i) => i >= 0);
+      for (const key of FILAMENT_VARIANT_KEYS) {
+        const v = cfg[key];
+        if (!Array.isArray(v) || v.length !== self.length) continue;
+        const out = [...v];
+        for (let f = have + 1; f <= count; f++) for (const i of block) out.push(v[i]);
+        cfg[key] = out;
+      }
+      const ids = [...self];
+      for (let f = have + 1; f <= count; f++) for (let i = 0; i < block.length; i++) ids.push(String(f));
+      cfg.filament_self_index = ids;
+    } else {
+      // An older settings file without variants: one value per filament.
+      for (const key of FILAMENT_VARIANT_KEYS) grow(key);
+    }
+    // [process, filament 1..n, printer]
+    for (const key of ['different_settings_to_system', 'inherits_group']) {
+      const v = cfg[key];
+      if (Array.isArray(v) && v.length === have + 2) {
+        cfg[key] = [v[0], ...v.slice(1, -1), ...Array(count - have).fill(v[v.length - 2]), v[v.length - 1]];
+      }
+    }
+    // Flush volumes: count × count per nozzle (no flush onto itself), and two per filament in the vector.
+    const nozzles = Array.isArray(cfg.flush_multiplier) ? Math.max(1, (cfg.flush_multiplier as unknown[]).length) : 1;
+    const mx = Array.isArray(cfg.flush_volumes_matrix) ? (cfg.flush_volumes_matrix as string[]) : null;
+    if (mx) {
+      const off = mx.find((v) => Number(v) > 0) ?? '280';
+      const matrix: string[] = [];
+      for (let n = 0; n < nozzles; n++) for (let i = 0; i < count; i++) for (let j = 0; j < count; j++) matrix.push(i === j ? '0' : off);
+      cfg.flush_volumes_matrix = matrix;
+    }
+    const vec = Array.isArray(cfg.flush_volumes_vector) ? (cfg.flush_volumes_vector as string[]) : null;
+    if (vec?.length) cfg.flush_volumes_vector = Array.from({ length: 2 * count }, (_, i) => vec[i % 2] ?? vec[0]);
   }
   grow('filament_colour', (i) => colours[i - 1] ?? EXTRA_COLOURS[(i - 1) % EXTRA_COLOURS.length]);
-  // [process, filament 1..n, printer]
-  for (const key of ['different_settings_to_system', 'inherits_group']) {
-    const v = cfg[key];
-    if (Array.isArray(v) && v.length === have + 2) {
-      cfg[key] = [v[0], ...v.slice(1, -1), ...Array(count - have).fill(v[v.length - 2]), v[v.length - 1]];
-    }
+  if (Array.isArray(cfg.filament_colour)) {
+    const c = [...(cfg.filament_colour as string[])];
+    colours.forEach((v, i) => i + 1 < c.length && v && (c[i + 1] = v));
+    if (first) c[0] = first;
+    cfg.filament_colour = c;
   }
   return JSON.stringify(cfg, null, 4);
 }
@@ -158,13 +266,14 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
   let nextId = 1;
   const placed: Placed[] = flat.map((f) => {
     const obj = objects[f.part.object];
-    const bodies: Body[] = [{ id: nextId++, name: f.part.name, filament: 1, xml: () => meshFor(f.part.object) }];
-    for (const o of obj.mesh.overlays ?? []) {
-      bodies.push({ id: nextId++, name: `${f.part.name} – ${o.name}`, filament: o.filament, xml: () => meshXml(o) });
-    }
+    const slot = (i: number, own: number) => f.part.bodies?.[i] ?? own;
+    const bodies: Body[] = [{ id: nextId++, name: f.part.name, filament: slot(0, 1), xml: () => meshFor(f.part.object) }];
+    (obj.mesh.overlays ?? []).forEach((o, i) => {
+      bodies.push({ id: nextId++, name: `${f.part.name} – ${o.name}`, filament: slot(i + 1, o.filament), xml: () => meshXml(o) });
+    });
     return { ...f, bodies, wrapId: nextId++, path: `/3D/Objects/object_${f.k}.model` };
   });
-  const filamentCount = Math.max(1, ...placed.flatMap((p) => p.bodies.map((b) => b.filament)));
+  const filamentCount = Math.max(1, ...placed.flatMap((p) => p.bodies.map((b) => b.filament)), ...plates.flatMap((pl) => pl.changes?.changes.map((c) => c.slot) ?? []));
 
   const rels: string[] = [];
   const resources: string[] = [];
@@ -237,13 +346,15 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
   const cfg: string[] = ['<?xml version="1.0" encoding="UTF-8"?>', '<config>'];
   for (const f of placed) {
     const name = escapeXml(f.part.name);
-    cfg.push(`  <object id="${f.wrapId}">`, `    <metadata key="name" value="${name}"/>`, `    <metadata key="extruder" value="1"/>`);
+    // The object's filament is its main body's; parts in another one say so.
+    const own = f.bodies[0].filament;
+    cfg.push(`  <object id="${f.wrapId}">`, `    <metadata key="name" value="${name}"/>`, `    <metadata key="extruder" value="${own}"/>`);
     for (const b of f.bodies) {
       cfg.push(
         `    <part id="${b.id}" subtype="normal_part">`,
         `      <metadata key="name" value="${escapeXml(b.name)}"/>`,
         `      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>`,
-        ...(b.filament > 1 ? [`      <metadata key="extruder" value="${b.filament}"/>`] : []),
+        ...(b.filament !== own ? [`      <metadata key="extruder" value="${b.filament}"/>`] : []),
         `    </part>`,
       );
     }
@@ -289,9 +400,15 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
     ].join('\n'),
   );
   if (input.projectSettings) {
-    const settings = filamentCount > 1 ? withFilaments(input.projectSettings, filamentCount, input.filamentColours) : input.projectSettings;
+    const settings = input.palette
+      ? withFilaments(input.projectSettings, filamentCount, input.palette.slice(1, filamentCount), input.palette[0])
+      : filamentCount > 1
+        ? withFilaments(input.projectSettings, filamentCount, input.filamentColours)
+        : input.projectSettings;
     files['Metadata/project_settings.config'] = strToU8(settings);
   }
+  // Colour changes by height, per plate (colourExport.ts).
+  if (input.layerChanges) files['Metadata/custom_gcode_per_layer.xml'] = strToU8(input.layerChanges);
 
   files['[Content_Types].xml'] = strToU8(
     [
@@ -325,17 +442,26 @@ export function exportBambuProject(
   projectSettings?: string,
 ): Uint8Array {
   const { objects, objectFor } = collectObjects(getMesh);
-  const plates: BambuPlate[] = job.plates.map((pl) => ({
-    name: pl.name,
-    parts: pl.placements.map((p) => {
-      const part = job.parts[p.key];
-      return {
-        object: objectFor(part.meshKey, part.name),
-        name: part.name,
-        transform: placeTransform(p.x, p.y, p.rotated, part.d),
-      };
-    }),
-  }));
+  const multi = coloursOn(setup);
+  const plates: BambuPlate[] = job.plates.map((pl, i) => {
+    // 'height': every object on the plate in its first band's filament, the changes by layer.
+    const changes = plateChanges(setup, job, i);
+    return {
+      name: pl.name,
+      changes,
+      parts: pl.placements.map((p) => {
+        const part = job.parts[p.key];
+        const object = objectFor(part.meshKey, part.name);
+        return {
+          object,
+          name: part.name,
+          transform: placeTransform(p.x, p.y, p.rotated, part.d),
+          ...(multi ? { bodies: meshBodySlots(setup, job, p.key, objects[object].mesh, changes?.base) } : {}),
+        };
+      }),
+    };
+  });
+  const legacy = paletteOf(setup);
   return writeBambuProject({
     objects,
     plates,
@@ -343,7 +469,9 @@ export function exportBambuProject(
     bedD: setup.bedD,
     projectSettings,
     title: 'Gridfinity drawer',
-    // Filament 2 prints inlaid label text.
-    filamentColours: setup.labelColour ? [setup.labelColour.toUpperCase()] : undefined,
+    // Filament 2 prints inlaid label text; with multi-colour, every slot is the palette's.
+    ...(multi
+      ? { palette: slotColours(setup, 16), layerChanges: bambuLayerChanges(setup, plates.map((pl, i) => ({ plate: i, changes: pl.changes ?? null }))) }
+      : { filamentColours: legacy.length > 1 ? [legacy[1].colour.toUpperCase()] : undefined }),
   });
 }
