@@ -1,0 +1,163 @@
+/* Pick lists (select.tsx): the Select's button, the Combobox's chevron, and the list they open in a layer on top. */
+
+.pick-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  line-height: inherit;
+  text-align: left;
+}
+.pick-trigger:hover:not(:disabled) {
+  background: var(--panel-2);
+  border-color: #4a5466;
+}
+/* Like the text fields: the border lights up. */
+.pick-trigger:focus-visible,
+.pick-trigger[aria-expanded='true'],
+.pick-trigger[aria-expanded='true']:hover:not(:disabled) {
+  border-color: var(--accent);
+  outline: none;
+}
+.pick-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.12s;
+}
+[aria-expanded='true'] > .pick-chevron {
+  transform: rotate(180deg);
+}
+
+.pick-combo input {
+  padding-right: 2px;
+  text-overflow: ellipsis;
+}
+.pick-combo.open {
+  border-color: var(--accent);
+}
+.pick-combo-toggle {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  border: none;
+  border-radius: 0 6px 6px 0;
+  background: none;
+  color: var(--muted);
+}
+.pick-combo-toggle:hover:not(:disabled) {
+  background: none;
+  color: var(--text);
+}
+
+/* The list: fixed, placed by select.tsx against its field, scrolling inside itself. */
+.pick-pop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  width: max-content;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font-size: 13.5px;
+  -webkit-tap-highlight-color: transparent;
+}
+.pick-group:not(:first-child) {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+}
+.pick-group-label {
+  padding: 6px 9px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+  cursor: default;
+}
+.pick-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pick-option.active {
+  background: var(--accent-soft);
+}
+.pick-option[aria-selected='true'] {
+  color: var(--accent);
+}
+.pick-option[aria-disabled='true'] {
+  color: var(--faint);
+  cursor: default;
+}
+.pick-option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+.pick-option-text small {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.pick-check {
+  flex-shrink: 0;
+}
+.pick-empty {
+  padding: 9px;
+  color: var(--muted);
+}
+/* Read out, not shown: how many options match what's typed. */
+.pick-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Fingers: rows at least 44 px tall, and 16 px text in the field (iOS zooms into smaller). */
+@media (pointer: coarse) {
+  .pick-trigger {
+    font-size: 16px;
+  }
+  .pick-pop {
+    font-size: 15px;
+  }
+  .pick-option {
+    min-height: 44px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .pick-group-label {
+    padding-top: 10px;
+  }
+  .pick-combo-toggle {
+    padding: 0 13px;
+  }
+}
