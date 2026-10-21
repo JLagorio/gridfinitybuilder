@@ -441,6 +441,17 @@ button.wide {
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
+  /* Tablets and narrow windows: the top bar wraps instead of scrolling the page sideways. */
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 52px;
+    padding: 6px 14px;
+    row-gap: 6px;
+  }
+  .tabs button {
+    white-space: nowrap;
+  }
 }
 
 .grid-editor {
@@ -943,17 +954,20 @@ details.advanced[open] > .field-hint {
   .body {
     flex-direction: column-reverse;
   }
+  /* One screen at a time (PhoneNav.tsx); the Bins screen stacks the layout editor over the panel. */
   .sidebar {
-    height: 55%;
+    flex: 1 1 0;
+    min-height: 0;
     border-right: none;
     border-top: 1px solid var(--border);
   }
   .main {
-    min-height: 45%;
+    flex: 1.5 1 0;
+    min-height: 0;
   }
   .topbar {
     gap: 8px;
-    overflow-x: auto;
+    padding: 6px 10px;
   }
   .topbar-status .chip {
     display: none;
@@ -2992,8 +3006,8 @@ details.option-group[open] summary > span::before {
 }
 
 /* ==========================================================================
-   Phone and tablet: touch editing
-   (touch.tsx)
+   Phone and tablet: touch editing and the phone tab bar
+   (touch.tsx, PhoneNav.tsx)
    ========================================================================== */
 
 /* Drawing surfaces: no long-press callouts or tap flashes. */
@@ -3002,7 +3016,8 @@ details.option-group[open] summary > span::before {
 .co-canvas svg,
 .cell-mask,
 .trace-stage > svg,
-.viewer canvas {
+.viewer canvas,
+.phone-nav button {
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
@@ -3036,6 +3051,10 @@ details.option-group[open] summary > span::before {
 .ge-touch-actions button {
   font-size: 12px;
   padding: 6px 10px;
+}
+
+.phone-nav {
+  display: none;
 }
 
 /* Fingers: bigger buttons where they're small, and no zoom when a field takes focus (iOS zooms below 16 px). */
@@ -3081,5 +3100,175 @@ details.option-group[open] summary > span::before {
   select,
   textarea {
     font-size: 16px;
+  }
+}
+
+/* Phones: one screen at a time, switched from the tab bar at the bottom. */
+@media (max-width: 760px) {
+  @supports (height: 100dvh) {
+    .app {
+      height: 100dvh;
+    }
+  }
+  .tabs,
+  .brand span,
+  .drawer-current-label,
+  .pane-head .pane-title {
+    display: none;
+  }
+  .drawer-current {
+    max-width: 150px;
+  }
+  .topbar,
+  .topbar-status {
+    gap: 6px;
+  }
+  /* Just the spinner while meshes build, so the bar doesn't jump. */
+  .building {
+    font-size: 0;
+    gap: 0;
+  }
+  .pane-head {
+    justify-content: flex-start;
+    padding: 6px 10px 0;
+  }
+  .grid-editor,
+  .interior-editor {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  /* The compartment tools scroll sideways in one row, so the bin keeps the room. */
+  .ie-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .ie-toolbar > * {
+    flex-shrink: 0;
+  }
+  .ie-status {
+    display: none;
+  }
+  .ie-hint {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Tool cutouts: the selected pocket's buttons in one row too. */
+  .co-bar,
+  .co-palette,
+  .co-canvas {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .co-foot {
+    padding: 0 10px 8px;
+  }
+  .co-sel {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .co-sel > * {
+    flex-shrink: 0;
+  }
+  .co-sel > .muted {
+    display: none;
+  }
+  .co-actions {
+    flex-wrap: nowrap;
+    margin-left: 0;
+  }
+  .phone-nav {
+    display: flex;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .phone-nav button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    border: none;
+    border-radius: 0;
+    background: none;
+    padding: 7px 4px 6px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .phone-nav button:hover:not(:disabled) {
+    background: none;
+  }
+  .phone-nav button.active {
+    color: var(--accent);
+  }
+  /* Drawer and Print: the panel alone. Bins: the layout editor over the panel. 3D: the 3D view alone. */
+  .app:not(.phone-3d) .main-drawer,
+  .app:not(.phone-3d) .main-print,
+  .app:not(.phone-3d) .main-bins .pane-3d,
+  .app.phone-3d .main-bins .pane-2d,
+  .app.phone-3d .sidebar {
+    display: none;
+  }
+  .main-bins .split {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .main-bins .pane-2d {
+    border-bottom: none;
+  }
+  .toast {
+    max-width: calc(100% - 24px);
+  }
+  /* Find opens across the top of the screen. */
+  .find-box.open .find-input {
+    position: fixed;
+    top: 8px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+  .find-results {
+    position: fixed;
+    top: 46px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+  /* Dialogs fill the screen. */
+  .modal-backdrop,
+  .overlay {
+    padding: 0;
+  }
+  .modal,
+  .overlay-card {
+    border: none;
+    border-radius: 0;
+  }
+  .trace-dialog {
+    width: 100%;
+    height: 100%;
+  }
+  .overlay-card {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    height: 100%;
+    padding: 12px 14px 16px;
+  }
+  .trace-stage {
+    border-radius: 0;
+  }
+  .modal-head {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
+/* No keyboard on a phone: no shortcut list. */
+@media (max-width: 760px) and (pointer: coarse) {
+  .help-button {
+    display: none;
   }
 }

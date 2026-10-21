@@ -26,6 +26,7 @@ import { LID_SEAT_DROP } from './lib/geometry/lid';
 import { assembledParts } from './lib/geometry/accessories';
 import { usableBed } from './lib/bedfit';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
+import { PhoneNav, usePhoneView } from './components/PhoneNav';
 import { useCoarsePointer } from './components/touch';
 import './components/workflow.css';
 
@@ -269,6 +270,7 @@ export default function App() {
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
   const coarse = useCoarsePointer();
+  const phone3d = usePhoneView((s) => s.view3d);
 
   // Its own boundary, so a 3D problem never blanks the panels and editors.
   const viewer = (
@@ -314,7 +316,7 @@ export default function App() {
   );
 
   return (
-    <div className="app">
+    <div className={`app${phone3d ? ' phone-3d' : ''}`}>
       <header className="topbar">
         <div className="brand">
           <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden>
@@ -402,6 +404,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <PhoneNav />
     </div>
   );
 }
