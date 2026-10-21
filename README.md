@@ -50,6 +50,13 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **Bins always fit your printer.** Drawing, resizing, the size and height fields, stretching, templates and "Make a bin" all stop at what the bed takes (inside the edge margin, either way round) and at the printer's height. A container's own parts (a drawer unit's drawers, a box lid) count too. After switching to a smaller printer, bins that no longer fit turn red, aren't printed, and get a **Shrink to fit** button.
      - "Fill empty with 1×1" fills the rest of the drawer.
      - **Stretch into the gap:** a bin on the edge of the grid can reach over the solid margin to the drawer wall (Auto, or mm per side). Its feet stay on the grid. The stretched part starts just above the baseplate.
+     - **Stack bins** for a second layer in a deep drawer, as many levels high as fits:
+       - Select a bin and press **Stack a bin on this**. The new bin takes its footprint and the new-bin settings, as tall as the bin below or as tall as still fits the drawer and the printer.
+       - The bin below needs a stacking lip, a stacking lid (not a pocket-grid one), or a drawer unit or parts box with a lip or bin sockets on top. Not a bin stretched over the margin, and not on a wall grid.
+       - The grid shows one level at a time (**Floor / Level 2 / …**); a **+1** badge marks a bin with bins on it. Picking a bin in the 3D view, the Stacking list or Find shows its level.
+       - A stack moves and resizes as one, from any level. Copying, cutting or deleting a bin takes the bins on top of it along. **Move to the floor** takes a stacked bin (and what's on it) off to a free spot.
+       - A bin sinks 4.35 mm into the lip below, or 4 mm into a lid's or a drawer unit's sockets. With the drawer's inside height set, Gridfit warns about stacks that don't fit under it.
+       - Stacked bins print like any other. The drawer map gets a page per level, and the contents list and Find give the level (`B3 · level 2`).
    - **Type:** a plain **bin**, or one of these containers, each on the same Gridfinity feet:
      - **Drawer unit:** a small chest of 1–8 pull-out drawers in up to 4 columns, with notch, tab, knob or recessed pulls, drawer stops, compartments and labels on the drawer fronts. The top can be flat, have a stacking lip, or have receptacles for bins.
      - **Parts box:** a snap-on hinged lid, a snap latch or magnets, compartments with scoops, and a label on the lid.
@@ -141,7 +148,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
    - **Section (C):** a cut along X, Y or Z, with the cut faces filled in
    - **Measure (M):** click two points; it snaps to corners and shows ΔX / ΔY / ΔZ
    - **X-ray (X):** see-through models
-   - **Lift (L):** float the bins above the baseplate to see their feet
+   - **Lift (L):** float the bins above the baseplate to see their feet; stacked bins lift apart level by level
 
    **Find (⌘/Ctrl+K or /)** searches every drawer: what's in the bins, labels, compartment labels, tool names. Pick a result to jump to its drawer and bin.
 
@@ -163,7 +170,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **Cost** from your filament price per kg (a second price for two-colour parts) and, optionally, electricity.
      - TPU non-slip pads (an option under Baseplate) print on their own plate.
      - Downloads as CSV or text.
-   - **Drawer map & contents:** a printable top view of a drawer (or all of them) with each bin's label and contents, fit to a page or at actual size across several pages, or as an SVG. Also a contents list of every bin, and a CSV of it.
+   - **Drawer map & contents:** a printable top view of a drawer (or all of them) with each bin's label and contents, fit to a page or at actual size across several pages, or as an SVG; stacked bins get a map per level. Also a contents list of every bin, and a CSV of it.
 
 Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl+Y). Press **?** for all keyboard shortcuts.
 
@@ -180,7 +187,7 @@ The dimensions follow the community spec (gridfinity.xyz) as implemented by [gri
 - **Grid:** 42 mm pitch, 7 mm height units.
 - **Bin base:** 41.5 mm per unit, 0.8 / 1.8 / 2.15 mm profile, top of floor at 7 mm.
 - **Walls and dividers:** 0.95 mm walls, 1.2 mm dividers.
-- **Stacking lip:** 0.7 / 1.8 / 1.9 mm.
+- **Stacking lip:** 0.7 / 1.8 / 1.9 mm, its top trimmed 0.4 mm. A stacked bin's feet sink 4.75 − 0.4 = 4.35 mm into it (the 45° faces meet 0.35 mm under the lip's start); sockets with a floor (a stacking lid's) stop them 4 mm down.
 - **Baseplate:** 0.7 / 1.8 / 2.15 mm receptacle with 0.35 mm bottom clearance (5 mm spec height). The top ridge is trimmed 0.4 mm by default so it prints cleanly.
 - **Magnet holes:** 6.5 × 2.4 mm, 13 mm from the cell center. Crush ribs 5.9 mm inside, 8 ribs; refined slots 5.86 × 1.9 mm, 0.4 mm above the bed; printable tops bridge in 0.2 mm layers (all from gridfinity-rebuilt).
 - **Bowtie connectors:** 10 mm long, 3 mm wide at the ends and 1.6 mm at the neck, 2 mm deep, with a 0.4 mm flare at the mouth. Keys are 0.15 mm smaller per side and 1.8 mm thick. A 3 mm pocket fits the 4.3 mm wall with 0.65 mm to spare on each side.
@@ -222,6 +229,7 @@ src/lib/geometry/containers/  drawer units, parts boxes, hoppers, tool racks, di
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers; estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search
+src/lib/stacking.ts bins stacked on bins: columns, rules, heights
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
 src/worker/         geometry Web Worker + client with a mesh queue/cache
 src/components/     React UI (three.js viewer, 2D bin layout editor, panels)
