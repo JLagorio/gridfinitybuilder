@@ -70,19 +70,26 @@ import {
   buildSkadisPlate,
   buildSkadisSpacer,
   buildSkadisTile,
+  hangPartSize,
   headDiameter,
   planSkadis,
+  plannedSkadis,
   plateSize,
   sanitizeSkadis,
   skadisPlatePart,
+  skadisGap,
+  rimPins,
   skadisSpacerPart,
   skadisTileSpecs,
   tileBounds,
+  type SkadisHangPart,
   type SkadisPlan,
   type SkadisPlatePart,
+  type SkadisRimPart,
   type SkadisSpacerPart,
   type SkadisTileSpec,
 } from './geometry/skadis';
+import { buildSkadisHang, buildSkadisRim } from './geometry/skadisParts';
 import { spacerMargins, type DrawerInput, type GridLayout } from './layout/drawer';
 import { wallBoard, type WallBoard, type WallPlacement } from './wall/plan';
 import { clearAreas, fitsOnBed, packPlates, plateBed, type PlateLayout } from './layout/pack';
@@ -123,7 +130,10 @@ export type EnclosurePart =
   | { kind: 'cleat'; strip: CleatStrip }
   /** Skådis joint plate: pins up as printed, or pins down in its pocket (drawer view). */
   | { kind: 'skadisPlate'; plate: SkadisPlatePart; pinsDown?: boolean }
-  | { kind: 'skadisSpacer'; spacer: SkadisSpacerPart };
+  | { kind: 'skadisSpacer'; spacer: SkadisSpacerPart }
+  /** Skådis frame strip, and a part the board hangs from (a cleat, door hook, desk foot or clamp) with what it takes to put up. */
+  | { kind: 'skadisRim'; rim: SkadisRimPart }
+  | { kind: 'skadisHang'; hang: SkadisHangPart; hardware?: EnclosureHardware[] };
 
 export type EnclosurePartKind = EnclosurePart['kind'];
 
@@ -228,6 +238,8 @@ export interface SkadisInfo {
   /** Hexagon size, mm. */
   hexW?: number;
   hexH?: number;
+  /** Magnets in its magnet zones. */
+  magnets?: number;
   /** How much of the space the board covers, mm. */
   boardW: number;
   boardH: number;
@@ -788,7 +800,7 @@ const pieceOfTile = (t: SkadisPlan['tiles'][number]): PieceDef => ({
  * turned over for it (EnclosureScene.pieceTurn).
  */
 function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, setup: PrintSetup): EnclosurePlan {
-  const o = sanitizeSkadis(d.drawer.skadis);
+  const o = plannedSkadis(sanitizeSkadis(d.drawer.skadis));
   const areas = clearAreas({ ...plateBed(setup), spacing: setup.spacing }).map((a) => ({ w: a.w, d: a.d }));
   const plan = planSkadis(o, areas);
   const specs = skadisTileSpecs(plan, o);
@@ -805,23 +817,35 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
     rows: plan.rows,
     ...(plan.error ? { error: plan.error } : {}),
   };
-  // Face up: the back (with posts, or on spacers) at the bottom.
+  // Face up: the back (with posts, on spacers, or held off by a cleat or door hooks) at the bottom.
   const T = o.thickness;
-  const back = o.standoff === 'none' ? 0 : o.depth;
+  const back = skadisGap(o);
   const pieceAt: Record<number, Vec3> = {};
   plan.tiles.forEach((t, i) => {
     const b = bounds[i];
-    pieceAt[t.id] = [r1(t.x0 + b.x0), r1(t.y0 + b.y0), o.standoff === 'spacers' ? back : 0];
+    pieceAt[t.id] = [r1(t.x0 + b.x0), r1(t.y0 + b.y0), o.standoff === 'posts' ? 0 : back];
   });
   const parts: EnclosurePartPlan[] = [];
   const views: EnclosurePlan['views'] = [];
   const items: EnclosureSceneItem[] = [];
   const plates = plan.joints.filter((j) => j.kind === 'plate');
   const tabs = plan.joints.length - plates.length;
-  const screws = plan.mounts.filter((m) => m.screw);
+  // Screws into the wall, and into the parts it hangs from.
+  const screws = plan.mounts.filter((m) => m.screw && !m.hang);
+  const hangScrews = plan.mounts.filter((m) => m.hang).length;
   const spacers = o.standoff === 'spacers' ? screws : [];
+  const HANG = {
+    boardCleat: ['Board cleat', 'board cleat'],
+    wallCleat: ['Wall cleat', 'board cleat'],
+    hook: ['Door hook', 'door hooks'],
+    foot: ['Desk foot', 'desk feet'],
+    clamp: ['Desk clamp', 'desk clamps'],
+  } as const;
+  // What the board screws on to.
+  const onto = plan.hang.length ? HANG[plan.hang[0].kind][1] : '';
   // Small parts share plates: named for what's on them.
-  const group = plates.length && spacers.length ? 'Joint plates & spacers' : plates.length ? 'Joint plates' : 'Standoff spacers';
+  const group =
+    plan.rim.length || onto ? 'Board parts' : plates.length && spacers.length ? 'Joint plates & spacers' : plates.length ? 'Joint plates' : 'Standoff spacers';
   if (plates.length) {
     const plate = skadisPlatePart(o);
     const part: EnclosurePart = { kind: 'skadisPlate', plate };
@@ -865,11 +889,46 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
       });
     });
   }
+  // Frame strips on the front, pins down into the border.
+  plan.rim.forEach((s, i) => {
+    const rim: SkadisRimPart = { ...s, W: o.width, H: o.height, R: o.corner, height: o.rimHeight, pinD: SKADIS.rim.pinD, pinH: rimPins(o).pin };
+    const part: EnclosurePart = { kind: 'skadisRim', rim };
+    const meshKey = `skadisrim|${JSON.stringify(rim)}`;
+    const size = { w: s.x1 - s.x0, d: s.y1 - s.y0, h: rim.height + rim.pinH };
+    parts.push({ key: `frame:${i + 1}`, name: `Frame strip ${i + 1} (${r1(Math.max(size.w, size.d))} mm)`, kind: 'enclosure', part, meshKey, ...size, group });
+    items.push({ id: `skadis-frame-${i}`, meshKey, x: s.x0, y: s.y0, z: back + T - rim.pinH, ...size, turn: [180, 0, 0], role: 'strip', when: 'always' });
+  });
+  // What it hangs from, where it goes behind (or under) the board.
+  const nth: Record<string, number> = {};
+  plan.hang.forEach((h, i) => {
+    nth[h.kind] = (nth[h.kind] ?? 0) + 1;
+    const hardware =
+      h.kind === 'wallCleat'
+        ? [{ item: `Countersunk screws ⌀${o.screw} (French cleat)`, count: h.holes.length, note: 'into the wall' }]
+        : h.bolt && [{ item: 'M6 × 30 mm bolts with nuts (desk clamps)', count: 1 }];
+    const part: EnclosurePart = { kind: 'skadisHang', hang: h, ...(hardware ? { hardware } : {}) };
+    const meshKey = `skadishang|${JSON.stringify(h)}`;
+    const { z0, y0, ...size } = hangPartSize(h);
+    parts.push({ key: `hang:${i + 1}`, name: `${HANG[h.kind][0]} ${nth[h.kind]}`, kind: 'enclosure', part, meshKey, ...size, group });
+    const turn: Vec3 | undefined = h.pose === 'back' ? undefined : h.pose === 'front' ? [180, 0, 0] : [0, -90, 0];
+    items.push({
+      id: `skadis-hang-${i}`,
+      meshKey,
+      x: h.x,
+      y: y0,
+      z: back - h.board + z0,
+      ...size,
+      ...(turn ? { turn } : {}),
+      role: h.pose === 'side' ? 'foot' : 'cleat',
+      when: 'always',
+    });
+  });
 
   const hex = plan.shape === 'hex';
   const what = hex ? 'hexagon' : 'tile';
   const long = r1(T + (o.standoff === 'none' ? 0 : o.depth) + 30);
   const screwItem = `Countersunk screws ⌀${o.screw} × ${long} mm or longer (Skådis board)`;
+  const magnets = specs.reduce((n, s) => n + (s.magnets?.length ?? 0), 0);
   const steps: string[] = [];
   if (pieces.length) {
     steps.push(`Skådis board: ${pieces.length} ${what}${pieces.length === 1 ? '' : 's'}, numbered on the back as on this map.`);
@@ -878,13 +937,22 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
       if (plates.length) steps.push(`Press the ${plates.length} joint plates into the pockets across the seams (pins down); a drop of glue in each makes it one board.`);
       if (!tabs && !plates.length) steps.push('The tiles are not joined: screw each one up on its own, edge to edge.');
     }
+    if (magnets) steps.push(`Glue ${magnets} magnets into the pockets on the back, all the same way up.`);
+    if (o.frame === 'led') steps.push('Stick the LED strip in the channel round the back edge, LEDs to the wall.');
+    if (plan.rim.length) steps.push('Glue the frame strips onto the front border, pins in their holes.');
     if (o.standoff === 'spacers') steps.push(`Put a ${o.depth} mm spacer behind each screw hole.`);
     if (screws.length) {
       const by = o.standoff === 'none' ? '' : ` ${o.depth} mm off the wall`;
       steps.push(`Screw it to the wall through the ${screws.length} countersunk holes${by}, with wall plugs where the wall needs them.`);
     }
     if (hex && o.standoff === 'posts') steps.push('The posts in the top and bottom corners rest on the wall; the screws go through the left and right ones.');
-    steps.push('Hooks and accessories made for IKEA SKÅDIS hang in the slots.');
+    if (onto) steps.push(`Screw the ${onto} on from the front, through the ${hangScrews} holes in the board.`);
+    if (o.hang === 'cleat') steps.push('Screw the wall cleat level to the wall, its sloping edge up, and hang the board on it.');
+    if (o.hang === 'door') steps.push('Hang the board over the door: 2.5 mm goes over its top.');
+    if (o.hang === 'desk') steps.push(o.deskMount === 'stand' ? 'Stand it on the desk.' : 'Slide the clamps over the desk’s back edge and tighten the bolts.');
+    steps.push(
+      o.pitch === 20 ? 'Hooks and accessories made for IKEA SKÅDIS hang in the slots.' : 'Attachments made for this board (Attachments tab) hang in its slots.',
+    );
   }
 
   const info: SkadisInfo = {
@@ -896,10 +964,11 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
     tabs,
     plates: plates.length,
     mounts: plan.mounts.length,
-    screws: screws.length,
+    screws: screws.length + hangScrews,
     tileW: bounds.length ? r1(Math.max(...bounds.map((b) => b.w))) : 0,
     tileD: bounds.length ? r1(Math.max(...bounds.map((b) => b.d))) : 0,
     ...(plan.hex ? { hexW: r1(plan.hex.w), hexH: r1(plan.hex.h) } : {}),
+    ...(magnets ? { magnets } : {}),
     boardW: hex && plan.hex ? r1(Math.max(...plan.tiles.map((t) => t.x1)) - Math.min(...plan.tiles.map((t) => t.x0))) : o.width,
     boardH: hex && plan.hex ? r1(Math.max(...plan.tiles.map((t) => t.y1)) - Math.min(...plan.tiles.map((t) => t.y0))) : o.height,
   };
@@ -914,9 +983,16 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
       if (i === undefined) return null;
       const tile = specs[i];
       const b = bounds[i];
-      const n = tile.mounts.filter((m) => m.screw).length;
+      const n = tile.mounts.filter((m) => m.screw && !m.hang).length;
+      const nh = tile.mounts.filter((m) => m.hang).length;
+      const hardware: EnclosureHardware[] = [];
+      if (n) hardware.push({ item: screwItem, count: n, note: 'into the wall, with plugs where it needs them' });
+      if (nh) hardware.push({ item: `Countersunk screws ⌀${o.screw} × ${plan.hangScrew} mm (Skådis board to its ${onto})`, count: nh });
+      if (tile.magnets) hardware.push({ item: 'Magnets 6 × 2 mm (Skådis board)', count: tile.magnets.length });
+      // The LED strip goes with the first tile.
+      if (o.frame === 'led' && !i) hardware.push({ item: `LED strip ${o.ledWidth} mm wide (Skådis board)`, count: 1, note: `${r1((o.width + o.height) / 500)} m round the back edge` });
       return {
-        enclosure: { kind: 'skadis', origin: [0, 0, 0], cuts: [], tile, ...(n ? { hardware: [{ item: screwItem, count: n, note: 'into the wall, with plugs where it needs them' }] } : {}) },
+        enclosure: { kind: 'skadis', origin: [0, 0, 0], cuts: [], tile, ...(hardware.length ? { hardware } : {}) },
         w: b.w,
         d: b.d,
         h: b.h,
@@ -955,9 +1031,12 @@ function skadisMap(plan: SkadisPlan, info: SkadisInfo, o: ReturnType<typeof sani
   lines.push(`Space: ${r1(o.width)} × ${r1(o.height)} mm`);
   if (hex && plan.hex) lines.push(`Hexagons: ${plan.tiles.length}, ${r1(plan.hex.w)} mm corner to corner, ${r1(plan.hex.h)} mm high, ${o.hexGap} mm apart`);
   else lines.push(`Board: ${r1(o.width)} × ${r1(o.height)} mm in ${plan.cols} × ${plan.rows} tiles`);
-  lines.push(`Slots: ${plan.slots} (${o.slotW} × ${o.slotL} mm, IKEA SKÅDIS spacing)`);
+  const pattern = o.pattern === 'skadis' && o.pitch === 20 ? 'IKEA SKÅDIS spacing' : `${o.pattern} pattern, ${o.pitch} mm step`;
+  lines.push(`Slots: ${plan.slots} (${o.slotW} × ${o.slotL} mm, ${pattern})`);
   if (info.plates || info.tabs) lines.push(`Joints: ${info.tabs} dovetail tabs, ${info.plates} joint plates`);
   if (info.mounts) lines.push(`Mounting: ${info.screws} screw holes${o.standoff === 'none' ? '' : `, ${o.depth} mm ${o.standoff === 'posts' ? 'posts' : 'spacers'}`}`);
+  const n = plan.hang.length;
+  if (n) lines.push(`Hangs from: ${o.hang === 'cleat' ? 'a French cleat' : o.hang === 'door' ? `${n} door hooks` : `${n} desk ${o.deskMount === 'stand' ? 'feet' : 'clamps'}`}`);
   lines.push('', 'Seen from the front (as on the wall). Numbers are on the back of each tile.');
   if (!hex) {
     for (let r = plan.rows - 1; r >= 0; r--) {
@@ -1039,6 +1118,10 @@ export function buildEnclosurePart(w: Wasm, part: EnclosurePart, view?: Enclosur
         return buildSkadisPlate(w, part.plate, part.pinsDown);
       case 'skadisSpacer':
         return buildSkadisSpacer(w, part.spacer);
+      case 'skadisRim':
+        return buildSkadisRim(w, part.rim);
+      case 'skadisHang':
+        return buildSkadisHang(w, part.hang);
     }
   } finally {
     s.dispose();
@@ -1048,6 +1131,7 @@ export function buildEnclosurePart(w: Wasm, part: EnclosurePart, view?: Enclosur
 /** Hardware an extra part needs (bill of materials); floor pieces carry theirs in `PieceEnclosure.hardware`. */
 export function enclosurePartHardware(part: EnclosurePart): EnclosureHardware[] {
   if (part.kind === 'cleat') return [{ item: `Countersunk screws ⌀${part.strip.screwDiameter} (French cleat)`, count: part.strip.screws.length, note: 'into the wall' }];
+  if (part.kind === 'skadisHang') return part.hardware ?? [];
   return [];
 }
 
