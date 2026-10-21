@@ -9,7 +9,7 @@
  *   cutout names and drawer names; case- and accent-insensitive, every word
  *   must match, with a little typo tolerance.
  * - A printable top-view drawer map (SVG, mm units, optionally tiled 1:1 over
- *   several pages) and a CSV inventory.
+ *   several pages; one per level when bins are stacked) and a CSV inventory.
  *
  * Everything here is pure (no store, no DOM).
  */
@@ -23,6 +23,7 @@ import { compartmentAt, resolveLayout, uniformLayout, type Compartment, type Div
 import { cellEdge, computeLayout } from './layout/drawer';
 import { formatLength, type InchPrecision, type Units } from './units';
 import { binCellsAt, type NamedDrawer, type PlacedBin } from './project';
+import { stacksOf } from './stacking';
 
 // ---------------------------------------------------------------------------
 // Contents
@@ -206,8 +207,10 @@ export interface BinEntry {
   size: string;
   /** "2×1×3u 4 compartments". */
   desc: string;
-  /** Grid reference of the bin's front-left cell, "B3". */
+  /** Grid reference of the bin's front-left cell, "B3" ("B3 · level 2" for a stacked bin). */
   pos: string;
+  /** 0 = on the floor, 1 = stacked on a floor bin, … (stacking.ts). */
+  level: number;
   /** Bin label text, lines joined with " / " ('' = none). */
   label: string;
   /** The bin's own items, plus any left over from compartments it no longer has. */
@@ -248,8 +251,8 @@ function placeNames(comps: Compartment[], W: number, D: number): string[] {
   });
 }
 
-/** One bin's inventory. `cells`: its partial edge cells, as for binLayout. */
-export function binEntry(d: Pick<NamedDrawer, 'id' | 'name'>, b: PlacedBin, cells?: Partial<BinCells> | null): BinEntry {
+/** One bin's inventory. `cells`: its partial edge cells, as for binLayout; `level`: where it is in its stack. */
+export function binEntry(d: Pick<NamedDrawer, 'id' | 'name'>, b: PlacedBin, cells?: Partial<BinCells> | null, level = 0): BinEntry {
   const o = b.opts;
   const own = b.compContents ?? {};
   const contents = contentLines(b.contents);
@@ -275,7 +278,8 @@ export function binEntry(d: Pick<NamedDrawer, 'id' | 'name'>, b: PlacedBin, cell
     bin: b,
     size: `${o.unitsX}×${o.unitsY}`,
     desc: binLabel(o),
-    pos: cellName(b.x, b.y),
+    pos: level ? `${cellName(b.x, b.y)} · level ${level + 1}` : cellName(b.x, b.y),
+    level,
     label: oneLine(labelCaptionText(b)),
     contents,
     comps,
@@ -288,12 +292,14 @@ export function byPosition(bins: PlacedBin[]): PlacedBin[] {
   return [...bins].sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
-/** Every bin of every drawer, drawer by drawer, front row first. */
+/** Every bin of every drawer, drawer by drawer, front row first; a stack bottom up. */
 export function binEntries(drawers: NamedDrawer[]): BinEntry[] {
   const out: BinEntry[] = [];
   for (const d of drawers) {
     const layout = computeLayout(d.drawer);
-    for (const b of byPosition(d.bins)) out.push(binEntry(d, b, binCellsAt(layout, b)));
+    const { level } = stacksOf(d.bins);
+    const lv = (b: PlacedBin) => level.get(b.id) ?? 0;
+    for (const b of [...d.bins].sort((a, c) => a.y - c.y || a.x - c.x || lv(a) - lv(c))) out.push(binEntry(d, b, binCellsAt(layout, b), lv(b)));
   }
   return out;
 }
@@ -591,6 +597,8 @@ export function inventoryCsv(drawers: NamedDrawer[]): string {
 export interface MapOptions {
   units?: Units;
   precision?: InchPrecision;
+  /** Which level of stacked bins to draw (stacking.ts): 0 = the floor (default), 1 = the bins on floor bins, … */
+  level?: number;
 }
 
 /** A drawer's map: SVG markup in mm, origin at the top-left corner, back of the drawer at the top. */
@@ -783,10 +791,16 @@ function mainRect(c: Compartment): Rect {
  * Top view of a drawer: the baseplate grid with column letters (from the left)
  * and row numbers (from the front), every bin outlined where it sits with its
  * compartments or tool outlines, and its label text and contents written in
- * it (sized to fit). Drawn in mm, so it prints at actual size.
+ * it (sized to fit). Drawn in mm, so it prints at actual size. With stacked
+ * bins, `o.level` picks the level drawn; floor bins whose stack doesn't reach
+ * it are outlined, and bins with bins on them say so.
  */
 export function drawerMap(d: NamedDrawer, o: MapOptions = {}): DrawerMap {
   const units = o.units ?? 'mm';
+  const stacks = stacksOf(d.bins);
+  const level = Math.max(0, Math.min(Math.floor(o.level ?? 0), stacks.depth - 1));
+  const columns = [...stacks.columns.values()];
+  const name = level ? `${d.name} · level ${level + 1}` : d.name;
   const fmt = (mm: number) => formatLength(mm, units, { precision: o.precision });
   const L = computeLayout(d.drawer);
   const M = 8;
@@ -805,13 +819,16 @@ export function drawerMap(d: NamedDrawer, o: MapOptions = {}): DrawerMap {
   s.push(box(0, 0, W, H, 'fill="#ffffff"'));
   // Header: name, size, and a scale bar to check an actual-size print against.
   const nBins = d.bins.length;
-  const titleSize = Math.min(6.5, (6.5 * (W - 2 * M - 60)) / Math.max(1, textWidth(d.name, 6.5, true)));
-  s.push(`<text x="${M}" y="${M + 6}" font-size="${n2(Math.max(3, titleSize))}" font-weight="700" fill="${INK}">${esc(d.name)}</text>`);
+  const titleSize = Math.min(6.5, (6.5 * (W - 2 * M - 60)) / Math.max(1, textWidth(name, 6.5, true)));
+  s.push(`<text x="${M}" y="${M + 6}" font-size="${n2(Math.max(3, titleSize))}" font-weight="700" fill="${INK}">${esc(name)}</text>`);
   const sizeText =
     d.drawer.mode === 'drawer'
       ? `Drawer ${fmt(d.drawer.width)} × ${fmt(d.drawer.depth)} · baseplate ${fmt(L.plateW)} × ${fmt(L.plateD)}`
       : `Baseplate ${fmt(L.plateW)} × ${fmt(L.plateD)}`;
-  const sub = `${sizeText} · ${L.nx} × ${L.ny} grid · ${nBins} bin${nBins === 1 ? '' : 's'}`;
+  const onLevel = columns.filter((c) => c.length > level).length;
+  const sub = level
+    ? `${onLevel} bin${onLevel === 1 ? '' : 's'} stacked on level ${level + 1} · outlined: nothing stacked this high`
+    : `${sizeText} · ${L.nx} × ${L.ny} grid · ${nBins} bin${nBins === 1 ? '' : 's'}${stacks.depth > 1 ? `, ${nBins - columns.length} stacked (see the level maps)` : ''}`;
   s.push(`<text x="${M}" y="${M + 12.5}" font-size="3.2" fill="${SOFT}">${esc(sub)}</text>`);
   const bar = units === 'in' ? 50.8 : 50;
   const bx1 = W - M;
@@ -857,7 +874,16 @@ export function drawerMap(d: NamedDrawer, o: MapOptions = {}): DrawerMap {
 
   // Bins.
   const inset = (GRID - BASE_TOP) / 2;
-  for (const b of byPosition(d.bins)) {
+  // Floor bins with nothing stacked this high: just their outline.
+  for (const c of columns) {
+    if (c.length > level) continue;
+    const b = c[0];
+    const { w: bw, d: bd } = binSize(b.opts, binCellsAt(L, b));
+    const x0 = cellEdge(L.xs, b.x, L.pitchX) + inset;
+    const y0 = cellEdge(L.ys, b.y, L.pitchY) + inset;
+    s.push(box(X(x0) + 0.3, Y(y0 + bd) + 0.3, bw - 0.6, bd - 0.6, `rx="3.4" fill="none" stroke="${SOFT}" stroke-width="0.3" stroke-dasharray="1.5 1"`));
+  }
+  for (const b of byPosition(columns.flatMap((c) => c.slice(level, level + 1)))) {
     const cellsAt = binCellsAt(L, b);
     const e = binEntry(d, b, cellsAt);
     const { w: bw, d: bd } = binSize(b.opts, cellsAt);
@@ -911,9 +937,24 @@ export function drawerMap(d: NamedDrawer, o: MapOptions = {}): DrawerMap {
       const h = bl.r.y1 - bl.r.y0 - 2 * pad;
       g.push(textBlock(bl.lines, x, y, w, h, bl.lines.length === 1 && bl.lines[0].dim ? 3.2 : 6));
     }
+    // Bins stacked on it are on the next level's map.
+    const above = (stacks.columns.get(stacks.root.get(b.id) ?? b.id)?.length ?? 1) - 1 - level;
+    if (above > 0) {
+      const t = `+${above} on top`;
+      const tw = textWidth(t, 2.4, true) + 2.4;
+      g.push(
+        box(X(x0 + bw) - tw - 1, Y(y0 + bd) + 1, tw, 3.8, `rx="1.9" fill="${INK}"`),
+        `<text x="${n2(X(x0 + bw) - 1 - tw / 2)}" y="${n2(Y(y0 + bd) + 3.75)}" font-size="2.4" font-weight="700" text-anchor="middle" fill="#ffffff">${esc(t)}</text>`,
+      );
+    }
     s.push(`<g data-bin="${esc(b.id)}">${g.join('')}</g>`);
   }
-  return { id: d.id, name: d.name, w: W, h: H, body: s.join('') };
+  return { id: level ? `${d.id}:level${level + 1}` : d.id, name, w: W, h: H, body: s.join('') };
+}
+
+/** A drawer's maps: the floor, then one per level of stacked bins. */
+export function drawerMaps(d: NamedDrawer, o: Omit<MapOptions, 'level'> = {}): DrawerMap[] {
+  return Array.from({ length: stacksOf(d.bins).depth }, (_, level) => drawerMap(d, { ...o, level }));
 }
 
 export interface ViewBox {

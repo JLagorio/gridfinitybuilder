@@ -83,6 +83,7 @@ import {
   type EnclosureView,
   type PieceEnclosure,
 } from './enclosures';
+import { stackPlaces, stackWarnings } from './stacking';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
 export interface PlacedBin {
@@ -103,6 +104,11 @@ export interface PlacedBin {
    * (layout/stretch.ts); the rest is kept but ignored.
    */
   stretch?: Partial<BinStretch>;
+  /**
+   * Id of the bin this one stands on, stacked in its lip (stacking.ts). It has
+   * that bin's footprint. Unset = on the baseplate.
+   */
+  on?: string;
 }
 
 /** One drawer's design. */
@@ -205,6 +211,8 @@ export interface DrawerJob {
   plateCount: number;
   /** Carry case, wall grid or spacer strips: what the drawer view draws (enclosures.ts). */
   enclosure?: EnclosureScene;
+  /** Room for bins above the baseplate floor, mm (Infinity when the height isn't known). */
+  room?: number;
 }
 
 export interface PrintJob {
@@ -428,11 +436,15 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     // TPU pads (pads.ts) lift the whole plate a little.
     const lift = padStyle(bpo) ? PAD.proud : 0;
     const room = enc ? enc.room - lift : d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) - lift : Infinity;
-    // Raised front labels stand proud of the 0.5 mm gap to the bin in front.
+    drawerJobs[drawerJobs.length - 1].room = room;
+    // Stacked bins (stacking.ts): each stands on a bin that can hold it, and every stack fits the drawer.
+    const stacked = stackPlaces(layout, d.bins);
+    for (const msg of stackWarnings(layout, d.bins, room, d.drawer.enclosure === 'wall')) warn(msg);
+    // Raised front labels stand proud of the 0.5 mm gap to the bin in front (a stack in front fills it up to its top).
     const clashes = frontLabelClashes(
       d.bins,
-      (x) => frontLabelBottom(binFrontLabel(resolveContentLabels(x.opts, x), binCellsAt(layout, x))),
-      (x) => binTotalHeight(x.opts),
+      (x) => offset(frontLabelBottom(binFrontLabel(resolveContentLabels(x.opts, x), binCellsAt(layout, x))), stacked.get(x.id)?.z),
+      (x) => (stacked.get(x.id)?.z ?? 0) + binTotalHeight(x.opts),
     );
     for (const b of clashes) {
       warn(`Bin ${binLabel(b.opts)}: its raised front label touches the bin in front of it (make it inlaid or engraved).`);
@@ -742,3 +754,6 @@ function round(v: number) {
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/** A height raised by `dz` (null stays null). */
+const offset = (v: number | null, dz = 0) => (v === null ? null : v + dz);

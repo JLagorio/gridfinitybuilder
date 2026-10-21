@@ -27,6 +27,7 @@ import { bedOvershoot, bedProblem, fitStretch, maxUnitsAlong, placedOvershoot, s
 import { findPrinter } from '../lib/printers';
 import { sanitizeBin } from '../lib/geometry/bin';
 import { BinChecksNotice } from './PrintChecks';
+import { StackSection } from './StackSection';
 
 function BinFields({
   opts,
@@ -446,6 +447,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <BinFields opts={newBin} onChange={changeNew} sizeEditable={false} sizeError={sizeError} half={half} />
         </Section>
       )}
+      {sel && !many && <StackSection key={`stack-${sel.id}`} job={job} bin={sel} />}
       {sel && !many && <StretchSection key={`stretch-${sel.id}`} layout={job.layout} bin={sel} />}
       {/* Drawer units, parts boxes, … have their own insides. */}
       {sel ? (

@@ -24,15 +24,20 @@ export interface BoxItem {
   d: number;
   h: number;
   rotated?: boolean;
-  /** Floats up with "Lift bins". */
-  lift?: boolean;
+  /** Floats up with "Lift bins"; a number lifts it that many times as far (stacked bins, by level). */
+  lift?: boolean | number;
+}
+
+/** How many lift heights an item rises with "Lift bins" (0 = it stays put). */
+export function liftFactor(it: Pick<BoxItem, 'lift'>): number {
+  return it.lift === true ? 1 : typeof it.lift === 'number' ? it.lift : 0;
 }
 
 /** Box of one scene item (footprint min corner + size; rotation swaps w and d), raised by `lift` if it lifts. */
 export function itemBox(it: BoxItem, lift = 0): Box {
   const w = it.rotated ? it.d : it.w;
   const d = it.rotated ? it.w : it.d;
-  const z = it.z + (it.lift ? lift : 0);
+  const z = it.z + liftFactor(it) * lift;
   return { min: [it.x, it.y, z], max: [it.x + w, it.y + d, z + it.h] };
 }
 

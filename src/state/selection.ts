@@ -3,12 +3,14 @@ import { computeLayout } from '../lib/layout/drawer';
 import { newId, withBlocked, type CellRect } from '../lib/bins';
 import type { PlacedBin } from '../lib/project';
 import { besideGroup, canMoveGroup, findSpot, groupBounds, toClip, type ClipBin } from '../lib/binLayout';
+import { binsWithAbove, columnIds, withBinsAbove } from '../lib/stacking';
 import { selectedIds, useStore } from './store';
 
 /**
  * Multi-bin editing for the layout editor: selection, moving several bins,
  * resizing, copy/paste/duplicate, nudging. Everything goes through the store,
- * so undo/redo covers it.
+ * so undo/redo covers it. Stacks (stacking.ts) move as one; deleting,
+ * copying and duplicating a bin takes the bins stacked on it along.
  */
 
 export { selectedIds };
@@ -50,11 +52,12 @@ export function selectedBins(): PlacedBin[] {
   return s.bins.filter((b) => ids.includes(b.id));
 }
 
-/** Move bins together; nothing moves unless all of them fit. */
+/** Move bins together; nothing moves unless all of them fit. A stack moves as one. */
 export function moveBins(ids: string[], dx: number, dy: number): boolean {
   if (!dx && !dy) return false;
   const s = state();
   const { nx, ny, mask } = grid();
+  ids = columnIds(s.bins, ids);
   if (!canMoveGroup(withBlocked(s.bins, mask), ids, dx, dy, nx, ny)) return false;
   const set = new Set(ids);
   useStore.setState({ bins: s.bins.map((b) => (set.has(b.id) ? { ...b, x: b.x + dx, y: b.y + dy } : b)) });
@@ -68,7 +71,7 @@ export function nudgeSelection(dx: number, dy: number): boolean {
 export function removeBins(ids: string[]) {
   if (!ids.length) return;
   const s = state();
-  const set = new Set(ids);
+  const set = new Set(withBinsAbove(s.bins, ids));
   const left = selectedIds(s.ui).filter((id) => !set.has(id));
   useStore.setState({
     bins: s.bins.filter((b) => !set.has(b.id)),
@@ -90,7 +93,7 @@ let clipboard: ClipBin[] = [];
 
 export function copySelection(): number {
   const bins = selectedBins();
-  if (bins.length) clipboard = toClip(bins);
+  if (bins.length) clipboard = toClip(binsWithAbove(state().bins, bins));
   return bins.length;
 }
 
@@ -98,12 +101,14 @@ export const hasClipboard = () => clipboard.length > 0;
 
 /** Add copies of clip bins with their group's front-left corner at (x, y), and select them. */
 function place(clip: ClipBin[], [x, y]: [number, number]): string[] {
-  const added: PlacedBin[] = clip.map(({ dx, dy, opts, ...contents }) => ({
-    id: newId(),
+  const fresh = clip.map(() => newId());
+  const added: PlacedBin[] = clip.map(({ dx, dy, opts, on, ...contents }, i) => ({
+    id: fresh[i],
     x: x + dx,
     y: y + dy,
     opts: structuredClone(opts),
     ...structuredClone(contents),
+    ...(on !== undefined ? { on: fresh[on] } : {}),
   }));
   const s = state();
   const ids = added.map((b) => b.id);
@@ -123,7 +128,7 @@ export function pasteClipboard(at?: [number, number] | null): string[] {
 export function duplicateSelection(): string[] {
   const bins = selectedBins();
   if (!bins.length) return [];
-  const clip = toClip(bins);
+  const clip = toClip(binsWithAbove(state().bins, bins));
   const { nx, ny, mask } = grid();
   const spot = findSpot(withBlocked(state().bins, mask), clip, nx, ny, besideGroup(groupBounds(bins)));
   return spot ? place(clip, spot) : [];

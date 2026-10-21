@@ -31,16 +31,21 @@ export interface ClipBin {
   /** What's in it (copies keep their contents; the stretch stays with the original). */
   contents?: string;
   compContents?: Record<string, string>;
+  /** Stacked on another copied bin: its index in the clip (stacking.ts). */
+  on?: number;
 }
 
 export function toClip(bins: PlacedBin[]): ClipBin[] {
   const g = groupBounds(bins);
+  const index = new Map(bins.map((b, i) => [b.id, i]));
   return bins.map((b) => ({
     dx: b.x - g.x,
     dy: b.y - g.y,
     opts: structuredClone(b.opts),
     ...(b.contents ? { contents: b.contents } : {}),
     ...(b.compContents ? { compContents: { ...b.compContents } } : {}),
+    // A bin stacked on a bin that isn't copied lands on the floor.
+    ...(b.on && index.has(b.on) ? { on: index.get(b.on) } : {}),
   }));
 }
 

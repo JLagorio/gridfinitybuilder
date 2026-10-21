@@ -17,6 +17,7 @@ import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBed } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
+import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -186,7 +187,8 @@ function withStretch(b: PlacedBin, stretch: unknown): PlacedBin {
 
 function cleanBins(bins: unknown): PlacedBin[] {
   if (!Array.isArray(bins)) return [];
-  return bins.map((b) =>
+  // Stacked bins keep the bin they stand on, and its footprint (stacking.ts).
+  return cleanStacks(bins.map((b) =>
     withStretch(
       {
         id: String(b?.id ?? newId()),
@@ -194,10 +196,11 @@ function cleanBins(bins: unknown): PlacedBin[] {
         y: Math.round(Number(b?.y) || 0),
         opts: sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
         ...cleanBinContents(b),
+        ...(typeof b?.on === 'string' ? { on: b.on } : {}),
       },
       b?.stretch,
     ),
-  );
+  ));
 }
 
 /** Patches that can change a bin's compartments (and so where per-compartment contents belong). */
@@ -319,7 +322,8 @@ export const useStore = create<Store>()(
       },
       updateBin: (id, patch) =>
         set((s) => ({
-          bins: s.bins.map((b) => {
+          // A stack has one footprint: the bins above and below take the new place and size (stacking.ts).
+          bins: followFootprint(s.bins, s.bins.map((b) => {
             if (b.id !== id) return b;
             const layout = computeLayout(s.drawer);
             const bed = usableBed(s.setup);
@@ -335,7 +339,7 @@ export const useStore = create<Store>()(
             const out = walls ? carryContents({ ...stretched, opts: b.opts }, stretched.opts) : stretched;
             // Never past the print bed (bedfit.ts): an edit that makes the bin overshoot it more than it already does is refused.
             return placedOvershoot(layout, out, bed) > placedOvershoot(layout, b, bed) + 1e-6 ? b : out;
-          }),
+          }), id, computeLayout(s.drawer), usableBed(s.setup)),
         })),
       setHalfGrid: (on) => {
         const s = get();
@@ -344,10 +348,14 @@ export const useStore = create<Store>()(
         return r.adjusted;
       },
       removeBin: (id) =>
-        set((s) => ({
-          bins: s.bins.filter((b) => b.id !== id),
-          ui: s.ui.selectedBinId === id ? { ...s.ui, selectedBinId: null } : s.ui,
-        })),
+        set((s) => {
+          // The bins stacked on it go with it (stacking.ts).
+          const gone = new Set(withBinsAbove(s.bins, [id]));
+          return {
+            bins: s.bins.filter((b) => !gone.has(b.id)),
+            ui: s.ui.selectedBinId && gone.has(s.ui.selectedBinId) ? { ...s.ui, selectedBinId: null } : s.ui,
+          };
+        }),
       duplicateBin: (id) => {
         const s = get();
         const src = s.bins.find((b) => b.id === id);
@@ -424,7 +432,7 @@ export const useStore = create<Store>()(
           ...structuredClone(src),
           id: nid,
           name: uniqueName(`${src.name} copy`, docs.map((d) => d.name)),
-          bins: src.bins.map((b) => ({ ...structuredClone(b), id: newId() })),
+          bins: withNewIds(src.bins),
         };
         const at = docs.indexOf(src) + 1;
         set({

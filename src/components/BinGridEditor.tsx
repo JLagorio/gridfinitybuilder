@@ -12,6 +12,7 @@ import { placedOvershoot, rectFitsBed, type Bed } from '../lib/bedfit';
 import type { BinOptions } from '../lib/geometry/bin';
 import type { CheckSeverity } from '../lib/printability';
 import { dividerLines } from './dividerLines';
+import { LevelSwitcher, StackBadge, useStackLevels } from './StackLevels';
 
 interface Props {
   layout: GridLayout;
@@ -67,7 +68,10 @@ function heightCaption(o: PlacedBin['opts']): string {
  * or drag from outside the grid to box-select, drag a selected bin to move the
  * whole selection, drag a handle to resize. Keyboard: see useLayoutShortcuts.
  */
-export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize, bed, newBin, marks }: Props) {
+export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection, onSelect: select, onCreate, onMoveBins, onResize, bed, newBin, marks }: Props) {
+  // Stacked bins (StackLevels.tsx): the grid lays out floor bins and shows one level of their stacks.
+  const levels = useStackLevels(drawerBins, selection, select);
+  const { bins, selectedIds, onSelect } = levels;
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<[number, number] | null>(null);
@@ -272,6 +276,7 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
 
   return (
     <div className="grid-editor">
+      <LevelSwitcher levels={levels} />
       <svg
         ref={svg}
         viewBox={`${-pad} ${-pad} ${plateW + 2 * pad} ${plateD + 2 * pad}`}
@@ -303,6 +308,9 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
           return <rect key={`m${k}`} className="ge-blocked" {...cellRectSvg({ x: i, y: j, w: 1, d: 1 }, 1.5)} rx={3.5} fill={`url(#${hatch})`} />;
         })}
         {bins.map((b) => {
+          // The bin on the shown level of its stack (faded when the stack isn't that tall).
+          const stack = levels.view(b);
+          const shown = stack.bin ?? b;
           const feet = cellRectSvg({ x: b.x, y: b.y, w: b.opts.unitsX, d: b.opts.unitsY }, 0.6);
           // A stretched body reaches over the margin (svg y runs front to back downward).
           const st = stretchOf(effectiveStretch(layout, b));
@@ -311,24 +319,24 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
           const sel = selected.has(b.id);
           const bad = outOfBounds(b, nx, ny) || onBlocked(b, layout.mask);
           // Too big for the printer (e.g. after picking a smaller one): marked until it's shrunk.
-          const tooBig = !!bed && placedOvershoot(layout, b, bed) > 1e-6;
+          const tooBig = !!bed && placedOvershoot(layout, shown, bed) > 1e-6;
           const fs = Math.min(10, (Math.min(feet.width, feet.height) / 4) | 0) || 6;
-          const mark = marks?.get(b.id);
+          const mark = marks?.get(shown.id);
           return (
-            <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''}`}>
+            <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''} ${stack.bin ? '' : 'under'}`}>
               <rect {...r} rx={3.75}>
                 {tooBig ? <title>Too big for the printer: select it to shrink it</title> : mark && <title>Select it to see its print checks</title>}
               </rect>
               {stretched && <rect {...feet} rx={3.75} fill="none" strokeDasharray="3 2" opacity={0.6} pointerEvents="none" />}
-              {dividerLines(layout, b).map((l, k) => (
+              {dividerLines(layout, shown).map((l, k) => (
                 <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />
               ))}
               <text x={r.x + r.width / 2} y={r.y + r.height / 2} fontSize={fs} dominantBaseline="middle" textAnchor="middle">
-                {heightCaption(b.opts)}
+                {heightCaption(shown.opts)}
               </text>
               {(() => {
                 // What's in the bin, from its label text (first line as printed, cut to fit).
-                const t = labelCaption(b);
+                const t = labelCaption(shown);
                 if (!t || r.height < fs * 2.6) return null;
                 const room = Math.max(1, Math.floor((r.width - 4) / (fs * 0.5)));
                 return (
@@ -337,8 +345,16 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
                   </text>
                 );
               })()}
-              {/* Print checks: a small dot in the corner (too-big bins are marked red already). */}
-              {mark && !tooBig && <circle className={`ge-check ${mark}`} cx={r.x + r.width - 7 * px} cy={r.y + 7 * px} r={3.5 * px} />}
+              {stack.above > 0 && <StackBadge x={r.x + r.width} y={r.y} n={stack.above} size={Math.max(4, fs * 0.75)} inset={1.5 + 6 * px} />}
+              {/* Print checks: a small dot in the corner (too-big bins are marked red already), left of a stack badge. */}
+              {mark && !tooBig && (
+                <circle
+                  className={`ge-check ${mark}`}
+                  cx={r.x + r.width - 7 * px - (stack.above > 0 ? 1.5 + Math.max(4, fs * 0.75) * (stack.above > 9 ? 2.6 : 2) : 0)}
+                  cy={r.y + 7 * px}
+                  r={3.5 * px}
+                />
+              )}
             </g>
           );
         })}

@@ -1,10 +1,11 @@
 import type { PlacedBin } from './project';
 import { DEFAULT_BIN, binTotalHeight } from './geometry/bin';
 
-/** Cell → bin id map for the drawer grid. */
+/** Cell → bin id map for the drawer grid. Stacked bins (stacking.ts) don't count: the floor bin under them has the cells. */
 export function occupancy(bins: PlacedBin[], nx: number, ny: number): (string | null)[][] {
   const grid: (string | null)[][] = Array.from({ length: nx }, () => Array<string | null>(ny).fill(null));
   for (const b of bins) {
+    if (b.on) continue;
     for (let i = b.x; i < b.x + b.opts.unitsX; i++) {
       for (let j = b.y; j < b.y + b.opts.unitsY; j++) {
         if (i >= 0 && j >= 0 && i < nx && j < ny && grid[i][j] === null) grid[i][j] = b.id;
@@ -29,10 +30,26 @@ export function binRect(b: PlacedBin): CellRect {
   return { x: b.x, y: b.y, w: b.opts.unitsX, d: b.opts.unitsY };
 }
 
-/** True if the rect is inside the grid and doesn't collide with other bins. */
+/**
+ * True if the rect is inside the grid and doesn't collide with other bins.
+ * Stacked bins take no floor space of their own (their floor bin covers the
+ * same cells), and `ignoreId` leaves out the floor bin it stands on as well.
+ */
 export function canPlace(bins: PlacedBin[], r: CellRect, nx: number, ny: number, ignoreId?: string) {
   if (r.x < 0 || r.y < 0 || r.x + r.w > nx || r.y + r.d > ny) return false;
-  return !bins.some((b) => b.id !== ignoreId && rectsOverlap(binRect(b), r));
+  const floor = ignoreId === undefined ? undefined : floorBinId(bins, ignoreId);
+  return !bins.some((b) => b.id !== ignoreId && b.id !== floor && !b.on && rectsOverlap(binRect(b), r));
+}
+
+/** The floor bin a bin's stack stands on (the bin itself when it's on the floor). */
+function floorBinId(bins: PlacedBin[], id: string): string {
+  let cur = id;
+  for (let k = 0; k < bins.length; k++) {
+    const on = bins.find((b) => b.id === cur)?.on;
+    if (!on || !bins.some((b) => b.id === on)) break;
+    cur = on;
+  }
+  return cur;
 }
 
 export function outOfBounds(b: PlacedBin, nx: number, ny: number) {

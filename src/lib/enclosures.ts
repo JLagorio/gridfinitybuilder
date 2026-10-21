@@ -69,6 +69,7 @@ import { fitsOnBed, packPlates, type PlateLayout } from './layout/pack';
 import { pieceFootprint, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
 import type { PieceDef } from './layout/split';
 import type { BinOptions } from './geometry/bin';
+import { tallestStack } from './stacking';
 
 export type EnclosureKind = 'case' | 'wall' | 'spacers';
 
@@ -219,11 +220,11 @@ export function planEnclosure(
   return null;
 }
 
-/** Tallest bin above its seat (a stacking lid included). */
+/** Tallest bin above its seat (a stacking lid included), or stack of bins (stacking.ts). */
 function tallestBin(bins: { opts: BinOptions }[]): number {
   let top = 0;
   for (const b of bins) top = Math.max(top, binTotalHeight(b.opts), hasLid(b.opts) ? lidStackHeight(b.opts) : 0);
-  return top;
+  return Math.max(top, tallestStack(bins));
 }
 
 // ---------------------------------------------------------------------------

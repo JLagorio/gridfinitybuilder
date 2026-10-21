@@ -17,6 +17,7 @@ import {
   isKept,
   itemBox,
   itemsBounds,
+  liftFactor,
   measure,
   nearestWithin,
   planeFrame,
@@ -45,8 +46,8 @@ export interface SceneItem {
   color: string;
   selected?: boolean;
   pickable?: boolean;
-  /** Floats up with "Lift bins" (bins and their lids above a baseplate). */
-  lift?: boolean;
+  /** Floats up with "Lift bins" (bins and their lids above a baseplate); a number lifts it that many times as far (stacked levels). */
+  lift?: boolean | number;
 }
 
 export interface SceneBed {
@@ -694,7 +695,8 @@ function createContext(
       obj.userData.pickId = it.pickable ? it.id : null;
       if (it.lift) {
         obj.userData.baseZ = it.z;
-        obj.position.z = it.z + liftNow;
+        obj.userData.liftBy = liftFactor(it);
+        obj.position.z = it.z + liftNow * obj.userData.liftBy;
       }
       if (data) {
         used.add(it.meshKey);
@@ -1105,7 +1107,7 @@ function createContext(
     lastT = now;
     if (liftNow !== liftTarget) {
       liftNow = easeToward(liftNow, liftTarget, dt);
-      for (const o of world.children) if (o.userData.baseZ !== undefined) o.position.z = o.userData.baseZ + liftNow;
+      for (const o of world.children) if (o.userData.baseZ !== undefined) o.position.z = o.userData.baseZ + liftNow * (o.userData.liftBy ?? 1);
       requestRender();
     }
     controls.update();
