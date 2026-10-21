@@ -28,11 +28,20 @@ export interface ClipBin {
   dx: number;
   dy: number;
   opts: BinOptions;
+  /** What's in it (copies keep their contents; the stretch stays with the original). */
+  contents?: string;
+  compContents?: Record<string, string>;
 }
 
 export function toClip(bins: PlacedBin[]): ClipBin[] {
   const g = groupBounds(bins);
-  return bins.map((b) => ({ dx: b.x - g.x, dy: b.y - g.y, opts: structuredClone(b.opts) }));
+  return bins.map((b) => ({
+    dx: b.x - g.x,
+    dy: b.y - g.y,
+    opts: structuredClone(b.opts),
+    ...(b.contents ? { contents: b.contents } : {}),
+    ...(b.compContents ? { compContents: { ...b.compContents } } : {}),
+  }));
 }
 
 export function clipFits(all: PlacedBin[], clip: ClipBin[], x: number, y: number, nx: number, ny: number) {

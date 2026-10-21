@@ -98,7 +98,13 @@ export const hasClipboard = () => clipboard.length > 0;
 
 /** Add copies of clip bins with their group's front-left corner at (x, y), and select them. */
 function place(clip: ClipBin[], [x, y]: [number, number]): string[] {
-  const added: PlacedBin[] = clip.map((c) => ({ id: newId(), x: x + c.dx, y: y + c.dy, opts: structuredClone(c.opts) }));
+  const added: PlacedBin[] = clip.map(({ dx, dy, opts, ...contents }) => ({
+    id: newId(),
+    x: x + dx,
+    y: y + dy,
+    opts: structuredClone(opts),
+    ...structuredClone(contents),
+  }));
   const s = state();
   const ids = added.map((b) => b.id);
   useStore.setState({ bins: [...s.bins, ...added], ui: { ...s.ui, selectedBinId: ids[0] ?? null, selectedBinIds: ids } });

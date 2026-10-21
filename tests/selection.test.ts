@@ -117,6 +117,22 @@ describe('group editing', () => {
     expect(s().bins.find((b) => b.id === copy)!.opts).toEqual(s().bins.find((b) => b.id === a)!.opts);
   });
 
+  it('copies, pastes and duplicates keep what is in the bin', () => {
+    const a = s().addBin(0, 0, 1, 1);
+    useStore.setState({ bins: s().bins.map((b) => (b.id === a ? { ...b, contents: 'M3 screws\nM3 nuts', compContents: { k: 'washers' } } : b)) });
+    selectBins([a]);
+    const [dup] = duplicateSelection();
+    copySelection();
+    const [pasted] = pasteClipboard([3, 2]);
+    for (const id of [dup, pasted]) {
+      const b = s().bins.find((x) => x.id === id)!;
+      expect(b.contents).toBe('M3 screws\nM3 nuts');
+      expect(b.compContents).toEqual({ k: 'washers' });
+    }
+    // Copies don't share the per-compartment object with the original.
+    expect(s().bins.find((x) => x.id === pasted)!.compContents).not.toBe(s().bins.find((x) => x.id === a)!.compContents);
+  });
+
   it('resizes a bin', () => {
     const a = s().addBin(1, 1, 1, 1);
     resizeBin(a, { x: 0, y: 0, w: 3, d: 2 });
