@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, TextInput, Toggle } from './fields';
 import { attachmentDef, type AttachmentDef, type AttachmentField, type AttachmentGroup } from '../lib/wall';
@@ -22,11 +23,24 @@ export function WallPanel({ job }: { job: PrintJob }) {
   const sel = list.find((a) => a.id === selected) ?? null;
   const placed = wall?.placed.find((p) => p.id === selected) ?? null;
   const def = sel ? attachmentDef(sel.type) : null;
+  const [query, setQuery] = useState('');
+  const [closed, setClosed] = useState<Set<AttachmentGroup>>(() => new Set());
 
   if (!wall) return <Section title="Attachments">{<p className="muted">The board can't be planned yet: check its size on the Skådis board tab.</p>}</Section>;
 
+  // The palette, by group; a search shows every match with its group open.
+  const q = query.trim().toLowerCase();
   const groups = new Map<AttachmentGroup, AttachmentUi[]>();
-  for (const d of attachmentUis()) groups.set(d.group, [...(groups.get(d.group) ?? []), d]);
+  for (const d of attachmentUis()) {
+    if (q && !`${d.label} ${d.description} ${GROUP_LABELS[d.group]}`.toLowerCase().includes(q)) continue;
+    groups.set(d.group, [...(groups.get(d.group) ?? []), d]);
+  }
+  const toggle = (g: AttachmentGroup) =>
+    setClosed((c) => {
+      const n = new Set(c);
+      if (!n.delete(g)) n.add(g);
+      return n;
+    });
 
   return (
     <>
@@ -66,19 +80,37 @@ export function WallPanel({ job }: { job: PrintJob }) {
 
       <Section title="Add to the board">
         <p className="muted small">Click to add one, then drag it on the board: it snaps to the slots. Arrow keys move the selected one a slot over.</p>
-        {[...groups].map(([g, defs]) => (
-          <div key={g}>
-            <div className="wall-group-label">{GROUP_LABELS[g]}</div>
-            <div className="wall-types">
-              {defs.map((d) => (
-                <button key={d.type} title={d.description} onClick={() => addAttachment(d.type, wall.board, wall.placed)}>
-                  <span>{d.label}</span>
-                  <small>{d.description}</small>
-                </button>
-              ))}
+        <div className="input-wrap wall-search">
+          <input
+            type="search"
+            value={query}
+            placeholder="Search parts…"
+            aria-label="Search parts to add"
+            spellCheck={false}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        {!groups.size && <p className="muted small">Nothing matches “{query.trim()}”.</p>}
+        {[...groups].map(([g, defs]) => {
+          const open = !!q || !closed.has(g);
+          return (
+            <div key={g}>
+              <button className="wall-group-label" aria-expanded={open} onClick={() => toggle(g)}>
+                <span>{open ? '▾' : '▸'}</span> {GROUP_LABELS[g]} <small>{defs.length}</small>
+              </button>
+              {open && (
+                <div className="wall-types">
+                  {defs.map((d) => (
+                    <button key={d.type} title={d.description} onClick={() => addAttachment(d.type, wall.board, wall.placed)}>
+                      <span>{d.label}</span>
+                      <small>{d.description}</small>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </Section>
 
       <Section title={`On this board (${list.length})`}>

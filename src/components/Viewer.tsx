@@ -48,7 +48,7 @@ export interface SceneItem {
   h: number;
   rotated?: boolean;
   /**
-   * Turned before it's placed: degrees about x, y and z (in that order), for a
+   * Turned before it's placed: degrees about x, then y, then z (the fixed axes, as Manifold's rotate()), for a
    * mesh built in its print pose shown as it's used (a Skådis tile face up, an
    * attachment hanging on its board). (x, y, z) is still the min corner after
    * the turn; w, d, h are the mesh's own size.
@@ -796,7 +796,8 @@ function createContext(
       const data = geometry.mesh(it.meshKey);
       const obj = new THREE.Group();
       if (it.turn) {
-        obj.rotation.set(...(it.turn.map((d) => (d * Math.PI) / 180) as [number, number, number]), 'XYZ');
+        // About the scene's x, then y, then z, as Manifold's rotate() turns (three's 'ZYX' order).
+        obj.rotation.set(...(it.turn.map((d) => (d * Math.PI) / 180) as [number, number, number]), 'ZYX');
         // Where the turned box's min corner lands, so it can be put at (x, y, z).
         const box = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(it.w, it.d, it.h)).applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(obj.rotation));
         obj.position.set(it.x - box.min.x, it.y - box.min.y, it.z - box.min.z);

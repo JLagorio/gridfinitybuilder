@@ -617,6 +617,13 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
             const k = `${prefix}att:${p.id}:${xp.key}`;
             parts[k] = { key: k, name: `${label}${xp.name} (${p.name})`, kind: 'attachment', meshKey: pk, w: xp.w, d: xp.d, h: xp.h, drawer: d.id, attachment: p.id };
             if (include.bins) binItems.push({ key: k, w: xp.w, d: xp.d });
+            // Shown where it sits: the attachment's frame has its origin at the board's front, the anchor on its slot.
+            if (xp.place) {
+              const [ax, ay, az] = xp.place.at;
+              const [x, y, z] = [p.x - p.layout.anchor[0] + ax, p.y - p.layout.anchor[1] + ay, enc.wall.front + az];
+              const size = { w: xp.w, d: xp.d, h: xp.h };
+              items.push({ id: `att-${p.id}-${xp.key}`, pick: p.id, meshKey: pk, x, y, z, ...size, turn: xp.place.turn, role: 'attachment', when: 'always' });
+            }
           }
         }
       }
