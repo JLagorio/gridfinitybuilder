@@ -86,10 +86,15 @@ export const SHORTCUTS: ShortcutGroup[] = [
     title: '3D view',
     items: [
       { keys: [['Drag']], label: 'Orbit, including below the floor to see the undersides' },
-      { keys: [['Iso / Top / Front / Side / Under']], label: 'Preset views (bottom right of the 3D view)' },
+      { keys: [['Iso / Top / Front / Side / Under']], label: 'Preset views (bottom right of the 3D view, next to the tools)' },
       { keys: [['Right-drag']], label: 'Pan' },
       { keys: [['Scroll']], label: 'Zoom' },
       { keys: [['Click a bin']], label: 'Select it (Bins tab)' },
+      { keys: [['C']], label: 'Cross-section: cut through everything with a plane (axis, position and flip above the tool bar)' },
+      { keys: [['M']], label: 'Measure: click two points (snaps to corners) for the distance and ΔX / ΔY / ΔZ' },
+      { keys: [['Esc']], label: 'Clear the measurement (again: leave the measure tool)' },
+      { keys: [['X']], label: 'X-ray: see-through models, to check pockets, magnet holes and screw channels' },
+      { keys: [['L']], label: 'Lift the bins off the baseplate, or seat them again (Bins tab)' },
     ],
   },
 ];

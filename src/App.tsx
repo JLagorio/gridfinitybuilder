@@ -73,6 +73,7 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
         color: BIN_COLOR,
         selected: selectedIds(state.ui).includes(b.id),
         pickable: true,
+        lift: true,
       });
       // A lid sits in the bin's lip (hidden while the bin is selected, so its inside stays visible).
       const lid = job.parts[`lid:${b.id}`];
@@ -87,6 +88,7 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
           d: lid.d,
           h: lid.h,
           color: LID_COLOR,
+          lift: true,
         });
       }
     }
@@ -209,6 +211,7 @@ export default function App() {
         fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
         fitIds={focusing ? [ui.selectedBinId!] : undefined}
         onPick={ui.tab === 'bins' ? (id) => state.setUI({ selectedBinId: id }) : undefined}
+        hint={`Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? ' · click a bin to select' : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`}
       >
         {ui.tab === 'bins' && (
           <div className="viewer-tools">
@@ -227,7 +230,6 @@ export default function App() {
             </button>
           </div>
         )}
-        <div className="viewer-hint">Drag to orbit (all the way under) · right-drag to pan · scroll to zoom{ui.tab === 'bins' ? ' · click a bin to select' : ''}</div>
       </Viewer>
     </ErrorBoundary>
   );
