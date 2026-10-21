@@ -179,6 +179,9 @@ const SUBSET: [string, PrintIssueKind[]][] = [
   ['placement/half-1x1.stl', []],
   ['enclosures/case-default.pin-1.stl', []],
   ['testfit/puzzle/test-fit.piece-1.stl', []],
+  // Split by colour (colours/by-feature): its volumes together stand on the bed.
+  ['colours/by-feature/drawer.tabs.stl', []],
+  ['colours/by-feature/drawer.drawer-unit-0.stl', []],
   // A stretched bin's overhang over the margin needs supports (README: "starts just above the baseplate").
   ['placement/stretched.stl', ['overhang']],
   // The walls beside bowtie pockets are 0.65 mm (README, CONNECTOR_MIN_WALL), one line.

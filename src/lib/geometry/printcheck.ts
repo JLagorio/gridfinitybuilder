@@ -407,8 +407,8 @@ export function checkPart(w: Wasm, mesh: MeshData, options: PartCheckOptions = {
     add('pieces', 'error', `Loose piece of ${r3(c.volume)} mm³ at ${fmtAt(at)}, apart from the main body.`, at);
   }
 
-  // Flat on the bed.
-  const b = topology.bounds;
+  // Flat on the bed: the body and its overlays together (a part split by colour may stand on any of its volumes).
+  const b = mesh.overlays?.length ? boundsOf([mesh, ...mesh.overlays]) : topology.bounds;
   if (b.min[2] < -1e-3) add('bed-z', 'error', `Reaches ${r3(-b.min[2])} mm below the bed.`);
   else if (b.min[2] > 1e-3) add('bed-z', 'error', `Floats ${r3(b.min[2])} mm above the bed.`);
 
@@ -454,6 +454,22 @@ export function checkPart(w: Wasm, mesh: MeshData, options: PartCheckOptions = {
     );
   }
   return done(slices);
+}
+
+/** Bounds of several meshes together. */
+function boundsOf(list: Pick<MeshData, 'positions'>[]): Bounds3 {
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const m of list) {
+    const p = m.positions;
+    for (let i = 0; i < p.length; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        if (p[i + k] < min[k]) min[k] = p[i + k];
+        if (p[i + k] > max[k]) max[k] = p[i + k];
+      }
+    }
+  }
+  return { min, max };
 }
 
 /** One triangle list from several meshes (their vertices kept apart). */

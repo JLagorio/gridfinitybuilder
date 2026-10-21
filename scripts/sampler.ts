@@ -15,6 +15,13 @@
  * the text. Results go to report.json and report.md in outDir (see
  * docs/print-check.md); findings listed in KNOWN_FINDINGS are marked as by
  * design. `--report <report.json>` only writes report.md again from a run.
+ *
+ * Multi-colour groups (colours/…, colours.ts) also write every plate as a 3MF
+ * in its colours. With --slice, PrusaSlicer slices each one: by part and by
+ * feature with a profile of as many extruders as the palette has slots
+ * (single-extruder multi-material with a wipe tower), by height with the
+ * single-extruder profile; the report says which tools printed and where the
+ * colour changes (M600) came, against what the plate asks for.
  */
 import Module from 'manifold-3d';
 import { spawn } from 'node:child_process';
@@ -23,6 +30,8 @@ import { cpus } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { buildMesh } from '../src/lib/project';
 import { exportPlate3MF } from '../src/lib/export/threemf';
+import { meshBodySlots, plateChanges } from '../src/lib/export/colourExport';
+import { LAYERS, layerTop, paletteOf, strategyOf } from '../src/lib/colours';
 import { meshBounds, type MeshData } from '../src/lib/geometry/kernel';
 import { checkPart, meshTopology, type PrintIssue } from '../src/lib/geometry/printcheck';
 import { FONT_URL_PATH, registerFont } from '../src/lib/geometry/text';
@@ -83,8 +92,21 @@ interface PartRecord {
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
+/** A multi-colour plate: what it asks for, and what PrusaSlicer made of it. */
+interface ColourPlateRecord {
+  group: string;
+  file: string;
+  strategy: string;
+  /** Filament slots its bodies print in. */
+  slots: number[];
+  /** By height: where the colour changes (print_z of the first layer in the new colour). */
+  changes: number[];
+  slicer?: { ok: boolean; tools: number[]; m600: number[]; messages: string[] };
+}
+
 const bed = usableBed(SAMPLE_SETUP);
 const records: PartRecord[] = [];
+const colourPlates: ColourPlateRecord[] = [];
 const warnings: Record<string, string[]> = {};
 const t0 = performance.now();
 mkdirSync(outDir, { recursive: true });
@@ -115,7 +137,9 @@ for (const group of fromReport ? [] : SAMPLE_GROUPS) {
     }
     mkdirSync(dirname(join(outDir, file)), { recursive: true });
     writeFileSync(join(outDir, file), writeSTL([{ mesh }], part.name));
-    const b = meshBounds(mesh);
+    // The body and its overlays together (a part split by colour is several volumes).
+    const all = [mesh, ...(mesh.overlays ?? [])].map((m) => meshBounds(m));
+    const b = { min: [0, 1, 2].map((k) => Math.min(...all.map((x) => x.min[k]))), max: [0, 1, 2].map((k) => Math.max(...all.map((x) => x.max[k]))) };
     rec.size = b.max.map((v, i) => r2(v - b.min[i]));
     const check = checkPart(wasm, mesh, { bed });
     rec.triangles = check.topology.triangles;
@@ -127,6 +151,20 @@ for (const group of fromReport ? [] : SAMPLE_GROUPS) {
     const errors = check.issues.filter((i) => i.severity === 'error').length;
     const warns = check.issues.length - errors;
     console.log(`${errors ? '✗' : warns ? '~' : '✓'} ${file} ${rec.size.join('×')} ${rec.ms} ms${check.issues.length ? `: ${check.issues.map((i) => i.message).join(' | ')}` : ''}`);
+  }
+  // Multi-colour groups: every plate as a 3MF in its colours.
+  if (group.setup && strategyOf(group.setup) && (!only || group.name.includes(only))) {
+    const cache = new Map<string, MeshData>();
+    const get = (k: string) => cache.get(k) ?? cache.set(k, buildMesh(wasm, job.meshes[k])).get(k)!;
+    mkdirSync(dir, { recursive: true });
+    job.plates.forEach((pl, i) => {
+      const file = join(group.name, `plate-${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.3mf`);
+      writeFileSync(join(outDir, file), exportPlate3MF(job, i, get));
+      const ch = plateChanges(group.setup!, job, i);
+      const slots = new Set<number>(ch ? [ch.base, ...ch.changes.map((c) => c.slot)] : []);
+      if (!ch) for (const p of pl.placements) for (const s of meshBodySlots(group.setup!, job, p.key, get(job.parts[p.key].meshKey))) slots.add(s);
+      colourPlates.push({ group: group.name, file, strategy: strategyOf(group.setup!)!, slots: [...slots].sort((a, b) => a - b), changes: (ch?.changes ?? []).map((c) => layerTop(c.z, LAYERS)) });
+    });
   }
   // Baseplate plates (pieces and keys as laid out) as 3MF, for a slicer that wants the whole plate.
   if (!only || group.name.includes(only)) {
@@ -218,6 +256,69 @@ if (slice && !fromReport) {
       '',
     ].join('\n'),
   );
+  // Multi-colour plates: as many extruders as the palette has slots (single-extruder multi-material, a wipe tower).
+  const slotsUsed = Math.max(2, ...colourPlates.flatMap((c) => c.slots));
+  const mmIni = join(outDir, 'prusaslicer-mm.ini');
+  const many = (v: string) => Array(slotsUsed).fill(v).join(',');
+  const pal = paletteOf({ filaments: undefined }, slotsUsed).map((f) => f.colour);
+  writeFileSync(
+    mmIni,
+    [
+      // The one-extruder settings, less those that now come once per extruder.
+      ...readFileSync(ini, 'utf8').trim().split('\n').filter((l) => !/^(nozzle_diameter|filament_diameter|bed_shape) =/.test(l)),
+      // A full plate leaves no room for the wipe tower: a bigger bed, the tower past the plate's corner.
+      `bed_shape = 0x0,${SAMPLE_SETUP.bedW + 120}x0,${SAMPLE_SETUP.bedW + 120}x${SAMPLE_SETUP.bedD + 120},0x${SAMPLE_SETUP.bedD + 120}`,
+      `wipe_tower_x = ${SAMPLE_SETUP.bedW + 40}`,
+      `wipe_tower_y = ${SAMPLE_SETUP.bedD + 40}`,
+      `nozzle_diameter = ${many('0.4')}`,
+      `filament_diameter = ${many('1.75')}`,
+      `extruder_offset = ${many('0x0')}`,
+      `retract_length = ${many('0.8')}`,
+      `retract_lift = ${many('0.4')}`,
+      `temperature = ${many('215')}`,
+      `first_layer_temperature = ${many('215')}`,
+      `extruder_colour = ${pal.map((c) => `"${c}"`).join(';')}`,
+      `filament_colour = ${pal.map((c) => `"${c}"`).join(';')}`,
+      'single_extruder_multi_material = 1',
+      'wipe_tower = 1',
+      'use_relative_e_distances = 1',
+      'layer_gcode = G92 E0',
+      '',
+    ].join('\n'),
+  );
+  for (const c of colourPlates) {
+    const src = join(outDir, c.file);
+    const gcode = src.replace(/\.3mf$/, '.gcode');
+    const s = await run(['--loglevel', '1', '--load', c.strategy === 'height' ? ini : mmIni, '--dont-arrange', '--export-gcode', '--output', gcode, src]);
+    const tools = new Set<number>();
+    const m600: number[] = [];
+    let z = 0;
+    let started = false;
+    let current = 0;
+    if (existsSync(gcode)) {
+      for (const line of readFileSync(gcode, 'utf8').split('\n')) {
+        const zm = /^;Z:([\d.]+)/.exec(line);
+        // Tools that print: the one each layer starts with, and the ones it changes to (the start G-code primes them all).
+        if (zm) {
+          z = Number(zm[1]);
+          started = true;
+          tools.add(current + 1);
+        }
+        const t = /^T(\d+)\s*$/.exec(line);
+        if (t) {
+          current = Number(t[1]);
+          if (started) tools.add(current + 1);
+        }
+        if (/^M600\b/.test(line)) m600.push(z);
+      }
+      rmSync(gcode, { force: true });
+    }
+    const messages = s.out.split('\n').map((l) => l.trim()).filter((l) => l && !/^\d+ => /.test(l) && !/^Slicing result exported/.test(l));
+    c.slicer = { ok: s.code === 0, tools: [...tools].sort((a, b) => a - b), m600, messages };
+    const want = c.strategy === 'height' ? `M600 at ${c.changes.join(', ') || 'none'}` : `tools ${c.slots.join(', ')}`;
+    const got = c.strategy === 'height' ? `M600 at ${m600.join(', ') || 'none'}` : `tools ${c.slicer.tools.join(', ')}`;
+    console.log(`${want === got && s.code === 0 ? '·' : '!'} ${c.file}: wants ${want}, sliced ${got}${messages.length ? `; ${messages.slice(0, 2).join(' | ')}` : ''}`);
+  }
   const queue = records.filter((r) => !r.error);
   const t1 = performance.now();
   await Promise.all(
@@ -232,7 +333,7 @@ if (slice && !fromReport) {
 // Report
 // ---------------------------------------------------------------------------
 
-if (!fromReport) writeFileSync(join(outDir, 'report.json'), JSON.stringify({ setup: SAMPLE_SETUP, bed, warnings, parts: records }, null, 1));
+if (!fromReport) writeFileSync(join(outDir, 'report.json'), JSON.stringify({ setup: SAMPLE_SETUP, bed, warnings, parts: records, colourPlates }, null, 1));
 const sliced = records.some((r) => r.slicer);
 
 /** Why a finding is there by design (KNOWN_FINDINGS), or null. `what` is the issue kind or the slicer finding. */
@@ -289,6 +390,16 @@ if (slicerNotes.length) {
 if (Object.keys(warnings).length) {
   md.push('## Planning warnings', '');
   for (const [g, list] of Object.entries(warnings)) for (const w of list) md.push(`- ${g}: ${w}`);
+  md.push('');
+}
+if (colourPlates.length) {
+  md.push('## Multi-colour plates', '', '| Plate | Way | Slots | Colour changes | PrusaSlicer |', '|---|---|---|---|---|');
+  for (const c of colourPlates) {
+    const sl = c.slicer;
+    const res = !sl ? '' : c.strategy === 'height' ? `M600 at ${sl.m600.join(', ') || 'none'}` : `tools ${sl.tools.join(', ')}`;
+    const ok = !sl || (sl.ok && (c.strategy === 'height' ? sl.m600.join() === c.changes.join() : sl.tools.join() === c.slots.join()));
+    md.push(`| \`${c.file}\` | ${c.strategy} | ${c.slots.join(', ')} | ${c.changes.join(', ')} | ${sl ? `${ok ? 'as asked' : 'differs'}: ${res}` : ''} |`);
+  }
   md.push('');
 }
 md.push('## Parts', '', '| Part | Size (mm) | Triangles | Contact (mm²) | Issues | Slicer |', '|---|---|---|---|---|---|');

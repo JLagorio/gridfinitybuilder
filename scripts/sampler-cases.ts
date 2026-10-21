@@ -25,6 +25,8 @@ export interface SampleGroup {
   /** What the group covers. */
   note: string;
   job(): PrintJob;
+  /** Multi-colour groups (colours.ts): the setup they're planned with; every plate is written as a 3MF in its colours. */
+  setup?: PrintSetup;
 }
 
 /** One bin in a drawer of its own: a grid just its size, unless `drawer` says otherwise. */
@@ -396,6 +398,68 @@ const testFit = (name: string, bp: Partial<BaseplateOptions>, b: Partial<BinOpti
   job: () => planTestFit({ ...DEFAULT_BASEPLATE, ...bp }, bin(b), SAMPLE_SETUP, { x: 42, y: 42, halfGrid: half }),
 });
 
+// ---------------------------------------------------------------------------
+// Multi-colour (colours.ts): the three ways to print colours
+// ---------------------------------------------------------------------------
+
+const PALETTE = [
+  { colour: '#161616', name: 'Black' },
+  { colour: '#F2F2F2', name: 'White' },
+  { colour: '#C12E1F', name: 'Red' },
+  { colour: '#0A2989', name: 'Blue' },
+];
+
+/** A colour setup: the sample printer, the palette above, these colours. */
+export const colourSetup = (colours: PrintSetup['colours']): PrintSetup => ({ ...SAMPLE_SETUP, filaments: PALETTE, colours });
+
+function colourGroup(name: string, note: string, setup: PrintSetup, drawers: NamedDrawer[], include = { baseplate: true, bins: true }): SampleGroup {
+  return { name: `colours/${name}`, note, setup, job: () => planPrint(drawers, setup, include) };
+}
+
+const colourDrawer = (id: string, bins: PlacedBin[], gridX: number, gridY: number, bp: Partial<BaseplateOptions> = {}): NamedDrawer => ({
+  id,
+  name: id,
+  drawer: { ...DEFAULT_DRAWER, mode: 'grid', gridX, gridY },
+  baseplate: { ...DEFAULT_BASEPLATE, ...bp },
+  bins,
+});
+const colourBin = (id: string, x: number, y: number, o: Partial<BinOptions>): PlacedBin => ({ id, x, y, opts: bin(o) });
+
+const colourBins = [
+  colourBin('screws', 0, 0, { unitsX: 2, colour: 3, label: 'full', labelText: 'M3', labelStyle: 'inlaid' }),
+  colourBin('nuts', 2, 0, { unitsX: 1, colour: 4 }),
+  colourBin('plain', 3, 0, { unitsX: 1 }),
+  colourBin('tall', 0, 1, { unitsX: 2, heightUnits: 6, divX: 2 }),
+];
+
+const byPart = colourGroup(
+  'by-part',
+  'Each part one filament: red baseplate with blue keys, colour-coded bins, white label text; colours on plates of their own',
+  colourSetup({ on: true, roles: { plate: 3, plateAccent: 4, binWalls: 1, labelText: 2 } }),
+  [colourDrawer('drawer', colourBins, 4, 2, { connector: 'bowtie' })],
+);
+
+const byHeight = colourGroup(
+  'by-height',
+  'Colour changes by layer: red feet, black walls, white lip; bins of two heights on plates of their own',
+  colourSetup({ on: true, strategy: 'height', roles: { plate: 3, binFeet: 3, binWalls: 1, binLip: 2 } }),
+  [colourDrawer('drawer', [colourBin('low', 0, 0, { unitsX: 2 }), colourBin('low2', 2, 0, { unitsX: 1 }), colourBin('tall', 3, 0, { unitsX: 1, heightUnits: 6 })], 4, 1)],
+);
+
+const byFeature = colourGroup(
+  'by-feature',
+  'True multi-material: feet, floor, walls, lip, dividers, label tabs and text, drawer pulls each their own volume',
+  colourSetup({ on: true, strategy: 'feature', roles: { plate: 3, binFeet: 3, binWalls: 1, binLip: 4, dividers: 2, labelTabs: 4, labelText: 2, containerPull: 3 } }),
+  [
+    colourDrawer('drawer', [
+      colourBin('tabs', 0, 0, { unitsX: 3, unitsY: 1, divX: 3, label: 'full', labelText: 'M2\nM3\nM4', labelStyle: 'inlaid', holes: 'magnets' }),
+      colourBin('lite', 3, 0, { unitsX: 1, base: 'lite' }),
+      colourBin('unit', 0, 1, { unitsX: 1, unitsY: 2, heightUnits: 9, container: 'drawers', containers: { drawers: { pull: 'tab' } } } as Partial<BinOptions>),
+    ], 4, 3),
+  ],
+  { baseplate: false, bins: true },
+);
+
 export const SAMPLE_GROUPS: SampleGroup[] = [
   containers,
   bases,
@@ -412,6 +476,9 @@ export const SAMPLE_GROUPS: SampleGroup[] = [
   testFit('bowtie-magnets', { connector: 'bowtie', magnets: true }, { holes: 'magnets' }),
   testFit('puzzle', { connector: 'puzzle' }, {}),
   testFit('half-grid-pins', { connector: 'pin' }, { holes: 'magnets' }, true),
+  byPart,
+  byHeight,
+  byFeature,
 ];
 
 // ---------------------------------------------------------------------------
@@ -440,11 +507,11 @@ export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
 
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 
-/** File name for a part key: `drawer/slot:b:i` → `drawer.slot-i` (b is the sample's bin), the bin itself → `drawer`. */
+/** File name for a part key: `drawer/slot:b:i` → `drawer.slot-i` (b is the sample's bin), the bin itself → `drawer` (another bin of the drawer: `drawer.<id>`). */
 export function partFile(job: PrintJob, key: string): string {
   const [drawer, rest] = key.includes('/') ? key.split('/', 2) : [job.drawers[0]?.id || 'part', key];
   const bits = rest.split(':');
-  const what = bits[0] === 'bin' ? '' : bits.filter((b, i) => !(i === 1 && b === 'b')).join('-');
+  const what = bits[0] === 'bin' ? (bits[1] === 'b' ? '' : bits[1]) : bits.filter((b, i) => !(i === 1 && b === 'b')).join('-');
   return slug(drawer || 'part') + (what ? `.${slug(what)}` : '');
 }
 

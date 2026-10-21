@@ -282,8 +282,10 @@ export function splitByRoles(w: Wasm, mesh: MeshData, spec: MeshSpec): MeshData 
       else pieces.push({ role: specRole(spec), m: rest });
     }
     if (pieces.length <= 1) return { ...mesh, role: pieces[0]?.role ?? specRole(spec) };
-    // The biggest is the main body.
-    pieces.sort((a, b) => b.m.volume() - a.m.volume());
+    // The main body stands on the bed: the biggest volume that reaches down to it.
+    const floor = Math.min(...pieces.map((p) => p.m.boundingBox().min[2]));
+    const onBed = (p: { m: Manifold }) => (p.m.boundingBox().min[2] <= floor + 1e-3 ? 1 : 0);
+    pieces.sort((a, b) => onBed(b) - onBed(a) || b.m.volume() - a.m.volume());
     const bodies = pieces.map((p) => {
       assertValid(p.m, `${p.role} volume`);
       return { role: p.role, ...toMeshData(p.m) };
