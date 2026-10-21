@@ -146,7 +146,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
 
    **Labels.** Type label text for a bin, or per compartment. It shrinks to fit each tab, up to 3 lines, and can be:
    - **raised**, or **engraved** into the tab
-   - **inlaid**: engraved and filled flush in a second filament. The Bambu project gets a second filament for it; pick its colour in *Print plates*. Needs an AMS or a filament change.
+   - **inlaid**: engraved and filled flush in a second filament. The Bambu project gets a second filament for it; pick its colour under *Colours* in *Print plates*. Needs an AMS or a filament change.
    - on **swappable label plates**: the tab gets a shallow recess with a pry notch, and small text plates print with the bins and press in, so you can relabel later. The drawer view shows them in place.
    - in **Cullenect** or **Pred** sockets, so community snap-in labels fit; Gridfit can print matching labels with your text.
    - **Icons:** type `{bolt:12}`, `{screw:socket}`, `{nut}`, `{washer}`, `{insert}`, `{battery}`, `{|}` and 15 more, like gflabel, or pick them from the Icons menu. The preview shows the real label.
@@ -174,7 +174,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
 
    **Find (⌘/Ctrl+K or /)** searches every drawer: what's in the bins, labels, compartment labels, tool names. Pick a result to jump to its drawer and bin.
 
-3. **Print plates.** The panel goes: the printers, print checks, the exports, the plates, then the baseplate split, bill of materials, test-fit kit, drawer map and the project file.
+3. **Print plates.** The panel goes: the printers, colours, print checks, the exports, the plates, then the baseplate split, bill of materials, test-fit kit, drawer map and the project file.
    - **Printer:** pick it. The Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles.
    - **Nozzle:** 0.4 mm unless you pick 0.2, 0.6 or 0.8. The print checks measure walls, text and fits against it (Bambu projects stay set up for the 0.4 mm nozzle; pick yours in Bambu Studio).
    - **Print checks:** before the exports, a list of what won't print well in everything being printed, from the settings alone:
@@ -182,6 +182,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
      - **prints, but worse:** raised text under 3 mm, walls between pockets, hex struts, grid inserts and drawer walls under two nozzle lines, big hex holes, magnet + screw holes without printable tops, compartments too narrow and deep to reach into, wide bridges (including a label tab spanning a wide compartment in front of a removable divider), an untrimmed baseplate ridge, and fits that are tight for a big nozzle (divider slots, the sliding lid's click, hinges, puzzle tabs and keys)
      - Most have a one-click fix ("Make them 1.2 mm", "Turn on printable hole tops"). Click a bin's name to select it, switching drawer if needed.
      - The selected bin shows its own checks above its settings, and bins with any get a small dot on the bin grid (yellow: likely to fail; blue: a tip).
+   - **Colours:** print the baseplate red and the bins black, colour-code bins by what's in them, or give feet, walls and lips colours of their own: see [Multi-colour](#multi-colour).
    - **Two or more printers:** **Add a printer** for a big one and a small one, or two of the same. Each has its own model, bed, edge margin and height (and power draw for the cost), and can be removed again.
      - **Baseplate prints on** the biggest printer, split for its bed, or on the printer you pick, split for that one. Left to the biggest, a baseplate plate can still go to another printer that takes it.
      - Everything else is shared out so the whole job is done soonest: Gridfit balances each printer's estimated print time (the sliced estimate once the parts are sliced, a quick guess from their size before). A part that only one printer takes goes to that printer.
@@ -205,7 +206,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
      - Estimates filament per plate from the same sliced layers as the print time (Bambu's 0.20 mm Standard: 2 walls, 5 top and 3 bottom layers, 15 % infill) for 1.75 mm PLA at 1.24 g/cm³. Expect ±10 %. Until a plate's parts are sliced it shows a quicker guess from the part surfaces, which runs high on tall bins.
      - **Print time** per plate and in total for the selected printer, from a slice of each part at 0.20 mm (checked against a slicer; expect ±25 %).
      - With several printers: each plate timed on its own printer, time, filament and cost per printer and in total, and **All done in**: when the slowest printer finishes, since they print at the same time.
-     - **Cost** from your filament price per kg (a second price for two-colour parts) and, optionally, electricity.
+     - **Cost** from your filament price per kg (a second price for two-colour parts; with multi-colour, each filament slot's price) and, optionally, electricity.
      - TPU non-slip pads (an option under Baseplate) print on their own plate.
      - Downloads as CSV or text.
    - **Drawer map & contents:** a printable top view of a drawer (or all of them) with each bin's label and contents, fit to a page or at actual size across several pages, or as an SVG; stacked bins get a map per level. Also a contents list of every bin, and a CSV of it.
@@ -233,6 +234,30 @@ Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl
 - **Fewest plates** (default): tries every split that uses the minimum number of pieces and keeps the one needing the fewest print plates. Small pieces share a plate when they fit. For a 510.5 × 376.5 mm drawer on a P2S (256 mm bed, 10 mm edge margin) it needs 4 baseplate plates, against 6 when every piece prints alone.
 - **Even pieces**: the same number of pieces, sized as evenly as possible.
 - **Biggest pieces**: full-size pieces first, with leftovers at the end.
+
+### Multi-colour
+
+Turn on **Print in several colours** under *Colours* in *Print plates* (search *colour*, *color*, *multi colour*, *AMS*, *filament* or *paint*). Off, everything prints as before: one filament, and a second for inlaid label text and tool shadows.
+
+- **Filament slots:** a palette of up to 16 slots (four AMS units), each with a colour, a name, a material and, in All settings, a price per kg. Slot 2 is the old label filament: projects, files and share links from before open unchanged, their label colour and second price in slot 2.
+- **Presets:** *One colour* (back to one filament), *Red plate, black bins* (labels white), *Colour-coded bins* (each kind of bin its own colour, by what's in it or else by size). Each is one undo step.
+- **Surfaces:** Basic sets three, *Baseplate*, *Bins* and *Labels*. All sets each surface on its own: connector keys & spacer strips, wall grid & cleats, non-slip pads; carry-case shell, lid, handle, hinge pins & feet; bin feet, floor, walls, stacking lip, dividers, label tabs & plates, lids, trays & inserts, container shells, drawer fronts, pulls; label text & icons, tool shadows. A surface not set follows its group (the lip follows the bin walls, the walls follow *Bins*).
+- **Colours of their own:** a drawer's baseplate (Drawer & baseplate tab) and a bin (Bins tab; it's one of the bin's options, so it's saved with templates). The bin grid tints bins in their own colour.
+- **How it prints**, picked with the plates, swaps, purge and time each way takes side by side:
+  - **By part** (default): each part in one filament (label text and tool shadows keep theirs). Parts of different colours go on plates of their own (*Bins 2 · Red*), so no plate swaps filament. Turn off **Keep colours on separate plates** for fewer plates; then every layer two colours share swaps filament.
+  - **By height:** the filament changes at heights, so bin feet, floor, walls and lip can each have a colour (a container: feet and shell). Changes snap to the 0.2 mm layers (first layer 0.2 mm): the new colour starts on the first layer above. Parts on a plate share their changes, so plates group parts by their colours by height; short one-colour parts join a plate they're done on before its first change. Works without an AMS: with fewer slots than colours, each change is a pause to swap the spool by hand.
+  - **By feature:** each part is split into a volume per surface, each in its own filament (needs an AMS or several toolheads). Every layer with two colours swaps filament and purges.
+- **The split (by feature):** Manifold cuts each part into disjoint volumes in turn: label tabs (their boxes), stacking lip (from the lip's foot up, less the inside), dividers (inside walls from just above the floor), feet (below 4.75 mm), walls (the outer shell, wall thickness in from the outside) and the floor (the rest); drawer fronts and their tab or knob pulls; container feet and shell. Cuts keep 0.3 mm off the model's faces so no slivers are left, and scraps under 0.5 mm³ stay with the volume they came from. The tests hold every volume to be a valid manifold, apart from the others, all of them adding up to the part, and put back together right in the exported 3MF. Vase-mode and imported bins print as one body in their colour.
+- **3D view:** parts in their filament colours, by height in bands, with a legend of the slots in view.
+- **Exports:**
+  - **Bambu Studio project:** every slot up to the highest used in the filament list (`filament_colour`, `filament_type`, `filament_settings_id` and every other per-filament setting, for each nozzle variant the printer's profile has, grown in step; the flush matrix sized to match). Each object prints in its main volume's filament, other volumes in theirs. By height, `Metadata/custom_gcode_per_layer.xml` holds each plate's filament changes by layer (`type="2"` tool changes, mode `MultiAsSingle`), or pauses (`M400 U1`) when the printer feeds fewer slots.
+  - **Plates as 3MF:** colours as 3MF core `basematerials` (a `displaycolor` per slot), one object per part with its volumes and their extruders in `Metadata/Slic3r_PE_model.config` (PrusaSlicer), and by height PrusaSlicer's `Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml` (`M600` colour changes).
+  - **Plates as STL:** STL has no colour, so one file per slot per plate (`01-bins-1.slot3-red.stl`); by height one per plate, with the change heights in the README.
+  - **STEP:** each solid in its filament's colour (by height, the part's main colour). Single-bin downloads are in one colour.
+  - Bambu projects start every slot as *PLA Basic*: pick the preset for other materials in Bambu Studio (a print check says which).
+- **Estimates:** filament and cost per slot; swaps, purge and prime tower per plate. A swap purges more going lighter (black to white about 1.1 g, white to black 0.35 g); the prime tower prints on each layer up to the last swap. Swaps by hand take about 150 s each, without a tower.
+- **Print checks** (under *Colours*): more filaments on a plate than the printer feeds (fix: *Print by part*; by height it pauses instead), a plate that purges more than 25 g or more than half what it prints, plates of mixed colours (fix: keep them separate), colour bands under two layers, inlaid text by height (prints in its band's colour), parts that can't be split by feature, and slots of other materials in a Bambu project.
+- **Filament slots the printer feeds:** Bambu printers 4 (an AMS; the P1P 1), Prusa XL 5, Creality K2 Plus 4, others 1. Change it in All settings for more AMS units or none.
 
 ## Dimensions
 
