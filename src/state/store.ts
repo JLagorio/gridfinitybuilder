@@ -12,6 +12,8 @@ import { cleanTemplates, mergeTemplates, type BinTemplate } from '../lib/templat
 import { trackHistory, type Snapshot } from './history';
 import { cleanTool, cleanTools, mergeTools, removeToolFromBins, syncToolInBins, type Tool } from '../lib/tools';
 import { carryContents, cleanBinContents, sanitizeContents, withCompContents, withContents } from '../lib/inventory';
+import { cleanStretch, type BinStretch } from '../lib/geometry/placement';
+import { switchHalfGrid } from '../lib/layout/halfgrid';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -74,7 +76,14 @@ export interface Store extends ProjectState {
   setUI(p: Partial<UIState>): void;
   setNewBin(p: Partial<BinOptions>): void;
   addBin(x: number, y: number, w: number, d: number): string;
-  updateBin(id: string, patch: { x?: number; y?: number; opts?: Partial<BinOptions> }): void;
+  /** `stretch: null` clears the bin's stretch over the margin. */
+  updateBin(id: string, patch: { x?: number; y?: number; opts?: Partial<BinOptions>; stretch?: Partial<BinStretch> | null }): void;
+  /**
+   * Turn the active drawer's half grid on or off, converting its bins and
+   * blocked cells in the same step (one undo). Returns how many bins had to
+   * change size or move.
+   */
+  setHalfGrid(on: boolean): number;
   removeBin(id: string): void;
   duplicateBin(id: string): string | null;
   clearBins(): void;
@@ -133,18 +142,33 @@ function cleanDrawer(d: Partial<DrawerInput> | undefined): DrawerInput {
   // Blocked cells: "i,j" keys, deduplicated.
   out.mask = Array.isArray(out.mask) ? [...new Set(out.mask.map(String).filter((k) => /^\d+,\d+$/.test(k)))] : [];
   out.maskStyle = out.maskStyle === 'void' ? 'void' : 'solid';
+  // Half grid: only kept when on, so drawers saved before it existed stay as they were.
+  if (out.halfGrid === true) out.halfGrid = true;
+  else delete out.halfGrid;
   return out;
+}
+
+/** A bin with its stretch cleaned (dropped when there is none). */
+function withStretch(b: PlacedBin, stretch: unknown): PlacedBin {
+  const { stretch: _, ...rest } = b;
+  const st = cleanStretch(stretch);
+  return st ? { ...rest, stretch: st } : rest;
 }
 
 function cleanBins(bins: unknown): PlacedBin[] {
   if (!Array.isArray(bins)) return [];
-  return bins.map((b) => ({
-    id: String(b?.id ?? newId()),
-    x: Math.round(Number(b?.x) || 0),
-    y: Math.round(Number(b?.y) || 0),
-    opts: sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
-    ...cleanBinContents(b),
-  }));
+  return bins.map((b) =>
+    withStretch(
+      {
+        id: String(b?.id ?? newId()),
+        x: Math.round(Number(b?.x) || 0),
+        y: Math.round(Number(b?.y) || 0),
+        opts: sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
+        ...cleanBinContents(b),
+      },
+      b?.stretch,
+    ),
+  );
 }
 
 /** Patches that can change a bin's compartments (and so where per-compartment contents belong). */
@@ -269,11 +293,18 @@ export const useStore = create<Store>()(
               y: patch.y ?? b.y,
               opts: patch.opts ? sanitizeBin({ ...b.opts, ...patch.opts }) : b.opts,
             };
+            const stretched = patch.stretch !== undefined ? withStretch(next, patch.stretch) : next;
             // Per-compartment contents follow their compartments when the walls change.
             const walls = b.compContents && patch.opts && WALL_KEYS.some((k) => k in patch.opts!);
-            return walls ? carryContents({ ...next, opts: b.opts }, next.opts) : next;
+            return walls ? carryContents({ ...stretched, opts: b.opts }, stretched.opts) : stretched;
           }),
         })),
+      setHalfGrid: (on) => {
+        const s = get();
+        const r = switchHalfGrid(s.drawer, s.bins, on);
+        if (r.drawer !== s.drawer) set({ drawer: r.drawer, bins: r.bins });
+        return r.adjusted;
+      },
       removeBin: (id) =>
         set((s) => ({
           bins: s.bins.filter((b) => b.id !== id),
@@ -300,11 +331,17 @@ export const useStore = create<Store>()(
       fillEmpty: () => {
         const s = get();
         const { nx, ny, mask } = gridSize(s);
-        const occ = occupancy(withBlocked(s.bins, mask), nx, ny);
         const added: PlacedBin[] = [];
-        for (let i = 0; i < nx; i++) {
-          for (let j = 0; j < ny; j++) {
-            if (!occ[i][j]) added.push({ id: newId(), x: i, y: j, opts: sanitizeBin({ ...s.newBin, unitsX: 1, unitsY: 1 }) });
+        // 1 × 1 u bins: 2 × 2 cells on a half grid, then half-unit bins in what's left.
+        for (const n of s.drawer.halfGrid ? [2, 1] : [1]) {
+          const occ = occupancy(withBlocked([...s.bins, ...added], mask), nx, ny);
+          const free = (i: number, j: number) => i + n <= nx && j + n <= ny && occ.slice(i, i + n).every((col) => col.slice(j, j + n).every((c) => !c));
+          for (let i = 0; i < nx; i++) {
+            for (let j = 0; j < ny; j++) {
+              if (!free(i, j)) continue;
+              added.push({ id: newId(), x: i, y: j, opts: sanitizeBin({ ...s.newBin, unitsX: n, unitsY: n }) });
+              for (let a = i; a < i + n; a++) for (let b = j; b < j + n; b++) occ[a][b] = '#new';
+            }
           }
         }
         set({ bins: [...s.bins, ...added] });
@@ -319,7 +356,13 @@ export const useStore = create<Store>()(
         const doc: DrawerDoc = {
           id,
           name: uniqueName(name?.trim() || `Drawer ${docs.length + 1}`, docs.map((d) => d.name)),
-          drawer: { ...DEFAULT_DRAWER, mode: s.drawer.mode, clearance: s.drawer.clearance, fill: s.drawer.fill },
+          drawer: {
+            ...DEFAULT_DRAWER,
+            mode: s.drawer.mode,
+            clearance: s.drawer.clearance,
+            fill: s.drawer.fill,
+            ...(s.drawer.halfGrid ? { halfGrid: true } : {}),
+          },
           baseplate: { ...s.baseplate },
           bins: [],
         };

@@ -2,8 +2,10 @@ import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from '
 import { cellEdge, cellIndexAt, type GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin } from '../lib/project';
 import { binTotalHeight } from '../lib/geometry/bin';
+import { MAX_CELLS, stretchOf } from '../lib/geometry/placement';
+import { effectiveStretch } from '../lib/layout/stretch';
 import { binRect, canPlace, occupancy, onBlocked, outOfBounds, withBlocked, type CellRect } from '../lib/bins';
-import { HANDLES, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
+import { HANDLES, MAX_BIN_UNITS, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
 import { useLayoutShortcuts } from './useLayoutShortcuts';
 import { dividerLines } from './dividerLines';
 
@@ -70,6 +72,8 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
   const blocked = useMemo(() => withBlocked(bins, layout.mask), [bins, layout.mask]);
   const hatch = `ge-hatch-${useId().replace(/[^\w-]/g, '')}`;
   const pad = 8;
+  // Bins are at most 12 u: 24 cells on a half grid.
+  const maxUnits = layout.halfGrid ? MAX_CELLS : MAX_BIN_UNITS;
 
   useLayoutEffect(() => {
     const el = svg.current;
@@ -102,6 +106,20 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
     return [i, j];
   };
 
+  /** The cell under a point on a stretched bin's overhang (outside the grid), or null. */
+  const stretchedCellAt = (p: Pt): Pt | null => {
+    for (const b of bins) {
+      const st = stretchOf(effectiveStretch(layout, b));
+      if (st.left + st.right + st.front + st.back <= 0) continue;
+      const m = mmRect(binRect(b));
+      if (p[0] < m.x0 - st.left || p[0] > m.x1 + st.right || p[1] < m.y0 - st.front || p[1] > m.y1 + st.back) continue;
+      const i = cellIndexAt(xs, Math.min(Math.max(p[0], m.x0), m.x1 - 1e-6));
+      const j = cellIndexAt(ys, Math.min(Math.max(p[1], m.y0), m.y1 - 1e-6));
+      if (i >= 0 && j >= 0) return [i, j];
+    }
+    return null;
+  };
+
   const mmRect = (r: CellRect) => ({
     x0: cellEdge(xs, r.x, pitchX),
     x1: cellEdge(xs, r.x + r.w, pitchX),
@@ -123,9 +141,14 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
   const ghosts: { r: CellRect; ok: boolean }[] = (() => {
     if (!drag) return [];
     if (drag.kind === 'draw') {
-      const x = Math.min(drag.start[0], drag.cur[0]);
-      const y = Math.min(drag.start[1], drag.cur[1]);
-      const r = { x, y, w: Math.abs(drag.cur[0] - drag.start[0]) + 1, d: Math.abs(drag.cur[1] - drag.start[1]) + 1 };
+      // From the start cell toward the pointer, at most maxUnits cells.
+      const span = (a: number, b: number) => {
+        const n = Math.min(Math.abs(b - a) + 1, maxUnits);
+        return [b >= a ? a : a - n + 1, n];
+      };
+      const [x, w] = span(drag.start[0], drag.cur[0]);
+      const [y, d] = span(drag.start[1], drag.cur[1]);
+      const r = { x, y, w, d };
       return [{ r, ok: canPlace(blocked, r, nx, ny) }];
     }
     // Resizing stops before collisions, so its ghost is always placeable.
@@ -153,7 +176,8 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
       setDrag({ kind: 'resize', id: single.id, handle, from: r, cur: r });
       return;
     }
-    const c = cellOf(p);
+    // Over the margin, a stretched bin's body counts as its edge cell.
+    const c = cellOf(p) ?? stretchedCellAt(p);
     const id = c ? occ[c[0]][c[1]] : null;
     if (c && id) {
       // Grabbing a selected bin drags the whole selection.
@@ -175,7 +199,7 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
     if (drag.kind === 'marquee') {
       setDrag({ ...drag, cur: p });
     } else if (drag.kind === 'resize') {
-      const target = resizeTarget(drag.from, drag.handle, nearestBoundary(xs, p[0]), nearestBoundary(ys, p[1]));
+      const target = resizeTarget(drag.from, drag.handle, nearestBoundary(xs, p[0]), nearestBoundary(ys, p[1]), maxUnits);
       const others = blocked.filter((b) => b.id !== drag.id);
       const cur = fitResize(others, drag.from, target, nx, ny);
       if (!sameRect(cur, drag.cur)) setDrag({ ...drag, cur });
@@ -255,13 +279,18 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
           return <rect key={`m${k}`} className="ge-blocked" {...cellRectSvg({ x: i, y: j, w: 1, d: 1 }, 1.5)} rx={3.5} fill={`url(#${hatch})`} />;
         })}
         {bins.map((b) => {
-          const r = cellRectSvg({ x: b.x, y: b.y, w: b.opts.unitsX, d: b.opts.unitsY }, 0.6);
+          const feet = cellRectSvg({ x: b.x, y: b.y, w: b.opts.unitsX, d: b.opts.unitsY }, 0.6);
+          // A stretched body reaches over the margin (svg y runs front to back downward).
+          const st = stretchOf(effectiveStretch(layout, b));
+          const stretched = st.left + st.right + st.front + st.back > 0;
+          const r = { x: feet.x - st.left, y: feet.y - st.back, width: feet.width + st.left + st.right, height: feet.height + st.front + st.back };
           const sel = selected.has(b.id);
           const bad = outOfBounds(b, nx, ny) || onBlocked(b, layout.mask);
-          const fs = Math.min(10, (Math.min(r.width, r.height) / 4) | 0) || 6;
+          const fs = Math.min(10, (Math.min(feet.width, feet.height) / 4) | 0) || 6;
           return (
             <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''}`}>
               <rect {...r} rx={3.75} />
+              {stretched && <rect {...feet} rx={3.75} fill="none" strokeDasharray="3 2" opacity={0.6} pointerEvents="none" />}
               {dividerLines(layout, b).map((l, k) => (
                 <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />
               ))}

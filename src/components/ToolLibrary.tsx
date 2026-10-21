@@ -54,14 +54,17 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
   };
 
   const makeBin = (ts: Tool[]) => {
-    const fit = fitBinForTools(ts, { lip: newBin.lip, lipStyle: newBin.lipStyle, base: newBin.base });
+    // On a half grid the bin is sized in 21 mm cells (shown in u).
+    const half = !!job.layout.halfGrid;
+    const fit = fitBinForTools(ts, { lip: newBin.lip, lipStyle: newBin.lipStyle, base: newBin.base, half });
+    const u = (n: number) => (half ? n / 2 : n);
     if (!fit.fits) {
-      setMsg(`Too big for one bin: it would need ${fit.unitsX} × ${fit.unitsY} units (12 × 12 at most).`);
+      setMsg(`Too big for one bin: it would need ${u(fit.unitsX)} × ${u(fit.unitsY)} units (12 × 12 at most).`);
       return;
     }
     const spot = firstFreeSpot(job.layout, bins, fit.unitsX, fit.unitsY);
     if (!spot) {
-      setMsg(`No free ${fit.unitsX} × ${fit.unitsY} spot in this drawer. Clear some room, or switch drawers.`);
+      setMsg(`No free ${u(fit.unitsX)} × ${u(fit.unitsY)} spot in this drawer. Clear some room, or switch drawers.`);
       return;
     }
     const id = addBin(spot.x, spot.y, fit.unitsX, fit.unitsY);

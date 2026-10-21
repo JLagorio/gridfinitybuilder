@@ -176,7 +176,8 @@ export function assemblyMap(
   const partial = [...layout.xs.slice(1).map((v, i) => v - layout.xs[i]), ...layout.ys.slice(1).map((v, i) => v - layout.ys[i])].some(
     (v) => Math.abs(v - layout.pitchX) > 1e-6 && Math.abs(v - layout.pitchY) > 1e-6,
   );
-  lines.push(`Grid: ${layout.nx} × ${layout.ny} cells (${layout.pitchX} mm${partial ? ', with partial edge cells' : ''})`);
+  const half = layout.halfGrid ? ' half grid' : '';
+  lines.push(`Grid: ${layout.nx} × ${layout.ny} cells (${layout.pitchX} mm${half}${partial ? ', with partial edge cells' : ''})`);
   lines.push(
     `Margins: left ${fmt(layout.margins.left)}, right ${fmt(layout.margins.right)}, front ${fmt(layout.margins.front)}, back ${fmt(layout.margins.back)} mm`,
   );

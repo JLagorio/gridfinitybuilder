@@ -1,8 +1,7 @@
 import { baseplateFloor, screwPlacement } from './geometry/baseplate';
 import { lowSideOf } from './geometry/connectors';
 import { maskSet } from './geometry/mask';
-import { binCells } from './geometry/bin';
-import { holeSites } from './geometry/holes';
+import { binHoleSites } from './geometry/bin';
 import { BP_PROFILE_DEPTH, GRID, PIN, SCREW_JOIN } from './geometry/spec';
 import { PRINT_ESTIMATE } from './geometry/volume';
 import type { MeshSpec, PrintJob } from './project';
@@ -110,7 +109,7 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
     const o = spec.opts;
     const h = String(o.holes ?? 'none');
     if (h === 'none' || o.base === 'flat') return [];
-    const n = holeSites(binCells(o, spec.cells), !!o.holeCorners).length;
+    const n = binHoleSites(o, spec.cells).length;
     const out = [];
     // Refined slots hold the same 6 × 2 mm magnets, slid in from the side.
     if (n && (h === 'both' || h === 'magnets' || h === 'refined')) out.push({ item: 'Magnets 6 × 2 mm (bins)', count: n });
