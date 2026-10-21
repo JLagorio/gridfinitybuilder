@@ -3066,6 +3066,7 @@ details.option-group[open] summary > span::before {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: max-content;
   max-width: calc(100vw - 24px);
   padding: 7px 7px 7px 14px;
   background: var(--panel-2);
@@ -3293,6 +3294,16 @@ details.option-group[open] summary > span::before {
   }
   .update-banner {
     bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+}
+/* A phone on its side: the panel beside the layout editor, not under it. */
+@media (max-width: 760px) and (orientation: landscape) {
+  .body {
+    flex-direction: row;
+  }
+  .sidebar {
+    border-top: none;
+    border-right: 1px solid var(--border);
   }
 }
 /* No keyboard on a phone: no shortcut list. */
