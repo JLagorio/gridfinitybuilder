@@ -17,6 +17,7 @@ import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBed } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
+import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -47,7 +48,10 @@ export interface UIState {
  * `drawer` / `baseplate` / `bins`; its entry in `drawers` is only refreshed when
  * switching away (use `allDrawers()` to read every drawer up to date).
  */
-export type DrawerDoc = NamedDrawer;
+export interface DrawerDoc extends NamedDrawer {
+  /** The list last typed in "Fill from a list" (lib/autofill) for this drawer. Missing = none. */
+  fillList?: string;
+}
 
 /** Which drawers the print tab exports. */
 export type PrintScope = 'active' | 'all' | 'pick';
@@ -91,6 +95,16 @@ export interface Store extends ProjectState {
   duplicateBin(id: string): string | null;
   clearBins(): void;
   fillEmpty(): number;
+  /**
+   * Put several bins in the active drawer as one undo step ("Fill from a
+   * list", lib/autofill). Each is cut down to what the printer takes; one that
+   * would overlap a bin or a blocked cell is left out. `replace` removes the
+   * drawer's bins first; `newDrawers` adds drawers like this one (same size
+   * and baseplate, after it) holding those bins. Returns the ids added here.
+   */
+  addBins(bins: NewBin[], o?: { replace?: boolean; newDrawers?: NewBin[][] }): string[];
+  /** Remember the list typed in "Fill from a list" for the active drawer (not an undo step of its own). */
+  setFillList(text: string): void;
   // Drawers
   addDrawer(name?: string): string;
   duplicateDrawer(id: string): string;
@@ -204,12 +218,14 @@ function cleanBins(bins: unknown): PlacedBin[] {
 const WALL_KEYS = ['layout', 'divX', 'divY', 'unitsX', 'unitsY'] as const;
 
 function cleanDoc(d: Partial<DrawerDoc>, i: number): DrawerDoc {
+  const fillList = cleanFillList(d.fillList);
   return {
     id: String(d.id ?? newId()),
     name: String(d.name ?? `Drawer ${i + 1}`),
     drawer: cleanDrawer(d.drawer),
     baseplate: { ...DEFAULT_BASEPLATE, ...d.baseplate },
     bins: cleanBins(d.bins),
+    ...(fillList ? { fillList } : {}),
   };
 }
 
@@ -384,6 +400,43 @@ export const useStore = create<Store>()(
         }
         set({ bins: [...s.bins, ...added] });
         return added.length;
+      },
+      addBins: (add, o = {}) => {
+        const s = get();
+        const layout = computeLayout(s.drawer);
+        const bed = usableBed(s.setup);
+        const r = mergeBins(layout, o.replace ? [] : s.bins, add, bed);
+        const docs = synced(s);
+        const names = docs.map((d) => d.name);
+        const more: DrawerDoc[] = (o.newDrawers ?? [])
+          .filter((list) => list.length)
+          .map((list) => {
+            const name = uniqueName(`Drawer ${docs.length + 1}`, names);
+            names.push(name);
+            return { id: newId(), name, drawer: { ...s.drawer }, baseplate: { ...s.baseplate }, bins: mergeBins(layout, [], list, bed).bins };
+          });
+        if (!r.added.length && !more.length && !(o.replace && s.bins.length)) return [];
+        const at = docs.findIndex((d) => d.id === s.activeDrawerId) + 1;
+        history.checkpoint();
+        set({
+          bins: r.bins,
+          drawers: more.length ? [...docs.slice(0, at), ...more, ...docs.slice(at)] : s.drawers,
+          ui: { ...s.ui, selectedBinId: null, selectedBinIds: [] },
+        });
+        history.checkpoint();
+        return r.added;
+      },
+      setFillList: (text) => {
+        const s = get();
+        const list = cleanFillList(text);
+        const doc = s.drawers.find((d) => d.id === s.activeDrawerId);
+        if (!doc || (doc.fillList ?? '') === list) return;
+        const next = (d: DrawerDoc): DrawerDoc => {
+          const { fillList: _, ...rest } = d;
+          return list ? { ...rest, fillList: list } : rest;
+        };
+        // Remembered with the project, but typing a list isn't an edit to undo.
+        history.silently(() => set({ drawers: s.drawers.map((d) => (d.id === s.activeDrawerId ? next(d) : d)) }));
       },
 
       addDrawer: (name) => {
