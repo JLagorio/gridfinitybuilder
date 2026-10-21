@@ -22,8 +22,11 @@ const root = resolve(__dirname, '..');
  * map's and settings search's share. Their encoder and geometry stay out: the encoder loads with the
  * panels that draw codes, the geometry only with the mesh builders. Vase-mode bins' planning (and,
  * like every container type, geometry) is on the first screen too: ~7 kB, 567 kB in all.
+ * Multi-colour planning (colours.ts, colourPlan.ts, plates by colour) and the 3D view's filament
+ * colours and bands are on it too, ~27 kB (594 kB in all); the Colours section, its palette,
+ * presets, texts and checks load with the print tab.
  */
-const FIRST_SCREEN_BUDGET = 575_000;
+const FIRST_SCREEN_BUDGET = 600_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
@@ -84,6 +87,12 @@ describe('bundle', () => {
       'src/lib/autofill/index.ts',
       'src/lib/bom.ts',
       'src/lib/export/step.ts',
+      // Multi-colour: the Colours section, its presets and texts, the checks, the bin/plate colour fields.
+      'src/components/ColourSection.tsx',
+      'src/components/ColourFields.tsx',
+      'src/lib/colourPresets.ts',
+      'src/lib/colourText.ts',
+      'src/lib/colourChecks.ts',
       // Bins from elsewhere: the import dialog, the file readers, the mesh store, the share-link codec.
       'src/components/ExternalBinDialog.tsx',
       'src/lib/imported/parse.ts',

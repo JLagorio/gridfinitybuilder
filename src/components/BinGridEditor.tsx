@@ -39,6 +39,8 @@ interface Props {
   marks?: ReadonlyMap<string, CheckSeverity>;
   /** Bins marked as printed, or printed before and changed since (printed.ts), by id. */
   printed?: Record<string, 'printed' | 'changed'>;
+  /** Multi-colour: bins with a colour of their own, tinted in it (colours.ts), by id. */
+  tints?: ReadonlyMap<string, string>;
 }
 
 type Pt = [number, number];
@@ -75,7 +77,7 @@ function heightCaption(o: PlacedBin['opts']): string {
  * or drag from outside the grid to box-select, drag a selected bin to move the
  * whole selection, drag a handle to resize. Keyboard: see useLayoutShortcuts.
  */
-export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection, onSelect: select, onCreate, onMoveBins, onResize, bed, newBin, marks, printed }: Props) {
+export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection, onSelect: select, onCreate, onMoveBins, onResize, bed, newBin, marks, printed, tints }: Props) {
   // Stacked bins (StackLevels.tsx): the grid lays out floor bins and shows one level of their stacks.
   const levels = useStackLevels(drawerBins, selection, select);
   const { bins, selectedIds, onSelect } = levels;
@@ -352,7 +354,7 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
           const meshBox = ext?.mesh ? externalBox(layout, shown) : null;
           return (
             <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''} ${stack.bin ? '' : 'under'} ${ext ? `external ${isOwned(shown) ? 'owned' : 'prints'}` : ''}`}>
-              <rect {...r} rx={3.75}>
+              <rect {...r} rx={3.75} style={tints?.has(b.id) ? { fill: tints.get(b.id), fillOpacity: 0.55 } : undefined}>
                 {tooBig ? <title>Too big for {bed && bedCount(bed) > 1 ? 'every printer' : 'the printer'}: select it to shrink it</title> : mark && <title>Select it to see its print checks</title>}
               </rect>
               {ext && (

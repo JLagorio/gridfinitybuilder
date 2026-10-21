@@ -317,10 +317,16 @@ describe('multi-filament parts', () => {
     expect(ps.different_settings_to_system).toHaveLength(4);
   });
 
-  it('plain 3MF wraps overlays as components', () => {
-    const model = strFromU8(unzipSync(write3MF([{ name: 'bin', mesh: withText }], [{ object: 0, transform: placeTransform(0, 0, false, 20) }]))['3D/3dmodel.model']);
-    expect(model.match(/<object /g)?.length).toBe(3);
-    expect(model).toContain('<item objectid="3"');
+  it('plain 3MF writes a part and its overlays as one object with a volume each (PrusaSlicer keeps them in place)', () => {
+    const files = unzipSync(write3MF([{ name: 'bin', mesh: withText }], [{ object: 0, transform: placeTransform(0, 0, false, 20) }]));
+    const model = strFromU8(files['3D/3dmodel.model']);
+    expect(model.match(/<object /g)?.length).toBe(1);
+    expect(model.match(/<triangle /g)?.length).toBe(24);
+    expect(model).toContain('<metadata name="slic3rpe:Version3mf">1</metadata>');
+    const cfg = strFromU8(files['Metadata/Slic3r_PE_model.config']);
+    expect(cfg).toContain('<volume firstid="0" lastid="11">');
+    expect(cfg).toContain('<volume firstid="12" lastid="23">');
+    expect(cfg).toContain('key="extruder" value="2"');
   });
 
   it('translateMesh moves overlays too', () => {

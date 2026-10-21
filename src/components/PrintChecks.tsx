@@ -40,6 +40,7 @@ function applyFix(fix: CheckFix, at: FixTarget) {
   if (fix.bin && at.binId) st.updateBin(at.binId, { opts: fix.bin });
   if (fix.baseplate) st.setBaseplate(fix.baseplate);
   if (fix.drawer) st.setDrawer(fix.drawer);
+  if (fix.setup) st.setSetup(fix.setup);
   history.checkpoint();
 }
 
@@ -148,7 +149,7 @@ const SHOWN = 6;
  * Print checks across everything being printed, before the exports. Clicking a
  * bin selects it (in its drawer); clicking a baseplate opens its drawer.
  */
-export function PrintChecksSection({ job }: { job: PrintJob }) {
+export function PrintChecksSection({ job, extra = [] }: { job: PrintJob; extra?: FoundCheck[] }) {
   const font = useLabelFont();
   const fmt = useCheckFmt();
   const store = useStore();
@@ -156,16 +157,18 @@ export function PrintChecksSection({ job }: { job: PrintJob }) {
   const { setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick } = store;
   // Printing the selected bins: the checks follow the selection.
   const selection = printScope === 'selected' ? selectedIds(store.ui).join() : '';
-  const checks = useMemo(
+  const own = useMemo(
     () => projectChecks(printDrawers(store), setup, include, { fmt }),
     // `store` changes on every edit; these are what the checks read (and `font`: text checks wait for it).
     [setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick, selection, fmt, font],
   );
+  // Checks found elsewhere (multi-colour: colourChecks.ts) go first: they're about every plate.
+  const checks = useMemo(() => [...extra, ...own], [extra, own]);
   const multi = job.drawers.length > 1;
   const names = new Map(printDrawers(store).map((d) => [d.id, d.name]));
   const groups: CheckGroup[] = [];
   for (const c of checks) {
-    const key = c.binId ? `${c.drawerId}/${c.binId}` : (c.drawerId ?? 'setup');
+    const key = c.binId ? `${c.drawerId}/${c.binId}` : (c.drawerId ?? c.group ?? 'setup');
     let g = groups.find((x) => x.key === key);
     if (!g) {
       const part = c.binId ? job.parts[multi ? `${c.drawerId}/bin:${c.binId}` : `bin:${c.binId}`] : undefined;
@@ -175,7 +178,7 @@ export function PrintChecksSection({ job }: { job: PrintJob }) {
           ? multi
             ? `${names.get(c.drawerId) ?? 'Drawer'} · baseplate`
             : 'Baseplate'
-          : 'Printer';
+          : c.group ?? 'Printer';
       g = { key, title, at: { drawerId: c.drawerId, binId: c.binId }, checks: [] };
       groups.push(g);
     }

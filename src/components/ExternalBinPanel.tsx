@@ -16,6 +16,7 @@ import { duplicateSelection, removeSelection } from '../state/selection';
 import { downloadBytes, geometry } from '../worker/client';
 import type { PlacedBin, PrintJob } from '../lib/project';
 import { ExternalBinDialogPortal, type ExternalMode } from './ExternalBins';
+import { BinColourField } from './ColourFields';
 
 /**
  * The Bins panel for a bin from elsewhere (lib/external.ts): name, colour,
@@ -96,6 +97,12 @@ export function ExternalBinPanel({
             onChange={(v) => setExternal(bin.id, { print: v === 'print' })}
             hint={ext.print ? 'On the plates with the other bins, exactly as the file has it.' : 'Takes its place in the drawer; never printed.'}
           />
+        )}
+        {/* Multi-colour: an imported mesh prints as it is, in one filament, this bin's or the bins' colour. */}
+        {mesh && ext.print && (
+          <Find id="bin-colour" set={bin.opts.colour !== undefined}>
+            <BinColourField opts={bin.opts} onChange={onChange} hint="An imported mesh prints as it is, in one filament: this one." />
+          </Find>
         )}
         {mesh && isMissing(mesh.hash) && (
           <div className="field-error">

@@ -3,6 +3,7 @@ import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import { cloneMesh, type MeshData, type Wasm } from '../lib/geometry/kernel';
 import { buildMesh, type MeshSpec, type PrintJob } from '../lib/project';
+import { splitByRoles } from '../lib/geometry/colourRegions';
 import { printedVolume } from '../lib/geometry/volume';
 import type { MeshPrintStats } from '../lib/estimate';
 import type { WorkerRequest, WorkerResponse } from './protocol';
@@ -40,7 +41,8 @@ function fontReady() {
 }
 
 /** Baseplate pieces (without case walls) and connector keys never have text: they don't wait for the font. */
-const textFree = (spec: MeshSpec) => (spec.kind === 'piece' && !spec.enclosure) || spec.kind === 'key' || spec.kind === 'imported';
+const textFree = (spec: MeshSpec): boolean =>
+  (spec.kind === 'piece' && !spec.enclosure) || spec.kind === 'key' || spec.kind === 'imported' || (spec.kind === 'split' && textFree(spec.base));
 
 /** The file writers (3MF, Bambu, STL, STEP, zips) and the slicer, loaded on the first request that needs them. */
 let writers: Promise<typeof import('./writers')> | null = null;
@@ -82,11 +84,14 @@ async function meshFor(spec: MeshSpec): Promise<MeshData> {
   const hit = getCached(spec.key);
   if (hit) return hit;
   const text = textFree(spec) ? null : fontReady();
+  // A part split by colour role (multi-colour 'feature') starts from its cached whole mesh.
+  const base = spec.kind === 'split' ? await meshFor(spec.base) : null;
   const w = await wasmReady;
   await text;
-  const mesh = buildMesh(w, spec);
+  const mesh = spec.kind === 'split' ? splitByRoles(w, base!, spec.base) : buildMesh(w, spec);
   cache.set(spec.key, mesh);
-  volumes.set(spec.key, printedVolume(mesh));
+  // A split part prints like the whole one (its volumes' shared faces aren't walls).
+  volumes.set(spec.key, base && spec.kind === 'split' ? (volumes.get(spec.base.key) ?? printedVolume(base)) : printedVolume(mesh));
   while (volumes.size > MAX_VOLUMES) volumes.delete(volumes.keys().next().value!);
   while (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value!);
   return mesh;
@@ -152,12 +157,19 @@ async function handle(req: WorkerRequest) {
         break;
       }
       case 'print-stats': {
-        const { sliceStats } = await loadWriters();
+        const { sliceStats, withBodyShares } = await loadWriters();
         const out: Record<string, MeshPrintStats> = {};
         let done = 0;
         for (const spec of req.specs) {
           try {
             let s = printStats.get(spec.key);
+            if (!s && spec.kind === 'split') {
+              // The whole part's sections and walls, with the split's share of each colour.
+              const whole = printStats.get(spec.base.key) ?? sliceStats(await meshFor(spec.base));
+              printStats.set(spec.base.key, whole);
+              s = withBodyShares(whole, sliceStats(await meshFor(spec)));
+              printStats.set(spec.key, s);
+            }
             if (!s) {
               s = sliceStats(await meshFor(spec));
               printStats.set(spec.key, s);

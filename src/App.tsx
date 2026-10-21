@@ -29,6 +29,8 @@ import type { PrintSetup } from './lib/layout/plan';
 import { binPrintMarks } from './lib/printed';
 import { usePrintJob } from './components/usePrintJob';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
+import { colourLegend, partPaint } from './components/sceneColours';
+import { partRoleSlot, paletteOf, type ColourRole } from './lib/colours';
 import { stackPlaces } from './lib/stacking';
 import { PhoneNav, usePhoneView } from './components/PhoneNav';
 import { externalBox, importedSpec } from './lib/external';
@@ -65,6 +67,15 @@ interface Scene {
   fitKey: string;
 }
 
+/** With multi-colour on (PrintJob.colours): a part's filament colours. */
+const paintOf = (job: PrintJob, key: string) => {
+  const paint = job.colours ? partPaint(job, key) : undefined;
+  return paint ? { paint } : {};
+};
+
+/** Enclosure parts in the drawer view (case lid, handle, feet, strips, cleat) by their colour role. */
+const ENCLOSURE_ROLES: Record<string, ColourRole> = { lid: 'caseLid', hardware: 'caseHardware', handle: 'caseHandle', foot: 'caseHardware', strip: 'plateAccent', cleat: 'wallGrid' };
+
 function drawerScene(
   job: PrintJob,
   explode: boolean,
@@ -90,7 +101,8 @@ function drawerScene(
       d: part.d,
       h: part.h,
       color: withBins ? BASEPLATE_COLOR : pieceColor(p.id),
-      ...(have ? { ghost: true } : {}),
+      // Not printed (you have it): see-through, not in a filament's colour.
+      ...(have ? { ghost: true } : paintOf(job, part.key)),
     };
   });
   if (withBins || enc?.showBins || have) {
@@ -139,6 +151,7 @@ function drawerScene(
         d: part.d,
         h: part.h,
         color: BIN_COLOR,
+        ...paintOf(job, part.key),
         selected: selectedIds(state.ui).includes(b.id),
         pickable: true,
         lift,
@@ -156,6 +169,7 @@ function drawerScene(
           d: lid.d,
           h: lid.h,
           color: LID_COLOR,
+          ...paintOf(job, lid.key),
           lift,
         });
       }
@@ -172,6 +186,7 @@ function drawerScene(
             d: a.d,
             h: a.h,
             color: LID_COLOR,
+            ...paintOf(job, a.key),
             lift,
           });
         }
@@ -187,6 +202,7 @@ function drawerScene(
           d: p.d,
           h: p.h,
           color: p.kind === 'lid' ? LID_COLOR : BIN_COLOR,
+          ...paintOf(job, p.key),
           lift,
         });
       }
@@ -204,12 +220,20 @@ function drawerScene(
           d: pl.d,
           h: pl.h,
           color: LABEL_PLATE_COLOR,
+          ...paintOf(job, pl.key),
           lift,
         });
       }
     }
   }
-  if (enc) items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap).map((it) => (have ? { ...it, ghost: true } : it)));
+  if (enc) {
+    // Multi-colour: each enclosure part in its role's colour (the drawer's baseplate colour for its strips and cleat).
+    const cs = job.colours;
+    const pal = cs ? paletteOf(cs, 16) : null;
+    const over = cs && state.baseplate.colour ? { plate: state.baseplate.colour } : undefined;
+    const encPaint = cs && !have ? (role: string) => ({ main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }) : undefined;
+    items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint).map((it) => (have ? { ...it, ghost: true } : it)));
+  }
   return {
     items: shiftItems(items, enc?.shift),
     outline: state.drawer.mode === 'drawer' && enc?.outline !== false ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
@@ -247,6 +271,7 @@ function platesScene(job: PrintJob, plate: number, setup: PrintSetup): Scene {
         h: part.h,
         rotated: p.rotated,
         color: part.kind === 'piece' ? pieceColor(part.pieceId ?? 0) : part.kind === 'key' ? KEY_COLOR : part.kind === 'lid' ? LID_COLOR : BIN_COLOR,
+        ...paintOf(job, p.key),
       });
     }
   });
@@ -301,6 +326,13 @@ export default function App() {
   useOpenSharedProject();
   const selection = useSelectedIds();
   const checkMarks = useBinCheckMarks(job.layout, state.bins);
+  // Multi-colour: bins with a colour of their own are tinted in it on the grid.
+  const tints = useMemo(() => {
+    if (!state.setup.colours?.on) return undefined;
+    const pal = paletteOf(state.setup, 16);
+    // Bins that print in a colour of their own (not ones you already have).
+    return new Map(state.bins.filter((b) => b.opts.colour && (!b.external || b.external.print)).map((b) => [b.id, pal[b.opts.colour! - 1]?.colour ?? '#808080']));
+  }, [state.setup, state.bins]);
 
   // Delete / Backspace removes the selected bins (unless typing in a field).
   useEffect(() => {
@@ -327,6 +359,8 @@ export default function App() {
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
   const coarse = useCoarsePointer();
+  // Multi-colour: the filament slots on screen.
+  const legend = useMemo(() => colourLegend(ui.tab === 'print' ? printJob : viewJob), [ui.tab, printJob, viewJob]);
   const phone3d = usePhoneView((s) => s.view3d);
   // "Just bins": the grid in the view is the baseplate you have, drawn see-through.
   const have = !!viewJob.drawers[0]?.haveBaseplate;
@@ -345,6 +379,7 @@ export default function App() {
         outline={scene.outline}
         fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
         fitIds={focusing ? [ui.selectedBinId!] : undefined}
+        legend={legend}
         onPick={ui.tab === 'bins' ? (id) => state.setUI({ selectedBinId: id }) : undefined}
         hint={
           coarse
@@ -474,6 +509,7 @@ export default function App() {
                     newBin={state.newBin}
                     marks={checkMarks}
                     printed={printMarks}
+                    tints={tints}
                   />
                 )}
               </div>

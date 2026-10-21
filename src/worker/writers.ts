@@ -7,4 +7,4 @@ export { exportPlate3MF, exportPlatesZip, exportSingle3MF } from '../lib/export/
 export { exportBambuProject } from '../lib/export/bambu';
 export { exportPlateSTL, exportPlatesStlZip, writeSTL } from '../lib/export/stl';
 export { exportAssembliesSTEP, exportPlateSTEP, exportPlatesStepZip, exportSingleSTEP } from '../lib/export/step';
-export { sliceStats } from '../lib/estimate';
+export { sliceStats, withBodyShares } from '../lib/estimate';

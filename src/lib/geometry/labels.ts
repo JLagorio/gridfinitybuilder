@@ -711,7 +711,7 @@ function withInlay(mesh: MeshData, inlay: Manifold | null): MeshData {
   if (!inlay || inlay.isEmpty()) return mesh;
   assertValid(inlay, 'label inlay');
   const m = toMeshData(inlay);
-  mesh.overlays = [...(mesh.overlays ?? []), { name: 'Label text', filament: 2, positions: m.positions, indices: m.indices }];
+  mesh.overlays = [...(mesh.overlays ?? []), { name: 'Label text', filament: 2, role: 'labelText', positions: m.positions, indices: m.indices }];
   return mesh;
 }
 

@@ -1,4 +1,5 @@
 import type { JobPart, PrintJob } from './project';
+import { baseMeshKey } from './colours';
 
 /**
  * What has been printed, so a project printed over weeks can reprint only
@@ -34,8 +35,9 @@ export const printCount = (r: PrintedRecord) => Object.values(r.counts).reduce((
 
 const cache = new Map<string, string>();
 
-/** A short hash of a mesh key (cyrb53: 53 bits, as 14 hex digits). */
-export function fingerprint(meshKey: string): string {
+/** A short hash of a mesh key (cyrb53: 53 bits, as 14 hex digits). Colours don't count: a part split by colour is the same print. */
+export function fingerprint(key: string): string {
+  const meshKey = baseMeshKey(key);
   let hit = cache.get(meshKey);
   if (hit) return hit;
   let h1 = 0xdeadbeef;

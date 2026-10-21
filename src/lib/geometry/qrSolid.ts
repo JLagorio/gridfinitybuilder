@@ -76,7 +76,8 @@ export function withQrInlay(mesh: MeshData, inlay: Manifold | null): MeshData {
   if (!inlay || inlay.isEmpty()) return mesh;
   assertValid(inlay, 'QR inlay');
   const m = toMeshData(inlay);
-  mesh.overlays = [...(mesh.overlays ?? []), { name: 'QR code', filament: 2, positions: m.positions, indices: m.indices }];
+  // Filament 2 as before; with multi-colour on, the QR code role's slot (colours.ts).
+  mesh.overlays = [...(mesh.overlays ?? []), { name: 'QR code', filament: 2, role: 'qrCode', positions: m.positions, indices: m.indices }];
   return mesh;
 }
 

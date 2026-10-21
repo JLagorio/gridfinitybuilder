@@ -29,6 +29,7 @@ import { DEFAULT_BIN, binSize, binTotalHeight, sanitizeBin, type BinOptions } fr
 import { cellEdge, cellSizes, type GridLayout } from './layout/drawer';
 import type { ImportedSpec } from './imported/registry';
 import type { PlacedBin } from './project';
+import { cleanSlot } from './colours';
 
 export interface MeshRef {
   /** Content hash of the mesh bytes (imported/format.ts meshHash). */
@@ -77,9 +78,11 @@ export function meshSize(m: MeshRef): { w: number; d: number; h: number } {
 }
 
 /** `opts` for a bin from elsewhere: its footprint and height only (see the top of this file). */
-export function externalOpts(o: { unitsX: number; unitsY: number; heightUnits?: number; heightMm?: number; stackable?: boolean }): BinOptions {
+export function externalOpts(o: { unitsX: number; unitsY: number; heightUnits?: number; heightMm?: number; stackable?: boolean; colour?: number }): BinOptions {
   const lip = !!o.stackable;
-  const base = { ...DEFAULT_BIN, unitsX: o.unitsX, unitsY: o.unitsY, lip, lid: false, heightUnits: Math.max(1, Math.round(o.heightUnits ?? 3)) };
+  // Multi-colour: an imported mesh that prints can have a filament slot of its own (colours.ts).
+  const colour = cleanSlot(o.colour);
+  const base = { ...DEFAULT_BIN, unitsX: o.unitsX, unitsY: o.unitsY, lip, lid: false, heightUnits: Math.max(1, Math.round(o.heightUnits ?? 3)), ...(colour ? { colour } : {}) };
   if (o.heightMm === undefined) return sanitizeBin({ ...base, heightMode: 'units' });
   return sanitizeBin({ ...base, heightMode: 'external', heightMm: Math.round(o.heightMm * 100) / 100 });
 }
@@ -97,6 +100,7 @@ export function patchExternalOpts(b: Pick<PlacedBin, 'external' | 'opts'>, p: Pa
     heightUnits: (!m && p.heightUnits) || b.opts.heightUnits,
     heightMm: m && meshSize(m).h,
     stackable: p.lip ?? b.opts.lip,
+    colour: 'colour' in p ? p.colour : b.opts.colour,
   });
 }
 
@@ -194,5 +198,5 @@ export function cleanExternal(v: unknown): ExternalBin | undefined {
 /** A saved bin from elsewhere's options made safe: its footprint and height only (a mesh's height is the mesh's). */
 export function cleanExternalOpts(raw: unknown, e: ExternalBin): BinOptions {
   const o = sanitizeBin({ ...DEFAULT_BIN, ...(raw && typeof raw === 'object' ? raw : {}) });
-  return externalOpts({ unitsX: o.unitsX, unitsY: o.unitsY, heightUnits: o.heightUnits, heightMm: e.mesh ? meshSize(e.mesh).h : undefined, stackable: o.lip });
+  return externalOpts({ unitsX: o.unitsX, unitsY: o.unitsY, heightUnits: o.heightUnits, heightMm: e.mesh ? meshSize(e.mesh).h : undefined, stackable: o.lip, colour: o.colour });
 }

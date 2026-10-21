@@ -112,8 +112,15 @@ export type CheckRule =
   | 'qr-module'
   | 'qr-contrast'
   | 'qr-swaps'
-
-  | 'vase-line';
+  | 'vase-line'
+  // Multi-colour (colourChecks.ts).
+  | 'colour-purge'
+  | 'colour-band'
+  | 'colour-mixed'
+  | 'colour-slots'
+  | 'colour-material'
+  | 'colour-inlay'
+  | 'colour-qr';
 
 /** A one-click change that fixes a check: options of the bin it is about, its drawer's baseplate, or the drawer. */
 export interface CheckFix {
@@ -122,6 +129,8 @@ export interface CheckFix {
   bin?: Partial<BinOptions>;
   baseplate?: Partial<BaseplateOptions>;
   drawer?: Partial<DrawerInput>;
+  /** The print setup (colours, printer). */
+  setup?: Partial<PrintSetup>;
 }
 
 export interface PrintCheck {
@@ -1040,6 +1049,8 @@ export function setupChecks(setup: PrintSetup, what: { bins: boolean }, o?: Chec
 export interface FoundCheck extends PrintCheck {
   drawerId?: string;
   binId?: string;
+  /** Not about a drawer or a bin: what to list it under ("Colours"); unset: the printer. */
+  group?: string;
 }
 
 /** Every check for what is being printed: the setup, then each drawer's baseplate and bins. */

@@ -57,6 +57,7 @@ export const BIN_INDEX: FindEntry[] = [
         words: ['tall', 'taller', 'deep', 'depth', 'units', '7 mm', 'overall', 'inside'],
         children: [{ id: 'height-mode', title: 'Height in mm', words: ['inside depth', 'overall height', 'mm', 'units', 'internal', 'external'], basic: false }],
       },
+      { id: 'bin-colour', title: 'Bin colour', when: 'with several colours on (Print plates › Colours)', words: ['colour', 'color', 'colour coded', 'color coded', 'multi colour', 'multi color', 'ams', 'paint', 'filament', 'slot'] },
     ],
   },
   // BinPanel: a container's own options (containers/*Fields.tsx).
@@ -344,6 +345,7 @@ export const DRAWER_INDEX: FindEntry[] = [
       { id: 'bp-numbers', title: 'Piece numbers', words: ['number', 'numbers', 'assembly', 'order', 'underneath', 'deboss'], basic: false },
       { id: 'bp-floor', title: 'Extra solid floor', words: ['floor', 'thickness', 'bottom', 'pad', 'thicker'], basic: false },
       { id: 'bp-pads', title: 'Non-slip pads', words: ['tpu', 'pad', 'pads', 'grip', 'rubber', 'non slip', 'anti slip', 'dots', 'strips'], basic: false },
+      { id: 'bp-colour', title: 'Baseplate colour', when: 'with several colours on (Print plates › Colours)', words: ['colour', 'color', 'multi colour', 'multi color', 'ams', 'paint', 'slot'] },
       { id: 'bp-edges', title: 'Edges and fit', words: ['corner radius', 'rounded corners', 'ridge', 'trim', 'bottom clearance', 'chamfer', 'elephant foot', 'advanced'], basic: false },
     ],
   },
@@ -376,6 +378,36 @@ export const PRINT_INDEX: FindEntry[] = [
       },
     ],
   },
+  // ColourSection.tsx
+  {
+    id: 'colours',
+    title: 'Colours',
+    words: ['colour', 'color', 'colours', 'colors', 'multi colour', 'multi color', 'multicolour', 'multicolor', 'ams', 'filament', 'paint', 'two colour', 'two color', 'mmu'],
+    children: [
+      { id: 'colour-mode', title: 'Print in several colours', words: ['multi colour', 'multi color', 'several colours', 'several colors', 'on', 'off'] },
+      { id: 'colour-presets', title: 'Colour presets', words: ['preset', 'one colour', 'one color', 'red plate', 'black bins', 'colour coded', 'color coded'] },
+      {
+        id: 'label-colour',
+        title: 'Label filament',
+        when: 'with inlaid labels, inlaid QR codes or two-colour pocket floors, and multi-colour off',
+        words: ['label colour', 'label color', 'second filament', 'slot 2', 'inlaid', 'text colour', 'text color', 'two colour', 'qr'],
+      },
+      {
+        id: 'colour-strategy',
+        title: 'How to print the colours',
+        when: 'with several colours on',
+        words: ['by part', 'by height', 'by feature', 'layer change', 'filament change', 'swap', 'purge', 'waste', 'prime tower', 'm600', 'pause', 'separate plates', 'mix'],
+      },
+      {
+        id: 'colour-roles',
+        title: 'What prints in which colour',
+        when: 'with several colours on',
+        words: ['surface', 'role', 'baseplate colour', 'baseplate color', 'bin colour', 'bin color', 'walls', 'feet', 'floor', 'lip', 'dividers', 'label tabs', 'lids', 'case', 'shadow', 'qr', 'qr code'],
+      },
+      { id: 'colour-palette', title: 'Filament slots', when: 'with several colours on', words: ['palette', 'swatch', 'slot', 'spool', 'material', 'pla', 'petg', 'tpu', 'price', 'name'] },
+      { id: 'colour-slots', title: 'Slots the printer feeds', when: 'with several colours on', basic: false, words: ['ams', 'ams lite', 'toolhead', 'toolchanger', 'slots', 'by hand', 'manual'] },
+    ],
+  },
   { id: 'checks', title: 'Print checks', words: ['check', 'problems', 'warnings', 'tips', 'fix', 'fail', 'too thin', 'printability'] },
   {
     id: 'export',
@@ -387,7 +419,6 @@ export const PRINT_INDEX: FindEntry[] = [
         title: 'Baseplate and bins',
         words: ['include', 'baseplate', 'bins', 'leave out', 'just bins', 'bins only', 'already have', 'skip baseplate', 'not printed', 'nothing to print'],
       },
-      { id: 'label-colour', title: 'Label filament', when: 'with inlaid labels, inlaid QR codes or two-colour pocket floors', words: ['colour', 'color', 'second filament', 'slot 2', 'ams', 'inlaid', 'two colour', 'qr'] },
       {
         id: 'export-files',
         title: 'Files',

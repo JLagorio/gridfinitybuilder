@@ -37,6 +37,12 @@ export interface PrinterProfile {
   /** Speeds and limits for the print-time estimate (DEFAULT_MOTION when missing). */
   motion?: PrinterMotion;
   /**
+   * Filament slots it usually feeds by itself: an AMS (4 per unit), a
+   * multi-material unit or toolheads. 1 (or unset): one spool, colour changes
+   * by hand. The setup's `filamentSlots` overrides it (colours.ts).
+   */
+  slots?: number;
+  /**
    * Gantry clearance for printing parts one after another ("by object"), from
    * Bambu Studio's machine profile: how far apart parts must stand
    * (`extruder_clearance_max_radius`) and how tall all but the last may be when
@@ -88,6 +94,7 @@ const bambu = (
   id?: string,
   motion: Partial<PrinterMotion> = {},
   sequential: SequentialClearance = X1_CLEARANCE,
+  slots = 4,
 ): PrinterProfile => ({
   id: id ?? model.toLowerCase().replace(/\s+/g, '-'),
   name: `Bambu Lab ${model}`,
@@ -102,10 +109,11 @@ const bambu = (
     filamentPreset: `Bambu PLA Basic @BBL ${model.replace(' Carbon', '')}`,
   },
   motion: { ...BAMBU_MOTION, ...motion },
+  slots,
   sequential,
 });
 
-const generic = (id: string, name: string, brand: string, w: number, d: number, h: number, motion: PrinterMotion): PrinterProfile => ({
+const generic = (id: string, name: string, brand: string, w: number, d: number, h: number, motion: PrinterMotion, slots = 1): PrinterProfile => ({
   id,
   name,
   brand,
@@ -113,6 +121,7 @@ const generic = (id: string, name: string, brand: string, w: number, d: number, 
   bedD: d,
   maxH: h,
   motion,
+  slots,
 });
 
 /**
@@ -124,7 +133,8 @@ export const PRINTERS: PrinterProfile[] = [
   // Newer hotend and motion system; PLA Basic runs a little faster.
   bambu('P2S', 256, 256, 256, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 300, swap: 60, watts: 110 }, { radius: 72, rod: 32.5 }),
   { ...bambu('P1S', 256, 256, 256, undefined, { prepare: 300, watts: 100 }), exclude: X1_EXCLUDE },
-  { ...bambu('P1P', 256, 256, 256, undefined, { prepare: 300, watts: 90 }), exclude: X1_EXCLUDE },
+  // Usually sold without an AMS.
+  { ...bambu('P1P', 256, 256, 256, undefined, { prepare: 300, watts: 90 }, X1_CLEARANCE, 1), exclude: X1_EXCLUDE },
   { ...bambu('X1 Carbon', 256, 256, 256, 'x1c', { prepare: 360 }), exclude: X1_EXCLUDE },
   { ...bambu('X1E', 256, 256, 256, undefined, { prepare: 360, watts: 130 }), exclude: X1_EXCLUDE },
   // Bed slingers: same process, lower acceleration limits; AMS lite swaps are a little slower.
@@ -136,10 +146,11 @@ export const PRINTERS: PrinterProfile[] = [
   generic('prusa-mk4s', 'Prusa MK4S', 'Prusa', 250, 210, 220, { speed: 300, accel: 4000, flow: 20, prepare: 240, swap: 120, watts: 85 }),
   generic('prusa-core-one', 'Prusa CORE One', 'Prusa', 250, 220, 270, { speed: 400, accel: 6000, flow: 20, prepare: 240, swap: 120, watts: 95 }),
   generic('prusa-mini', 'Prusa MINI+', 'Prusa', 180, 180, 180, { speed: 180, accel: 2000, flow: 10, prepare: 180, swap: 120, watts: 50 }),
-  generic('prusa-xl', 'Prusa XL', 'Prusa', 360, 360, 360, { speed: 300, accel: 5000, flow: 20, prepare: 360, swap: 40, watts: 150 }),
+  generic('prusa-xl', 'Prusa XL', 'Prusa', 360, 360, 360, { speed: 300, accel: 5000, flow: 20, prepare: 360, swap: 40, watts: 150 }, 5),
   generic('creality-k1', 'Creality K1 / K1C', 'Creality', 220, 220, 250, { speed: 600, accel: 12000, flow: 24, prepare: 240, swap: 90, watts: 120 }),
   generic('creality-k1-max', 'Creality K1 Max', 'Creality', 300, 300, 300, { speed: 600, accel: 12000, flow: 24, prepare: 300, swap: 90, watts: 200 }),
-  generic('creality-k2-plus', 'Creality K2 Plus', 'Creality', 350, 350, 350, { speed: 600, accel: 15000, flow: 28, prepare: 360, swap: 80, watts: 250 }),
+  // With the CFS (4 slots).
+  generic('creality-k2-plus', 'Creality K2 Plus', 'Creality', 350, 350, 350, { speed: 600, accel: 15000, flow: 28, prepare: 360, swap: 80, watts: 250 }, 4),
   generic('ender-3-v3', 'Creality Ender-3 V3', 'Creality', 220, 220, 250, { speed: 500, accel: 8000, flow: 20, prepare: 180, swap: 120, watts: 110 }),
   generic('voron-350', 'Voron 2.4 (350)', 'Voron', 350, 350, 340, { speed: 400, accel: 6000, flow: 20, prepare: 600, swap: 120, watts: 250 }),
   { id: 'custom', name: 'Custom…', brand: 'Custom', bedW: 220, bedD: 220, maxH: 250, motion: DEFAULT_MOTION },

@@ -1,6 +1,7 @@
 import type { GridLayout } from './drawer';
 import { clearAreas, packPlates, plateBed, type PackItem, type PlateLayout } from './pack';
 import { cleanPrinters, type PrinterSetup } from './fleet';
+import { cleanColourFields, type ColourSetup, type FilamentSlot } from '../colours';
 
 export type { PlateLayout };
 import {
@@ -29,12 +30,21 @@ export interface PrintSetup {
   splitMargins: boolean;
   /** Put several baseplate pieces on one plate when they fit. */
   nest: boolean;
-  /** Colour of filament 2 (inlaid label text) in Bambu projects, #RRGGBB. */
+  /**
+   * @deprecated Filament 2's colour before the palette: cleanSetup moves it into `filaments[1]`.
+   * Setups that skip cleanSetup still get it as slot 2 (colours.ts paletteOf).
+   */
   labelColour?: string;
-  /** Filament price per kg, in `currency`. */
+  /** Filament price per kg, in `currency`: every slot's that doesn't have its own. */
   filamentPrice?: number;
-  /** Price per kg of filament 2 (inlaid label text); unset: the same as filament 1. */
+  /** @deprecated Filament 2's price before the palette: cleanSetup moves it into `filaments[1].price`. */
   filamentPrice2?: number;
+  /** Filament palette, slot 1 first (colours.ts); unset: the default palette. Slot 2 prints label inlays. */
+  filaments?: FilamentSlot[];
+  /** Multi-colour printing (colours.ts); unset: off. */
+  colours?: ColourSetup;
+  /** Filament slots the printer feeds by itself (AMS slots, toolheads); unset: the printer's own (printers.ts). */
+  filamentSlots?: number;
   /** Currency symbol for costs; empty: guessed from the browser's language. */
   currency?: string;
   /** Electricity price per kWh; 0 leaves electricity out of the cost. */
@@ -82,9 +92,8 @@ export function cleanSetup(saved: Partial<PrintSetup> | null | undefined, base: 
   s.filamentPrice = price(s.filamentPrice, 100000) ?? DEFAULT_SETUP.filamentPrice;
   s.kwhPrice = price(s.kwhPrice, 1000) ?? 0;
   s.currency = typeof s.currency === 'string' ? s.currency.trim().slice(0, 4) : '';
-  const p2 = price(s.filamentPrice2, 100000);
-  if (p2 === undefined) delete s.filamentPrice2;
-  else s.filamentPrice2 = p2;
+  // The palette, colour roles and AMS slots; the old label filament moves into slot 2 (colours.ts).
+  cleanColourFields(s);
   const watts = price(s.printerWatts, 5000);
   if (watts === undefined || watts === 0) delete s.printerWatts;
   else s.printerWatts = watts;

@@ -2,8 +2,21 @@ import type { MeshData } from './geometry/kernel';
 import { meshVolume } from './geometry/volume';
 import { DEFAULT_MOTION, findPrinter, type PrinterMotion } from './printers';
 import type { PrintSetup } from './layout/plan';
-import type { PrintJob } from './project';
+import type { JobPart, MeshSpec, PrintJob } from './project';
 import type { SpiralPrint } from './geometry/containers/vase';
+import {
+  bandSlot,
+  luminance,
+  overlayRole,
+  paletteOf,
+  printerSlots,
+  slotDensity,
+  slotPrice,
+  strategyOf,
+  type BandProfile,
+  type ColourRole,
+} from './colours';
+import { bodySlots, partProfile } from './colourPlan';
 
 /**
  * Print-time and cost estimates.
@@ -88,9 +101,20 @@ export const ESTIMATE_MODEL = {
   /** Prime tower per layer while it's needed, s and g (2-colour plates). */
   towerSeconds: 1.6,
   towerGrams: 0.03,
-  /** Filament flushed per swap, g. */
+  /** Filament flushed per swap, g (without colours to go by). */
   flushGrams: 0.45,
+  /** A colour change by hand (pause, unload, load, purge), s, not counting the wait for someone to do it. */
+  manualSwap: 150,
 } as const;
+
+/**
+ * Filament flushed by one swap from colour `from` to `to`, g: going lighter
+ * takes the most (black to white about 1.2 g), going darker little. A rough
+ * fit to the flush volumes Bambu Studio suggests for PLA.
+ */
+export function flushGrams(from: string, to: string): number {
+  return 0.35 + 0.9 * Math.max(0, luminance(to) - luminance(from));
+}
 
 /** What the time model needs to know about one mesh, per 0.2 mm layer (index 0 = first layer). */
 export interface MeshPrintStats {
@@ -112,6 +136,12 @@ export interface MeshPrintStats {
   /** Solid volume, mm³, and the part of it in filament 2. */
   volume: number;
   overlayVolume: number;
+  /** Each body's cross-section area (the main body, then the overlays), mm²: multi-colour (colours.ts). */
+  bodyArea?: Float32Array[];
+  /** Each body's solid volume, mm³. */
+  bodyVolume?: number[];
+  /** Each body's colour role, when the mesh says (split meshes, label text, shadow floors); null: the part's own. */
+  bodyRole?: (ColourRole | null)[];
 }
 
 /** Slice a mesh (and its overlay bodies) at the layer mid-heights. */
@@ -132,16 +162,33 @@ export function sliceStats(mesh: MeshData, layerHeight: number = STANDARD_PROCES
     volume: 0,
     overlayVolume: 0,
   };
+  stats.bodyArea = [];
+  stats.bodyVolume = [];
+  stats.bodyRole = [];
   bodies.forEach((b, bi) => {
     const v = meshVolume({ positions: b.positions, indices: b.indices });
     stats.volume += v;
-    if (bi) stats.overlayVolume += v;
-    sliceBody(b.positions, b.indices, layerHeight, n, stats, bi > 0);
+    // Filament 2's bodies (inlaid text, shadow floors) are the "overlay"; a split mesh's other volumes aren't.
+    const second = bi > 0 && (b as { filament?: number }).filament !== 1;
+    if (second) stats.overlayVolume += v;
+    stats.bodyArea!.push(sliceBody(b.positions, b.indices, layerHeight, n, stats, second));
+    stats.bodyVolume!.push(v);
+    stats.bodyRole!.push(bi === 0 ? (mesh.role ?? null) : overlayRole(b as { role?: ColourRole; filament: number }));
   });
   return stats;
 }
 
-function sliceBody(pos: ArrayLike<number>, idx: ArrayLike<number>, lh: number, n: number, out: MeshPrintStats, overlay: boolean) {
+/**
+ * Slice data for a part split by colour role (multi-colour 'feature'): the
+ * whole part's sections, contours and islands (`whole`: the slicer joins
+ * volumes in one filament, so the walls between them don't print), with the
+ * split's share of each body per layer (`split`).
+ */
+export function withBodyShares(whole: MeshPrintStats, split: MeshPrintStats): MeshPrintStats {
+  return { ...whole, bodyArea: split.bodyArea, bodyVolume: split.bodyVolume, bodyRole: split.bodyRole };
+}
+
+function sliceBody(pos: ArrayLike<number>, idx: ArrayLike<number>, lh: number, n: number, out: MeshPrintStats, overlay: boolean): Float32Array {
   const nv = pos.length / 3;
   // Segments, kept for counting contours: layer, the two mesh edges they end on, and their share of the area.
   const segLayer: number[] = [];
@@ -230,9 +277,11 @@ function sliceBody(pos: ArrayLike<number>, idx: ArrayLike<number>, lh: number, n
       segArea.push(a);
     }
   }
+  const mine = new Float32Array(n);
   for (let k = 0; k < n; k++) {
-    out.area[k] += Math.max(0, area[k]);
-    if (overlay) out.overlay[k] += Math.max(0, area[k]);
+    mine[k] = Math.max(0, area[k]);
+    out.area[k] += mine[k];
+    if (overlay) out.overlay[k] += mine[k];
   }
   // Contours: segments joined through the mesh edges they end on, layer by layer.
   const count = new Int32Array(n + 1);
@@ -278,6 +327,7 @@ function sliceBody(pos: ArrayLike<number>, idx: ArrayLike<number>, lh: number, n
     out.contours[k] = Math.min(65535, out.contours[k] + contours);
     out.islands[k] = Math.min(65535, out.islands[k] + islands);
   }
+  return mine;
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +470,20 @@ export interface PlateEstimate {
   /** Extruded volume the estimate lays down, mm³: the BOM's filament figure once the plate is sliced. */
   extruded: number;
   breakdown: TimeBreakdown;
+  /** Extruded volume by filament slot (index = slot), mm³. */
+  slotVolume?: number[];
+  /** Purge and prime tower by filament slot (the one swapped to), g. */
+  slotWaste?: number[];
+  /** Colour changes done by hand (pauses), with too few slots on the printer. */
+  manual?: boolean;
+}
+
+/** Which filament each of a part's bodies prints in (multi-colour, colours.ts). */
+export interface PartColours {
+  /** Slot of each body: the main body, then the overlays. */
+  bodies: number[];
+  /** 'height': every body prints in the slot of the band it's in. */
+  bands?: BandProfile;
 }
 
 export interface EstimatePart {
@@ -427,9 +491,46 @@ export interface EstimatePart {
   /** Footprint on the bed, mm. */
   w: number;
   d: number;
+  /** Its colours; unset: the main body in filament 1, overlays in filament 2. */
+  colour?: PartColours;
   /** A vase-mode bin: printed in spiral vase mode. */
   spiral?: SpiralPrint;
 }
+
+/** How a plate's colours change. */
+export interface PlateColourOptions {
+  /** Colours by slot, for the purge per swap (the default: ESTIMATE_MODEL.flushGrams each). */
+  colourOf?: (slot: number) => string;
+  /** Swaps are done by hand (pauses): slower, and no prime tower. */
+  manual?: boolean;
+}
+
+/** Slots one part prints in a layer, with the share of its section each takes. */
+function layerSlots(p: EstimatePart, k: number, z: number, into: Map<number, number>) {
+  const s = p.stats;
+  const A = s.area[k];
+  if (!(A > 0)) return;
+  const c = p.colour;
+  if (c?.bands) {
+    const slot = bandSlot(c.bands, z);
+    into.set(slot, (into.get(slot) ?? 0) + 1);
+    return;
+  }
+  if (c && s.bodyArea) {
+    s.bodyArea.forEach((ba, b) => {
+      const a = ba[k];
+      if (!(a > 0)) return;
+      const slot = c.bodies[b] ?? c.bodies[0] ?? 1;
+      into.set(slot, (into.get(slot) ?? 0) + a / A);
+    });
+    return;
+  }
+  // Without colours: filament 1, with filament 2's bodies apart.
+  const second = Math.min(A, s.overlay[k] ?? 0);
+  if (A - second > 1e-9) into.set(1, (into.get(1) ?? 0) + (A - second) / A);
+  if (second > 1e-9) into.set(2, (into.get(2) ?? 0) + second / A);
+}
+
 
 /**
  * One layer of a vase-mode bin: below the spiral's start a solid layer with one
@@ -463,14 +564,64 @@ function spiralLayer(s: MeshPrintStats, k: number, sp: SpiralPrint, mo: Motion, 
   return { seconds: into.walls + into.skin + into.travel - t0, volume: A * h };
 }
 
-/** A plate of vase-mode bins, printed one bin after another. */
-function estimateSpiralPlate(parts: EstimatePart[], motion: PrinterMotion): PlateEstimate {
+/**
+ * Filament swaps through a sequence of layers, each the set of slots it prints
+ * (multi-colour): a layer starts with the slot the last one ended on, when it
+ * prints that one, and ends on one the next layer prints too (so two colours
+ * on every layer cost one swap a layer). Purge by the slot swapped to.
+ */
+function countSwaps(used: readonly Set<number>[], opts: PlateColourOptions) {
+  const M = ESTIMATE_MODEL;
+  let swaps = 0;
+  let lastSwap = -1;
+  let flush = 0;
+  const slotWaste: number[] = [];
+  let current: number | null = null;
+  for (let k = 0; k < used.length; k++) {
+    const here = [...used[k]];
+    if (!here.length) continue;
+    const next = used[k + 1] ?? new Set<number>();
+    const first: number = current !== null && used[k].has(current) ? current : here[0];
+    const rest = here.filter((x) => x !== first);
+    rest.sort((a, b) => Number(next.has(a)) - Number(next.has(b)));
+    const order: number[] = [first, ...rest];
+    const changes: [number, number][] = [];
+    if (current !== null && current !== first) changes.push([current, first]);
+    for (let i = 1; i < order.length; i++) changes.push([order[i - 1], order[i]]);
+    for (const [a, b] of changes) {
+      const g = opts.colourOf ? flushGrams(opts.colourOf(a), opts.colourOf(b)) : M.flushGrams;
+      flush += g;
+      addAt(slotWaste, b, g);
+    }
+    if (changes.length) {
+      swaps += changes.length;
+      lastSwap = k;
+    }
+    current = order[order.length - 1];
+  }
+  return { swaps, lastSwap, flush, slotWaste };
+}
+
+function addAt(arr: number[], i: number, v: number) {
+  while (arr.length <= i) arr.push(0);
+  arr[i] += v;
+}
+
+/**
+ * A plate of vase-mode bins, printed one bin after another. With colours, each
+ * bin's colour changes come as it rises, and the next bin starts in its first
+ * colour; spiral vase has no prime tower, so a swap only purges.
+ */
+function estimateSpiralPlate(parts: EstimatePart[], motion: PrinterMotion, opts: PlateColourOptions = {}): PlateEstimate {
   const P = STANDARD_PROCESS;
   const M = ESTIMATE_MODEL;
   const mo = featureMotion(motion);
   const breakdown = emptyBreakdown();
   let print = 0;
   let extruded = 0;
+  // Multi-colour: the slots of each layer, bin after bin.
+  const used: Set<number>[] = [];
+  const slotVolume: number[] = [];
   for (const p of parts) {
     const sp = p.spiral!;
     const wall = { v: Math.min(P.speed.outer, motion.speed, motion.flow / (sp.line * P.layerHeight)), a: Math.min(P.accel.outer, motion.accel) };
@@ -479,57 +630,21 @@ function estimateSpiralPlate(parts: EstimatePart[], motion: PrinterMotion): Plat
       extruded += r.volume;
       breakdown.cooling += Math.max(0, P.minLayerTime - r.seconds);
       print += Math.max(r.seconds, P.minLayerTime);
+      if (p.colour) {
+        const share = new Map<number, number>();
+        layerSlots(p, k, (k + 0.5) * P.layerHeight, share);
+        for (const [slot, f] of share) addAt(slotVolume, slot, r.volume * f);
+        used.push(new Set(share.keys()));
+      }
     }
     // Lift and move to the next bin.
     breakdown.travel += 2 * M.island;
     print += 2 * M.island;
   }
   const layers = parts.reduce((t, p) => Math.max(t, p.stats.area.length), 0);
-  return {
-    seconds: print + (layers ? motion.prepare : 0),
-    printSeconds: print,
-    prepareSeconds: layers ? motion.prepare : 0,
-    layers,
-    swaps: 0,
-    wasteGrams: 0,
-    extruded,
-    breakdown,
-  };
-}
-
-/** Print time of one plate on a printer. */
-export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEFAULT_MOTION): PlateEstimate {
-  if (parts.length && parts.every((p) => p.spiral)) return estimateSpiralPlate(parts, motion);
-  const P = STANDARD_PROCESS;
-  const M = ESTIMATE_MODEL;
-  const mo = featureMotion(motion);
-  const layers = parts.reduce((t, p) => Math.max(t, p.stats.area.length), 0);
-  const breakdown = emptyBreakdown();
-  let print = 0;
-  let extruded = 0;
-  let swaps = 0;
-  let lastSwap = -1;
-  for (let k = 0; k < layers; k++) {
-    let t = M.layer;
-    breakdown.travel += M.layer;
-    let twoColour = false;
-    for (const p of parts) {
-      if (k >= p.stats.area.length) continue;
-      const r = partLayer(p.stats, k, mo, p.w * p.d, breakdown);
-      t += r.seconds;
-      extruded += r.volume;
-      if (p.stats.overlay[k] > 0) twoColour = true;
-    }
-    if (twoColour) {
-      swaps++;
-      lastSwap = k;
-    }
-    breakdown.cooling += Math.max(0, P.minLayerTime - t);
-    print += Math.max(t, P.minLayerTime);
-  }
-  // The prime tower is printed on every layer up to the last swap.
-  const tower = lastSwap + 1;
-  breakdown.swaps = swaps * motion.swap + tower * M.towerSeconds;
+  const colour = used.length ? countSwaps(used, opts) : null;
+  const swaps = colour?.swaps ?? 0;
+  breakdown.swaps = swaps * (opts.manual ? M.manualSwap : motion.swap);
   print += breakdown.swaps;
   return {
     seconds: print + (layers ? motion.prepare : 0),
@@ -537,10 +652,85 @@ export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEF
     prepareSeconds: layers ? motion.prepare : 0,
     layers,
     swaps,
-    wasteGrams: swaps * M.flushGrams + tower * M.towerGrams,
+    wasteGrams: colour?.flush ?? 0,
     extruded,
     breakdown,
+    ...(colour ? { slotVolume, slotWaste: colour.slotWaste } : {}),
+    ...(opts.manual && swaps ? { manual: true } : {}),
   };
+}
+
+/** Print time of one plate on a printer. */
+export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEFAULT_MOTION, opts: PlateColourOptions = {}): PlateEstimate {
+  if (parts.length && parts.every((p) => p.spiral)) return estimateSpiralPlate(parts, motion, opts);
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const mo = featureMotion(motion);
+  const layers = parts.reduce((t, p) => Math.max(t, p.stats.area.length), 0);
+  const breakdown = emptyBreakdown();
+  let print = 0;
+  let extruded = 0;
+  const slotVolume: number[] = [];
+  // Which slots print each layer; the swaps between them come after.
+  const used: Set<number>[] = [];
+  for (let k = 0; k < layers; k++) {
+    let t = M.layer;
+    breakdown.travel += M.layer;
+    const z = (k + 0.5) * P.layerHeight;
+    const slots = new Set<number>();
+    for (const p of parts) {
+      if (k >= p.stats.area.length) continue;
+      const r = partLayer(p.stats, k, mo, p.w * p.d, breakdown);
+      t += r.seconds;
+      extruded += r.volume;
+      const share = new Map<number, number>();
+      layerSlots(p, k, z, share);
+      for (const [slot, f] of share) {
+        slots.add(slot);
+        addAt(slotVolume, slot, r.volume * f);
+      }
+    }
+    used.push(slots);
+    breakdown.cooling += Math.max(0, P.minLayerTime - t);
+    print += Math.max(t, P.minLayerTime);
+  }
+  const { swaps, lastSwap, flush, slotWaste } = countSwaps(used, opts);
+  // The prime tower is printed on every layer up to the last swap (not for swaps by hand), in that layer's filaments.
+  const tower = opts.manual ? 0 : lastSwap + 1;
+  for (let k = 0; k < tower; k++) for (const slot of used[k]) addAt(slotWaste, slot, M.towerGrams / Math.max(1, used[k].size));
+  breakdown.swaps = swaps * (opts.manual ? M.manualSwap : motion.swap) + tower * M.towerSeconds;
+  print += breakdown.swaps;
+  return {
+    seconds: print + (layers ? motion.prepare : 0),
+    printSeconds: print,
+    prepareSeconds: layers ? motion.prepare : 0,
+    layers,
+    swaps,
+    wasteGrams: flush + tower * M.towerGrams,
+    extruded,
+    breakdown,
+    slotVolume,
+    slotWaste,
+    ...(opts.manual && swaps ? { manual: true } : {}),
+  };
+}
+
+/**
+ * The colours of one part of a job (colours.ts): per body with 'part' and
+ * 'feature', by band with 'height'; null with multi-colour off.
+ */
+export function partColours(setup: PrintSetup, part: JobPart, spec: MeshSpec | undefined, stats: MeshPrintStats): PartColours | null {
+  const st = strategyOf(setup);
+  if (!st) return null;
+  if (st === 'height') return { bodies: [], bands: partProfile(setup, part, spec) };
+  // A split mesh not sliced yet (its whole mesh's data stands in): its bands by height are close.
+  if (st === 'feature' && spec?.kind === 'split' && !stats.bodyRole?.[0]) return { bodies: [], bands: partProfile(setup, part, spec) };
+  return { bodies: bodySlots(setup, part, spec, stats.bodyRole ?? [null]) };
+}
+
+/** Colour changes on a plate are done by hand: the printer feeds fewer slots than the plate uses. */
+export function manualSwaps(setup: PrintSetup, printerId: string, slotsUsed: number): boolean {
+  return slotsUsed > printerSlots(setup, findPrinter(printerId).slots);
 }
 
 /**
@@ -551,8 +741,14 @@ export function estimateJob(
   job: PrintJob,
   stats: (meshKey: string) => MeshPrintStats | undefined,
   printerId: string | readonly string[],
+  /** With multi-colour on (colours.ts): each part's colours, the palette for the purge, and the printer's slots. */
+  setup?: PrintSetup,
 ): (PlateEstimate | null)[] {
-  const motions = (typeof printerId === 'string' ? [printerId] : printerId).map((id) => findPrinter(id).motion ?? DEFAULT_MOTION);
+  const ids = typeof printerId === 'string' ? [printerId] : printerId;
+  const motions = ids.map((id) => findPrinter(id).motion ?? DEFAULT_MOTION);
+  const colours = setup && strategyOf(setup) ? setup : null;
+  const palette = colours ? paletteOf(colours, 16) : null;
+  const colourOf = (slot: number) => palette?.[slot - 1]?.colour ?? '#808080';
   return job.plates.map((pl) => {
     const motion = motions[pl.printer ?? 0] ?? motions[0];
     const parts: EstimatePart[] = [];
@@ -560,9 +756,14 @@ export function estimateJob(
       const part = job.parts[p.key];
       const s = stats(part.meshKey);
       if (!s) return null;
-      parts.push({ stats: s, w: part.w, d: part.d, ...(part.spiral ? { spiral: part.spiral } : {}) });
+      const colour = colours ? partColours(colours, part, job.meshes[part.meshKey], s) : null;
+      parts.push({ stats: s, w: part.w, d: part.d, ...(colour ? { colour } : {}), ...(part.spiral ? { spiral: part.spiral } : {}) });
     }
-    return estimatePlate(parts, motion);
+    if (!colours) return estimatePlate(parts, motion);
+    const est = estimatePlate(parts, motion, { colourOf });
+    const usedSlots = (est.slotVolume ?? []).filter((v) => v > 0).length;
+    // Too few slots on the printer: the changes are pauses for a swap by hand.
+    return est.swaps && manualSwaps(colours, ids[pl.printer ?? 0] ?? ids[0], usedSlots) ? estimatePlate(parts, motion, { colourOf, manual: true }) : est;
   });
 }
 
@@ -581,18 +782,30 @@ export interface CostBreakdown {
 /**
  * Cost of a plate: filament 1 and 2 at their prices per kg (purge waste at the
  * mean of the two), and electricity for the whole run when a kWh price is set.
+ * With `grams.slots` (multi-colour): grams by slot instead, and `slotWaste`
+ * the purge by slot, each at its slot's price (colours.ts slotPrice).
  */
 export function plateCost(
-  grams: { main: number; second: number; waste: number },
+  grams: { main: number; second: number; waste: number; slots?: number[]; slotWaste?: number[] },
   seconds: number,
-  setup: Pick<PrintSetup, 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'printerId'>,
+  setup: Pick<PrintSetup, 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'printerId' | 'filaments'>,
 ): CostBreakdown {
-  const p1 = setup.filamentPrice ?? DEFAULT_FILAMENT_PRICE;
-  const p2 = setup.filamentPrice2 ?? p1;
-  const filament = (grams.main * p1 + grams.second * p2 + grams.waste * ((p1 + p2) / 2)) / 1000;
+  const p1 = slotPrice(setup, 1, DEFAULT_FILAMENT_PRICE);
+  const p2 = slotPrice(setup, 2, DEFAULT_FILAMENT_PRICE);
+  let filament = (grams.main * p1 + grams.second * p2 + grams.waste * ((p1 + p2) / 2)) / 1000;
+  if (grams.slots) {
+    filament = 0;
+    grams.slots.forEach((g, slot) => g > 0 && (filament += (g * slotPrice(setup, slot, DEFAULT_FILAMENT_PRICE)) / 1000));
+    (grams.slotWaste ?? []).forEach((g, slot) => g > 0 && (filament += (g * slotPrice(setup, slot, DEFAULT_FILAMENT_PRICE)) / 1000));
+  }
   const watts = setup.printerWatts ?? (findPrinter(setup.printerId).motion ?? DEFAULT_MOTION).watts;
   const energy = setup.kwhPrice ? ((watts * seconds) / 3600 / 1000) * setup.kwhPrice : 0;
   return { filament, energy, total: filament + energy };
+}
+
+/** Grams of extruded volume (mm³) in each slot's material (colours.ts slotDensity), by slot. */
+export function slotGrams(setup: Pick<PrintSetup, 'filaments'>, slotVolume: number[]): number[] {
+  return slotVolume.map((v, slot) => (slot && v > 0 ? (v / 1000) * slotDensity(setup, slot) : 0));
 }
 
 // ---------------------------------------------------------------------------

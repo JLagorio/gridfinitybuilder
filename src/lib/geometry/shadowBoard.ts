@@ -75,6 +75,6 @@ export function shadowOverlay(w: Wasm, s: Scope, o: BinOptions, W: number, D: nu
   if (!m) return mesh;
   assertValid(m, 'shadow floor');
   const d = toMeshData(m);
-  mesh.overlays = [...(mesh.overlays ?? []), { name: 'Tool shadows', filament: 2, positions: d.positions, indices: d.indices }];
+  mesh.overlays = [...(mesh.overlays ?? []), { name: 'Tool shadows', filament: 2, role: 'shadow', positions: d.positions, indices: d.indices }];
   return mesh;
 }

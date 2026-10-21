@@ -4,6 +4,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { geometry } from '../worker/client';
 import type { MeshData } from '../lib/geometry/kernel';
+import { overlayRole, type ColourRole } from '../lib/colours';
+import './colours.css';
 import type { BedRect } from '../lib/printers';
 import { useUnits } from '../state/store';
 import { isMod, isTyping, keyLetter } from './shortcuts';
@@ -46,6 +48,8 @@ export interface SceneItem {
   h: number;
   rotated?: boolean;
   color: string;
+  /** Multi-colour (colours.ts): the filament colours of its bodies, by role, or by height. Overrides `color`. */
+  paint?: ScenePaint;
   selected?: boolean;
   pickable?: boolean;
   /** Floats up with "Lift bins" (bins and their lids above a baseplate); a number lifts it that many times as far (stacked levels). */
@@ -54,6 +58,22 @@ export interface SceneItem {
   ghost?: boolean;
   /** Drawn as a see-through box in this colour, never as a mesh: a bin you already have (lib/external.ts). */
   boxColor?: string;
+}
+
+/** A part in its filament colours. */
+export interface ScenePaint {
+  /** The main body's colour, and any body's whose role isn't in `roles`. */
+  main: string;
+  /** Colour by role: label text, shadow floors, the volumes of a part split by role. */
+  roles?: Partial<Record<ColourRole, string>>;
+  /** By height: from each z (the part's own frame, bottom at 0) up, this colour. */
+  bands?: { z: number; color: string }[];
+}
+
+/** One line of the colour legend. */
+export interface LegendEntry {
+  color: string;
+  label: string;
 }
 
 export interface SceneBed {
@@ -80,6 +100,8 @@ export interface ViewerProps {
   /** One line of help, bottom left (shortened to fit). */
   hint?: ReactNode;
   onPick?: (id: string | null) => void;
+  /** Multi-colour: the filament slots on screen, top right. */
+  legend?: LegendEntry[];
 }
 
 const SELECT_COLOR = '#f5a524';
@@ -129,7 +151,7 @@ function useGeometryVersion() {
   );
 }
 
-export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, children }: ViewerProps) {
+export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, children, legend }: ViewerProps) {
   const host = useRef<HTMLDivElement>(null);
   const ctx = useRef<ReturnType<typeof createContext> | null>(null);
   const version = useGeometryVersion();
@@ -205,9 +227,13 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, chi
     });
   }, [sec.on, sec.axis, sec.flip, sec.outline, pos, bounds, focusBounds, tools.xray, tools.measure, lift, generation]);
 
+  // The legend lists the filament colours the scene shows.
+  const [painted, setPainted] = useState<string[]>([]);
   useEffect(() => {
-    ctx.current?.setScene(items, beds ?? [], outline);
+    const used = ctx.current?.setScene(items, beds ?? [], outline) ?? [];
+    setPainted((was) => (was.length === used.length && was.every((c, i) => c === used[i]) ? was : used));
   }, [items, beds, outline, version, generation]);
+  const shownLegend = legend?.filter((l) => painted.includes(l.color));
 
   useEffect(() => {
     const only = fitIds?.length ? items.filter((it) => fitIds.includes(it.id)) : null;
@@ -255,6 +281,16 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, chi
     <div className="viewer">
       <div ref={host} className="viewer-canvas" />
       {children}
+      {!!shownLegend?.length && (
+        <div className="viewer-legend" aria-label="Filament colours">
+          {shownLegend.map((l) => (
+            <span key={l.label}>
+              <i style={{ background: l.color }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="viewer-bottom">
         {hint && <div className="viewer-hint">{hint}</div>}
         <div className="viewer-dock">
@@ -509,7 +545,7 @@ function createContext(
 
   const geoms = new Map<
     string,
-    { mesh: THREE.BufferGeometry; edges: THREE.BufferGeometry; overlays: { filament: number; mesh: THREE.BufferGeometry }[] }
+    { mesh: THREE.BufferGeometry; edges: THREE.BufferGeometry; role?: ColourRole; overlays: { filament: number; role: ColourRole; mesh: THREE.BufferGeometry }[] }
   >();
   const mats = new Map<string, THREE.MeshStandardMaterial>();
   const xrayMats = new Map<string, THREE.MeshStandardMaterial>();
@@ -629,6 +665,40 @@ function createContext(
     return m;
   }
 
+  /**
+   * A material that colours by height in the part's own frame (multi-colour by
+   * height): the fragment shader takes the colour of the band its local z is in.
+   */
+  const bandMats = new Map<string, THREE.MeshStandardMaterial>();
+  function bandMaterial(bands: { z: number; color: string }[]) {
+    const key = `${tools.xray ? 'x' : 's'}|${bands.map((b) => `${b.z}:${b.color}`).join('|')}`;
+    let m = bandMats.get(key);
+    if (!m) {
+      const base = material(bands[0].color);
+      m = base.clone();
+      const n = Math.min(bands.length, 8);
+      const zs = Array.from({ length: 8 }, (_, i) => (i < n ? bands[i].z : 1e9));
+      const cs = Array.from({ length: 8 }, (_, i) => new THREE.Color(bands[Math.min(i, n - 1)].color));
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.uBandZ = { value: zs };
+        shader.uniforms.uBandColor = { value: cs };
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying float vLocalZ;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocalZ = position.z;');
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying float vLocalZ;\nuniform float uBandZ[8];\nuniform vec3 uBandColor[8];')
+          .replace(
+            '#include <color_fragment>',
+            '#include <color_fragment>\nvec3 bandC = uBandColor[0];\nfor (int i = 1; i < 8; i++) { if (vLocalZ >= uBandZ[i]) bandC = uBandColor[i]; }\ndiffuseColor.rgb = bandC;',
+          );
+      };
+      m.customProgramCacheKey = () => `bands${n}`;
+      bandMats.set(key, m);
+    }
+    m.clippingPlanes = clipping();
+    return m;
+  }
+
   function buildGeometry(positions: Float32Array, indices: Uint32Array) {
     const bg = new THREE.BufferGeometry();
     bg.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -656,7 +726,8 @@ function createContext(
     if (!g) {
       g = {
         ...buildGeometry(data.positions, data.indices),
-        overlays: (data.overlays ?? []).map((o) => ({ filament: o.filament, mesh: buildSurface(o.positions, o.indices) })),
+        role: data.role,
+        overlays: (data.overlays ?? []).map((o) => ({ filament: o.filament, role: overlayRole(o), mesh: buildSurface(o.positions, o.indices) })),
       };
       geoms.set(key, g);
     }
@@ -704,11 +775,14 @@ function createContext(
   const groups = new Map<string, THREE.Object3D>();
   let last: { items: SceneItem[]; beds: SceneBed[]; outline?: { w: number; d: number } } = { items: [], beds: [] };
 
-  function setScene(items: SceneItem[], beds: SceneBed[], outline?: { w: number; d: number }) {
+  /** Paint colours on screen (multi-colour), for the legend. */
+  let painted = new Set<string>();
+  function setScene(items: SceneItem[], beds: SceneBed[], outline?: { w: number; d: number }): string[] {
     last = { items, beds, outline };
     world.clear();
     groups.clear();
     measurables = [];
+    painted = new Set<string>();
     const used = new Set<string>();
     const edges = tools.xray ? xrayEdgeMat : edgeMat;
     for (const it of items) {
@@ -739,13 +813,21 @@ function createContext(
       } else if (data) {
         used.add(it.meshKey);
         const g = geometryFor(it.meshKey, data);
-        const mesh = new THREE.Mesh(g.mesh, material(it.selected ? SELECT_COLOR : it.color));
+        // Multi-colour: each body in its filament's colour (by height: banded), else the part's colour.
+        const p = it.selected ? null : it.paint;
+        const mainColour = p ? ((g.role && p.roles?.[g.role]) ?? p.main) : null;
+        if (p?.bands && p.bands.length > 1) for (const b of p.bands) painted.add(b.color);
+        else if (mainColour) painted.add(mainColour);
+        const mainMat = p?.bands && p.bands.length > 1 ? bandMaterial(p.bands) : material(it.selected ? SELECT_COLOR : (mainColour ?? it.color));
+        const mesh = new THREE.Mesh(g.mesh, mainMat);
         mesh.userData.id = it.pickable ? it.id : null;
         measurables.push(mesh);
         obj.add(mesh, new THREE.LineSegments(g.edges, edges));
         if (tools.section) addStencil(obj, g.mesh);
         for (const o of g.overlays) {
-          const om = new THREE.Mesh(o.mesh, material(OVERLAY_COLORS[(o.filament - 2) % OVERLAY_COLORS.length]));
+          const oc = p ? (p.bands && p.bands.length > 1 ? null : (p.roles?.[o.role] ?? p.main)) : OVERLAY_COLORS[(o.filament - 2) % OVERLAY_COLORS.length];
+          if (p && oc) painted.add(oc);
+          const om = new THREE.Mesh(o.mesh, oc ? material(oc) : bandMaterial(p!.bands!));
           om.userData.id = mesh.userData.id;
           measurables.push(om);
           obj.add(om);
@@ -803,6 +885,7 @@ function createContext(
     if (hover && !groups.has(hover.itemId)) hover = null;
     overlayDirty = true;
     requestRender();
+    return [...painted];
   }
 
   // Re-frame on resize until the user moves the camera themselves.
@@ -1208,7 +1291,7 @@ function createContext(
         g.edges.dispose();
         for (const o of g.overlays) o.mesh.dispose();
       }
-      for (const m of [...mats.values(), ...xrayMats.values()]) m.dispose();
+      for (const m of [...mats.values(), ...xrayMats.values(), ...bandMats.values()]) m.dispose();
       for (const m of [edgeMat, xrayEdgeMat, placeholderMat, placeholderEdge, stencilBack, stencilFront, capMat, planeOutlineMat, planeFillMat, ghostMat, ghostEdgeMat]) m.dispose();
       for (const g of ghostMats.values()) {
         g.face.dispose();
