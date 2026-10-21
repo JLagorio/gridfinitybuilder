@@ -8,7 +8,7 @@ import { effectiveStretch } from '../lib/layout/stretch';
 import { binRect, canPlace, occupancy, onBlocked, outOfBounds, withBlocked, type CellRect } from '../lib/bins';
 import { HANDLES, MAX_BIN_UNITS, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
 import { useLayoutShortcuts } from './useLayoutShortcuts';
-import { placedOvershoot, rectFitsBed, type Bed } from '../lib/bedfit';
+import { bedCount, placedOvershoot, rectFitsBed, type Beds } from '../lib/bedfit';
 import type { BinOptions } from '../lib/geometry/bin';
 import { dividerLines } from './dividerLines';
 
@@ -25,7 +25,7 @@ interface Props {
   /** Give a bin a new position and footprint. */
   onResize: (id: string, r: CellRect) => void;
   /** What the printer takes (bedfit.ts): drawing and resizing stop there, and bins past it are marked. */
-  bed?: Bed;
+  bed?: Beds;
   /** Settings new bins are drawn with (their height and type count against the bed too). */
   newBin?: BinOptions;
 }
@@ -312,7 +312,7 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
           const fs = Math.min(10, (Math.min(feet.width, feet.height) / 4) | 0) || 6;
           return (
             <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''}`}>
-              <rect {...r} rx={3.75}>{tooBig && <title>Too big for the printer: select it to shrink it</title>}</rect>
+              <rect {...r} rx={3.75}>{tooBig && <title>Too big for {bed && bedCount(bed) > 1 ? 'every printer' : 'the printer'}: select it to shrink it</title>}</rect>
               {stretched && <rect {...feet} rx={3.75} fill="none" strokeDasharray="3 2" opacity={0.6} pointerEvents="none" />}
               {dividerLines(layout, b).map((l, k) => (
                 <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />

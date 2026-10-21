@@ -5,7 +5,7 @@ import { TraceDialog, type TraceTab } from './TraceDialog';
 import { TOOL_DRAG_MIME, ToolThumb } from './CutoutEditor';
 import { binSpec, type PrintJob } from '../lib/project';
 import { binSize } from '../lib/geometry/bin';
-import { rectFitsBed, usableBed } from '../lib/bedfit';
+import { bedCount, rectFitsBed, usableBeds } from '../lib/bedfit';
 import { findPrinter } from '../lib/printers';
 import { cutoutArea, cutoutStyle, type CutoutStyle } from '../lib/geometry/cutouts';
 import { usesToolCompartments } from '../lib/geometry/compartments';
@@ -68,8 +68,9 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
     // The bin has to fit the printer (bedfit.ts), with the height the tools need.
     const setup = useStore.getState().setup;
     const probe = { opts: { ...newBin, ...binOptsForTools(fit) } };
-    if (!rectFitsBed(job.layout, probe, { x: 0, y: 0, w: fit.unitsX, d: fit.unitsY }, usableBed(setup))) {
-      setMsg(`Too big for the ${findPrinter(setup.printerId)?.name ?? 'printer'}: these tools need a ${u(fit.unitsX)} × ${u(fit.unitsY)} u bin ${fit.heightUnits}u tall. Make a bin for fewer tools at a time.`);
+    const beds = usableBeds(setup);
+    if (!rectFitsBed(job.layout, probe, { x: 0, y: 0, w: fit.unitsX, d: fit.unitsY }, beds)) {
+      setMsg(`Too big for ${bedCount(beds) > 1 ? 'every printer' : `the ${findPrinter(setup.printerId)?.name ?? 'printer'}`}: these tools need a ${u(fit.unitsX)} × ${u(fit.unitsY)} u bin ${fit.heightUnits}u tall. Make a bin for fewer tools at a time.`);
       return;
     }
     const spot = firstFreeSpot(job.layout, bins, fit.unitsX, fit.unitsY);

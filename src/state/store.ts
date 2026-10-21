@@ -15,7 +15,7 @@ import { carryContents, cleanBinContents, sanitizeContents, withCompContents, wi
 import { cleanStretch, type BinStretch } from '../lib/geometry/placement';
 import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
-import { bedOvershoot, placedOvershoot, shrinkToBed, usableBed } from '../lib/bedfit';
+import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
 
 export type Tab = 'drawer' | 'bins' | 'print';
@@ -305,7 +305,7 @@ export const useStore = create<Store>()(
         set((s) => {
           const nb = sanitizeBin({ ...s.newBin, ...p, cutouts: undefined });
           // Settings that leave no bin the printer can take (too tall) are refused (bedfit.ts).
-          const bed = usableBed(s.setup);
+          const bed = usableBeds(s.setup);
           if (bedOvershoot({ ...nb, unitsX: 1, unitsY: 1 }, null, bed) > bedOvershoot({ ...s.newBin, unitsX: 1, unitsY: 1 }, null, bed) + 1e-6) return {};
           return { newBin: nb.interior === 'cutouts' ? { ...nb, interior: 'compartments' } : nb };
         }),
@@ -313,7 +313,7 @@ export const useStore = create<Store>()(
         const id = newId();
         // Never bigger than the printer takes (bedfit.ts): a new bin is cut down to fit.
         const s0 = get();
-        const bin = shrinkToBed(computeLayout(s0.drawer), { id, x, y, opts: sanitizeBin({ ...s0.newBin, unitsX: w, unitsY: d }) }, usableBed(s0.setup));
+        const bin = shrinkToBed(computeLayout(s0.drawer), { id, x, y, opts: sanitizeBin({ ...s0.newBin, unitsX: w, unitsY: d }) }, usableBeds(s0.setup));
         set((s) => ({ bins: [...s.bins, bin], ui: { ...s.ui, selectedBinId: id } }));
         return id;
       },
@@ -322,7 +322,7 @@ export const useStore = create<Store>()(
           bins: s.bins.map((b) => {
             if (b.id !== id) return b;
             const layout = computeLayout(s.drawer);
-            const bed = usableBed(s.setup);
+            const bed = usableBeds(s.setup);
             const next = {
               ...b,
               x: patch.x ?? b.x,

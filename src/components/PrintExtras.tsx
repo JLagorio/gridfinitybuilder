@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useStore } from '../state/store';
-import { billOfMaterials, bomCsv, bomText, enclosureCounts, enclosurePartsText, estimateNote, filamentNote, type Bom, type PlateBom } from '../lib/bom';
+import { billOfMaterials, bomCsv, bomText, enclosureCounts, enclosurePartsText, estimateNote, filamentNote, slowestPrinter, type Bom, type PlateBom } from '../lib/bom';
 import { currencySymbol, estimateJob, formatDuration, formatMoney, type PlateEstimate } from '../lib/estimate';
 import { DEFAULT_MOTION } from '../lib/printers';
 import { planTestFit } from '../lib/testfit';
@@ -10,6 +10,8 @@ import type { MeshSpec, PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { bambuSettings } from './bambuSettings';
 import { NumberInput, Section, TextInput } from './fields';
+import { jobPrinters, printerNames } from '../lib/layout/fleet';
+import { setPrinterAt } from '../state/printers';
 
 const subscribe = (cb: () => void) => geometry.subscribe(cb);
 const version = () => geometry.getVersion();
@@ -115,14 +117,17 @@ export function useJobEstimate(job: PrintJob): JobEstimate {
   const volumes = useJobVolumes(job);
   const stats = useJobStats(job);
   const printer = findPrinter(setup.printerId);
-  const plates = useMemo(() => estimateJob(job, stats.lookup, setup.printerId), [job, stats.lookup, setup.printerId]);
+  // Several printers (fleet.ts): each plate is timed on its own printer, and the BOM has each one's share.
+  const ids = useMemo(() => (job.printers ? jobPrinters(setup).map((p) => p.printerId) : setup.printerId), [job.printers, setup]);
+  const plates = useMemo(() => estimateJob(job, stats.lookup, ids), [job, stats.lookup, ids]);
   const bom = useMemo(
     () =>
       billOfMaterials(job, volumes.lookup, {
         plates,
         overlayVolume: (key) => stats.lookup(key)?.overlayVolume,
         setup,
-        printer: printer.name,
+        printer: job.printers ? listNames(job.printers) : printer.name,
+        ...(job.printers ? { printers: job.printers } : {}),
       }),
     [job, volumes.lookup, plates, stats.lookup, setup, printer.name],
   );
@@ -134,12 +139,15 @@ export function useJobEstimate(job: PrintJob): JobEstimate {
   return { bom, plates, busy };
 }
 
-const grams = (p: PlateBom) => (p.grams === null ? '…' : `${Math.round(p.grams)} g`);
+/** "A, B and C". */
+const listNames = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? ''));
+
+const grams = (p: Pick<PlateBom, 'grams'>) => (p.grams === null ? '…' : `${Math.round(p.grams)} g`);
 const meters = (p: PlateBom) => (p.meters === null ? '…' : `${(Math.round(p.meters * 10) / 10).toFixed(1)} m`);
 /** "5.2 m" for a filament cell's tooltip, flagging the quick guess shown until the plate is sliced. */
 const filamentTitle = (p: PlateBom) => (p.grams === null || p.sliced ? meters(p) : `${meters(p)}; a quick guess until the parts are sliced`);
-const duration = (p: PlateBom) => (p.seconds === null || p.seconds === undefined ? '…' : formatDuration(p.seconds));
-const cost = (p: PlateBom, symbol: string) => (p.cost ? formatMoney(p.cost.total, symbol) : '…');
+const duration = (p: Pick<PlateBom, 'seconds'>) => (p.seconds === null || p.seconds === undefined ? '…' : formatDuration(p.seconds));
+const cost = (p: Pick<PlateBom, 'cost'>, symbol: string) => (p.cost ? formatMoney(p.cost.total, symbol) : '…');
 
 /** "≈ 1 h 05 min · 46 g · $0.95" for a plate card. */
 export function plateSummary(p: PlateBom | undefined, symbol: string): string {
@@ -197,28 +205,53 @@ export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: str
             </tr>
           </thead>
           <tbody>
-            {bom.plates.map((p, i) => (
-              <tr key={i}>
-                <td>
-                  {i + 1}. {p.name}
-                </td>
-                <td>{p.parts}</td>
-                <td title={filamentTitle(p)}>{grams(p)}</td>
-                <td title={timeBreakdown(plates[i])}>{duration(p)}</td>
-                <td title={p.cost && bom.estimate?.electricity ? `filament ${formatMoney(p.cost.filament, symbol)}, electricity ${formatMoney(p.cost.energy, symbol)}` : undefined}>
-                  {cost(p, symbol)}
-                </td>
-              </tr>
-            ))}
+            {(bom.printers ? bom.printers.map((_, k) => k) : [-1]).flatMap((k) => {
+              const pr = bom.printers?.[k];
+              const rows = bom.plates.map((p, i) => ({ p, i })).filter(({ p }) => k < 0 || (p.printer ?? 0) === k);
+              return [
+                // Several printers: each one's plates under its own subtotal.
+                ...(pr
+                  ? [
+                      <tr key={`printer-${k}`} className="bom-printer">
+                        <td>{pr.name}</td>
+                        <td>{pr.parts}</td>
+                        <td>{grams(pr)}</td>
+                        <td>{duration(pr)}</td>
+                        <td>{cost(pr, symbol)}</td>
+                      </tr>,
+                    ]
+                  : []),
+                ...rows.map(({ p, i }) => (
+                  <tr key={i}>
+                    <td>
+                      {i + 1}. {p.name}
+                    </td>
+                    <td>{p.parts}</td>
+                    <td title={filamentTitle(p)}>{grams(p)}</td>
+                    <td title={timeBreakdown(plates[i])}>{duration(p)}</td>
+                    <td title={p.cost && bom.estimate?.electricity ? `filament ${formatMoney(p.cost.filament, symbol)}, electricity ${formatMoney(p.cost.energy, symbol)}` : undefined}>
+                      {cost(p, symbol)}
+                    </td>
+                  </tr>
+                )),
+              ];
+            })}
           </tbody>
           <tfoot>
             <tr>
               <td>Total</td>
               <td>{bom.total.parts}</td>
               <td title={filamentTitle(bom.total)}>{grams(bom.total)}</td>
-              <td>{duration(bom.total)}</td>
+              <td title={bom.printers ? 'All plates one after another' : undefined}>{duration(bom.total)}</td>
               <td>{cost(bom.total, symbol)}</td>
             </tr>
+            {bom.printers && (
+              <tr className="bom-finish" title={`The printers print at the same time: the job is done when ${slowestPrinter(bom) ? `the ${slowestPrinter(bom)!.name}` : 'the slowest one'} finishes.`}>
+                <td colSpan={3}>All done in</td>
+                <td>{duration({ seconds: bom.finish })}</td>
+                <td />
+              </tr>
+            )}
           </tfoot>
         </table>
       )}
@@ -246,6 +279,7 @@ function CostFields({ twoColour }: { twoColour: boolean }) {
   const symbol = currencySymbol(setup.currency);
   const price = setup.filamentPrice ?? 20;
   const watts = setup.printerWatts ?? (findPrinter(setup.printerId).motion ?? DEFAULT_MOTION).watts;
+  const names = printerNames(setup);
   return (
     <div className="cost-fields">
       <div className="row2">
@@ -276,9 +310,23 @@ function CostFields({ twoColour }: { twoColour: boolean }) {
           onChange={(kwhPrice) => setSetup({ kwhPrice })}
         />
         {!!setup.kwhPrice && (
-          <NumberInput label="Printer draws" value={watts} min={1} max={5000} step={5} digits={0} suffix="W" onChange={(printerWatts) => setSetup({ printerWatts })} />
+          <NumberInput label={setup.printers ? `${names[0]} draws` : 'Printer draws'} value={watts} min={1} max={5000} step={5} digits={0} suffix="W" onChange={(printerWatts) => setSetup({ printerWatts })} />
         )}
       </div>
+      {!!setup.kwhPrice &&
+        setup.printers?.map((p, i) => (
+          <NumberInput
+            key={i}
+            label={`${names[i + 1]} draws`}
+            value={p.printerWatts ?? (findPrinter(p.printerId).motion ?? DEFAULT_MOTION).watts}
+            min={1}
+            max={5000}
+            step={5}
+            digits={0}
+            suffix="W"
+            onChange={(printerWatts) => setPrinterAt(i + 1, { printerWatts })}
+          />
+        ))}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { printDrawers, projectOf, selectedIds, useStore, type Tab } from './state/store';
+import { projectOf, selectedIds, useStore, type Tab } from './state/store';
 import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
-import { binOrigin, planJob, planPrint, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
+import { binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
 import { plateOrigin } from './lib/export/bambu';
 import { findPrinter } from './lib/printers';
@@ -24,7 +24,10 @@ import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LABEL_PLATE_COLOR, LID_COLOR, pi
 import { binBodyHeight } from './lib/geometry/variants';
 import { LID_SEAT_DROP } from './lib/geometry/lid';
 import { assembledParts } from './lib/geometry/accessories';
-import { usableBed } from './lib/bedfit';
+import { usableBeds } from './lib/bedfit';
+import { jobPrinters, printerNames, shortName } from './lib/layout/fleet';
+import type { PrintSetup } from './lib/layout/plan';
+import { usePrintJob } from './components/usePrintJob';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
 import './components/workflow.css';
 
@@ -165,14 +168,20 @@ function drawerScene(
   };
 }
 
-function platesScene(job: PrintJob, plate: number, bedW: number, bedD: number): Scene {
+function platesScene(job: PrintJob, plate: number, setup: PrintSetup): Scene {
   const items: SceneItem[] = [];
   const beds: SceneBed[] = [];
   const show = plate >= 0 && plate < job.plates.length ? [plate] : job.plates.map((_, i) => i);
+  // Each plate on its own printer's bed (fleet.ts), laid out for the biggest.
+  const printers = jobPrinters(setup);
+  const bedW = Math.max(...printers.map((p) => p.bedW));
+  const bedD = Math.max(...printers.map((p) => p.bedD));
   show.forEach((pi) => {
     const [ox, oy] = show.length === 1 ? [0, 0] : plateOrigin(pi, job.plates.length, bedW, bedD);
     const pl = job.plates[pi];
-    beds.push({ x: ox, y: oy, w: bedW, d: bedD, label: `${pi + 1}  ${pl.name}` });
+    const pr = printers[pl.printer ?? 0] ?? printers[0];
+    const on = job.printers ? ` · ${job.printers[pl.printer ?? 0]}` : '';
+    beds.push({ x: ox, y: oy, w: pr.bedW, d: pr.bedD, label: `${pi + 1}  ${pl.name}${on}` });
     for (const p of pl.placements) {
       const part = job.parts[p.key];
       items.push({
@@ -208,23 +217,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [job, state.include.bins],
   );
-  // The print tab can cover several drawers.
-  const printJob = useMemo(
-    () => {
-      const docs = printDrawers(state);
-      return docs.length === 1 && docs[0].id === state.activeDrawerId ? job : planPrint(docs, state.setup, state.include);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [job, state.drawers, state.activeDrawerId, state.printScope, state.printPick, state.setup, state.include],
-  );
+  // The print tab can cover several drawers and printers.
+  const printJob = usePrintJob(state, job);
 
   // Carry case: lid closed, open or off in the drawer view.
   const [lidView, setLidView] = useState<LidView>('open');
   const scene = useMemo<Scene>(() => {
-    if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup.bedW, state.setup.bedD);
+    if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup);
     return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup.bedW, state.setup.bedD, lidView]);
+  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup, lidView]);
 
   // Ask the worker for exactly the meshes on screen (selected bin first).
   useEffect(() => {
@@ -346,8 +348,8 @@ export default function App() {
             ]}
             onChange={(units) => state.setUI({ units })}
           />
-          <span className="chip" title="Printer">
-            {printer.name} · {state.setup.bedW}×{state.setup.bedD}
+          <span className="chip" title={state.setup.printers ? 'Printers' : 'Printer'}>
+            {state.setup.printers ? printerNames(state.setup).map(shortName).join(' + ') : `${printer.name} · ${state.setup.bedW}×${state.setup.bedD}`}
           </span>
           <span className="chip">
             {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} · {job.plan.pieces.length} pieces ·{' '}
@@ -381,7 +383,7 @@ export default function App() {
                     onCreate={(r) => state.addBin(r.x, r.y, r.w, r.d)}
                     onMoveBins={moveBins}
                     onResize={resizeBin}
-                    bed={usableBed(state.setup)}
+                    bed={usableBeds(state.setup)}
                     newBin={state.newBin}
                   />
                 )}

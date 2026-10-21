@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { allDrawers, printDrawers, projectFile, useStore } from '../state/store';
 import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
 import { PRINTERS, findPrinter } from '../lib/printers';
-import { assemblyMaps, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
+import { assemblyMaps, jobForPrinter, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
@@ -10,6 +10,9 @@ import { BomSection, TestFitSection, plateSummary, useJobEstimate } from './Prin
 import { drawerAssemblies } from '../lib/export/step';
 import { CopyShareLink } from './ShareLink';
 import { ContentsSection } from './InventoryList';
+import { baseplatePrinter, jobPrinters, printerNames, printerSetup, shortName } from '../lib/layout/fleet';
+import { formatDuration } from '../lib/estimate';
+import { MorePrinters } from './PrinterFields';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -37,11 +40,16 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const stamp = multi ? `${job.drawers.length}-drawers` : slug(printing[0]?.name ?? '') || `${job.layout.nx}x${job.layout.ny}`;
   const nPieces = job.drawers.reduce((t, d) => t + d.plan.pieces.length, 0);
   const nBins = printing.reduce((t, d) => t + d.bins.length, 0);
-  const exportBambu = () =>
+  // Several printers (fleet.ts): each gets its own project, with its plates and settings.
+  const printers = jobPrinters(setup);
+  const names = printerNames(setup);
+  const platesFor = (k: number) => job.plates.filter((pl) => !job.printers || (pl.printer ?? 0) === k).length;
+  const exportBambu = (k?: number) =>
     run('Building project', async (p) => {
-      const settings = printer.bambu ? await bambuSettings(printer.id) : undefined;
-      const bytes = await geometry.exportBambu(job, setup, settings, p);
-      downloadBytes(bytes, `gridfinity-drawer-${stamp}.3mf`, 'model/3mf');
+      const pr = k === undefined ? printer : findPrinter(printers[k].printerId);
+      const settings = pr.bambu ? await bambuSettings(pr.id) : undefined;
+      const bytes = await geometry.exportBambu(k === undefined ? job : jobForPrinter(job, k), k === undefined ? setup : printerSetup(setup, k), settings, p);
+      downloadBytes(bytes, `gridfinity-drawer-${stamp}${k === undefined ? '' : `-${slug(names[k])}`}.3mf`, 'model/3mf');
     });
   const exportZip = () =>
     run('Building plates', async (p) => {
@@ -111,6 +119,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const currency = estimate.bom.estimate?.currency ?? '$';
   const nBasePlates = job.plates.filter((p) => p.group === 'baseplate').length;
   const nBinPlates = job.plates.length - nBasePlates;
+  const baseAt = baseplatePrinter(setup);
 
   return (
     <>
@@ -150,9 +159,9 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           </p>
         </Section>
       )}
-      <Section title="Printer">
+      <Section title={setup.printers ? 'Printers' : 'Printer'}>
         <Select
-          label="Model"
+          label={setup.printers ? 'Printer 1' : 'Model'}
           value={setup.printerId}
           options={PRINTERS.map((p) => ({
             value: p.id,
@@ -179,6 +188,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           />
           <NumberInput label="Part spacing" value={setup.spacing} min={1} max={30} step={1} onChange={(spacing) => store.setSetup({ spacing })} />
         </div>
+        <MorePrinters />
       </Section>
 
       <Section title="Baseplate split">
@@ -225,9 +235,9 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                 </dd>
               </>
             )}
-            <dt>Usable bed</dt>
+            <dt>{setup.printers ? `Split for the ${names[baseAt]}` : 'Usable bed'}</dt>
             <dd>
-              {setup.bedW - 2 * setup.plateMargin} × {setup.bedD - 2 * setup.plateMargin} mm
+              {printers[baseAt].bedW - 2 * printers[baseAt].plateMargin} × {printers[baseAt].bedD - 2 * printers[baseAt].plateMargin} mm
             </dd>
           </dl>
         </div>
@@ -262,11 +272,19 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             </div>
           </div>
         )}
-        <button className="primary wide" disabled={!!progress || !job.plates.length} onClick={exportBambu}>
-          {printer.bambu ? 'Bambu Studio project (.3mf)' : 'Slicer project (.3mf)'}
+        <button className="primary wide" disabled={!!progress || !platesFor(0)} onClick={() => exportBambu(job.printers ? 0 : undefined)}>
+          {printer.bambu ? 'Bambu Studio project' : 'Slicer project'}{job.printers ? ` · ${shortName(names[0])}` : ''} (.3mf)
         </button>
+        {/* Several printers: a project each, with its own plates and settings. */}
+        {job.printers?.slice(1).map((name, i) => (
+          <button key={i} className="primary wide" disabled={!!progress || !platesFor(i + 1)} onClick={() => exportBambu(i + 1)}>
+            {findPrinter(printers[i + 1].printerId).bambu ? 'Bambu Studio project' : 'Slicer project'} · {shortName(name)} (.3mf)
+          </button>
+        ))}
         <div className="field-hint">
-          {printer.bambu
+          {job.printers
+            ? 'One file per printer, with its own plates, set up for it (Bambu printers: 0.20 mm Standard, PLA Basic). Open each one and press Slice all.'
+            : printer.bambu
             ? `All ${job.plates.length} plates in one file, set up for the ${printer.name}: 0.20 mm Standard, PLA Basic. Open it and press Slice all.`
             : 'All plates in one Bambu/Orca-style project. Other slicers: use the per-plate zip.'}
         </div>
@@ -336,33 +354,52 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             Show all plates
           </button>
           {job.plates.map((pl, i) => (
-            <div key={i} className={`plate-card ${ui.plate === i ? 'active' : ''}`}>
-              <button className="plate-thumb" onClick={() => store.setUI({ plate: i })} title="Show this plate">
-                <PlateThumb job={job} plate={i} bedW={setup.bedW} bedD={setup.bedD} />
-              </button>
-              <div className="plate-meta">
-                <b>
-                  {i + 1}. {pl.name}
-                </b>
-                <span className="muted small">{plateContents(job, pl).map((n) => n.replace('Baseplate piece', 'Piece')).join(', ')}</span>
-                {plateSummary(estimate.bom.plates[i], currency) && <span className="small plate-estimate">{plateSummary(estimate.bom.plates[i], currency)}</span>}
-                <span className="plate-downloads">
-                  <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
-                    Download .3mf
-                  </button>
-                  <button className="link" disabled={!!progress} onClick={() => exportStlPlate(i)}>
-                    .stl
-                  </button>
-                  <button className="link" disabled={!!progress} onClick={() => exportStepPlate(i)}>
-                    .step
-                  </button>
-                </span>
+            <Fragment key={i}>
+              {job.printers && (pl.printer ?? 0) !== (job.plates[i - 1]?.printer ?? -1) && (
+                <PrinterHeading job={job} printer={pl.printer ?? 0} seconds={estimate.bom.printers?.[pl.printer ?? 0]?.seconds} />
+              )}
+              <div className={`plate-card ${ui.plate === i ? 'active' : ''}`}>
+                <button className="plate-thumb" onClick={() => store.setUI({ plate: i })} title="Show this plate">
+                  <PlateThumb job={job} plate={i} bedW={printers[pl.printer ?? 0]?.bedW ?? setup.bedW} bedD={printers[pl.printer ?? 0]?.bedD ?? setup.bedD} />
+                </button>
+                <div className="plate-meta">
+                  <b>
+                    {i + 1}. {pl.name}
+                  </b>
+                  <span className="muted small">{plateContents(job, pl).map((n) => n.replace('Baseplate piece', 'Piece')).join(', ')}</span>
+                  {plateSummary(estimate.bom.plates[i], currency) && <span className="small plate-estimate">{plateSummary(estimate.bom.plates[i], currency)}</span>}
+                  <span className="plate-downloads">
+                    <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
+                      Download .3mf
+                    </button>
+                    <button className="link" disabled={!!progress} onClick={() => exportStlPlate(i)}>
+                      .stl
+                    </button>
+                    <button className="link" disabled={!!progress} onClick={() => exportStepPlate(i)}>
+                      .step
+                    </button>
+                  </span>
+                </div>
               </div>
-            </div>
+            </Fragment>
           ))}
         </div>
       </Section>
     </>
+  );
+}
+
+/** Above a printer's plates, with several: its name, plate count and print time. */
+function PrinterHeading({ job, printer, seconds }: { job: PrintJob; printer: number; seconds: number | null | undefined }) {
+  const n = job.plates.filter((pl) => (pl.printer ?? 0) === printer).length;
+  return (
+    <div className="plate-printer">
+      {job.printers?.[printer]}
+      <span>
+        {n} plate{n === 1 ? '' : 's'}
+        {seconds ? ` · ≈ ${formatDuration(seconds)}` : ''}
+      </span>
+    </div>
   );
 }
 

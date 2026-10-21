@@ -7,6 +7,7 @@ import type { MeshSpec, PrintJob } from './project';
 import type { PrintSetup } from './layout/plan';
 import { STANDARD_PROCESS, currencySymbol, formatDuration, formatMoney, plateCost, type CostBreakdown, type PlateEstimate } from './estimate';
 import { enclosurePartHardware, type EnclosurePartKind } from './enclosures';
+import { printerSetup } from './layout/fleet';
 
 /**
  * Bill of materials for a print job: hardware to buy, parts and plates, and a
@@ -53,6 +54,20 @@ export interface PlateBom {
   wasteGrams?: number;
   /** Filament (and electricity) cost; null until grams and time are known. */
   cost?: CostBreakdown | null;
+  /** The printer it's for, with several (JobPlate.printer). */
+  printer?: number;
+}
+
+/** One printer's share of a job printed on several. */
+export interface PrinterBom {
+  name: string;
+  /** How many plates it prints. */
+  plates: number;
+  parts: number;
+  grams: number | null;
+  /** Its plates one after another, s; null until each one is estimated. */
+  seconds: number | null;
+  cost: CostBreakdown | null;
 }
 
 export interface Bom {
@@ -77,6 +92,10 @@ export interface Bom {
   total: PlateBom;
   /** Set when the BOM has time and cost figures. */
   estimate?: { printer: string; currency: string; electricity: boolean };
+  /** With several printers: each one's share. */
+  printers?: PrinterBom[];
+  /** With several printers: when the last one is done, s (null until every plate is estimated). */
+  finish?: number | null;
 }
 
 /** Time and cost inputs for billOfMaterials. */
@@ -85,9 +104,11 @@ export interface BomEstimate {
   plates: (PlateEstimate | null)[];
   /** Volume of a mesh's filament-2 bodies (inlaid text), mm³, when known. */
   overlayVolume?: (meshKey: string) => number | undefined;
-  setup: Pick<PrintSetup, 'printerId' | 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'currency'>;
+  setup: Pick<PrintSetup, 'printerId' | 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'currency' | 'printers'>;
   /** Printer name, for the notes. */
   printer: string;
+  /** Every printer's name when the job is for several (PrintJob.printers): the BOM then has each one's share. */
+  printers?: string[];
 }
 
 /**
@@ -206,6 +227,7 @@ export function billOfMaterials(
     const est = estimate?.plates[plateIndex] ?? null;
     if (est) volume = est.extruded;
     const out: PlateBom = { name: pl.name, parts: pl.placements.length, ...plateFilament(volume), sliced: !!est };
+    if (pl.printer !== undefined) out.printer = pl.printer;
     if (estimate) {
       out.seconds = est?.seconds ?? null;
       out.swaps = est?.swaps ?? 0;
@@ -214,7 +236,7 @@ export function billOfMaterials(
       const g2 = Math.min(out.grams ?? 0, filamentFor(second).grams);
       out.cost =
         est && out.grams !== null
-          ? plateCost({ main: out.grams - g2, second: g2, waste: est.wasteGrams }, est.seconds, estimate.setup)
+          ? plateCost({ main: out.grams - g2, second: g2, waste: est.wasteGrams }, est.seconds, printerSetup(estimate.setup, pl.printer ?? 0))
           : null;
     }
     return out;
@@ -241,8 +263,34 @@ export function billOfMaterials(
       currency: currencySymbol(estimate.setup.currency),
       electricity: !!estimate.setup.kwhPrice,
     };
+    // Several printers print at the same time: the job is done when the slowest one is.
+    if (estimate.printers && estimate.printers.length > 1) {
+      bom.printers = estimate.printers.map((name, k) => {
+        const mine = plates.filter((p) => (p.printer ?? 0) === k);
+        const add = (f: (p: PlateBom) => number | null | undefined) =>
+          mine.every((p) => f(p) !== null && f(p) !== undefined) ? mine.reduce((t, p) => t + f(p)!, 0) : null;
+        const filament = add((p) => p.cost?.filament);
+        const energy = add((p) => p.cost?.energy);
+        return {
+          name,
+          plates: mine.length,
+          parts: mine.reduce((t, p) => t + p.parts, 0),
+          grams: add((p) => p.grams),
+          seconds: add((p) => p.seconds),
+          cost: filament === null || energy === null ? null : { filament, energy, total: filament + energy },
+        };
+      });
+      const times = bom.printers.map((p) => p.seconds);
+      bom.finish = times.every((t) => t !== null) ? Math.max(...(times as number[])) : null;
+    }
   }
   return bom;
+}
+
+/** The printer that finishes last, with several. */
+export function slowestPrinter(b: Bom): PrinterBom | null {
+  if (!b.printers || b.finish === null || b.finish === undefined) return null;
+  return b.printers.find((p) => p.seconds === b.finish) ?? null;
 }
 
 function plateFilament(volume: number | null) {
@@ -257,7 +305,7 @@ function csvCell(v: string | number) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-const minutes = (p: PlateBom) => (p.seconds === null || p.seconds === undefined ? '' : String(Math.round(p.seconds / 60)));
+const minutes = (p: Pick<PlateBom, 'seconds'>) => (p.seconds === null || p.seconds === undefined ? '' : String(Math.round(p.seconds / 60)));
 const money = (v: number | null | undefined) => (v === null || v === undefined ? '' : v.toFixed(2));
 
 /** Spreadsheet-friendly BOM: hardware lines, then one row per plate (with time and cost when estimated). */
@@ -277,10 +325,11 @@ export function bomCsv(b: Bom): string {
   if (b.parts.labels) rows.push(['Parts', 'Label plates', b.parts.labels, ...blank, '']);
   if (b.parts.pads) rows.push(['Parts', 'Non-slip pads (TPU)', b.parts.pads, ...blank, 'print in TPU on their own plate; press into the recesses under the baseplate']);
   for (const [k, n] of enclosureCounts(b)) rows.push(['Parts', ENCLOSURE_PARTS[k][1], n, ...blank, '']);
+  const on = (p: PlateBom) => (b.printers ? ` (${b.printers[p.printer ?? 0]?.name})` : '');
   b.plates.forEach((p, i) => {
     rows.push([
       'Plate',
-      `${i + 1}. ${p.name}`,
+      `${i + 1}. ${p.name}${on(p)}`,
       p.parts,
       r1(p.volume === null ? null : p.volume / 1000),
       r1(p.grams),
@@ -302,6 +351,11 @@ export function bomCsv(b: Bom): string {
     money(t.cost?.total),
     filamentNote(),
   ]);
+  for (const p of b.printers ?? []) rows.push(['Printer', p.name, p.parts, '', r1(p.grams), '', minutes(p), money(p.cost?.total), `${p.plates} plates`]);
+  if (b.printers) {
+    const slow = slowestPrinter(b);
+    rows.push(['Done', 'All printers done', '', '', '', '', minutes({ seconds: b.finish }), '', slow ? `when the ${slow.name} finishes` : '']);
+  }
   if (b.estimate && t.cost) {
     rows.push(['Cost', 'Filament', '', '', '', '', '', money(t.cost.filament), '']);
     if (b.estimate.electricity) rows.push(['Cost', 'Electricity', '', '', '', '', '', money(t.cost.energy), '']);
@@ -340,13 +394,24 @@ export function bomText(b: Bom): string {
     const cost = p.cost ? `, ${formatMoney(p.cost.total, est.currency)}` : '';
     return `, ${time}${cost}`;
   };
-  b.plates.forEach((p, i) => lines.push(`  ${i + 1}. ${p.name}: ${p.parts} parts, ${fil(p)}${extra(p)}`));
+  const on = (p: PlateBom) => (b.printers ? `, on the ${b.printers[p.printer ?? 0]?.name}` : '');
+  b.plates.forEach((p, i) => lines.push(`  ${i + 1}. ${p.name}${on(p)}: ${p.parts} parts, ${fil(p)}${extra(p)}`));
   lines.push('', `Filament total: ${fil(b.total)}`, `  ${filamentNote()}`);
   if (est) {
     const t = b.total;
     lines.push('', `Print time total: ${t.seconds === null || t.seconds === undefined ? 'not estimated yet' : `about ${formatDuration(t.seconds)}`}`);
     if (t.swaps) lines.push(`  includes ${t.swaps} filament swaps (${Math.round(t.wasteGrams ?? 0)} g purged)`);
     lines.push(`  ${estimateNote(est.printer)}`);
+    if (b.printers) {
+      const time = (s: number | null) => (s === null ? 'time not estimated yet' : `about ${formatDuration(s)}`);
+      lines.push('', 'Printers (printing at the same time)');
+      for (const p of b.printers) {
+        const g = p.grams === null ? '' : `, ${Math.round(p.grams)} g`;
+        lines.push(`  ${p.name}: ${p.plates} plates${g}, ${time(p.seconds)}${p.cost ? `, ${formatMoney(p.cost.total, est.currency)}` : ''}`);
+      }
+      const slow = slowestPrinter(b);
+      lines.push(`  All done in ${b.finish === null || b.finish === undefined ? 'a time not estimated yet' : time(b.finish)}${slow ? `, when the ${slow.name} finishes` : ''}`);
+    }
     if (t.cost) {
       lines.push('', `Cost total: ${formatMoney(t.cost.total, est.currency)}`, `  filament ${formatMoney(t.cost.filament, est.currency)}`);
       if (est.electricity) lines.push(`  electricity ${formatMoney(t.cost.energy, est.currency)}`);

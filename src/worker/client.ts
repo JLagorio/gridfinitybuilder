@@ -197,6 +197,11 @@ class GeometryClient {
     return this.stats.get(key);
   }
 
+  /** How many meshes are sliced: changes only when slice data comes in. */
+  get slicedCount() {
+    return this.stats.size;
+  }
+
   printStatsFailed(key: string) {
     return this.statsFailed.has(key) || this.errors.has(key);
   }
