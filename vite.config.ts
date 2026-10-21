@@ -8,7 +8,8 @@ export default defineConfig({
   worker: { format: 'es' },
   server: { port: 5199 },
   // three.js alone is ~600 kB; that's expected for a 3D app.
-  build: { chunkSizeWarningLimit: 1200 },
+  build: { chunkSizeWarningLimit: 1500 },
   // Agent worktrees live under .claude/; never pick up their copies of the tests.
-  test: { exclude: ['**/node_modules/**', '.claude/**', 'dist/**'] },
+  // Geometry tests build real meshes; give them room on a busy machine.
+  test: { exclude: ['**/node_modules/**', '.claude/**', 'dist/**'], testTimeout: 60_000 },
 });

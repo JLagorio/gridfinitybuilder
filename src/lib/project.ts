@@ -338,15 +338,17 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       const caption = texts.length ? ` “${texts.slice(0, 3).join(' · ').replace(/\n/g, ' ')}${texts.length > 3 ? ' …' : ''}”` : '';
       const binName = binLabel(b.opts, spec.cells);
       parts[key] = { key, name: `${label}Bin ${binName}${caption}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
-      if (h > setup.maxH) warn(`Bin ${binName} is taller than the printer allows.`);
-      if (h > room + 1e-6) warn(`Bin ${binName} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
-      if (include.bins) binItems.push({ key, w, d: dd });
-      // Drawer units, parts boxes, … (containers/) print their own extra parts instead of the bin's lid, plates and trays.
+      // Drawer units, parts boxes, … (containers/) check their height with their parts in place.
       const container = activeContainer(b.opts);
+      const closed = container?.def.closedHeight?.(sanitizeBin(b.opts), container.opts) ?? h;
+      if (h > setup.maxH) warn(`Bin ${binName} is taller than the printer allows.`);
+      if (closed > room + 1e-6) warn(`Bin ${binName} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+      if (include.bins) binItems.push({ key, w, d: dd });
+      // Containers print their own extra parts instead of the bin's lid, plates and trays.
       if (container) {
         const so = sanitizeBin(b.opts);
         const cells = binCells(so, spec.cells);
-        for (const msg of container.def.notes?.(so, container.opts, cells) ?? []) warn(`${container.def.label} ${binName}: ${msg}`);
+        for (const msg of container.def.notes?.(so, container.opts, cells) ?? []) warn(`${binName}: ${msg}`);
         for (const p of container.def.parts?.(so, container.opts, cells) ?? []) {
           meshes[p.meshKey] = { kind: 'container', key: p.meshKey, type: container.def.kind, spec: p.spec };
           const k = `${prefix}${p.slot}:${b.id}:${p.index}`;

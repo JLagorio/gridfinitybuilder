@@ -52,6 +52,8 @@ export interface ContainerDef<O = unknown> {
   key(o: O): string;
   /** Overall height of the main body, mm, from the bottom of the feet. */
   height(bin: BinOptions, o: O): number;
+  /** Height with its parts in place (a closed lid), for the drawer-height check; defaults to `height`. */
+  closedHeight?(bin: BinOptions, o: O): number;
   /**
    * The main body: centered on the origin in XY, bottom at z = 0, on
    * Gridfinity feet for `cells` (see ./base.ts). `bin` is already sanitized.
