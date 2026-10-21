@@ -87,8 +87,8 @@ function useStrategyCosts(on: boolean) {
   }, [on, v, setup, include, store.drawers, store.bins, store.baseplate, store.drawer, store.activeDrawerId, store.printScope, store.printPick]);
 }
 
-/** A palette slot: colour, name, material, price. */
-function SlotRow({ i, count }: { i: number; count: number }) {
+/** A palette slot: colour, name, material, and (All settings) its price. */
+function SlotRow({ i, count, price }: { i: number; count: number; price: boolean }) {
   const setup = useStore((s) => s.setup);
   const pal = paletteOf(setup, count);
   const f = pal[i];
@@ -107,16 +107,18 @@ function SlotRow({ i, count }: { i: number; count: number }) {
         options={MATERIALS.map((m) => ({ value: m.id, label: m.id }))}
         onChange={(material: FilamentMaterial) => set({ material: material === 'PLA' ? undefined : material })}
       />
-      <NumberInput
-        label="Price"
-        value={f.price ?? setup.filamentPrice ?? 20}
-        min={0}
-        max={100000}
-        step={1}
-        digits={2}
-        suffix={`${symbol}/kg`}
-        onChange={(price) => set({ price })}
-      />
+      {price && (
+        <NumberInput
+          label={`Slot ${i + 1} price`}
+          value={f.price ?? setup.filamentPrice ?? 20}
+          min={0}
+          max={100000}
+          step={1}
+          digits={2}
+          suffix={`${symbol}/kg`}
+          onChange={(p) => set({ price: p })}
+        />
+      )}
     </div>
   );
 }
@@ -254,7 +256,7 @@ export function ColourSection({ twoColour }: { twoColour: boolean }) {
               <span className="field-label">Filament slots</span>
               <div className="slot-rows">
                 {Array.from({ length: count }, (_, i) => (
-                  <SlotRow key={i} i={i} count={count} />
+                  <SlotRow key={i} i={i} count={count} price={allRoles} />
                 ))}
               </div>
               <div className="button-row">

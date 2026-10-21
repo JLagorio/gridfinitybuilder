@@ -167,6 +167,16 @@ export function sliceStats(mesh: MeshData, layerHeight: number = STANDARD_PROCES
   return stats;
 }
 
+/**
+ * Slice data for a part split by colour role (multi-colour 'feature'): the
+ * whole part's sections, contours and islands (`whole`: the slicer joins
+ * volumes in one filament, so the walls between them don't print), with the
+ * split's share of each body per layer (`split`).
+ */
+export function withBodyShares(whole: MeshPrintStats, split: MeshPrintStats): MeshPrintStats {
+  return { ...whole, bodyArea: split.bodyArea, bodyVolume: split.bodyVolume, bodyRole: split.bodyRole };
+}
+
 function sliceBody(pos: ArrayLike<number>, idx: ArrayLike<number>, lh: number, n: number, out: MeshPrintStats, overlay: boolean): Float32Array {
   const nv = pos.length / 3;
   // Segments, kept for counting contours: layer, the two mesh edges they end on, and their share of the area.

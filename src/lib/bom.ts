@@ -264,8 +264,9 @@ export function billOfMaterials(
         const grams = slotGrams(estimate.setup, est.slotVolume);
         const waste = est.slotWaste ?? [];
         out.slots = grams
-          .map((g, slot) => ({ slot, name: slotLabel(estimate.setup, slot), grams: g, waste: waste[slot] ?? 0, cost: ((g + (waste[slot] ?? 0)) * slotPrice(estimate.setup, slot)) / 1000 }))
-          .filter((x) => x.slot > 0 && (x.grams > 0 || x.waste > 0));
+          .map((g, slot) => ({ slot, g, w: waste[slot] ?? 0 }))
+          .filter((x) => x.slot > 0 && (x.g > 0 || x.w > 0))
+          .map(({ slot, g, w }) => ({ slot, name: slotLabel(estimate.setup, slot), grams: g, waste: w, cost: ((g + w) * slotPrice(estimate.setup, slot)) / 1000 }));
         out.grams = grams.reduce((t, g) => t + g, 0);
         out.cost = plateCost({ main: 0, second: 0, waste: 0, slots: grams, slotWaste: waste }, est.seconds, at);
         if (est.manual) out.manual = true;

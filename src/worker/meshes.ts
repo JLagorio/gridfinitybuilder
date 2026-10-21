@@ -88,7 +88,8 @@ async function meshFor(spec: MeshSpec): Promise<MeshData> {
   await text;
   const mesh = spec.kind === 'split' ? splitByRoles(w, base!, spec.base) : buildMesh(w, spec);
   cache.set(spec.key, mesh);
-  volumes.set(spec.key, printedVolume(mesh));
+  // A split part prints like the whole one (its volumes' shared faces aren't walls).
+  volumes.set(spec.key, base && spec.kind === 'split' ? (volumes.get(spec.base.key) ?? printedVolume(base)) : printedVolume(mesh));
   while (volumes.size > MAX_VOLUMES) volumes.delete(volumes.keys().next().value!);
   while (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value!);
   return mesh;
@@ -151,12 +152,19 @@ async function handle(req: WorkerRequest) {
         break;
       }
       case 'print-stats': {
-        const { sliceStats } = await loadWriters();
+        const { sliceStats, withBodyShares } = await loadWriters();
         const out: Record<string, MeshPrintStats> = {};
         let done = 0;
         for (const spec of req.specs) {
           try {
             let s = printStats.get(spec.key);
+            if (!s && spec.kind === 'split') {
+              // The whole part's sections and walls, with the split's share of each colour.
+              const whole = printStats.get(spec.base.key) ?? sliceStats(await meshFor(spec.base));
+              printStats.set(spec.base.key, whole);
+              s = withBodyShares(whole, sliceStats(await meshFor(spec)));
+              printStats.set(spec.key, s);
+            }
             if (!s) {
               s = sliceStats(await meshFor(spec));
               printStats.set(spec.key, s);

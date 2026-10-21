@@ -282,7 +282,8 @@ export function paletteOf(s: Pick<PrintSetup, 'filaments'> & { labelColour?: str
 
 /** Slot `slot`'s filament (1-based), from the palette or the defaults. */
 export function slotFilament(s: Pick<PrintSetup, 'filaments'>, slot: number): FilamentSlot {
-  return paletteOf(s, slot)[slot - 1];
+  const n = Math.max(1, Math.min(MAX_SLOTS, Math.round(slot) || 1));
+  return paletteOf(s, n)[n - 1];
 }
 
 /** "Black", or the colour when it has no name. */

@@ -47,8 +47,9 @@ export function colourChecks(job: PrintJob, setup: PrintSetup, estimates: readon
     for (const p of pl.placements) {
       const part = job.parts[p.key];
       const spec = job.meshes[part.meshKey];
-      if (st === 'height') for (const b of partProfile(setup, part, spec)) set.add(b.slot);
-      else set.add(partSlot(setup, part, spec));
+      // By height and by feature (before it's sliced): the slots of the part's bands.
+      if (st !== 'part') for (const b of partProfile(setup, part, spec)) set.add(b.slot);
+      set.add(partSlot(setup, part, spec));
     }
     return [...set];
   });

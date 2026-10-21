@@ -31,6 +31,10 @@ import type { MeshSpec } from '../project';
  *   floor        the rest: the floor, scoops, filled compartments, pocket fills.
  * Containers: feet, then the shell. Drawers of a drawer unit: the pull (tab or
  * knob, in front of the front face), then the drawer.
+ *
+ * No region boundary runs along one of the part's faces (FACE_GAP): a cut
+ * along a face leaves slivers where two outlines of the same rounded corner
+ * differ by a hair, and those don't survive being written as float32.
  */
 
 /** The role a whole part prints in, from what the mesh is. */
@@ -121,6 +125,14 @@ export function featureSplitBlocked(spec: MeshSpec | undefined): string | null {
   return spec && spec.kind === 'bin' && !splitsByFeature(spec) ? 'prints as one body' : null;
 }
 
+/**
+ * How far region boundaries stay off the part's own faces, mm: a cut along a
+ * face (the cavity wall, the lip's inner edge, a compartment floor) leaves
+ * slivers where the two outlines differ by a hair. Each boundary sits this far
+ * into the air (or the solid) next to the face instead.
+ */
+export const FACE_GAP = 0.3;
+
 interface Region {
   role: ColourRole;
   /** Null: the rest of the part. */
@@ -142,35 +154,40 @@ function binRegions(w: Wasm, s: Scope, opts: BinOptions, cells: Partial<BinCells
   const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => s.t(boxAt(w, x0, y0, z0, x1, y1, z1));
   const prism = (inset: number, r: number, z0: number, z1: number) =>
     s.t(extrudePolygon(w, roundedRectRing(inset, inset, W - inset, D - inset, Math.max(0.3, r)), z0, z1));
-  const cavity = prism(WALL, INNER_RADIUS, -1, top + 1);
+  // The cavity, a little inside its walls (FACE_GAP): what's outside it is the wall.
+  const cavity = prism(WALL + FACE_GAP, INNER_RADIUS - FACE_GAP, -1, top + 1);
   const out: Region[] = [];
 
   // Label tabs: from the tab's front edge to the back wall, down past the support (bin-centered → mesh frame).
   const tan = Math.tan((TAB_SUPPORT_ANGLE_DEG * Math.PI) / 180);
   const tabs = binLabelTabs(o, c).map((t) => {
-    const yBack = D - WALL;
+    // To just off the back wall (the tab is joined to it there).
+    const yBack = D - WALL - 0.02;
     const yf = t.y0 + D / 2;
-    const zb = Math.max(floorTop, t.z - (tan * (yBack - yf) + TAB_TIP_HEIGHT) - 0.3);
-    return box(t.x0 + W / 2, yf - 0.05, zb, t.x1 + W / 2, yBack, t.z + 0.05);
+    const zb = Math.max(floorTop + FACE_GAP, t.z - (tan * (yBack - yf) + TAB_TIP_HEIGHT) - 0.3);
+    // A tab ends at a divider's face: its region goes a little into the divider, off the face.
+    return box(t.x0 + W / 2 - FACE_GAP, yf - 0.05, zb, t.x1 + W / 2 + FACE_GAP, yBack, t.z + 0.05);
   });
   if (tabs.length) out.push({ role: 'labelTabs', m: s.t(s.t(w.Manifold.union(tabs)).intersect(cavity)) });
 
   // Lip: above where it starts, outside its inner tip.
   if (lipZ !== null) {
     const band = box(-1, -1, lipZ, W + 1, D + 1, top + 1);
-    out.push({ role: 'binLip', m: s.t(band.subtract(prism(LIP_DEPTH, BASE_TOP_RADIUS - LIP_DEPTH, lipZ - 1, top + 2))) });
+    out.push({ role: 'binLip', m: s.t(band.subtract(prism(LIP_DEPTH + FACE_GAP, BASE_TOP_RADIUS - LIP_DEPTH - FACE_GAP, lipZ - 1, top + 2))) });
   }
 
   // Dividers: a box around each fixed wall's footprint (cavity frame → mesh frame: + WALL), and the free walls' paths.
   if (o.interior === 'compartments' || !o.interior) {
     const r = binLayout(o, c);
     const m = 0.4;
+    // From a layer above the floor, so the region's bottom isn't the compartments' floor.
+    const z0 = snapZ(floorTop + FACE_GAP);
     const half = DIVIDER / 2 + m;
     const walls: Manifold[] = [];
     for (const wl of r.walls) {
       if (wl.removable) continue;
-      if (wl.orient === 'v') walls.push(box(WALL + wl.pos - half, WALL + wl.start - DIVIDER / 2, floorTop, WALL + wl.pos + half, WALL + wl.end + DIVIDER / 2, top));
-      else walls.push(box(WALL + wl.start - DIVIDER / 2, WALL + wl.pos - half, floorTop, WALL + wl.end + DIVIDER / 2, WALL + wl.pos + half, top));
+      if (wl.orient === 'v') walls.push(box(WALL + wl.pos - half, WALL + wl.start - DIVIDER / 2, z0, WALL + wl.pos + half, WALL + wl.end + DIVIDER / 2, top));
+      else walls.push(box(WALL + wl.start - DIVIDER / 2, WALL + wl.pos - half, z0, WALL + wl.end + DIVIDER / 2, WALL + wl.pos + half, top));
     }
     for (const fw of r.free) {
       for (let i = 1; i < fw.path.length; i++) {
@@ -190,7 +207,7 @@ function binRegions(w: Wasm, s: Scope, opts: BinOptions, cells: Partial<BinCells
         ];
         // Counter-clockwise for the extrusion.
         const area = pts.reduce((t, p, k) => t + p[0] * pts[(k + 1) % 4][1] - pts[(k + 1) % 4][0] * p[1], 0);
-        walls.push(s.t(extrudePolygon(w, area < 0 ? pts.reverse() : pts, floorTop, top)));
+        walls.push(s.t(extrudePolygon(w, area < 0 ? pts.reverse() : pts, z0, top)));
       }
     }
     if (walls.length) out.push({ role: 'dividers', m: s.t(s.t(w.Manifold.union(walls)).intersect(cavity)) });
@@ -203,7 +220,8 @@ function binRegions(w: Wasm, s: Scope, opts: BinOptions, cells: Partial<BinCells
 }
 
 /** Regions of a part, in the order they take their share (see the module comment); null when the part is one role. */
-function regionsOf(w: Wasm, s: Scope, spec: MeshSpec): Region[] | null {
+/** Exported for tests and probes. */
+export function regionsOf(w: Wasm, s: Scope, spec: MeshSpec): Region[] | null {
   if (spec.kind === 'bin') {
     const o = sanitizeBin(spec.opts);
     if (activeContainer(o)) {
@@ -219,7 +237,8 @@ function regionsOf(w: Wasm, s: Scope, spec: MeshSpec): Region[] | null {
     const b = drawerPullBox(spec.spec as DrawerSpec);
     if (!b) return null;
     return [
-      { role: 'containerPull', m: s.t(boxAt(w, b.x0, -BIG, b.z0, b.x1, b.y, b.z1)) },
+      // Off the pull's sides, and a hair in front of the front face.
+      { role: 'containerPull', m: s.t(boxAt(w, b.x0 - FACE_GAP, -BIG, b.z0, b.x1 + FACE_GAP, b.y - 0.05, b.z1)) },
       { role: 'containerFront', m: null },
     ];
   }
@@ -250,7 +269,7 @@ export function splitByRoles(w: Wasm, mesh: MeshData, spec: MeshSpec): MeshData 
         rest = null;
         break;
       }
-      const [inside, outside] = rest.split(r.m);
+      const [inside, outside]: [Manifold, Manifold] = rest.split(r.m);
       s.t(inside);
       s.t(outside);
       if (inside.isEmpty() || inside.volume() < MIN_VOLUME) continue;
