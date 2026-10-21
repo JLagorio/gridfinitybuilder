@@ -1,4 +1,3 @@
-import { zipSync, strToU8 } from 'fflate';
 import {
   DEFAULT_BASEPLATE,
   baseplateHeight,
@@ -62,7 +61,6 @@ import { fitsOnBed, packIntoPlates, packPlates, type PackItem, type Placement } 
 import {
   DEFAULT_SETUP,
   assemblyMap,
-  connectorSteps,
   pieceFootprint,
   planBaseplate,
   type BaseplatePlan,
@@ -70,8 +68,6 @@ import {
   type PrintSetup,
 } from './layout/plan';
 import type { PieceDef } from './layout/split';
-import { writeBambuProject, type BambuPlate } from './export/bambu';
-import { placeTransform, write3MF, type ExportObject } from './export/threemf';
 import { DEFAULT_MOTION, findPrinter } from './printers';
 import { baseplatePicked, baseplatePrinter, jobPrinters, printerNames, printerSetup, roughSeconds, shareOut, usableArea, type ShareItem } from './layout/fleet';
 import { coveredParts, hasPrints, type PrintedRecord } from './printed';
@@ -754,51 +750,6 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
 
 export type MeshLookup = (meshKey: string) => MeshData;
 
-function collectObjects(getMesh: MeshLookup) {
-  const objects: ExportObject[] = [];
-  const index = new Map<string, number>();
-  const objectFor = (meshKey: string, name: string) => {
-    let i = index.get(meshKey);
-    if (i === undefined) {
-      i = objects.length;
-      objects.push({ name, mesh: getMesh(meshKey) });
-      index.set(meshKey, i);
-    }
-    return i;
-  };
-  return { objects, objectFor };
-}
-
-export function exportBambuProject(
-  job: PrintJob,
-  setup: PrintSetup,
-  getMesh: MeshLookup,
-  projectSettings?: string,
-): Uint8Array {
-  const { objects, objectFor } = collectObjects(getMesh);
-  const plates: BambuPlate[] = job.plates.map((pl) => ({
-    name: pl.name,
-    parts: pl.placements.map((p) => {
-      const part = job.parts[p.key];
-      return {
-        object: objectFor(part.meshKey, part.name),
-        name: part.name,
-        transform: placeTransform(p.x, p.y, p.rotated, part.d),
-      };
-    }),
-  }));
-  return writeBambuProject({
-    objects,
-    plates,
-    bedW: setup.bedW,
-    bedD: setup.bedD,
-    projectSettings,
-    title: 'Gridfinity drawer',
-    // Filament 2 prints inlaid label text.
-    filamentColours: setup.labelColour ? [setup.labelColour.toUpperCase()] : undefined,
-  });
-}
-
 /** A bin with tool pockets whose shadow-board floors print in filament 2 (shadowBoard.ts). */
 function binHasShadow(spec: Extract<MeshSpec, { kind: 'bin' }>): boolean {
   const o = sanitizeBin(spec.opts);
@@ -826,21 +777,6 @@ export function usesSecondFilament(job: PrintJob): boolean {
   return false;
 }
 
-export function exportPlate3MF(job: PrintJob, plateIndex: number, getMesh: MeshLookup): Uint8Array {
-  const pl = job.plates[plateIndex];
-  const { objects, objectFor } = collectObjects(getMesh);
-  const items = pl.placements.map((p) => {
-    const part = job.parts[p.key];
-    return { object: objectFor(part.meshKey, part.name), transform: placeTransform(p.x, p.y, p.rotated, part.d) };
-  });
-  return write3MF(objects, items, pl.name);
-}
-
-/** Single part, at the origin — for "download this bin". */
-export function exportSingle3MF(name: string, mesh: MeshData): Uint8Array {
-  return write3MF([{ name, mesh }], [{ object: 0, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] }], name);
-}
-
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'drawer';
 
 /** Assembly maps for every drawer in the job, keyed by file name. */
@@ -862,47 +798,6 @@ export function printerFolder(job: PrintJob, pl: JobPlate): string {
 /** Just the plates for printer `k` (fleet.ts), e.g. for its own Bambu Studio project. */
 export function jobForPrinter(job: PrintJob, k: number): PrintJob {
   return { ...job, plates: job.plates.filter((pl) => (pl.printer ?? 0) === k) };
-}
-
-export function exportPlatesZip(job: PrintJob, setup: PrintSetup, getMesh: MeshLookup): Uint8Array {
-  const files: Record<string, Uint8Array | [Uint8Array, { level: 0 }]> = {};
-  job.plates.forEach((pl, i) => {
-    const name = `${printerFolder(job, pl)}${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.3mf`;
-    files[name] = [exportPlate3MF(job, i, getMesh), { level: 0 }];
-  });
-  for (const [name, text] of Object.entries(assemblyMaps(job))) files[name] = strToU8(text);
-  files['README.txt'] = strToU8(readme(job, setup));
-  return zipSync(files);
-}
-
-function readme(job: PrintJob, setup: PrintSetup) {
-  const printer = findPrinter(setup.printerId);
-  const keys = job.drawers.reduce((t, d) => t + d.connectors.length, 0);
-  // Several printers: each with its plates, which are in a folder named after it.
-  const on = (pl: JobPlate) => (job.printers ? `, on the ${job.printers[pl.printer ?? 0]}` : '');
-  const printers = jobPrinters(setup).map((p, k) => {
-    const mine = job.plates.map((pl, i) => ((pl.printer ?? 0) === k ? i + 1 : 0)).filter(Boolean);
-    return `  ${job.printers?.[k]} (${p.bedW} × ${p.bedD} mm bed, ${p.plateMargin} mm edge margin): ${mine.length ? `plates ${mine.join(', ')}` : 'no plates'}`;
-  });
-  const lines = [
-    'Gridfinity drawer kit generated by Gridfit',
-    '',
-    ...(job.printers ? ['Printers (each one\'s plates are in a folder named after it):', ...printers] : [`Printer: ${printer.name} (${setup.bedW} × ${setup.bedD} mm bed, ${setup.plateMargin} mm edge margin)`]),
-    ...job.drawers.map(
-      (d) =>
-        `${d.name ? `${d.name}: ` : ''}baseplate ${round(d.layout.plateW)} × ${round(d.layout.plateD)} mm, ` +
-        `${d.layout.nx} × ${d.layout.ny} cells, ${d.plan.pieces.length} pieces`,
-    ),
-    '',
-    'Each .3mf file is one print plate with parts already arranged.',
-    'Baseplate pieces are numbered; see the assembly map for where each one goes.',
-    ...(keys ? ['', ...connectorSteps(keys)] : []),
-    ...job.drawers.flatMap((d) => (d.steps.length ? ['', ...(job.drawers.length > 1 ? [`${d.name}:`] : []), ...d.steps] : [])),
-    '',
-    ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}${on(pl)}): ${plateContents(job, pl).join(', ')}`),
-    '',
-  ];
-  return lines.join('\n');
 }
 
 /** Names of the parts on a plate, with connector keys, dividers and label plates counted rather than listed. */

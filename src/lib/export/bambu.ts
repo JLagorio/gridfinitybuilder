@@ -1,5 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
-import { escapeXml, matToString, meshXml, type ExportObject, type Mat12 } from './threemf';
+import { collectObjects, escapeXml, matToString, meshXml, placeTransform, type ExportObject, type Mat12 } from './threemf';
+import type { MeshLookup, PrintJob } from '../project';
+import type { PrintSetup } from '../layout/plan';
 
 /**
  * Bambu Studio project 3MF with one plate per print plate.
@@ -313,4 +315,35 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
     ].join('\n'),
   );
   return zipSync(files, { level: 6 });
+}
+
+/** The whole job as one Bambu Studio project: a plate per print plate. */
+export function exportBambuProject(
+  job: PrintJob,
+  setup: PrintSetup,
+  getMesh: MeshLookup,
+  projectSettings?: string,
+): Uint8Array {
+  const { objects, objectFor } = collectObjects(getMesh);
+  const plates: BambuPlate[] = job.plates.map((pl) => ({
+    name: pl.name,
+    parts: pl.placements.map((p) => {
+      const part = job.parts[p.key];
+      return {
+        object: objectFor(part.meshKey, part.name),
+        name: part.name,
+        transform: placeTransform(p.x, p.y, p.rotated, part.d),
+      };
+    }),
+  }));
+  return writeBambuProject({
+    objects,
+    plates,
+    bedW: setup.bedW,
+    bedD: setup.bedD,
+    projectSettings,
+    title: 'Gridfinity drawer',
+    // Filament 2 prints inlaid label text.
+    filamentColours: setup.labelColour ? [setup.labelColour.toUpperCase()] : undefined,
+  });
 }

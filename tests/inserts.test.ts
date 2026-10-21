@@ -15,7 +15,8 @@ import { cutoutFloor, cutoutStyle, pocketFloorZ, type BinCutout } from '../src/l
 import { BASE_PROFILE_HEIGHT, LIP_DEPTH, LIP_SUPPORT_HEIGHT, WALL } from '../src/lib/geometry/spec';
 import { binBodyHeight } from '../src/lib/geometry/variants';
 import { DEFAULT_BASEPLATE, type BaseplateOptions } from '../src/lib/geometry/baseplate';
-import { DEFAULT_PROJECT, buildMesh, exportBambuProject, pieceMeshKey, planJob, plateContents, usesSecondFilament, type PlacedBin, type ProjectState } from '../src/lib/project';
+import { DEFAULT_PROJECT, buildMesh, pieceMeshKey, planJob, plateContents, usesSecondFilament, type PlacedBin, type ProjectState } from '../src/lib/project';
+import { exportBambuProject } from '../src/lib/export/bambu';
 import { DEFAULT_DRAWER } from '../src/lib/layout/drawer';
 import { billOfMaterials, bomCsv, bomText } from '../src/lib/bom';
 import { cleanCompartmentOptions, layoutKey, resolveLayout, setCompartmentOptions, setWallEnd, setWallProps, uniformLayout, type DividerLayout } from '../src/lib/dividers';

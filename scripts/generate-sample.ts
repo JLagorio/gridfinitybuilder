@@ -9,16 +9,9 @@
 import Module from 'manifold-3d';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import {
-  DEFAULT_BIN,
-  DEFAULT_PROJECT,
-  buildMesh,
-  exportBambuProject,
-  exportPlatesZip,
-  exportSingle3MF,
-  planJob,
-  type ProjectState,
-} from '../src/lib/project';
+import { DEFAULT_BIN, DEFAULT_PROJECT, buildMesh, planJob, type ProjectState } from '../src/lib/project';
+import { exportPlatesZip, exportSingle3MF } from '../src/lib/export/threemf';
+import { exportBambuProject } from '../src/lib/export/bambu';
 import { meshBounds, type MeshData } from '../src/lib/geometry/kernel';
 import { assemblyMap } from '../src/lib/layout/plan';
 import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
