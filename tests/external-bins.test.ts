@@ -26,6 +26,7 @@ import { addExternal, externalBin, setExternal, turnMesh } from '../src/state/ex
 import { copySelection, pasteClipboard, selectBins } from '../src/state/selection';
 import { stackBin } from '../src/state/stacks';
 import { applyPresetToBins, applyTemplateToBins, saveTemplate } from '../src/state/templates';
+import { importMyBins, libraryMeshHashes, myBinsFileText, saveToMyBins, setLibraryStorage } from '../src/state/myBins';
 import { searchIndex } from '../src/lib/panelSearch';
 import { BIN_INDEX } from '../src/components/panelIndex';
 
@@ -362,6 +363,31 @@ describe('project files and share links', () => {
     expect(a.external).toBeUndefined();
     expect(b.external).toEqual({ name: '', color: EXTERNAL_COLORS[0] });
     expect([b.opts.interior, b.opts.heightMode, b.stretch]).toEqual(['compartments', 'units', undefined]);
+  });
+});
+
+describe('in My bins', () => {
+  const memory = () => {
+    const d = new Map<string, string>();
+    return { getItem: (k: string) => d.get(k) ?? null, setItem: (k: string, v: string) => void d.set(k, v) };
+  };
+
+  it('keeps an imported bin’s mesh: counted as used, carried in the exported file, back on import', async () => {
+    setLibraryStorage(memory());
+    s().resetAll();
+    const ref = meshRef();
+    const { id } = addExternal({ name: 'Mesh', unitsX: 2, unitsY: 1, mesh: ref, print: true }) as { id: string };
+    saveToMyBins([id], { name: 'Downloaded' });
+    expect(libraryMeshHashes()).toEqual([ref.hash]);
+    const text = await myBinsFileText();
+    expect(Object.keys(JSON.parse(text).meshes)).toEqual([ref.hash]);
+    // Another browser: an empty library and no mesh.
+    setLibraryStorage(memory());
+    dropImported(ref.hash);
+    expect(importMyBins(text)).toMatchObject({ added: 1 });
+    expect(hasImported(ref.hash)).toBe(true);
+    expect(libraryMeshHashes()).toEqual([ref.hash]);
+    setLibraryStorage(null);
   });
 });
 

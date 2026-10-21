@@ -6,8 +6,8 @@ import { allDrawers, useStore } from './store';
  * Imported meshes (lib/external.ts) for the open project: loaded from this
  * browser's storage into memory whenever a drawer uses one that isn't there
  * (at start-up, after undo, on switching drawers), and, once the first view
- * is up, the stored ones nothing has used for a while forgotten
- * (imported/meshStore.ts cleanupMeshes).
+ * is up, the stored ones nothing (no drawer, no My bins entry) has used for
+ * a while forgotten (imported/meshStore.ts cleanupMeshes).
  */
 
 /** Every mesh hash the bins use. */
@@ -20,5 +20,9 @@ export const projectMeshes = () => meshHashes(allDrawers(useStore.getState()).fl
 
 export function startMeshSync(firstView: Promise<unknown>): void {
   syncMeshes((fn) => useStore.subscribe(fn), projectMeshes);
-  void firstView.then(() => cleanupMeshes(projectMeshes()));
+  // My bins' imported bins count as used too (it loads after the first view anyway).
+  void firstView.then(async () => {
+    const { libraryMeshHashes } = await import('./myBins');
+    return cleanupMeshes([...projectMeshes(), ...libraryMeshHashes()]);
+  });
 }

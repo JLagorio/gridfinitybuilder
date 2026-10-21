@@ -7,6 +7,8 @@ import { usableBeds } from '../lib/bedfit';
 import { newId } from '../lib/bins';
 import { binsWithAbove, stacksOf } from '../lib/stacking';
 import { uniqueTemplateName } from '../lib/templates';
+import { adoptMeshes, meshesFor } from '../lib/imported/meshStore';
+import { meshHashes } from './meshSync';
 import {
   MY_BINS_VERSION,
   cleanEntry,
@@ -328,9 +330,17 @@ export function placeMyBin(id: string, o: { at?: [number, number] | null; room?:
 // Moving between browsers
 // ---------------------------------------------------------------------------
 
-/** The library as a .json file's text. */
-export function myBinsFileText(): string {
-  return JSON.stringify({ ...libraryData(latest().entries), exported: new Date().toISOString() }, null, 2);
+/** Every imported mesh (lib/external.ts) the library's bins use. */
+export function libraryMeshHashes(): string[] {
+  return meshHashes(latest().entries.flatMap((e) => e.bins));
+}
+
+/** The library as a .json file's text, with the meshes of its imported bins (as project files carry them). */
+export async function myBinsFileText(): Promise<string> {
+  const entries = latest().entries;
+  const hashes = libraryMeshHashes();
+  const meshes = hashes.length ? await meshesFor(hashes) : undefined;
+  return JSON.stringify({ ...libraryData(entries), ...(meshes ? { meshes } : {}), exported: new Date().toISOString() }, null, 2);
 }
 
 export interface ImportReport extends MergeReport {
@@ -349,6 +359,8 @@ export function importMyBins(text: string): ImportReport | { error: string } {
   const r = readLibraryData(data);
   if ('error' in r) return r;
   if (r.version > MY_BINS_VERSION) return { error: 'This file comes from a newer version of Gridfit. Reload the page to update, then import it again.' };
+  // Imported bins' meshes first, as for a project file.
+  adoptMeshes((data as { meshes?: unknown }).meshes);
   const incoming = cleanLibrary(r.entries, cleanBins);
   let report: ImportReport = { added: 0, updated: 0, same: 0, older: 0, invalid: r.entries.length - incoming.length };
   const res = change((es) => {

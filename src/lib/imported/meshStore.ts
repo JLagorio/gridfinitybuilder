@@ -184,8 +184,10 @@ export function syncMeshes(subscribe: (fn: () => void) => () => void, hashes: ()
 /**
  * Forget stored meshes nothing has used for KEEP_DAYS days; the ones in
  * `used` are marked used now. Never throws. Returns how many were deleted.
+ * `remove: false` only marks: for a caller that doesn't know every user
+ * (a project file being saved doesn't know My bins).
  */
-export async function cleanupMeshes(used: Iterable<string>, now = Date.now()): Promise<number> {
+export async function cleanupMeshes(used: Iterable<string>, now = Date.now(), remove = true): Promise<number> {
   const keep = new Set(used);
   const n = await tx('readwrite', (s) => {
     let gone = 0;
@@ -198,7 +200,7 @@ export async function cleanupMeshes(used: Iterable<string>, now = Date.now()): P
         const row = c.value as Row;
         if (keep.has(row.hash)) {
           if (now - row.usedAt > DAY) c.update({ ...row, usedAt: now });
-        } else if (now - (row.usedAt || row.savedAt || 0) > KEEP_DAYS * DAY) {
+        } else if (remove && now - (row.usedAt || row.savedAt || 0) > KEEP_DAYS * DAY) {
           c.delete();
           gone++;
         }
@@ -228,14 +230,19 @@ export function projectMeshHashes(file: WithBins & { drawers?: WithBins[] }): st
 export async function projectWithMeshes<T extends WithBins & { drawers?: WithBins[] }>(file: T): Promise<T & { meshes?: Record<string, string> }> {
   const hashes = projectMeshHashes(file);
   if (!hashes.length) return file;
+  return { ...file, meshes: await meshesFor(hashes) };
+}
+
+/** The bytes of these meshes as a file carries them (`meshes`; ones this browser doesn't have are left out), marked used. */
+export async function meshesFor(hashes: string[]): Promise<Record<string, string>> {
   await loadMeshes(hashes);
   const meshes: Record<string, string> = {};
   for (const h of hashes) {
     const m = importedMesh(h);
     if (m) meshes[h] = toBase64Url(deflateSync(encodeMesh(m), { level: 6 }));
   }
-  void cleanupMeshes(hashes);
-  return { ...file, meshes };
+  void cleanupMeshes(hashes, Date.now(), false);
+  return meshes;
 }
 
 /**

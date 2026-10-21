@@ -472,10 +472,10 @@ describe('My bins: editing, files', () => {
     expect(s().templates.find((x) => x.id === t)?.opts.heightUnits).toBe(6);
   });
 
-  it('exports a file and imports it elsewhere, adding only what isn’t there', () => {
+  it('exports a file and imports it elsewhere, adding only what isn’t there', async () => {
     saveToMyBins([addRich()], { name: 'Screws' });
     saveToMyBins([s().addBin(5, 0, 1, 1)], { name: 'Plain' });
-    const text = myBinsFileText();
+    const text = await myBinsFileText();
     expect(JSON.parse(text)).toMatchObject({ kind: 'my-bins', version: MY_BINS_VERSION });
     // Another browser: an empty library.
     const there = new FakeStorage();

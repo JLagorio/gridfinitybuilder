@@ -100,8 +100,8 @@ export function MyBinsSection({ job }: { job: PrintJob }) {
     if (deleteMyBin(e.id)) setNotice({ text: `Deleted “${e.name}” from My bins.`, undo: true });
   };
 
-  const exportFile = () =>
-    downloadBytes(new TextEncoder().encode(myBinsFileText()), `gridfit-my-bins-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+  const exportFile = async () =>
+    downloadBytes(new TextEncoder().encode(await myBinsFileText()), `gridfit-my-bins-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
   const importFile = async (f: File) => {
     const r = importMyBins(await f.text());
     setNotice('error' in r ? { error: true, text: `Couldn’t import ${f.name}: ${r.error}` } : { text: importText(r) });
