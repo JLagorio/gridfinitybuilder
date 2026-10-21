@@ -254,8 +254,9 @@ export function frontLabelInlay(o: FrontOpts, W: number, D: number, zBottom: num
   return inlayStyle(o.frontLabel) && !!planFrontLabel(o, W, D, zBottom);
 }
 
-/** True when the style stands proud of the front face. */
-export const frontLabelRaised = (o: Pick<FrontOpts, 'frontLabel'>) => o.frontLabel === 'raised' || o.frontLabel === 'two-tone';
+/** True when the style stands proud of the front face: a raised front label, or a raised QR code there (qrFront.ts). */
+export const frontLabelRaised = (o: Pick<FrontOpts, 'frontLabel'> & Partial<Pick<FrontOpts, 'qr' | 'qrStyle'>>) =>
+  o.frontLabel === 'raised' || o.frontLabel === 'two-tone' || (o.qr === 'front' && o.qrStyle === 'raised');
 
 /**
  * Bins whose raised front label would touch a bin right in front of them
@@ -263,7 +264,7 @@ export const frontLabelRaised = (o: Pick<FrontOpts, 'frontLabel'>) => o.frontLab
  * that bin is lower than the label. `labelBottom` gives the lowest the bin's
  * label text goes (null: no front label); `height` a bin's overall height.
  */
-export function frontLabelClashes<B extends { id: string; x: number; y: number; opts: Pick<FrontOpts, 'unitsX' | 'unitsY' | 'frontLabel'> }>(
+export function frontLabelClashes<B extends { id: string; x: number; y: number; opts: Pick<FrontOpts, 'unitsX' | 'unitsY' | 'frontLabel'> & Partial<Pick<FrontOpts, 'qr' | 'qrStyle'>> }>(
   bins: B[],
   labelBottom: (b: B) => number | null,
   height: (b: B) => number,

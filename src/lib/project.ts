@@ -15,6 +15,7 @@ import {
   binLabelTexts,
   binLayout,
   binFrontLabel,
+  binFrontQr,
   binSize,
   binTotalHeight,
   binUsesInlay,
@@ -502,14 +503,22 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     // Stacked bins (stacking.ts): each stands on a bin that can hold it, and every stack fits the drawer.
     const stacked = stackPlaces(layout, d.bins);
     for (const msg of stackWarnings(layout, d.bins, room, d.drawer.enclosure === 'wall')) warn(msg);
-    // Raised front labels stand proud of the 0.5 mm gap to the bin in front (a stack in front fills it up to its top).
-    const clashes = frontLabelClashes(
-      d.bins,
-      (x) => offset(frontLabelBottom(binFrontLabel(resolveContentLabels(x.opts, x), binCellsAt(layout, x))), stacked.get(x.id)?.z),
-      (x) => (stacked.get(x.id)?.z ?? 0) + binTotalHeight(x.opts),
-    );
+    // Raised front labels and QR codes stand proud of the 0.5 mm gap to the bin in front (a stack in front fills it up to its top).
+    const raisedLabel = (x: PlacedBin) => x.opts.frontLabel === 'raised' || x.opts.frontLabel === 'two-tone';
+    const raisedQr = (x: PlacedBin) => x.opts.qr === 'front' && x.opts.qrStyle === 'raised';
+    const raisedBottom = (x: PlacedBin) => {
+      const cells = binCellsAt(layout, x);
+      const o = resolveContentLabels(x.opts, x);
+      const zs = [
+        raisedLabel(x) ? frontLabelBottom(binFrontLabel(o, cells)) : null,
+        raisedQr(x) ? (binFrontQr(resolveQrText(o, x, cells), cells)?.box?.z0 ?? null) : null,
+      ].filter((z): z is number => z !== null);
+      return offset(zs.length ? Math.min(...zs) : null, stacked.get(x.id)?.z);
+    };
+    const clashes = frontLabelClashes(d.bins, raisedBottom, (x) => (stacked.get(x.id)?.z ?? 0) + binTotalHeight(x.opts));
     for (const b of clashes) {
-      warn(`Bin ${binLabel(b.opts)}: its raised front label touches the bin in front of it (make it inlaid or engraved).`);
+      const what = raisedLabel(b) && raisedQr(b) ? 'front label and QR code touch' : raisedQr(b) ? 'QR code on the front touches' : 'front label touches';
+      warn(`Bin ${binLabel(b.opts)}: its raised ${what} the bin in front of it (make it inlaid or engraved).`);
     }
     for (const b of d.bins) {
       const key = `${prefix}bin:${b.id}`;

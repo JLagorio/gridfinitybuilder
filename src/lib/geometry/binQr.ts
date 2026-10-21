@@ -21,6 +21,7 @@ import { labelCaptionText, type ContentsSource } from './labelContents';
 import { labelLines } from './labels';
 import { labelPlainText } from './labelIcons';
 import { BASE_PROFILE_HEIGHT, BASE_TOP_RADIUS } from './spec';
+import { hasStretch } from './placement';
 import { QR, qrPayload, qrPlatePart, type QrError, type QrPlatePart, type QrSpot, type QrSurface } from './qrCode';
 import { QR_QUIET, qrFit, type QrFit } from '../qr';
 
@@ -125,7 +126,8 @@ export function binQrPlan(opts: BinOptions, cellsIn?: Partial<BinCells> | null):
     const p = binQrPlate(o, cells)!;
     return { surface: 'plate', where: 'plate', text, spot: p.part?.spot ?? null, error: p.error, fit: p.fit, room: p.side, plate: { auto: !(o.qrSize > 0), face: p.face } };
   }
-  if (hasLid(o) && !isPocketLid(o)) {
+  // A stretched bin gets no lid (its lip isn't the grid's shape).
+  if (hasLid(o) && !isPocketLid(o) && !hasStretch(cells.stretch)) {
     const p = planLidQr(o, cells)!;
     return { surface: 'lid', where: 'stacking lid', text, spot: p.spot, error: p.error, fit: p.fit, room: p.room };
   }

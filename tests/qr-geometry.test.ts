@@ -320,6 +320,25 @@ describe('QR codes in the print job', () => {
     expect(settings).toMatch(/– QR code"\/>\s*<metadata key="matrix" value="[^"]*"\/>\s*<metadata key="extruder" value="2"\/>/);
   });
 
+  it('warns when a raised code on the front wall touches the bin in front of it', () => {
+    const d = { ...DEFAULT_DRAWER, mode: 'grid' as const, gridX: 2, gridY: 2 };
+    const behind = (o: Partial<BinOptions>): PlacedBin => ({ id: 'back', x: 0, y: 1, opts: bin({ unitsX: 2, heightUnits: 6, qr: 'front', qrContent: 'custom', qrText: URL, ...o }) });
+    const front: PlacedBin = { id: 'front', x: 0, y: 0, opts: bin({ unitsX: 2, heightUnits: 6 }) };
+    const warnings = (b: PlacedBin) => planJob({ ...DEFAULT_PROJECT, drawer: d, bins: [b, front] }).warnings.filter((m) => m.includes('touch'));
+    expect(warnings(behind({ qrStyle: 'raised' }))).toEqual(['Bin 2×1×6u: its raised QR code on the front touches the bin in front of it (make it inlaid or engraved).']);
+    expect(warnings(behind({ qrStyle: 'inlaid' }))).toEqual([]);
+    expect(warnings(behind({ qrStyle: 'raised', labelText: 'A', frontLabel: 'raised' }))[0]).toMatch(/raised front label and QR code touch/);
+  });
+
+  it('has no lid to go on when the bin is stretched (it gets none)', () => {
+    const d = { ...DEFAULT_DRAWER, mode: 'drawer' as const, width: 42 + 18.5, depth: 42 + 12.5, fill: 'solid' as const, alignX: 0, alignY: 0 };
+    const b: PlacedBin = { id: 'b', x: 0, y: 0, opts: bin({ lid: true, qr: 'lid', qrContent: 'custom', qrText: URL }), stretch: { right: 10 } };
+    const j = planJob({ ...DEFAULT_PROJECT, drawer: d, bins: [b] });
+    const spec = j.meshes[j.parts['bin:b'].meshKey];
+    expect(spec.kind === 'bin' && binQrPlan(spec.opts, spec.cells)?.error).toBe('no-surface');
+    expect(j.parts['lid:b']).toBeUndefined();
+  });
+
   it('marks second-filament use for codes on lids and the front wall', () => {
     expect(usesSecondFilament(job({ heightUnits: 6, qr: 'front' }))).toBe(true);
     expect(usesSecondFilament(job({ heightUnits: 6, qr: 'front', qrStyle: 'raised' }))).toBe(false);

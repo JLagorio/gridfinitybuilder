@@ -180,7 +180,9 @@ export function QrSection({ opts, onChange, bin, cells, many }: { opts: BinOptio
               hint={
                 opts.qrStyle === 'inlaid'
                   ? 'Dark modules in filament 2 (pick its colour in Print plates); the bin is the light part, so print it in a light colour.'
-                  : 'One colour: only shadows show the modules, so it scans poorly unless lit from the side.'
+                  : `One colour: only shadows show the modules, so it scans poorly unless lit from the side.${
+                      opts.qrStyle === 'raised' && opts.qr === 'front' ? ` Raised ${QR.raise} mm, it touches a bin right in front of it: for the front row or a shelf.` : ''
+                    }`
               }
             />
           </Find>

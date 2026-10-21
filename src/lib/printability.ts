@@ -54,7 +54,7 @@ import { POCKET_LABEL_SIZE, pocketLayout } from './geometry/pockets';
 import { cutoutArea, cutoutStyle } from './geometry/cutouts';
 import { hasLid } from './geometry/lid';
 import { isPocketLid } from './geometry/pocketLid';
-import { stretchOf } from './geometry/placement';
+import { hasStretch, stretchOf } from './geometry/placement';
 import { activeContainer } from './geometry/containers';
 import { DRAWER_UNIT, type DrawerUnitOptions } from './geometry/containers/drawers';
 import { magazineLayout, type DispenserOptions } from './geometry/containers/dispenser';
@@ -439,7 +439,7 @@ function qrChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
       return out;
     }
     if (plan.error === 'no-surface') {
-      const fix: CheckFix = o.lip ? { label: 'Add a stacking lid', bin: { lid: true } } : { label: 'Print it on a plate', bin: { qr: 'plate' } };
+      const fix: CheckFix = o.lip && !hasStretch(cells.stretch) ? { label: 'Add a stacking lid', bin: { lid: true } } : { label: 'Print it on a plate', bin: { qr: 'plate' } };
       out.push({ rule: 'qr-fit', severity: 'warn', part, message: 'The bin has no lid to put the QR code on, so it’s left off.', fix });
       return out;
     }
