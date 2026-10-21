@@ -1,12 +1,14 @@
 import type { FoundCheck } from './printability';
 import type { PlateEstimate } from './estimate';
 import type { PrintSetup } from './layout/plan';
-import { baseSpec, type PrintJob } from './project';
+import { baseSpec, type MeshSpec, type PrintJob } from './project';
 import { findPrinter } from './printers';
-import { LAYERS, paletteOf, printerSlots, slotName, strategyOf, type ColourSetup } from './colours';
+import { LAYERS, luminance, paletteOf, partRoleSlot, printerSlots, slotName, strategyOf, type ColourSetup } from './colours';
 import { partProfile, partSlot } from './colourPlan';
 import { featureSplitBlocked } from './geometry/colourRegions';
-import { binUsesInlay } from './geometry/bin';
+import { binFrontQr, binUsesInlay } from './geometry/bin';
+import { planLidQr } from './geometry/lid';
+import { qrInlaid } from './geometry/qrCode';
 import { filamentFor } from './bom';
 
 /**
@@ -21,6 +23,8 @@ import { filamentFor } from './bom';
  * - colour-band: a colour band thinner than two layers.
  * - colour-inlay: inlaid text by height prints in the band's colour.
  * - colour-material: slots in another material than the project's PLA.
+ * - colour-qr: inlaid QR codes no darker than what they're on (cameras read
+ *   dark modules on a light ground).
  */
 
 /** A plate purging more than this, g, or more than `share` of what it prints, is worth a warning. */
@@ -29,6 +33,19 @@ export const PURGE = { warn: 25, info: 8, share: 0.5 } as const;
 const GROUP = 'Colours';
 
 const colours = (setup: PrintSetup, patch: Partial<ColourSetup>): Partial<PrintSetup> => ({ colours: { ...setup.colours, ...patch } });
+
+/** An inlaid QR code in this part (qrCode.ts): on a QR plate, a stacking or sliding lid, or the bin's front wall. */
+export function inlaidQrIn(spec: MeshSpec | undefined): boolean {
+  if (!spec) return false;
+  if (spec.kind === 'qrPlate') return spec.plate.spot.style === 'inlaid';
+  if (spec.kind === 'lid') return planLidQr(spec.opts, spec.cells)?.spot?.style === 'inlaid';
+  if (spec.kind === 'accessory') return spec.part.type === 'slideLid' && spec.part.qr?.style === 'inlaid';
+  if (spec.kind === 'bin') return qrInlaid(spec.opts) && !!binFrontQr(spec.opts, spec.cells)?.spot;
+  return false;
+}
+
+/** How much darker the QR code's filament must be than what it's on (relative luminance). */
+const QR_CONTRAST = 0.15;
 
 export function colourChecks(job: PrintJob, setup: PrintSetup, estimates: readonly (PlateEstimate | null)[] = []): FoundCheck[] {
   const st = strategyOf(setup);
@@ -133,7 +150,7 @@ export function colourChecks(job: PrintJob, setup: PrintSetup, estimates: readon
     const inlaid = job.plates.some((pl) =>
       pl.placements.some((p) => {
         const spec = baseSpec(job.meshes[job.parts[p.key].meshKey]);
-        return (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) || (spec?.kind === 'label' && spec.plate.style === 'inlaid');
+        return (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) || (spec?.kind === 'label' && spec.plate.style === 'inlaid') || inlaidQrIn(spec);
       }),
     );
     if (inlaid) {
@@ -143,6 +160,39 @@ export function colourChecks(job: PrintJob, setup: PrintSetup, estimates: readon
         part: 'Label text',
         message: 'By height, inlaid label text prints in the colour of its band: slicers only change filament by layer when every part on a plate is in one filament.',
         fix: { label: 'Print by part', setup: colours(setup, { strategy: undefined }) },
+      });
+    }
+  }
+
+  // Inlaid QR codes: dark modules on a light ground (by height they print in the band's colour: colour-inlay).
+  if (st !== 'height') {
+    const pal = paletteOf(setup, 16);
+    const lum = (slot: number) => luminance(pal[slot - 1]?.colour ?? '#808080');
+    let light = 0;
+    let worst: { qr: number; on: number } | null = null;
+    for (const pl of job.plates) {
+      for (const p of pl.placements) {
+        const part = job.parts[p.key];
+        const spec = job.meshes[part.meshKey];
+        if (!inlaidQrIn(baseSpec(spec))) continue;
+        const qr = partRoleSlot(setup, 'qrCode', part.colour);
+        const on = partSlot(setup, part, spec);
+        if (lum(qr) > lum(on) - QR_CONTRAST) {
+          light++;
+          worst ??= { qr, on };
+        }
+      }
+    }
+    if (worst) {
+      const darkest = pal.slice(0, Math.max(2, paletteOf(setup).length)).reduce((b, f, i) => (luminance(f.colour) < lum(b) ? i + 1 : b), 1);
+      add({
+        rule: 'colour-qr',
+        severity: 'info',
+        part: 'QR codes',
+        message: `${light} QR code${light === 1 ? ' prints' : 's print'} in ${slotName(setup, worst.qr)} on ${slotName(setup, worst.on)}${light > 1 ? ' (or the like)' : ''}: no darker than what ${light === 1 ? 'it sits' : 'they sit'} on, and some phone cameras only read dark codes on a light ground. Give QR codes a dark filament, and what they're on a light one.`,
+        ...(lum(darkest) < lum(worst.on) - QR_CONTRAST && darkest !== worst.qr
+          ? { fix: { label: `QR codes in ${slotName(setup, darkest)}`, setup: colours(setup, { roles: { ...setup.colours?.roles, qrCode: darkest } }) } }
+          : {}),
       });
     }
   }

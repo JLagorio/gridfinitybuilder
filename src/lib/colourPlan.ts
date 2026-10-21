@@ -1,5 +1,6 @@
 import { partBands, specRole, splitsByFeature } from './geometry/colourRegions';
 import {
+  INLAY_ROLES,
   bandKey,
   cleanSlot,
   partRoleSlot,
@@ -114,7 +115,7 @@ export function bodySlots(
   if (st === 'height') return roles.map(() => base ?? partSlot(setup, part, spec));
   const main = partSlot(setup, part, spec);
   return roles.map((r, i) => {
-    if (st === 'part') return i > 0 && (r === 'labelText' || r === 'shadow') ? partRoleSlot(setup, r, part.colour) : main;
+    if (st === 'part') return i > 0 && r && INLAY_ROLES.has(r) ? partRoleSlot(setup, r, part.colour) : main;
     return r ? partRoleSlot(setup, r, part.colour) : main;
   });
 }

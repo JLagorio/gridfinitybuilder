@@ -102,6 +102,7 @@ export type ColourRole =
   | 'containerFront'
   | 'containerPull'
   | 'labelText'
+  | 'qrCode'
   | 'shadow';
 
 export type RoleGroup = 'plate' | 'case' | 'bins' | 'labels';
@@ -140,6 +141,7 @@ export const ROLES: readonly RoleDef[] = [
   { id: 'containerFront', group: 'bins', follows: 'containerShell' },
   { id: 'containerPull', group: 'bins', follows: 'containerFront' },
   { id: 'labelText', group: 'labels', slot: 2 },
+  { id: 'qrCode', group: 'labels', follows: 'labelText' },
   { id: 'shadow', group: 'labels', follows: 'labelText' },
 ];
 
@@ -151,8 +153,12 @@ export const isRole = (v: unknown): v is ColourRole => typeof v === 'string' && 
 /** The roles the Basic view shows: plate, bins, labels. */
 export const BASIC_ROLES: readonly ColourRole[] = ['plate', 'binWalls', 'labelText'];
 
-/** Roles a per-bin colour doesn't change: label text keeps its contrast. */
-const KEEPS_OWN: ReadonlySet<ColourRole> = new Set(['labelText', 'shadow']);
+/**
+ * Inlays (today's filament-2 overlays): label text, QR codes, tool shadows.
+ * By part they keep their own filament, and a per-bin colour doesn't change
+ * them, so they keep their contrast.
+ */
+export const INLAY_ROLES: ReadonlySet<ColourRole> = new Set(['labelText', 'qrCode', 'shadow']);
 
 /** Roles a per-drawer baseplate colour changes. */
 const PLATE_ROLES: ReadonlySet<ColourRole> = new Set(['plate', 'plateAccent', 'wallGrid', 'caseShell']);
@@ -343,7 +349,7 @@ export interface ColourOverride {
 
 /** The slot a role of one part prints in: the part's own colour where it applies, else the role's. */
 export function partRoleSlot(s: Pick<PrintSetup, 'colours'>, role: ColourRole, o?: ColourOverride | null): number {
-  if (o?.bin && !KEEPS_OWN.has(role) && !PLATE_ROLES.has(role)) return o.bin;
+  if (o?.bin && !INLAY_ROLES.has(role) && !PLATE_ROLES.has(role)) return o.bin;
   if (o?.plate && PLATE_ROLES.has(role)) return o.plate;
   return roleSlot(s, role);
 }

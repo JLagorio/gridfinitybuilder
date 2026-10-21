@@ -3,6 +3,7 @@ import { BASE_PROFILE_HEIGHT, BASE_TOP_RADIUS, INNER_RADIUS, LIP_DEPTH, LIP_SUPP
 import { binCells, binLabelTabs, binLayout, binSize, binTotalHeight, sanitizeBin, type BinCells, type BinOptions } from './bin';
 import { binBodyHeight, binFloorZ } from './variants';
 import { activeContainer } from './containers/registry';
+import { isVaseBin } from './containers/vase';
 import { drawerPullBox, type DrawerSpec } from './containers/drawers';
 import { boxAt, extrudePolygon, roundedRectRing } from './shapes';
 import { DIVIDER } from './spec';
@@ -52,6 +53,7 @@ export function specRole(spec: MeshSpec | undefined): ColourRole {
     case 'divider':
       return 'dividers';
     case 'label':
+    case 'qrPlate':
       return 'labelTabs';
     case 'accessory':
       return spec.part.type === 'slideLid' ? 'lids' : spec.part.type === 'railPlate' ? 'dividers' : 'inserts';
@@ -64,7 +66,8 @@ export function specRole(spec: MeshSpec | undefined): ColourRole {
       return k === 'lid' ? 'caseLid' : k === 'handle' ? 'caseHandle' : k === 'spacer' ? 'plateAccent' : k === 'cleat' ? 'wallGrid' : 'caseHardware';
     }
     case 'bin':
-      return activeContainer(spec.opts) ? 'containerShell' : 'binWalls';
+      // A vase-mode bin is a bin (its wall is one line), not a container's shell.
+      return activeContainer(spec.opts) && !isVaseBin(spec.opts) ? 'containerShell' : 'binWalls';
   }
   return 'binWalls';
 }
@@ -95,6 +98,8 @@ export function partBands(spec: MeshSpec | undefined): RoleBand[] | null {
   if (spec.kind === 'split') return partBands(spec.base);
   if (spec.kind !== 'bin') return null;
   const o = sanitizeBin(spec.opts);
+  // Vase-mode bins: feet, then the wall (the change comes in the bottom layers, below the spiral).
+  if (isVaseBin(o)) return o.base === 'flat' ? null : [{ role: 'binFeet', z: 0 }, { role: 'binWalls', z: snapZ(BASE_PROFILE_HEIGHT) }];
   if (activeContainer(o)) return o.base === 'flat' ? null : [{ role: 'binFeet', z: 0 }, { role: 'containerShell', z: snapZ(BASE_PROFILE_HEIGHT) }];
   const h = binBandHeights(o);
   const out: RoleBand[] = [];
@@ -115,14 +120,16 @@ export function partBands(spec: MeshSpec | undefined): RoleBand[] | null {
  */
 export function splitsByFeature(spec: MeshSpec | undefined): boolean {
   if (!spec) return false;
-  if (spec.kind === 'bin') return true;
+  if (spec.kind === 'bin') return !isVaseBin(spec.opts);
   if (spec.kind === 'container') return spec.type === 'drawers' && !!drawerPullBox(spec.spec as DrawerSpec);
   return false;
 }
 
 /** Why a part prints as one body in 'feature' mode, or null when it can be split (see splitsByFeature). */
 export function featureSplitBlocked(spec: MeshSpec | undefined): string | null {
-  return spec && spec.kind === 'bin' && !splitsByFeature(spec) ? 'prints as one body' : null;
+  if (spec?.kind === 'imported') return 'an imported mesh prints as it is, in one filament';
+  if (spec?.kind === 'bin' && !splitsByFeature(spec)) return 'a vase-mode bin is one line of wall, in one filament';
+  return null;
 }
 
 /**

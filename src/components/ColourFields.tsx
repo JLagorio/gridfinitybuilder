@@ -20,8 +20,11 @@ function OffNote({ what }: { what: string }) {
 export function PlateColourField() {
   const setup = useStore((s) => s.setup);
   const colour = useStore((s) => s.baseplate.colour);
+  const have = useStore((s) => !!s.drawer.haveBaseplate);
   const setBaseplate = useStore((s) => s.setBaseplate);
   if (!setup.colours?.on) return <OffNote what="Baseplate colour" />;
+  // "Just bins": the baseplate is there already, so nothing of it prints.
+  if (have) return <p className="muted small">Baseplate colour: you have this drawer&apos;s baseplate, so it isn&apos;t printed and takes no filament.</p>;
   return (
     <SlotPicker
       label="Baseplate colour"
@@ -34,8 +37,8 @@ export function PlateColourField() {
   );
 }
 
-/** A bin's own colour (BinOptions.colour): its body, lid, dividers and trays, not its label text. */
-export function BinColourField({ opts, onChange }: { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void }) {
+/** A bin's own colour (BinOptions.colour): its body, lid, dividers and trays, not its label text or QR code. */
+export function BinColourField({ opts, onChange, hint }: { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void; hint?: string }) {
   const setup = useStore((s) => s.setup);
   if (!setup.colours?.on) return <OffNote what="Bin colour" />;
   return (
@@ -45,7 +48,7 @@ export function BinColourField({ opts, onChange }: { opts: BinOptions; onChange:
       value={opts.colour}
       unset={`As set (${slotName(setup, roleSlot(setup, 'binWalls'))})`}
       onChange={(colour) => onChange({ colour })}
-      hint="Colour-code bins by what's in them. Label text keeps the label colour."
+      hint={hint ?? "Colour-code bins by what's in them. Label text and QR codes keep their colour."}
     />
   );
 }

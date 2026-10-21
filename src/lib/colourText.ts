@@ -26,6 +26,7 @@ export const ROLE_TEXT: Record<ColourRole, { label: string; note: string; basic?
   containerFront: { label: 'Drawer fronts', note: 'The drawers of a drawer unit.' },
   containerPull: { label: 'Pulls', note: 'Tab and knob pulls on drawer fronts.' },
   labelText: { label: 'Label text & icons', note: 'Inlaid and two-tone label text and icons.', basic: 'Labels' },
+  qrCode: { label: 'QR codes', note: 'The dark modules of inlaid QR codes: keep them darker than what they’re on.' },
   shadow: { label: 'Tool shadows', note: 'Two-colour floors of tool pockets.' },
 };
 

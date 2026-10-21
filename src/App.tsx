@@ -330,7 +330,8 @@ export default function App() {
   const tints = useMemo(() => {
     if (!state.setup.colours?.on) return undefined;
     const pal = paletteOf(state.setup, 16);
-    return new Map(state.bins.filter((b) => b.opts.colour).map((b) => [b.id, pal[b.opts.colour! - 1]?.colour ?? '#808080']));
+    // Bins that print in a colour of their own (not ones you already have).
+    return new Map(state.bins.filter((b) => b.opts.colour && (!b.external || b.external.print)).map((b) => [b.id, pal[b.opts.colour! - 1]?.colour ?? '#808080']));
   }, [state.setup, state.bins]);
 
   // Delete / Backspace removes the selected bins (unless typing in a field).

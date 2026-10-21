@@ -1,6 +1,6 @@
 import type { PrintJob } from '../lib/project';
 import type { LegendEntry, ScenePaint } from './Viewer';
-import { ROLES, paletteOf, partRoleSlot, slotLabel, strategyOf, type ColourRole } from '../lib/colours';
+import { INLAY_ROLES, ROLES, paletteOf, partRoleSlot, slotLabel, strategyOf, type ColourRole } from '../lib/colours';
 import { partProfile, partSlot } from '../lib/colourPlan';
 
 /**
@@ -28,8 +28,8 @@ export function partPaint(job: PrintJob, partKey: string): ScenePaint | undefine
   }
   const roles: Partial<Record<ColourRole, string>> = {};
   for (const r of ROLES) {
-    // By part, only the label text and shadow floors keep a colour of their own.
-    if (st === 'part' && r.id !== 'labelText' && r.id !== 'shadow') continue;
+    // By part, only the inlays (label text, QR codes, shadow floors) keep a colour of their own.
+    if (st === 'part' && !INLAY_ROLES.has(r.id)) continue;
     roles[r.id] = col(partRoleSlot(cs, r.id, part.colour));
   }
   return { main: col(partSlot(cs, part, spec)), roles };

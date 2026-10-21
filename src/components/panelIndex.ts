@@ -402,7 +402,7 @@ export const PRINT_INDEX: FindEntry[] = [
         id: 'colour-roles',
         title: 'What prints in which colour',
         when: 'with several colours on',
-        words: ['surface', 'role', 'baseplate colour', 'baseplate color', 'bin colour', 'bin color', 'walls', 'feet', 'floor', 'lip', 'dividers', 'label tabs', 'lids', 'case', 'shadow'],
+        words: ['surface', 'role', 'baseplate colour', 'baseplate color', 'bin colour', 'bin color', 'walls', 'feet', 'floor', 'lip', 'dividers', 'label tabs', 'lids', 'case', 'shadow', 'qr', 'qr code'],
       },
       { id: 'colour-palette', title: 'Filament slots', when: 'with several colours on', words: ['palette', 'swatch', 'slot', 'spool', 'material', 'pla', 'petg', 'tpu', 'price', 'name'] },
       { id: 'colour-slots', title: 'Slots the printer feeds', when: 'with several colours on', basic: false, words: ['ams', 'ams lite', 'toolhead', 'toolchanger', 'slots', 'by hand', 'manual'] },

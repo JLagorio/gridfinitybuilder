@@ -119,7 +119,8 @@ export type CheckRule =
   | 'colour-mixed'
   | 'colour-slots'
   | 'colour-material'
-  | 'colour-inlay';
+  | 'colour-inlay'
+  | 'colour-qr';
 
 /** A one-click change that fixes a check: options of the bin it is about, its drawer's baseplate, or the drawer. */
 export interface CheckFix {
