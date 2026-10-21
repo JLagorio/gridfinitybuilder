@@ -497,6 +497,8 @@ export const ENCLOSURE_PARTS: Record<EnclosurePartKind, [string, string]> = {
   cleat: ['Wall cleat', 'Wall cleats'],
   skadisPlate: ['Joint plate', 'Joint plates'],
   skadisSpacer: ['Standoff spacer', 'Standoff spacers'],
+  skadisRim: ['Frame strip', 'Frame strips'],
+  skadisHang: ['Part to hang it from', 'Parts to hang it from'],
 };
 
 /** "2 hinge pins". */

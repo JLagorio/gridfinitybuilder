@@ -5,7 +5,7 @@
  */
 import type { Vec2 } from '../geometry/kernel';
 import type { SkadisOptions, SkadisPlan } from '../geometry/skadis';
-import { boardSlots, tileOutlines } from '../geometry/skadis';
+import { boardSlots, plannedSkadis, rimWidth, skadisBehind, skadisGap, tileOutlines } from '../geometry/skadis';
 import { mountBox, partBounds, printedSize, siteAt, viewTurn } from './mount';
 import { attachmentDef, type AttachmentLayout, type MountCtx, type MountKind, type PlacedAttachment } from './index';
 
@@ -24,17 +24,21 @@ export interface WallBoard {
   outlines: Vec2[][];
   /** Height of the board's front in the drawer view (it lies face up on its standoffs). */
   front: number;
+  /** A frame's rim round the edge: how wide, mm (attachments keep off it). */
+  rim?: number;
 }
 
-export function wallBoard(plan: SkadisPlan, o: SkadisOptions): WallBoard {
-  const behind = o.standoff === 'none' ? 0 : o.depth;
+export function wallBoard(plan: SkadisPlan, raw: SkadisOptions): WallBoard {
+  const o = plannedSkadis(raw);
+  const behind = skadisBehind(o);
   return {
     W: o.width,
     H: o.height,
     slots: boardSlots(plan, o),
-    ctx: { t: o.thickness, slotW: o.slotW, slotL: o.slotL, pitch: 20, fit: o.fit, behind },
+    ctx: { t: o.thickness, slotW: o.slotW, slotL: o.slotL, pitch: o.pitch, fit: o.fit, behind },
     outlines: tileOutlines(plan, o),
-    front: behind + o.thickness,
+    front: skadisGap(o) + o.thickness,
+    ...(o.frame !== 'none' ? { rim: rimWidth(o) } : {}),
   };
 }
 
@@ -144,6 +148,10 @@ export function placeAttachments(list: readonly PlacedAttachment[], board: WallB
       if (p.x0 < q.x1 - 0.5 && q.x0 < p.x1 - 0.5 && p.y0 < q.y1 - 0.5 && q.y0 < p.y1 - 0.5) warnings.push(`${p.name} and ${q.name} overlap.`);
     }
   }
+  // A frame's rim stands proud of the front round the edge.
+  const r = board.rim ?? 0;
+  for (const p of placed)
+    if (r && (p.x0 < r || p.y0 < r || p.x1 > board.W - r || p.y1 > board.H - r)) warnings.push(`${p.name} stands on the frame: move it in from the edge.`);
   // A clip needs room behind the board for its barbs.
   if (placed.some((p) => p.mounts.some((m) => m.kind === 'clip' || m.kind === 'hook'))) {
     const reach = Math.max(...placed.flatMap((p) => p.mounts.map((m) => -mountBox(m.kind, [0, 0], board.ctx).z0 - board.ctx.t)));

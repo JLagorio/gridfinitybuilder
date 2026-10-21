@@ -1,6 +1,6 @@
 import { useStore, useUnits } from '../state/store';
 import { Group, LengthInput, NumberInput, Section, Segmented, TextInput, Toggle } from './fields';
-import { DEFAULT_SKADIS, headDiameter, sanitizeSkadis, type SkadisOptions } from '../lib/geometry/skadis';
+import { DEFAULT_SKADIS, headDiameter, ledChannel, plannedSkadis, rimWidth, sanitizeSkadis, type SkadisOptions, type SkadisZone } from '../lib/geometry/skadis';
 import type { PrintJob } from '../lib/project';
 import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
@@ -15,7 +15,8 @@ const IKEA_BOARDS: [number, number][] = [
 
 /**
  * The Drawer tab of a Skådis board (drawer.enclosure 'skadis'): the space on
- * the wall, the tiles, how they join and hang, and the board itself.
+ * the wall, the tiles and their slot pattern, how they join and hang, and the
+ * board itself (its slots, frame and solid zones).
  */
 export function SkadisPanel({ job }: { job: PrintJob }) {
   const drawer = useStore((s) => s.drawer);
@@ -33,6 +34,25 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
   const changed = (...keys: (keyof SkadisOptions)[]) => keys.some((k) => o[k] !== DEFAULT_SKADIS[k]);
   const tiles = info?.tiles ?? 0;
   const several = tiles > 1;
+  // As planned: the dense step, the LED frame's border, what a board that isn't screwed up rests on.
+  const p = plannedSkadis(o);
+  const setZone = (i: number, z: Partial<SkadisZone>) => set({ zones: o.zones.map((q, k) => (k === i ? { ...q, ...z } : q)) });
+  const step = `${p.pitch} mm`;
+
+  const patternHint = {
+    skadis: `Columns ${step} apart, the slots in a column ${2 * p.pitch} mm apart, every other column ${step} higher.${p.pitch === 20 ? ' IKEA’s own hooks fit.' : ' At 20 mm IKEA’s own hooks fit.'}`,
+    square: `A square grid, slots ${2 * p.pitch} mm apart both ways (openGrid-like at a 14 mm step).${hex ? '' : ' Seams run between the slots and cost none.'}`,
+    dense: `A slot every ${step}: twice the slots, so attachments sit at any step.${p.pitch > o.pitch ? ` The step is ${step} at least, 4 mm longer than a slot.` : ''}`,
+  }[o.pattern];
+  const hangHint = {
+    screws: 'Screwed to the wall through countersunk holes in the board.',
+    cleat: `A strip screwed to the back along the top drops over its twin on the wall, both ${p.depth} mm thick; their 45° edges pull the board in. Lift it to take it down.`,
+    door: `Hooks over the top of the door, screwed to the back; 2.5 mm over the door, so it still shuts. The board is ${p.depth} mm off the door.`,
+    desk:
+      o.deskMount === 'stand'
+        ? 'Feet its bottom edge stands in, screwed to the back.'
+        : 'Clamps on the desk’s back edge, screwed to the back of the board, an M6 bolt each.',
+  }[o.hang];
 
   const joinHint = !several
     ? 'The board prints in one piece: no seams to join.'
@@ -61,7 +81,11 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
           {have && (
             <div className="wall-actions">
               {IKEA_BOARDS.map(([bw, bh]) => (
-                <button key={`${bw}x${bh}`} onClick={() => set({ width: bw, height: bh, thickness: 5.1, slotW: 5.1, slotL: 15.2 })} title={`IKEA SKÅDIS ${bw / 10} × ${bh / 10} cm`}>
+                <button
+                  key={`${bw}x${bh}`}
+                  onClick={() => set({ width: bw, height: bh, thickness: 5.1, slotW: 5.1, slotL: 15.2, pattern: 'skadis', pitch: 20 })}
+                  title={`IKEA SKÅDIS ${bw / 10} × ${bh / 10} cm`}
+                >
                   IKEA {bw / 10} × {bh / 10}
                 </button>
               ))}
@@ -94,9 +118,35 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             onChange={(shape) => set({ shape })}
             hint={
               hex
-                ? 'Each hexagon is a board of its own, screwed up in its left and right corners.'
-                : 'Upright seams take the place of a column of slots; level seams run through a row of slots, so the slots they cut are whole once the tiles are together.'
+                ? 'Each hexagon is a board of its own, screwed up in its left and right corners. Frames, zones and other ways to hang are for rectangles.'
+                : o.pattern === 'square'
+                  ? 'Seams run along the empty columns and rows between the slots.'
+                  : o.pattern === 'dense'
+                    ? 'Seams take the place of a column or a row of slots.'
+                    : 'Upright seams take the place of a column of slots; level seams run through a row of slots, so the slots they cut are whole once the tiles are together.'
             }
+          />
+        </Find>
+        <Find id="skadis-pattern" set={changed('pattern', 'pitch')}>
+          <Segmented
+            label="Slot pattern"
+            value={o.pattern}
+            options={[
+              { value: 'skadis', label: 'Skådis', title: 'IKEA’s: every other column a step higher' },
+              { value: 'square', label: 'Square', title: 'A square grid, two steps apart both ways' },
+              { value: 'dense', label: 'Dense', title: 'A slot at every step: attachments sit anywhere' },
+            ]}
+            onChange={(pattern) => set({ pattern })}
+            hint={patternHint}
+          />
+          <NumberInput
+            label="Step"
+            value={o.pitch}
+            min={14}
+            max={40}
+            step={0.5}
+            onChange={(pitch) => set({ pitch })}
+            hint="The lattice the slots are on (IKEA: 20 mm). Attachments’ mounts are two steps apart."
           />
         </Find>
         {hex && (
@@ -162,35 +212,87 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             />
           </Find>
         )}
-        <Find id="skadis-standoff">
-          <Segmented
-            label="Off the wall on"
-            value={o.standoff}
-            options={[
-              { value: 'posts', label: 'Posts', title: 'Posts printed on the back of each tile, around the screw holes' },
-              { value: 'spacers', label: 'Spacers', title: 'Separate printed tubes behind each screw hole' },
-              { value: 'none', label: 'Nothing', title: 'Flat on its back: for a frame or spacers you have' },
-            ]}
-            onChange={(standoff) => set({ standoff })}
-            hint={
-              o.standoff === 'none'
-                ? 'Hooks need room behind the board: hang it on a frame or battens.'
-                : o.standoff === 'posts'
-                  ? 'The posts print with the tiles, standing up from the back: no supports, nothing to lose.'
-                  : 'The board prints flat and quick; the spacers print with the joint plates.'
-            }
-          />
-          {o.standoff !== 'none' && (
-            <LengthInput
-              label="Gap behind the board"
-              value={o.depth}
-              min={5}
-              max={60}
-              onChange={(depth) => set({ depth })}
-              hint="Room for the hooks to clip behind: IKEA’s are fine with 15–20 mm."
+        {!hex && (
+          <Find id="skadis-hang" set={changed('hang')}>
+            <Segmented
+              label="Hang it with"
+              value={o.hang}
+              options={[
+                { value: 'screws', label: 'Screws', title: 'Screwed to the wall through the board' },
+                { value: 'cleat', label: 'French cleat', title: 'A cleat on the back drops over one on the wall' },
+                { value: 'door', label: 'Door hooks', title: 'Hooks over the top of a door' },
+                { value: 'desk', label: 'On a desk', title: 'Feet it stands in, or clamps on the desk’s edge' },
+              ]}
+              onChange={(hang) => set({ hang })}
+              hint={hangHint}
             />
-          )}
-        </Find>
+            {o.hang === 'door' && (
+              <LengthInput
+                label="Door thickness"
+                value={o.doorThickness}
+                min={20}
+                max={70}
+                onChange={(doorThickness) => set({ doorThickness })}
+                hint="Most inside doors are 35–45 mm."
+              />
+            )}
+            {o.hang === 'desk' && (
+              <div className="row2">
+                <Segmented
+                  label="On the desk"
+                  value={o.deskMount}
+                  options={[
+                    { value: 'stand', label: 'Feet', title: 'Two feet (three on a wide board) it stands in' },
+                    { value: 'clamp', label: 'Clamps', title: 'Clamps on the desk’s back edge' },
+                  ]}
+                  onChange={(deskMount) => set({ deskMount })}
+                />
+                {o.deskMount === 'clamp' && (
+                  <LengthInput label="Desk thickness" value={o.deskThickness} min={10} max={80} onChange={(deskThickness) => set({ deskThickness })} />
+                )}
+              </div>
+            )}
+          </Find>
+        )}
+        {p.hang !== 'desk' && (
+          <Find id="skadis-standoff">
+            <Segmented
+              label="Off the wall on"
+              value={p.standoff}
+              options={[
+                { value: 'posts', label: 'Posts', title: 'Posts printed on the back of each tile, around the screw holes' },
+                ...(p.hang === 'screws' ? [{ value: 'spacers' as const, label: 'Spacers', title: 'Separate printed tubes behind each screw hole' }] : []),
+                { value: 'none', label: 'Nothing', title: 'Flat on its back: for a frame or spacers you have' },
+              ]}
+              onChange={(standoff) => set({ standoff })}
+              hint={
+                p.hang !== 'screws'
+                  ? p.standoff === 'posts'
+                    ? 'Posts on the back, with no screws: rests that hold the bottom as far out as the top.'
+                    : 'Nothing holds the bottom out: the board leans in.'
+                  : o.standoff === 'none'
+                    ? 'Hooks need room behind the board: hang it on a frame or battens.'
+                    : o.standoff === 'posts'
+                      ? 'The posts print with the tiles, standing up from the back: no supports, nothing to lose.'
+                      : 'The board prints flat and quick; the spacers print with the joint plates.'
+              }
+            />
+            {(p.standoff !== 'none' || p.hang !== 'screws') && (
+              <LengthInput
+                label={p.hang === 'cleat' ? 'Cleat thickness' : 'Gap behind the board'}
+                value={o.depth}
+                min={5}
+                max={60}
+                onChange={(depth) => set({ depth })}
+                hint={
+                  p.depth > o.depth
+                    ? `${p.hang === 'cleat' ? 'A cleat needs' : 'Door hooks need'} ${p.depth} mm or more: it is ${p.depth} mm.`
+                    : 'Room for the hooks to clip behind: IKEA’s are fine with 15–20 mm.'
+                }
+              />
+            )}
+          </Find>
+        )}
         <Find id="skadis-screws">
           <div className="row2">
             <NumberInput
@@ -202,12 +304,22 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
               onChange={(screw) => set({ screw })}
               hint={`Countersunk, head ⌀${fmt(headDiameter(o.screw))}.`}
             />
-            {!hex && <LengthInput label="Screws about every" value={o.mountEvery} min={60} max={600} onChange={(mountEvery) => set({ mountEvery })} />}
+            {!hex && p.hang !== 'desk' && (
+              <LengthInput
+                label={p.hang === 'screws' ? 'Screws about every' : 'Rests about every'}
+                value={o.mountEvery}
+                min={60}
+                max={600}
+                onChange={(mountEvery) => set({ mountEvery })}
+              />
+            )}
           </div>
           <div className="field-hint">
             {hex
               ? `Two per hexagon, in its side corners${o.standoff === 'spacers' ? ', plus one in each other corner to hold its spacer' : ''}.`
-              : 'Every tile is screwed near its corners, and between them about this far apart; always where there is no slot.'}
+              : p.hang === 'screws'
+                ? 'Every tile is screwed near its corners, and between them about this far apart; always where there is no slot.'
+                : `The screws go through the board from the front into the ${p.hang === 'cleat' ? 'cleat' : p.hang === 'door' ? 'hooks' : o.deskMount === 'stand' ? 'feet' : 'clamps'}, where there is no slot; the wall takes no screws${p.hang === 'cleat' ? ' but the wall cleat’s' : ''}.`}
           </div>
         </Find>
       </Section>
@@ -245,8 +357,93 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             <LengthInput label="Border" value={o.border} min={4} max={60} onChange={(border) => set({ border })} />
             <LengthInput label="Corner radius" value={o.corner} min={0} max={30} onChange={(corner) => set({ corner })} />
           </div>
-          <div className="field-hint">The least plastic between a slot and the outside edge.</div>
+          <div className="field-hint">
+            The least plastic between a slot and the outside edge.{p.border > o.border ? ` ${p.border} mm with the LED channel.` : ''}
+          </div>
         </Find>
+        {!hex && (
+          <Find id="skadis-frame" set={changed('frame')}>
+            <Segmented
+              label="Frame"
+              value={o.frame}
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'rim', label: 'Rim', title: 'A rim proud of the front all round' },
+                { value: 'led', label: 'Rim & LED', title: 'The rim, and a channel round the back edge for an LED strip facing the wall' },
+              ]}
+              onChange={(frame) => set({ frame })}
+              hint={
+                o.frame === 'none'
+                  ? 'A rim round the front edge makes the board look finished.'
+                  : `Strips ${rimWidth(p)} mm wide on the front border, printed flat and pressed on with pins (tiles print face down, so a rim can’t be part of them); they cross the seams, so they help hold the tiles in line.${
+                      o.frame === 'led'
+                        ? ` The tiles get a ${ledChannel(p)} mm channel round the back edge for the LED strip, LEDs toward the wall for a glow round the board, deeper at the corners for the wire joints.`
+                        : ''
+                    }`
+              }
+            />
+            {o.frame !== 'none' && (
+              <div className="row2">
+                <LengthInput label="Rim height" value={o.rimHeight} min={2} max={12} onChange={(rimHeight) => set({ rimHeight })} hint="Proud of the front." />
+                {o.frame === 'led' && (
+                  <Segmented
+                    label="LED strip"
+                    value={o.ledWidth}
+                    options={[8, 10, 12].map((v) => ({ value: v, label: `${v} mm` }))}
+                    onChange={(ledWidth) => set({ ledWidth })}
+                  />
+                )}
+              </div>
+            )}
+          </Find>
+        )}
+        {!hex && (
+          <Find id="skadis-zones" set={o.zones.length > 0}>
+            <div className="field-label">Solid zones</div>
+            {o.zones.map((z, i) => (
+              <div key={i} className="indent">
+                <Segmented
+                  label={`Zone ${i + 1}`}
+                  value={z.kind}
+                  options={[
+                    { value: 'blank', label: 'Blank' },
+                    { value: 'text', label: 'Text', title: 'Engraved in the front' },
+                    { value: 'magnets', label: 'Magnets', title: '6 × 2 mm magnets glued in from the back' },
+                  ]}
+                  onChange={(kind) => setZone(i, { kind })}
+                />
+                <div className="row2">
+                  <LengthInput label="From the left" value={z.x} min={0} max={o.width} onChange={(x) => setZone(i, { x })} />
+                  <LengthInput label="Up from the bottom" value={z.y} min={0} max={o.height} onChange={(y) => setZone(i, { y })} />
+                </div>
+                <div className="row2">
+                  <LengthInput label="Width" value={z.w} min={5} max={o.width} onChange={(w) => setZone(i, { w })} />
+                  <LengthInput label="Height" value={z.h} min={5} max={o.height} onChange={(h) => setZone(i, { h })} />
+                </div>
+                {z.kind === 'text' && <TextInput label="Text" value={z.text} placeholder="SCREWDRIVERS" onChange={(text) => setZone(i, { text })} />}
+                <div className="button-row">
+                  <button className="danger" onClick={() => set({ zones: o.zones.filter((_, k) => k !== i) })}>
+                    Remove zone {i + 1}
+                  </button>
+                </div>
+              </div>
+            ))}
+            <div className="button-row">
+              <button
+                onClick={() =>
+                  set({ zones: [...o.zones, { x: Math.max(0, o.width / 2 - 60), y: Math.max(0, o.height / 2 - 30), w: 120, h: 60, kind: 'blank', text: '' }] })
+                }
+              >
+                Add a zone
+              </button>
+            </div>
+            <div className="field-hint">
+              Areas without slots, snapped to whole columns and rows (attachments can’t use them): blank, with text engraved in the front, or with 6 × 2 mm
+              magnets glued in from the back for knives and bits{info?.magnets ? ` (${info.magnets} magnets)` : ''}. One across a seam is split between the
+              tiles.
+            </div>
+          </Find>
+        )}
         {!hex && (
           <Find id="skadis-numbers" set={changed('numbers')}>
             <Toggle

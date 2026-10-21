@@ -24,6 +24,11 @@ export const SKADIS_INDEX: FindEntry[] = [
         words: ['tile', 'tiles', 'rectangle', 'square', 'hexagon', 'hex', 'honeycomb', 'split', 'seam', 'pieces', 'shape'],
       },
       { id: 'skadis-hex', title: 'Hexagon size', when: 'with hexagon tiles', words: ['hexagon', 'hex', 'size', 'width', 'gap', 'spacing', 'corner to corner'] },
+      {
+        id: 'skadis-pattern',
+        title: 'Slot pattern',
+        words: ['pattern', 'square', 'grid', 'dense', 'staggered', 'opengrid', 'open grid', 'pitch', 'step', 'spacing', 'lattice', 'every', '28 mm'],
+      },
     ],
   },
   {
@@ -36,6 +41,12 @@ export const SKADIS_INDEX: FindEntry[] = [
         title: 'Join the tiles with',
         when: 'with rectangle tiles',
         words: ['join', 'joint', 'connector', 'connect', 'dovetail', 'tab', 'puzzle', 'plate', 'pin', 'interlock', 'glue', 'seam'],
+      },
+      {
+        id: 'skadis-hang',
+        title: 'Hang it with',
+        when: 'with rectangle tiles',
+        words: ['hang', 'french cleat', 'cleat', 'door', 'over the door', 'door hook', 'desk', 'stand', 'feet', 'foot', 'clamp', 'no screws', 'renter'],
       },
       {
         id: 'skadis-standoff',
@@ -53,6 +64,18 @@ export const SKADIS_INDEX: FindEntry[] = [
       { id: 'skadis-slots', title: 'Slots', words: ['slot', 'hole', 'width', 'length', 'tolerance', 'loose', 'tight', 'chamfer', '5 x 15'], basic: false },
       { id: 'skadis-thickness', title: 'Thickness', words: ['thick', 'thickness', 'thin', '5 mm', 'stiff'], basic: false },
       { id: 'skadis-edge', title: 'Border and corners', words: ['border', 'edge', 'margin', 'corner', 'radius', 'round'], basic: false },
+      {
+        id: 'skadis-frame',
+        title: 'Frame',
+        when: 'with rectangle tiles',
+        words: ['frame', 'rim', 'finished', 'trim', 'led', 'light', 'backlight', 'glow', 'led strip', 'lighting'],
+      },
+      {
+        id: 'skadis-zones',
+        title: 'Solid zones',
+        when: 'with rectangle tiles',
+        words: ['zone', 'solid', 'blank', 'no slots', 'text', 'label', 'engrave', 'name', 'magnet', 'magnetic', 'knife', 'knives', 'bits'],
+      },
       {
         id: 'skadis-numbers',
         title: 'Tile numbers',

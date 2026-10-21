@@ -40,9 +40,9 @@ function fontReady() {
     .catch((e) => console.warn('Label font unavailable:', e)));
 }
 
-/** Baseplate pieces (without case walls), Skådis tiles and connector keys never have text: they don't wait for the font. */
+/** Baseplate pieces (without case walls), Skådis tiles (but those with text zones) and connector keys have no text: they don't wait for the font. */
 const textFree = (spec: MeshSpec): boolean =>
-  (spec.kind === 'piece' && (!spec.enclosure || spec.enclosure.kind === 'skadis')) ||
+  (spec.kind === 'piece' && (!spec.enclosure || (spec.enclosure.kind === 'skadis' && !spec.enclosure.tile.text))) ||
   spec.kind === 'key' ||
   spec.kind === 'imported' ||
   (spec.kind === 'split' && textFree(spec.base));
