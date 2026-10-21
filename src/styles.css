@@ -2115,3 +2115,443 @@ details.option-group[open] summary > span::before {
   border-radius: var(--radius);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
+
+/* ==========================================================================
+   Inventory: find box, "What's in it", drawer map, contents list
+   (FindBox.tsx, ContentsField.tsx, DrawerMap.tsx, InventoryList.tsx)
+   ========================================================================== */
+
+.faint {
+  color: var(--faint);
+}
+
+/* ---------- find box (top bar) ---------- */
+
+/* The box keeps its place in the bar; while open the field grows over its neighbours. */
+.find-box {
+  position: relative;
+  flex-shrink: 0;
+  width: 200px;
+  height: 30px;
+}
+.find-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 41;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--faint);
+  cursor: text;
+  transition:
+    width 0.15s,
+    border-color 0.12s;
+}
+.find-input:hover {
+  border-color: var(--border-strong);
+}
+.find-box.open .find-input {
+  width: 320px;
+  border-color: var(--accent);
+  color: var(--muted);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+/* Narrower windows: just the magnifier until it's opened (click, Ctrl/Cmd K or /). */
+@media (max-width: 1599px) {
+  .find-box {
+    width: 30px;
+  }
+  .find-box:not(.open) .find-input {
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .find-box:not(.open) .find-input input,
+  .find-box:not(.open) .find-keys {
+    position: absolute;
+    width: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+.find-input input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.find-input input::-webkit-search-cancel-button {
+  filter: invert(0.7);
+}
+.find-input input::placeholder {
+  color: var(--faint);
+}
+.find-keys {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.find-keys kbd {
+  font-size: 10.5px;
+  padding: 0 4px;
+  color: var(--faint);
+}
+.find-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: min(460px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.find-results ul {
+  list-style: none;
+  margin: 0;
+  padding: 5px;
+  overflow: auto;
+}
+.find-results li {
+  padding: 6px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.find-results li.active {
+  background: var(--accent-soft);
+}
+.find-path {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.find-path > span:not(.find-pos):not(.find-kind):not(.find-sep) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.find-pos,
+.find-kind {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+}
+.find-kind {
+  margin-left: auto;
+  border-color: transparent;
+  background: var(--panel-3);
+}
+.find-text {
+  margin-top: 1px;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.find-text mark {
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+.find-text small {
+  color: var(--faint);
+}
+.find-comp {
+  color: var(--muted);
+}
+.find-empty {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.find-foot {
+  display: flex;
+  gap: 14px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--faint);
+}
+.find-foot kbd {
+  font-size: 10px;
+  padding: 0 4px;
+  margin-right: 2px;
+}
+/* A bin found by search pulses for a moment in the layout view. */
+@keyframes find-pulse {
+  0%,
+  100% {
+    stroke-width: 1.4;
+  }
+  50% {
+    stroke-width: 5;
+    fill: rgba(245, 165, 36, 0.55);
+  }
+}
+.find-flash .ge-bin.selected rect {
+  animation: find-pulse 0.6s ease-in-out 3;
+}
+
+/* ---------- "What's in it" (bin sidebar) ---------- */
+
+.contents-fields {
+  margin: 2px 0 4px;
+}
+.input-wrap.contents-text textarea {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  padding: 7px 9px;
+  outline: none;
+  resize: vertical;
+  line-height: 1.4;
+}
+.contents-fields .field-hint kbd {
+  font-size: 10.5px;
+  padding: 0 4px;
+}
+.contents-comps .contents-comp {
+  margin: 0 -6px 6px;
+  padding: 4px 6px 6px;
+  border-radius: 6px;
+}
+.contents-comp.active {
+  background: var(--accent-soft);
+}
+.contents-comp-name {
+  display: block;
+  margin-bottom: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+}
+.contents-comp-name:hover:not(:disabled) {
+  background: none;
+  color: var(--accent);
+}
+.contents-comp.active .contents-comp-name {
+  color: var(--accent);
+}
+
+/* ---------- contents list ---------- */
+
+.overlay-card.inventory {
+  width: min(980px, 100%);
+  max-width: min(980px, 100%);
+}
+.inventory-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.inventory-tools .input-wrap {
+  flex: 1;
+  min-width: 180px;
+}
+.inventory-tools .input-wrap input {
+  padding: 7px 9px;
+}
+.inventory-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.inventory-drawer h3 {
+  margin: 16px 0 6px;
+  font-size: 13px;
+}
+.inventory-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12.5px;
+}
+.inventory-table th:nth-child(1) {
+  width: 64px;
+}
+.inventory-table th:nth-child(2) {
+  width: 30%;
+}
+.inventory-table th:nth-child(3) {
+  width: 22%;
+}
+.inventory-table td {
+  overflow-wrap: anywhere;
+}
+.inventory-table th,
+.inventory-table td {
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.inventory-table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.inventory-table tbody tr {
+  cursor: pointer;
+}
+.inventory-table tbody tr:hover,
+.inventory-table tbody tr:focus-visible {
+  background: var(--panel-2);
+  outline: none;
+}
+.inventory-table td:nth-child(2) {
+  color: var(--muted);
+}
+.inventory-pos {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ---------- drawer map ---------- */
+
+.gfm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: rgba(5, 6, 8, 0.82);
+}
+.gfm-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.gfm-toolbar h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.gfm-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+.gfm-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.gfm-sheet {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 22px;
+}
+.gfm-page {
+  flex-shrink: 0;
+  background: #fff;
+  color: #1d2025;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+.gfm-page.fit {
+  width: min(1100px, 100%);
+  padding: 14px;
+}
+.gfm-page.fit svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.gfm-page.actual {
+  max-width: none;
+}
+.gfm-page.actual svg {
+  display: block;
+}
+.gfm-page-head {
+  height: 8mm;
+  font-size: 9pt;
+  line-height: 1.3;
+  color: #4a515c;
+}
+
+@media print {
+  body.gfm-open {
+    background: #fff;
+  }
+  body.gfm-open > #root {
+    display: none !important;
+  }
+  body.gfm-open .gfm-overlay {
+    position: static;
+    display: block;
+    background: none;
+  }
+  .gfm-toolbar {
+    display: none !important;
+  }
+  .gfm-sheet {
+    display: block;
+    overflow: visible;
+    padding: 0;
+  }
+  .gfm-page {
+    box-shadow: none;
+    break-after: page;
+    break-inside: avoid;
+  }
+  .gfm-page:last-child {
+    break-after: auto;
+  }
+  .gfm-page.landscape {
+    page: gfm-landscape;
+  }
+  .gfm-page.fit,
+  .gfm-page.actual {
+    width: auto !important;
+    padding: 0 !important;
+  }
+  .gfm-page.fit svg {
+    width: auto;
+    height: auto;
+    margin: 0 auto;
+  }
+}

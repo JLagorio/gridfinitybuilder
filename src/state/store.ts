@@ -11,6 +11,7 @@ import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, t
 import { cleanTemplates, mergeTemplates, type BinTemplate } from '../lib/templates';
 import { trackHistory, type Snapshot } from './history';
 import { cleanTool, cleanTools, mergeTools, removeToolFromBins, syncToolInBins, type Tool } from '../lib/tools';
+import { carryContents, cleanBinContents, sanitizeContents, withCompContents, withContents } from '../lib/inventory';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -85,6 +86,13 @@ export interface Store extends ProjectState {
   renameDrawer(id: string, name: string): void;
   switchDrawer(id: string): void;
   setPrintScope(scope: PrintScope, pick?: string[]): void;
+  // Contents (src/lib/inventory.ts): not geometry, so no mesh is rebuilt.
+  /** What's in a bin of the active drawer, one item per line ('' clears it). */
+  setBinContents(id: string, contents: string): void;
+  /** What's in one compartment of a bin of the active drawer. */
+  setCompContents(id: string, compKey: string, contents: string): void;
+  /** Go to a bin found by search: switch to its drawer, open the Bins tab and select it (just the drawer without a bin). */
+  locateBin(drawerId: string, binId?: string | null): void;
   resetAll(): void;
   /** Replace the project with one loaded from a saved file. */
   loadProject(data: unknown): void;
@@ -135,8 +143,12 @@ function cleanBins(bins: unknown): PlacedBin[] {
     x: Math.round(Number(b?.x) || 0),
     y: Math.round(Number(b?.y) || 0),
     opts: sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
+    ...cleanBinContents(b),
   }));
 }
+
+/** Patches that can change a bin's compartments (and so where per-compartment contents belong). */
+const WALL_KEYS = ['layout', 'divX', 'divY', 'unitsX', 'unitsY'] as const;
 
 function cleanDoc(d: Partial<DrawerDoc>, i: number): DrawerDoc {
   return {
@@ -249,16 +261,18 @@ export const useStore = create<Store>()(
       },
       updateBin: (id, patch) =>
         set((s) => ({
-          bins: s.bins.map((b) =>
-            b.id === id
-              ? {
-                  ...b,
-                  x: patch.x ?? b.x,
-                  y: patch.y ?? b.y,
-                  opts: patch.opts ? sanitizeBin({ ...b.opts, ...patch.opts }) : b.opts,
-                }
-              : b,
-          ),
+          bins: s.bins.map((b) => {
+            if (b.id !== id) return b;
+            const next = {
+              ...b,
+              x: patch.x ?? b.x,
+              y: patch.y ?? b.y,
+              opts: patch.opts ? sanitizeBin({ ...b.opts, ...patch.opts }) : b.opts,
+            };
+            // Per-compartment contents follow their compartments when the walls change.
+            const walls = b.compContents && patch.opts && WALL_KEYS.some((k) => k in patch.opts!);
+            return walls ? carryContents({ ...next, opts: b.opts }, next.opts) : next;
+          }),
         })),
       removeBin: (id) =>
         set((s) => ({
@@ -378,6 +392,23 @@ export const useStore = create<Store>()(
         });
       },
       setPrintScope: (printScope, pick) => set((s) => ({ printScope, printPick: pick ?? s.printPick, ui: { ...s.ui, plate: -1 } })),
+
+      setBinContents: (id, contents) => {
+        const b = get().bins.find((x) => x.id === id);
+        if (!b || sanitizeContents(contents) === (b.contents ?? '')) return;
+        set((s) => ({ bins: s.bins.map((x) => (x.id === id ? withContents(x, contents) : x)) }));
+      },
+      setCompContents: (id, compKey, contents) => {
+        const b = get().bins.find((x) => x.id === id);
+        if (!b || !compKey || sanitizeContents(contents) === (b.compContents?.[compKey] ?? '')) return;
+        set((s) => ({ bins: s.bins.map((x) => (x.id === id ? withCompContents(x, compKey, contents) : x)) }));
+      },
+      locateBin: (drawerId, binId) => {
+        if (!get().drawers.some((d) => d.id === drawerId)) return;
+        get().switchDrawer(drawerId);
+        const s = get();
+        if (binId && s.bins.some((b) => b.id === binId)) s.setUI({ tab: 'bins', binPane: 'drawer', selectedBinId: binId });
+      },
 
       // Tool library. Placed bins hold copies of a tool, refreshed here in every drawer.
       addTool: (t) => {

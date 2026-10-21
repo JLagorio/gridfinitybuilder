@@ -6,6 +6,7 @@ import { CellMaskEditor } from './CellMaskEditor';
 import { effectiveSize } from '../lib/layout/drawer';
 import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
+import { DrawerMapButton } from './DrawerMap';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
@@ -417,6 +418,7 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
 
       <Section title="View">
         <Toggle label="Spread pieces apart" checked={explode} onChange={(v) => setUI({ explode: v })} />
+        <DrawerMapButton label="Drawer map (print / SVG)…" />
       </Section>
     </>
   );

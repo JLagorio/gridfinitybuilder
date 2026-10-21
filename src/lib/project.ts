@@ -59,6 +59,13 @@ export interface PlacedBin {
   x: number;
   y: number;
   opts: BinOptions;
+  /**
+   * What's in the bin, one item per line (src/lib/inventory.ts). Not geometry:
+   * kept out of `opts`, so it never changes a mesh key.
+   */
+  contents?: string;
+  /** What's in each compartment, keyed like `opts.layout.comps` (compartment keys). */
+  compContents?: Record<string, string>;
 }
 
 /** One drawer's design. */
