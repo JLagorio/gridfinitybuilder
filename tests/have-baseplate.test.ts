@@ -18,6 +18,8 @@ import { drawerRoom } from '../src/lib/autofill';
 import { decodeProject, encodeProject } from '../src/lib/share';
 import { haveWhat, notPrintedNote, nothingToPrint } from '../src/lib/haveBaseplate';
 import { allDrawers, history, printDrawers, projectFile, useStore } from '../src/state/store';
+import { searchIndex } from '../src/lib/panelSearch';
+import { BIN_INDEX, DRAWER_INDEX, PRINT_INDEX } from '../src/components/panelIndex';
 
 const bin = (id: string, x: number, y: number, ux: number, uy: number, o: Partial<BinOptions> = {}): PlacedBin => ({
   id,
@@ -386,5 +388,19 @@ describe('why a job has nothing to print', () => {
 
   it('a layout is the same with the flag (bins sit on the same cells)', () => {
     expect(computeLayout({ ...DEFAULT_DRAWER, haveBaseplate: true })).toEqual(computeLayout(DEFAULT_DRAWER));
+  });
+});
+
+describe('settings search', () => {
+  const hits = (index: typeof DRAWER_INDEX, q: string) => [...(searchIndex(index, q)?.hits ?? [])];
+
+  it('finds Just bins by what people would type', () => {
+    for (const q of ['already have', 'just bins', 'bins only', 'skip baseplate', 'existing baseplate', 'own', 'have the plate', 'no baseplate'])
+      expect(hits(DRAWER_INDEX, q), q).toContain('print-what');
+    for (const q of ['just bins', 'already have', 'skip baseplate']) expect(hits(PRINT_INDEX, q), q).toContain('export-what');
+    expect(hits(PRINT_INDEX, 'selected bins')).toContain('print-drawers');
+    expect(hits(BIN_INDEX, 'print these')).toContain('actions');
+    // Nothing else moved: a baseplate magnet is still just the plate's magnet pockets.
+    expect(hits(DRAWER_INDEX, 'baseplate magnet')).toEqual(['bp-magnets']);
   });
 });
