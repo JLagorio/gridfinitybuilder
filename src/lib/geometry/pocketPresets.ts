@@ -124,7 +124,7 @@ export interface Cartridge {
   label: string;
   kind: CartridgeKind;
   rim: number;
-  /** Case body just above the rim; null where it is narrower than the rim (rimmed and most rimless cases). */
+  /** Case body just above the rim, where it matters; null when the rim is the widest (rimmed cases, and the rest where only the rim is listed). */
   base: number | null;
   /** Case length (shotshells: the nominal shell length). */
   caseL: number;
@@ -200,7 +200,7 @@ export const CARTRIDGES: Cartridge[] = inOrder([
     ['22lr', '.22 LR', 0.278, 0.226, 0.613, 1.0, ['22', '.22', '22lr', '.22lr', '22 lr', '22 long rifle', 'long rifle']],
     ['22wmr', '.22 WMR / .17 HMR', 0.3, null, 1.058, 1.35, ['22wmr', '22 wmr', '22 mag', '22 magnum', 'wmr', '17hmr', '17 hmr', '.17', 'hmr']],
   ]),
-  // 5.7×28: C.I.P. (SAAMI lists it since 2021 with the same case).
+  // 5.7×28: C.I.P.
   ...cartridges('pistol', 'mm', [['57x28', '5.7×28', 7.8, 7.95, 28.9, 40.5, ['5.7', '57', '5.7x28', '5.7x28mm', '57x28', 'fn 5.7', 'five-seven']]]),
   // Pistol and revolver, SAAMI.
   ...cartridges('pistol', 'in', [
