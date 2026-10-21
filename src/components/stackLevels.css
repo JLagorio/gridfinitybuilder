@@ -1,0 +1,89 @@
+/* ==========================================================================
+   Stacked bins (StackLevels.tsx, StackSection.tsx)
+   ========================================================================== */
+
+/* With a level switcher, the grid editor stacks it above the drawer grid. */
+.grid-editor:has(> .ge-levels) {
+  flex-direction: column;
+  gap: 6px;
+}
+.grid-editor:has(> .ge-levels) svg {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.ge-levels {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ge-levels .segmented button {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.ge-levels-hint {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* A floor bin whose stack doesn't reach the shown level. */
+.ge-bin.under rect {
+  fill: rgba(58, 66, 82, 0.25);
+  stroke-dasharray: 2 2;
+}
+.ge-bin.under text,
+.ge-bin.under line {
+  opacity: 0.35;
+}
+.ge-bin.under.selected rect {
+  fill: rgba(245, 165, 36, 0.12);
+}
+
+/* Above .ge-bin rect and its selected / too-big / find-flash looks. */
+.grid-editor .ge-bin g.ge-stack-badge rect {
+  fill: var(--accent);
+  stroke: none;
+}
+.grid-editor .ge-bin g.ge-stack-badge text {
+  fill: var(--accent-ink);
+  font-weight: 700;
+  opacity: 1;
+}
+
+.stack-levels {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 3px;
+  margin: 2px 0 8px;
+}
+.stack-level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 9px;
+  font-size: 12px;
+  background: var(--panel-2);
+}
+.stack-level.current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.stack-level b {
+  min-width: 52px;
+  font-weight: 600;
+}
+.stack-level span {
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Contents list: "B3 · level 2" stays on one line. */
+.inventory-pos {
+  white-space: nowrap;
+}

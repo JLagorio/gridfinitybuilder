@@ -276,3 +276,61 @@ describe('3MF output', () => {
     expect(plateOrigin(3, 4, 256, 256)).toEqual([256 * 1.2, -256 * 1.2]);
   });
 });
+
+describe('multi-filament parts', () => {
+  const box = (x: number): MeshData => {
+    const v = [0, 0, 0, 10, 0, 0, 10, 20, 0, 0, 20, 0, 0, 0, 5, 10, 0, 5, 10, 20, 5, 0, 20, 5].map((c, i) => (i % 3 === 0 ? c + x : c));
+    const t = [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7];
+    return { positions: new Float32Array(v), indices: new Uint32Array(t) };
+  };
+  const withText: MeshData = { ...box(0), overlays: [{ name: 'label', filament: 2, ...box(20) }] };
+
+  it('Bambu project writes overlays as extra parts on filament 2 and grows the filament list', () => {
+    const settings = JSON.stringify({
+      filament_diameter: ['1.75'],
+      filament_colour: ['#00AE42'],
+      filament_settings_id: ['Bambu PLA Basic @BBL P2S'],
+      nozzle_diameter: ['0.4'],
+      different_settings_to_system: ['', '', ''],
+    });
+    const files = unzipSync(
+      writeBambuProject({
+        objects: [{ name: 'bin', mesh: withText }],
+        plates: [{ name: 'A', parts: [{ object: 0, name: 'bin', transform: placeTransform(10, 10, false, 20) }] }],
+        bedW: 256,
+        bedD: 256,
+        projectSettings: settings,
+      }),
+    );
+    const obj = strFromU8(files['3D/Objects/object_1.model']);
+    expect(obj.match(/<object id=/g)?.length).toBe(2);
+    const model = strFromU8(files['3D/3dmodel.model']);
+    expect(model.match(/<component /g)?.length).toBe(2);
+    const cfg = strFromU8(files['Metadata/model_settings.config']);
+    expect(cfg.match(/<part /g)?.length).toBe(2);
+    expect(cfg).toContain('<metadata key="extruder" value="2"/>');
+    const ps = JSON.parse(strFromU8(files['Metadata/project_settings.config']));
+    expect(ps.filament_diameter).toEqual(['1.75', '1.75']);
+    expect(ps.filament_colour).toEqual(['#00AE42', '#161616']);
+    expect(ps.filament_settings_id).toHaveLength(2);
+    expect(ps.nozzle_diameter).toEqual(['0.4']);
+    expect(ps.different_settings_to_system).toHaveLength(4);
+  });
+
+  it('plain 3MF writes a part and its overlays as one object with a volume each (PrusaSlicer keeps them in place)', () => {
+    const files = unzipSync(write3MF([{ name: 'bin', mesh: withText }], [{ object: 0, transform: placeTransform(0, 0, false, 20) }]));
+    const model = strFromU8(files['3D/3dmodel.model']);
+    expect(model.match(/<object /g)?.length).toBe(1);
+    expect(model.match(/<triangle /g)?.length).toBe(24);
+    expect(model).toContain('<metadata name="slic3rpe:Version3mf">1</metadata>');
+    const cfg = strFromU8(files['Metadata/Slic3r_PE_model.config']);
+    expect(cfg).toContain('<volume firstid="0" lastid="11">');
+    expect(cfg).toContain('<volume firstid="12" lastid="23">');
+    expect(cfg).toContain('key="extruder" value="2"');
+  });
+
+  it('translateMesh moves overlays too', () => {
+    const m = translateMesh({ ...box(0), overlays: [{ name: 'l', filament: 2, ...box(0) }] }, 5, 0, 0);
+    expect(m.overlays![0].positions[0]).toBe(5);
+  });
+});

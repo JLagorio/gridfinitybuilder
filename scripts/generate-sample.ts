@@ -9,24 +9,21 @@
 import Module from 'manifold-3d';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import {
-  DEFAULT_BIN,
-  DEFAULT_PROJECT,
-  buildMesh,
-  exportBambuProject,
-  exportPlatesZip,
-  exportSingle3MF,
-  planJob,
-  type ProjectState,
-} from '../src/lib/project';
+import { DEFAULT_BIN, DEFAULT_PROJECT, buildMesh, planJob, type ProjectState } from '../src/lib/project';
+import { exportPlatesZip, exportSingle3MF } from '../src/lib/export/threemf';
+import { exportBambuProject } from '../src/lib/export/bambu';
 import { meshBounds, type MeshData } from '../src/lib/geometry/kernel';
 import { assemblyMap } from '../src/lib/layout/plan';
 import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
+import { POCKET_PRESETS, presetFields } from '../src/lib/geometry/pockets';
+import { FONT_URL_PATH, registerFont } from '../src/lib/geometry/text';
 
 const outDir = resolve(process.argv[2] ?? 'out');
 mkdirSync(outDir, { recursive: true });
 
 const wasm = await Module();
+const fontBytes = readFileSync(resolve('public', FONT_URL_PATH));
+registerFont(fontBytes.buffer.slice(fontBytes.byteOffset, fontBytes.byteOffset + fontBytes.byteLength));
 wasm.setup();
 
 const state: ProjectState = {
@@ -38,6 +35,28 @@ const state: ProjectState = {
     { id: 'c', x: 3, y: 0, opts: { ...DEFAULT_BIN, unitsX: 3, unitsY: 2, heightUnits: 4, divX: 3, divY: 2, label: 'left' } },
     { id: 'd', x: 6, y: 0, opts: { ...DEFAULT_BIN, unitsX: 1, unitsY: 1, heightUnits: 2, lip: false, holes: 'both' } },
     { id: 'e', x: 7, y: 0, opts: { ...DEFAULT_BIN, unitsX: 1, unitsY: 1, heightUnits: 6, holes: 'magnets' } },
+    // Variants: bases, lips, holes, height modes, walls, pocket grid, lids.
+    {
+      id: 'f',
+      x: 0,
+      y: 2,
+      opts: { ...DEFAULT_BIN, unitsX: 2, unitsY: 2, base: 'lite', lipNotches: true, holes: 'both', holePrintable: true, holeCorners: true, divX: 2, lid: true },
+    },
+    { id: 'g', x: 2, y: 2, opts: { ...DEFAULT_BIN, base: 'flat', cutoutWalls: 'f', heightUnits: 4 } },
+    {
+      id: 'h',
+      x: 3,
+      y: 2,
+      opts: { ...DEFAULT_BIN, unitsX: 2, heightUnits: 6, interior: 'pockets', lipStyle: 'reduced', ...presetFields(POCKET_PRESETS[0]) },
+    },
+    {
+      id: 'i',
+      x: 5,
+      y: 2,
+      opts: { ...DEFAULT_BIN, unitsX: 2, heightMode: 'external', heightMm: 40, holes: 'refined', slideWalls: 'f', lid: true },
+    },
+    { id: 'j', x: 7, y: 2, opts: { ...DEFAULT_BIN, base: 'efficient', holes: 'magnets', holeCrushRibs: true, holeChamfer: true } },
+    { id: 'k', x: 8, y: 2, opts: { ...DEFAULT_BIN, unitsX: 2, unitsY: 2, heightUnits: 8, patternWalls: 'fblr', divX: 2 } },
   ],
 };
 
@@ -83,7 +102,7 @@ const getMesh = (k: string) => cache.get(k)!;
 const settingsPath = resolve('public/bambu', `${state.setup.printerId}.json`);
 const settings = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf8') : undefined;
 writeFileSync(join(outDir, 'drawer-bambu-project.3mf'), exportBambuProject(job, state.setup, getMesh, settings));
-writeFileSync(join(outDir, 'drawer-plates.zip'), exportPlatesZip(job, state, getMesh));
+writeFileSync(join(outDir, 'drawer-plates.zip'), exportPlatesZip(job, state.setup, getMesh));
 const firstBin = Object.values(job.meshes).find((m) => m.kind === 'bin')!;
 writeFileSync(join(outDir, 'single-bin.3mf'), exportSingle3MF('bin', getMesh(firstBin.key)));
 console.log(`Done in ${Math.round(performance.now() - t0)} ms → ${outDir}`);
@@ -99,6 +118,51 @@ job.plates.forEach((pl, i) =>
       : '',
   ),
 );
+// Baseplate variants: every style and joint, magnet extras and blocked cells,
+// on a drawer with partial edge cells. One plates zip per variant.
+const variantDrawer = { ...state.drawer, width: 320, depth: 270, fill: 'fit' as const, alignX: 0, alignY: 0 };
+const variants: [string, Partial<ProjectState['drawer']>, Partial<ProjectState['baseplate']>][] = [
+  ['weighted-puzzle', {}, { style: 'weighted', connector: 'puzzle', magnets: true, magnetRibs: true, magnetChamfer: true, magnetSlot: true }],
+  ['skeleton-screws', {}, { style: 'skeletonized', connector: 'screw', magnets: true, screws: true }],
+  [
+    'solid-pins-cutout',
+    { mask: ['0,0', '3,2', '7,5'], maskStyle: 'void' },
+    { style: 'solid', connector: 'pin', magnets: true, magnetSide: 'bottom', magnetChamfer: true },
+  ],
+  ['frame-bowtie-filled', { mask: ['2,2', '2,3'], maskStyle: 'solid' }, { connector: 'bowtie', screws: true }],
+  ['frame-inserts', {}, { connector: 'screw', screwFastener: 'insert', magnets: true, magnetRelease: true, bottomChamfer: 0.6 }],
+];
+const variantDir = join(outDir, 'baseplate-variants');
+mkdirSync(variantDir, { recursive: true });
+for (const [name, d, bp] of variants) {
+  const t = performance.now();
+  const v: ProjectState = {
+    ...state,
+    drawer: { ...variantDrawer, ...d },
+    baseplate: { ...DEFAULT_BASEPLATE, ...bp },
+    bins: [],
+    include: { baseplate: true, bins: false },
+  };
+  const vjob = planJob(v);
+  const meshes = new Map<string, MeshData>();
+  const bad: string[] = [];
+  for (const [key, spec] of Object.entries(vjob.meshes)) {
+    const mesh = buildMesh(wasm, spec);
+    meshes.set(key, mesh);
+    const m = wasm.Manifold.ofMesh(new wasm.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
+    const parts = m.decompose();
+    if (m.status() !== 'NoError' || parts.length !== 1) bad.push(`${spec.kind === 'piece' ? `piece ${spec.piece.id}` : spec.key}: ${m.status()}, ${parts.length} components`);
+    parts.forEach((p) => p.delete());
+    m.delete();
+  }
+  if (bad.length) ok = false;
+  writeFileSync(join(variantDir, `${name}.zip`), exportPlatesZip(vjob, v.setup, (k) => meshes.get(k)!));
+  console.log(
+    `Variant ${name}: ${vjob.layout.nx}×${vjob.layout.ny} cells, ${vjob.plan.pieces.length} pieces, ${vjob.sites.length} joints, ` +
+      `${vjob.plates.length} plates, ${Math.round(performance.now() - t)} ms${bad.length ? ` — BAD: ${bad.join('; ')}` : ''}`,
+  );
+}
+
 if (!ok) {
   console.error('Some meshes are invalid or have more than one component');
   process.exit(1);

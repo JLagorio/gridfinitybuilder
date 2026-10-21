@@ -1,3 +1,29 @@
+/**
+ * What the print-time estimate needs to know about a printer (estimate.ts).
+ * Bambu models: from their "0.20 mm Standard" and "Bambu PLA Basic" presets;
+ * others: their usual limits, applied to the same process.
+ */
+export interface PrinterMotion {
+  /** Fastest print or travel move, mm/s (caps the process speeds). */
+  speed: number;
+  /** Highest print acceleration, mm/s² (caps the process accelerations). */
+  accel: number;
+  /** PLA volumetric flow the hotend keeps up with, mm³/s. */
+  flow: number;
+  /** Start sequence: heating, levelling, purge line, s. */
+  prepare: number;
+  /** One filament swap for a colour change: cut, unload, load, flush, s. */
+  swap: number;
+  /** Typical power draw while printing PLA, W. */
+  watts: number;
+}
+
+/** Bambu X1/P1-class motion: 0.20 mm Standard with PLA Basic (21 mm³/s). */
+const BAMBU_MOTION: PrinterMotion = { speed: 500, accel: 10000, flow: 21, prepare: 330, swap: 75, watts: 105 };
+
+/** For printers without data of their own. */
+export const DEFAULT_MOTION: PrinterMotion = { speed: 300, accel: 5000, flow: 15, prepare: 240, swap: 90, watts: 120 };
+
 export interface PrinterProfile {
   id: string;
   name: string;
@@ -6,12 +32,34 @@ export interface PrinterProfile {
   bedW: number;
   bedD: number;
   maxH: number;
-  /** Bed areas no part may overlap (bed coordinates, front-left = 0,0), mm. */
-  bedExclude?: BedRect[];
   /** Bambu Studio printer preset, when the project export can target it directly. */
   bambu?: { printerModel: string; printerPreset: string; processPreset: string; filamentPreset: string };
+  /** Speeds and limits for the print-time estimate (DEFAULT_MOTION when missing). */
+  motion?: PrinterMotion;
+  /**
+   * Filament slots it usually feeds by itself: an AMS (4 per unit), a
+   * multi-material unit or toolheads. 1 (or unset): one spool, colour changes
+   * by hand. The setup's `filamentSlots` overrides it (colours.ts).
+   */
+  slots?: number;
+  /**
+   * Gantry clearance for printing parts one after another ("by object"), from
+   * Bambu Studio's machine profile: how far apart parts must stand
+   * (`extruder_clearance_max_radius`) and how tall all but the last may be when
+   * they share a row (`extruder_clearance_height_to_rod`). Vase-mode bins share
+   * a plate only on printers that have it (layout/spiral.ts).
+   */
+  sequential?: SequentialClearance;
+  /**
+   * Bed areas no part may stand in, from Bambu Studio's machine profile
+   * (`bed_exclude_area`): it refuses to slice a plate with a part there. The
+   * packer keeps parts (and the part spacing) clear of them, and a part only
+   * fits the printer if it fits beside or behind them (layout/pack.ts, bedfit.ts).
+   */
+  exclude?: readonly BedRect[];
 }
 
+/** A rectangle on the bed, mm, bed front-left = 0,0 (Bambu Studio's bed coordinates). */
 export interface BedRect {
   x: number;
   y: number;
@@ -19,13 +67,35 @@ export interface BedRect {
   d: number;
 }
 
-/**
- * Bambu Studio's `bed_exclude_area` for the X1 and P1 series. Slicing fails if any
- * part's footprint overlaps it ("… is too close to exclusion area").
- */
-const X1_P1_EXCLUDE: BedRect[] = [{ x: 0, y: 0, w: 18, d: 28 }];
+export interface SequentialClearance {
+  /** Least distance between two parts, mm. */
+  radius: number;
+  /** Tallest part that may be printed before another, mm. */
+  rod: number;
+}
 
-const bambu = (model: string, w = 256, d = 256, h = 256, id?: string): PrinterProfile => ({
+/** X1 / P1 class "by object" clearance. */
+const X1_CLEARANCE: SequentialClearance = { radius: 68, rod: 34 };
+
+/**
+ * X1 / P1 class exclusion area: the front-left corner, 18 × 28 mm
+ * (`bed_exclude_area` ["0x0", "18x0", "18x28", "0x28"] in the X1 Carbon, X1E,
+ * P1S and P1P machine profiles, in the same bed coordinates as their
+ * `printable_area`). The other Bambu models here (P2S, A1, A1 mini, H2D, H2S)
+ * have none (`[]`).
+ */
+const X1_EXCLUDE: readonly BedRect[] = [{ x: 0, y: 0, w: 18, d: 28 }];
+
+const bambu = (
+  model: string,
+  w = 256,
+  d = 256,
+  h = 256,
+  id?: string,
+  motion: Partial<PrinterMotion> = {},
+  sequential: SequentialClearance = X1_CLEARANCE,
+  slots = 4,
+): PrinterProfile => ({
   id: id ?? model.toLowerCase().replace(/\s+/g, '-'),
   name: `Bambu Lab ${model}`,
   brand: 'Bambu Lab',
@@ -38,31 +108,61 @@ const bambu = (model: string, w = 256, d = 256, h = 256, id?: string): PrinterPr
     processPreset: `0.20mm Standard @BBL ${model.replace(' Carbon', '')}`,
     filamentPreset: `Bambu PLA Basic @BBL ${model.replace(' Carbon', '')}`,
   },
+  motion: { ...BAMBU_MOTION, ...motion },
+  slots,
+  sequential,
 });
 
-/** Bed sizes and exclusion areas for Bambu models come from Bambu Studio's own machine profiles. */
+const generic = (id: string, name: string, brand: string, w: number, d: number, h: number, motion: PrinterMotion, slots = 1): PrinterProfile => ({
+  id,
+  name,
+  brand,
+  bedW: w,
+  bedD: d,
+  maxH: h,
+  motion,
+  slots,
+});
+
+/**
+ * Bed sizes, "by object" clearances and exclusion areas for Bambu models come
+ * from Bambu Studio's own machine profiles (public/bambu/*.json; BambuStudio
+ * resources/profiles/BBL/machine/*.json).
+ */
 export const PRINTERS: PrinterProfile[] = [
-  bambu('P2S'),
-  { ...bambu('P1S'), bedExclude: X1_P1_EXCLUDE },
-  { ...bambu('P1P'), bedExclude: X1_P1_EXCLUDE },
-  { ...bambu('X1 Carbon', 256, 256, 256, 'x1c'), bedExclude: X1_P1_EXCLUDE },
-  { ...bambu('X1E'), bedExclude: X1_P1_EXCLUDE },
-  bambu('A1'),
-  bambu('A1 mini', 180, 180, 180),
-  bambu('H2D', 350, 320, 325),
-  bambu('H2S', 340, 320, 340),
-  { id: 'prusa-mk4s', name: 'Prusa MK4S', brand: 'Prusa', bedW: 250, bedD: 210, maxH: 220 },
-  { id: 'prusa-core-one', name: 'Prusa CORE One', brand: 'Prusa', bedW: 250, bedD: 220, maxH: 270 },
-  { id: 'prusa-mini', name: 'Prusa MINI+', brand: 'Prusa', bedW: 180, bedD: 180, maxH: 180 },
-  { id: 'prusa-xl', name: 'Prusa XL', brand: 'Prusa', bedW: 360, bedD: 360, maxH: 360 },
-  { id: 'creality-k1', name: 'Creality K1 / K1C', brand: 'Creality', bedW: 220, bedD: 220, maxH: 250 },
-  { id: 'creality-k1-max', name: 'Creality K1 Max', brand: 'Creality', bedW: 300, bedD: 300, maxH: 300 },
-  { id: 'creality-k2-plus', name: 'Creality K2 Plus', brand: 'Creality', bedW: 350, bedD: 350, maxH: 350 },
-  { id: 'ender-3-v3', name: 'Creality Ender-3 V3', brand: 'Creality', bedW: 220, bedD: 220, maxH: 250 },
-  { id: 'voron-350', name: 'Voron 2.4 (350)', brand: 'Voron', bedW: 350, bedD: 350, maxH: 340 },
-  { id: 'custom', name: 'Custom…', brand: 'Custom', bedW: 220, bedD: 220, maxH: 250 },
+  // Newer hotend and motion system; PLA Basic runs a little faster.
+  bambu('P2S', 256, 256, 256, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 300, swap: 60, watts: 110 }, { radius: 72, rod: 32.5 }),
+  { ...bambu('P1S', 256, 256, 256, undefined, { prepare: 300, watts: 100 }), exclude: X1_EXCLUDE },
+  // Usually sold without an AMS.
+  { ...bambu('P1P', 256, 256, 256, undefined, { prepare: 300, watts: 90 }, X1_CLEARANCE, 1), exclude: X1_EXCLUDE },
+  { ...bambu('X1 Carbon', 256, 256, 256, 'x1c', { prepare: 360 }), exclude: X1_EXCLUDE },
+  { ...bambu('X1E', 256, 256, 256, undefined, { prepare: 360, watts: 130 }), exclude: X1_EXCLUDE },
+  // Bed slingers: same process, lower acceleration limits; AMS lite swaps are a little slower.
+  bambu('A1', 256, 256, 256, undefined, { accel: 10000, prepare: 300, swap: 85, watts: 95 }, { radius: 73, rod: 25 }),
+  bambu('A1 mini', 180, 180, 180, undefined, { accel: 10000, prepare: 240, swap: 85, watts: 70 }, { radius: 73, rod: 25 }),
+  // Two nozzles: a colour change is mostly a nozzle switch.
+  bambu('H2D', 350, 320, 325, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 420, swap: 35, watts: 170 }, { radius: 96, rod: 47.4 }),
+  bambu('H2S', 340, 320, 340, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 360, swap: 70, watts: 160 }, { radius: 81, rod: 33 }),
+  generic('prusa-mk4s', 'Prusa MK4S', 'Prusa', 250, 210, 220, { speed: 300, accel: 4000, flow: 20, prepare: 240, swap: 120, watts: 85 }),
+  generic('prusa-core-one', 'Prusa CORE One', 'Prusa', 250, 220, 270, { speed: 400, accel: 6000, flow: 20, prepare: 240, swap: 120, watts: 95 }),
+  generic('prusa-mini', 'Prusa MINI+', 'Prusa', 180, 180, 180, { speed: 180, accel: 2000, flow: 10, prepare: 180, swap: 120, watts: 50 }),
+  generic('prusa-xl', 'Prusa XL', 'Prusa', 360, 360, 360, { speed: 300, accel: 5000, flow: 20, prepare: 360, swap: 40, watts: 150 }, 5),
+  generic('creality-k1', 'Creality K1 / K1C', 'Creality', 220, 220, 250, { speed: 600, accel: 12000, flow: 24, prepare: 240, swap: 90, watts: 120 }),
+  generic('creality-k1-max', 'Creality K1 Max', 'Creality', 300, 300, 300, { speed: 600, accel: 12000, flow: 24, prepare: 300, swap: 90, watts: 200 }),
+  // With the CFS (4 slots).
+  generic('creality-k2-plus', 'Creality K2 Plus', 'Creality', 350, 350, 350, { speed: 600, accel: 15000, flow: 28, prepare: 360, swap: 80, watts: 250 }, 4),
+  generic('ender-3-v3', 'Creality Ender-3 V3', 'Creality', 220, 220, 250, { speed: 500, accel: 8000, flow: 20, prepare: 180, swap: 120, watts: 110 }),
+  generic('voron-350', 'Voron 2.4 (350)', 'Voron', 350, 350, 340, { speed: 400, accel: 6000, flow: 20, prepare: 600, swap: 120, watts: 250 }),
+  { id: 'custom', name: 'Custom…', brand: 'Custom', bedW: 220, bedD: 220, maxH: 250, motion: DEFAULT_MOTION },
 ];
 
 export function findPrinter(id: string): PrinterProfile {
   return PRINTERS.find((p) => p.id === id) ?? PRINTERS[0];
+}
+
+const NO_AREAS: readonly BedRect[] = [];
+
+/** The printer's exclusion areas (none for a custom printer or one Gridfit doesn't know). */
+export function bedExclusion(printerId: string): readonly BedRect[] {
+  return PRINTERS.find((p) => p.id === printerId)?.exclude ?? NO_AREAS;
 }

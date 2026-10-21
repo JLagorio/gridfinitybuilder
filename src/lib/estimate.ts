@@ -1,0 +1,858 @@
+import type { MeshData } from './geometry/kernel';
+import { meshVolume } from './geometry/volume';
+import { DEFAULT_MOTION, findPrinter, type PrinterMotion } from './printers';
+import type { PrintSetup } from './layout/plan';
+import type { JobPart, MeshSpec, PrintJob } from './project';
+import type { SpiralPrint } from './geometry/containers/vase';
+import {
+  bandSlot,
+  luminance,
+  overlayRole,
+  paletteOf,
+  printerSlots,
+  slotDensity,
+  slotPrice,
+  strategyOf,
+  type BandProfile,
+  type ColourRole,
+} from './colours';
+import { bodySlots, partProfile } from './colourPlan';
+
+/**
+ * Print-time and cost estimates.
+ *
+ * The worker slices every mesh once at the 0.20 mm layers of Bambu's
+ * "0.20 mm Standard" process (`sliceStats`: area, contour length, contours and
+ * islands, up- and down-facing area per layer). Those numbers don't depend on
+ * the printer, so the main thread turns them into time for whichever printer
+ * is selected (`estimatePlate`): walls, solid top/bottom skin and 15 % sparse
+ * infill as the slicer would lay them down, each at its feature speed capped
+ * by the hotend's volumetric flow, with a stop-and-go at every corner or line
+ * end, travel between islands, a per-layer overhead and Bambu PLA's 4 s
+ * minimum layer time, plus the start sequence and any filament swaps.
+ *
+ * Calibrated against PrusaSlicer 2.7 (whose G-code time estimator Bambu
+ * Studio's is derived from) set up like 0.20 mm Standard on an X1C: Bambu's
+ * speeds, accelerations, line widths, 21 mm³/s, jerk 9, 4 s layer time,
+ * retraction only when crossing walls, solid-over-sparse infill at solid
+ * speed. Model ÷ slicer, printing time without the start sequence:
+ *   20 mm cube 0.91 (8.3 min), 40×40×60 block 1.11, 1×1×3u bin 1.01
+ *   (14.1 min), 1×1×6u 0.93, 1×1×10u 0.90, 2×1×3u with magnets 1.05,
+ *   2×2×6u with a label 1.10, 3×2×3u with dividers 0.98, 4×1×2u 1.04,
+ *   2×2×3u scoop + magnets/screws 1.07, frame baseplates 5×5 1.16 and 2×2
+ *   1.20, 4×4 with magnets 0.82, 3×3 weighted 0.92, a plate of 12 bins 1.05,
+ *   a mixed plate with label plates 1.06. Bambu Studio slices a little
+ *   differently, so expect ±25 % against it.
+ *
+ * Vase-mode bins (geometry/containers/vase.ts) print differently: their bottom
+ * layers are all solid with one wall per edge (the hollow feet are drawn as
+ * they print), then one line of the bin's wall width along the outline per
+ * layer, at outer-wall speed, with no travel and no layer change. A plate of
+ * them prints one bin after another ("by object"), so each bin's layers wait
+ * for the minimum layer time on their own: a small bin's spiral is mostly
+ * that wait. Against PrusaSlicer set up the same way in spiral vase mode
+ * (30 bottom layers, a 0.6 mm wall line), model / slicer: 1x1x3u 0.96
+ * (9.4 min), 2x2x6u 1.01; filament 1.03 and 1.03 (4.4 g and 19.4 g).
+ *
+ * The volume those lines lay down (`PlateEstimate.extruded`) is the BOM's
+ * filament once a plate is sliced. Grams of PLA, model ÷ slicer:
+ *   1×1×3u bin 0.99 (10.4 g), 1×1×6u 1.01, 1×1×10u 1.02, 2×2×6u with a label
+ *   1.05, a plate of 12 bins 1.00, frame baseplate 5×5 0.95, 4×4 with
+ *   magnets 0.95.
+ */
+
+/** Bambu Studio "0.20 mm Standard" with Bambu PLA Basic, as the estimate assumes. */
+export const STANDARD_PROCESS = {
+  layerHeight: 0.2,
+  wallLoops: 2,
+  topLayers: 5,
+  bottomLayers: 3,
+  infill: 0.15,
+  /** Line widths, mm. */
+  width: { outer: 0.42, inner: 0.45, sparse: 0.45, solid: 0.42, top: 0.42, first: 0.5, bridge: 0.4 },
+  /** Feature speeds, mm/s. */
+  speed: { outer: 200, inner: 300, sparse: 270, solid: 250, top: 200, bridge: 50, first: 50, firstInfill: 105, travel: 500 },
+  /** Accelerations, mm/s². */
+  accel: { default: 10000, outer: 5000, top: 2000, first: 500, travel: 10000 },
+  /** PLA cooling: layers faster than this are slowed down to it, s. */
+  minLayerTime: 4,
+} as const;
+
+/** Model constants fitted to the slicer (see the module comment). */
+export const ESTIMATE_MODEL = {
+  /** Corners per contour that slow the walls to a near stop. */
+  wallStops: 6,
+  /** Gap fill between the walls of a section too thin for all its loops, as a share of the contour length. */
+  gapFill: 0.25,
+  /** Sparse infill is longer than area × density / width: anchors along the walls and overlap. */
+  infillLength: 1.2,
+  /** Solid skin overlaps the walls a little. */
+  skinLength: 1.05,
+  /** Sparse infill lines break at anchors and crossings: this share of the mean chord. */
+  chordShare: 0.6,
+  /** Retract, lift, travel and unretract to start another island, s (plus the move itself). */
+  island: 0.1,
+  /** Moving between the wall loops of a contour, s per contour. */
+  contour: 0.25,
+  /** Infill split up by holes (baseplate cells, magnet pockets): s per hole, when the section has room for infill. */
+  fragment: 0.4,
+  /** Layer change: lift, travel to the first island, s. */
+  layer: 0.2,
+  /** Prime tower per layer while it's needed, s and g (2-colour plates). */
+  towerSeconds: 1.6,
+  towerGrams: 0.03,
+  /** Filament flushed per swap, g (without colours to go by). */
+  flushGrams: 0.45,
+  /** A colour change by hand (pause, unload, load, purge), s, not counting the wait for someone to do it. */
+  manualSwap: 150,
+} as const;
+
+/**
+ * Filament flushed by one swap from colour `from` to `to`, g: going lighter
+ * takes the most (black to white about 1.2 g), going darker little. A rough
+ * fit to the flush volumes Bambu Studio suggests for PLA.
+ */
+export function flushGrams(from: string, to: string): number {
+  return 0.35 + 0.9 * Math.max(0, luminance(to) - luminance(from));
+}
+
+/** What the time model needs to know about one mesh, per 0.2 mm layer (index 0 = first layer). */
+export interface MeshPrintStats {
+  layerHeight: number;
+  /** Cross-section area, mm². */
+  area: Float32Array;
+  /** Total contour length, mm. */
+  perimeter: Float32Array;
+  /** Closed contours (outer boundaries and holes). */
+  contours: Uint16Array;
+  /** Separate regions (outer boundaries). */
+  islands: Uint16Array;
+  /** Area of upward-facing surface within the layer (top skin starts under it), mm². */
+  up: Float32Array;
+  /** Area of downward-facing surface within the layer (bottom skin starts on it), mm². */
+  down: Float32Array;
+  /** Cross-section area of bodies in filament 2 (inlaid text), mm². */
+  overlay: Float32Array;
+  /** Solid volume, mm³, and the part of it in filament 2. */
+  volume: number;
+  overlayVolume: number;
+  /** Each body's cross-section area (the main body, then the overlays), mm²: multi-colour (colours.ts). */
+  bodyArea?: Float32Array[];
+  /** Each body's solid volume, mm³. */
+  bodyVolume?: number[];
+  /** Each body's colour role, when the mesh says (split meshes, label text, shadow floors); null: the part's own. */
+  bodyRole?: (ColourRole | null)[];
+}
+
+/** Slice a mesh (and its overlay bodies) at the layer mid-heights. */
+export function sliceStats(mesh: MeshData, layerHeight: number = STANDARD_PROCESS.layerHeight): MeshPrintStats {
+  const bodies = [mesh, ...(mesh.overlays ?? [])];
+  let top = 0;
+  for (const b of bodies) for (let i = 2; i < b.positions.length; i += 3) top = Math.max(top, b.positions[i]);
+  const n = Math.max(1, Math.ceil(top / layerHeight - 1e-6));
+  const stats: MeshPrintStats = {
+    layerHeight,
+    area: new Float32Array(n),
+    perimeter: new Float32Array(n),
+    contours: new Uint16Array(n),
+    islands: new Uint16Array(n),
+    up: new Float32Array(n),
+    down: new Float32Array(n),
+    overlay: new Float32Array(n),
+    volume: 0,
+    overlayVolume: 0,
+  };
+  stats.bodyArea = [];
+  stats.bodyVolume = [];
+  stats.bodyRole = [];
+  bodies.forEach((b, bi) => {
+    const v = meshVolume({ positions: b.positions, indices: b.indices });
+    stats.volume += v;
+    // Filament 2's bodies (inlaid text, shadow floors) are the "overlay"; a split mesh's other volumes aren't.
+    const second = bi > 0 && (b as { filament?: number }).filament !== 1;
+    if (second) stats.overlayVolume += v;
+    stats.bodyArea!.push(sliceBody(b.positions, b.indices, layerHeight, n, stats, second));
+    stats.bodyVolume!.push(v);
+    stats.bodyRole!.push(bi === 0 ? (mesh.role ?? null) : overlayRole(b as { role?: ColourRole; filament: number }));
+  });
+  return stats;
+}
+
+/**
+ * Slice data for a part split by colour role (multi-colour 'feature'): the
+ * whole part's sections, contours and islands (`whole`: the slicer joins
+ * volumes in one filament, so the walls between them don't print), with the
+ * split's share of each body per layer (`split`).
+ */
+export function withBodyShares(whole: MeshPrintStats, split: MeshPrintStats): MeshPrintStats {
+  return { ...whole, bodyArea: split.bodyArea, bodyVolume: split.bodyVolume, bodyRole: split.bodyRole };
+}
+
+function sliceBody(pos: ArrayLike<number>, idx: ArrayLike<number>, lh: number, n: number, out: MeshPrintStats, overlay: boolean): Float32Array {
+  const nv = pos.length / 3;
+  // Segments, kept for counting contours: layer, the two mesh edges they end on, and their share of the area.
+  const segLayer: number[] = [];
+  const segA: number[] = [];
+  const segB: number[] = [];
+  const segArea: number[] = [];
+  const area = new Float64Array(n);
+  // A vertex exactly on a slicing plane counts as above it.
+  const above = (z: number, zk: number) => z >= zk;
+  const zs = [0, 0, 0];
+  const vs = [0, 0, 0];
+  for (let t = 0; t < idx.length; t += 3) {
+    vs[0] = idx[t];
+    vs[1] = idx[t + 1];
+    vs[2] = idx[t + 2];
+    for (let k = 0; k < 3; k++) zs[k] = pos[vs[k] * 3 + 2];
+    const ax = pos[vs[0] * 3], ay = pos[vs[0] * 3 + 1];
+    const ux = pos[vs[1] * 3] - ax, uy = pos[vs[1] * 3 + 1] - ay, uz = zs[1] - zs[0];
+    const wx = pos[vs[2] * 3] - ax, wy = pos[vs[2] * 3 + 1] - ay, wz = zs[2] - zs[0];
+    const nx = uy * wz - uz * wy;
+    const ny = uz * wx - ux * wz;
+    const nz = ux * wy - uy * wx;
+    const zmin = Math.min(zs[0], zs[1], zs[2]);
+    const zmax = Math.max(zs[0], zs[1], zs[2]);
+    // Up/down-facing area, spread over the layers the triangle spans. On steep slopes each layer
+    // only shows a strip h / tan(slope) wide, which the walls mostly cover.
+    const len = Math.hypot(nx, ny, nz);
+    const flat = len > 0 ? Math.abs(nz) / len : 0;
+    const strip = flat >= 1 ? Infinity : (lh * flat) / Math.sqrt(1 - flat * flat);
+    const proj = (nz / 2) * Math.min(1, strip / STANDARD_PROCESS.width.solid);
+    if (Math.abs(proj) > 1e-12) {
+      const into = proj > 0 ? out.up : out.down;
+      const span = zmax - zmin;
+      if (span < 1e-6) {
+        const k = proj > 0 ? Math.ceil(zmax / lh - 1e-6) - 1 : Math.floor(zmin / lh + 1e-6);
+        if (k >= 0 && k < n) into[k] += Math.abs(proj);
+      } else {
+        const k0 = Math.max(0, Math.floor(zmin / lh));
+        const k1 = Math.min(n - 1, Math.ceil(zmax / lh) - 1);
+        for (let k = k0; k <= k1; k++) {
+          const overlap = Math.min(zmax, (k + 1) * lh) - Math.max(zmin, k * lh);
+          if (overlap > 0) into[k] += (Math.abs(proj) * overlap) / span;
+        }
+      }
+    }
+    // Cross-sections at layer mid-heights.
+    const kFirst = Math.max(0, Math.ceil(zmin / lh - 0.5));
+    for (let k = kFirst; k < n; k++) {
+      const zk = (k + 0.5) * lh;
+      if (zk >= zmax) break;
+      if (zk < zmin) continue;
+      let px = 0, py = 0, qx = 0, qy = 0;
+      let ka = -1, kb = -1;
+      let found = 0;
+      for (let e = 0; e < 3; e++) {
+        const i = e, j = (e + 1) % 3;
+        if (above(zs[i], zk) === above(zs[j], zk)) continue;
+        const f = (zk - zs[i]) / (zs[j] - zs[i]);
+        const x = pos[vs[i] * 3] + f * (pos[vs[j] * 3] - pos[vs[i] * 3]);
+        const y = pos[vs[i] * 3 + 1] + f * (pos[vs[j] * 3 + 1] - pos[vs[i] * 3 + 1]);
+        const key = Math.min(vs[i], vs[j]) * nv + Math.max(vs[i], vs[j]);
+        if (found === 0) {
+          px = x;
+          py = y;
+          ka = key;
+        } else {
+          qx = x;
+          qy = y;
+          kb = key;
+        }
+        found++;
+      }
+      if (found !== 2) continue;
+      // Solid on the left: the contour runs along z × normal.
+      if ((qx - px) * -ny + (qy - py) * nx < 0) {
+        [px, qx] = [qx, px];
+        [py, qy] = [qy, py];
+        [ka, kb] = [kb, ka];
+      }
+      const a = (px * qy - qx * py) / 2;
+      area[k] += a;
+      out.perimeter[k] += Math.hypot(qx - px, qy - py);
+      segLayer.push(k);
+      segA.push(ka);
+      segB.push(kb);
+      segArea.push(a);
+    }
+  }
+  const mine = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    mine[k] = Math.max(0, area[k]);
+    out.area[k] += mine[k];
+    if (overlay) out.overlay[k] += mine[k];
+  }
+  // Contours: segments joined through the mesh edges they end on, layer by layer.
+  const count = new Int32Array(n + 1);
+  for (const k of segLayer) count[k + 1]++;
+  for (let k = 0; k < n; k++) count[k + 1] += count[k];
+  const order = new Int32Array(segLayer.length);
+  const fill = count.slice();
+  segLayer.forEach((k, i) => (order[fill[k]++] = i));
+  for (let k = 0; k < n; k++) {
+    const node = new Map<number, number>();
+    const parent: number[] = [];
+    const find = (x: number): number => {
+      while (parent[x] !== x) x = parent[x] = parent[parent[x]];
+      return x;
+    };
+    const id = (key: number) => {
+      let v = node.get(key);
+      if (v === undefined) {
+        v = parent.length;
+        parent.push(v);
+        node.set(key, v);
+      }
+      return v;
+    };
+    const segs = order.subarray(count[k], count[k + 1]);
+    for (const s of segs) {
+      const a = find(id(segA[s]));
+      const b = find(id(segB[s]));
+      if (a !== b) parent[a] = b;
+    }
+    const loopArea = new Map<number, number>();
+    for (const s of segs) {
+      const r = find(id(segA[s]));
+      loopArea.set(r, (loopArea.get(r) ?? 0) + segArea[s]);
+    }
+    let contours = 0;
+    let islands = 0;
+    for (const a of loopArea.values()) {
+      if (Math.abs(a) < 1e-4) continue;
+      contours++;
+      if (a > 0) islands++;
+    }
+    out.contours[k] = Math.min(65535, out.contours[k] + contours);
+    out.islands[k] = Math.min(65535, out.islands[k] + islands);
+  }
+  return mine;
+}
+
+// ---------------------------------------------------------------------------
+// Time
+// ---------------------------------------------------------------------------
+
+/**
+ * Time to print `length` mm as lines of `segment` mm, stopping at each end
+ * (trapezoid profile). Zig-zag fills (`step` = line spacing) also pay for the
+ * short connector between one line and the next.
+ */
+export function moveTime(length: number, segment: number, speed: number, accel: number, step = 0): number {
+  if (length <= 0) return 0;
+  const s = Math.max(1e-3, Math.min(segment, length));
+  const count = length / s;
+  // Too short to reach full speed: accelerate for half, brake for half.
+  const each = s >= (speed * speed) / accel ? s / speed + speed / accel : 2 * Math.sqrt(s / accel);
+  return count * (each + (step > 0 ? 2 * Math.sqrt(step / accel) : 0));
+}
+
+/** The process's feature speeds and accelerations, limited by the printer. */
+export function featureMotion(m: PrinterMotion) {
+  const P = STANDARD_PROCESS;
+  const h = P.layerHeight;
+  const cap = (v: number, w: number) => Math.min(v, m.speed, m.flow / (w * h));
+  const acc = (a: number) => Math.min(a, m.accel);
+  return {
+    outer: { v: cap(P.speed.outer, P.width.outer), a: acc(P.accel.outer) },
+    inner: { v: cap(P.speed.inner, P.width.inner), a: acc(P.accel.default) },
+    sparse: { v: cap(P.speed.sparse, P.width.sparse), a: acc(P.accel.default) },
+    solid: { v: cap(P.speed.solid, P.width.solid), a: acc(P.accel.default) },
+    top: { v: cap(P.speed.top, P.width.top), a: acc(P.accel.top) },
+    bridge: { v: cap(P.speed.bridge, P.width.bridge), a: acc(P.accel.default) },
+    firstWall: { v: cap(P.speed.first, P.width.first), a: acc(P.accel.first) },
+    firstInfill: { v: cap(P.speed.firstInfill, P.width.first), a: acc(P.accel.first) },
+    travel: { v: Math.min(P.speed.travel, m.speed), a: acc(P.accel.travel) },
+  };
+}
+
+type Motion = ReturnType<typeof featureMotion>;
+
+/** Where the time goes. */
+export interface TimeBreakdown {
+  walls: number;
+  /** Solid top and bottom skin (first layer and bridges included). */
+  skin: number;
+  /** Sparse infill. */
+  infill: number;
+  /** Travel, retraction and layer changes. */
+  travel: number;
+  /** Slowed down to the minimum layer time. */
+  cooling: number;
+  /** Filament swaps and the prime tower. */
+  swaps: number;
+}
+
+const emptyBreakdown = (): TimeBreakdown => ({ walls: 0, skin: 0, infill: 0, travel: 0, cooling: 0, swaps: 0 });
+
+/** One part's share of a layer: seconds (added to `into`) and extruded mm³. */
+function partLayer(s: MeshPrintStats, k: number, mo: Motion, footprint: number, into: TimeBreakdown) {
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const h = P.layerHeight;
+  const A = s.area[k];
+  const perim = s.perimeter[k];
+  const contours = s.contours[k];
+  if (A <= 0 || perim <= 0) return { seconds: 0, volume: 0 };
+  const t0 = { ...into };
+  const first = k === 0;
+  // Walls: two loops on every contour, or all of a section too thin for them (with gap fill between).
+  const wWall = first ? P.width.first : (P.width.outer + P.width.inner) / 2;
+  const fullWalls = perim * P.wallLoops * wWall;
+  const wallArea = Math.min(A, fullWalls);
+  const thin = Math.min(1, Math.max(0, (4 * (fullWalls - A)) / fullWalls));
+  const wallLen = wallArea / wWall + thin * M.gapFill * perim;
+  const outerLen = Math.min(wallLen, perim);
+  const innerLen = wallLen - outerLen;
+  const corner = perim / Math.max(1, contours * M.wallStops);
+  // Inside the walls: skin under top surfaces / over bottom surfaces, sparse infill elsewhere.
+  const inside = A - wallArea;
+  let skin = 0;
+  let topSkin = 0;
+  let bridge = 0;
+  if (first) skin = inside;
+  else {
+    let upNear = 0;
+    for (let j = k; j < Math.min(s.area.length, k + P.topLayers); j++) upNear += s.up[j];
+    let downNear = 0;
+    for (let j = Math.max(0, k - P.bottomLayers + 1); j <= k; j++) downNear += s.down[j];
+    skin = Math.min(inside, upNear + downNear);
+    topSkin = Math.min(skin, s.up[k]);
+    bridge = Math.min(skin - topSkin, s.down[k]);
+  }
+  const sparse = inside - skin;
+  // Solid lines zig-zag across a region, each about as long as its mean chord (Cauchy: π·A / perimeter);
+  // sparse lines are broken up shorter.
+  const line = Math.max(1, (Math.PI * Math.max(inside, 0)) / perim);
+  const sparseLine = Math.max(1, M.chordShare * line);
+  const solid = (area: number, w: number) => (area * M.skinLength) / w;
+  let vol = 0;
+  if (first) {
+    into.walls += moveTime(wallLen, corner, mo.firstWall.v, mo.firstWall.a);
+    into.skin += moveTime(solid(inside, P.width.first), line, mo.firstInfill.v, mo.firstInfill.a, P.width.first);
+    vol = A * h;
+  } else {
+    into.walls += moveTime(outerLen, corner, mo.outer.v, mo.outer.a) + moveTime(innerLen, corner, mo.inner.v, mo.inner.a);
+    into.skin +=
+      moveTime(solid(topSkin, P.width.top), line, mo.top.v, mo.top.a, P.width.top) +
+      moveTime(solid(bridge, P.width.bridge), line, mo.bridge.v, mo.bridge.a, P.width.bridge) +
+      moveTime(solid(skin - topSkin - bridge, P.width.solid), line, mo.solid.v, mo.solid.a, P.width.solid);
+    into.infill += moveTime((sparse * P.infill * M.infillLength) / P.width.sparse, sparseLine, mo.sparse.v, mo.sparse.a);
+    // The same lines as the time: skin overlapping the walls, infill with its anchors.
+    vol = (wallArea + skin * M.skinLength + sparse * P.infill * M.infillLength) * h;
+  }
+  // Getting there: a hop to each island (the first from the previous part), between wall loops, and between
+  // pieces of infill that holes split up.
+  const islands = Math.max(1, s.islands[k]);
+  const holes = Math.max(0, contours - s.islands[k]);
+  const hop = Math.sqrt(Math.max(footprint, 1));
+  into.travel +=
+    islands * (M.island + moveTime(hop, hop, mo.travel.v, mo.travel.a)) +
+    contours * M.contour +
+    holes * Math.min(1, inside / Math.max(wallArea, 1e-6)) * M.fragment;
+  const seconds = into.walls + into.skin + into.infill + into.travel - (t0.walls + t0.skin + t0.infill + t0.travel);
+  return { seconds, volume: vol };
+}
+
+export interface PlateEstimate {
+  /** Start sequence included, s. */
+  seconds: number;
+  /** Printing alone, s. */
+  printSeconds: number;
+  /** Start sequence (heating, levelling, purge line), s. */
+  prepareSeconds: number;
+  layers: number;
+  /** Filament swaps for parts in two colours. */
+  swaps: number;
+  /** Filament flushed and printed into the prime tower for the swaps, g. */
+  wasteGrams: number;
+  /** Extruded volume the estimate lays down, mm³: the BOM's filament figure once the plate is sliced. */
+  extruded: number;
+  breakdown: TimeBreakdown;
+  /** Extruded volume by filament slot (index = slot), mm³. */
+  slotVolume?: number[];
+  /** Purge and prime tower by filament slot (the one swapped to), g. */
+  slotWaste?: number[];
+  /** Colour changes done by hand (pauses), with too few slots on the printer. */
+  manual?: boolean;
+}
+
+/** Which filament each of a part's bodies prints in (multi-colour, colours.ts). */
+export interface PartColours {
+  /** Slot of each body: the main body, then the overlays. */
+  bodies: number[];
+  /** 'height': every body prints in the slot of the band it's in. */
+  bands?: BandProfile;
+  /**
+   * With `bands`: the slot of each overlay body that keeps its own filament
+   * (inlaid text, QR codes), by body index; 0 or missing follows the band.
+   */
+  inlays?: number[];
+}
+
+export interface EstimatePart {
+  stats: MeshPrintStats;
+  /** Footprint on the bed, mm. */
+  w: number;
+  d: number;
+  /** Its colours; unset: the main body in filament 1, overlays in filament 2. */
+  colour?: PartColours;
+  /** A vase-mode bin: printed in spiral vase mode. */
+  spiral?: SpiralPrint;
+}
+
+/** How a plate's colours change. */
+export interface PlateColourOptions {
+  /** Colours by slot, for the purge per swap (the default: ESTIMATE_MODEL.flushGrams each). */
+  colourOf?: (slot: number) => string;
+  /** Swaps are done by hand (pauses): slower, and no prime tower. */
+  manual?: boolean;
+}
+
+/** Slots one part prints in a layer, with the share of its section each takes. */
+function layerSlots(p: EstimatePart, k: number, z: number, into: Map<number, number>) {
+  const s = p.stats;
+  const A = s.area[k];
+  if (!(A > 0)) return;
+  const c = p.colour;
+  if (c?.bands) {
+    const band = bandSlot(c.bands, z);
+    if (c.inlays && s.bodyArea) {
+      s.bodyArea.forEach((ba, b) => {
+        const a = ba[k];
+        if (!(a > 0)) return;
+        const slot = (b && c.inlays![b]) || band;
+        into.set(slot, (into.get(slot) ?? 0) + a / A);
+      });
+      return;
+    }
+    into.set(band, (into.get(band) ?? 0) + 1);
+    return;
+  }
+  if (c && s.bodyArea) {
+    s.bodyArea.forEach((ba, b) => {
+      const a = ba[k];
+      if (!(a > 0)) return;
+      const slot = c.bodies[b] ?? c.bodies[0] ?? 1;
+      into.set(slot, (into.get(slot) ?? 0) + a / A);
+    });
+    return;
+  }
+  // Without colours: filament 1, with filament 2's bodies apart.
+  const second = Math.min(A, s.overlay[k] ?? 0);
+  if (A - second > 1e-9) into.set(1, (into.get(1) ?? 0) + (A - second) / A);
+  if (second > 1e-9) into.set(2, (into.get(2) ?? 0) + second / A);
+}
+
+
+/**
+ * One layer of a vase-mode bin: below the spiral's start a solid layer with one
+ * wall per edge, above it one turn of the spiral (`sp.path`: the outline and
+ * both sides of every slit).
+ */
+function spiralLayer(s: MeshPrintStats, k: number, sp: SpiralPrint, mo: Motion, wall: { v: number; a: number }, footprint: number, into: TimeBreakdown) {
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const h = P.layerHeight;
+  const A = s.area[k];
+  const perim = s.perimeter[k];
+  if (A <= 0 || perim <= 0) return { seconds: 0, volume: 0 };
+  const t0 = into.walls + into.skin + into.travel;
+  if ((k + 0.5) * h > sp.start) {
+    into.walls += moveTime(sp.path, sp.path / M.wallStops, wall.v, wall.a);
+    return { seconds: into.walls + into.skin + into.travel - t0, volume: sp.path * sp.line * h };
+  }
+  const corner = perim / Math.max(1, s.contours[k] * M.wallStops);
+  const first = k === 0;
+  const w = first ? P.width.first : sp.line;
+  const wallArea = Math.min(A, perim * w);
+  const inside = A - wallArea;
+  const line = Math.max(1, (Math.PI * Math.max(inside, 0)) / perim);
+  const lineMove = first ? mo.firstWall : wall;
+  const fill = first ? mo.firstInfill : mo.solid;
+  into.walls += moveTime(wallArea / w, corner, lineMove.v, lineMove.a);
+  into.skin += moveTime((inside * M.skinLength) / P.width.solid, line, fill.v, fill.a, P.width.solid);
+  const hop = Math.sqrt(Math.max(footprint, 1));
+  into.travel += Math.max(1, s.islands[k]) * (M.island + moveTime(hop, hop, mo.travel.v, mo.travel.a)) + s.contours[k] * M.contour + M.layer;
+  return { seconds: into.walls + into.skin + into.travel - t0, volume: A * h };
+}
+
+/**
+ * Filament swaps through a sequence of layers, each the set of slots it prints
+ * (multi-colour): a layer starts with the slot the last one ended on, when it
+ * prints that one, and ends on one the next layer prints too (so two colours
+ * on every layer cost one swap a layer). Purge by the slot swapped to.
+ */
+function countSwaps(used: readonly Set<number>[], opts: PlateColourOptions) {
+  const M = ESTIMATE_MODEL;
+  let swaps = 0;
+  let lastSwap = -1;
+  let flush = 0;
+  const slotWaste: number[] = [];
+  let current: number | null = null;
+  for (let k = 0; k < used.length; k++) {
+    const here = [...used[k]];
+    if (!here.length) continue;
+    const next = used[k + 1] ?? new Set<number>();
+    const first: number = current !== null && used[k].has(current) ? current : here[0];
+    const rest = here.filter((x) => x !== first);
+    rest.sort((a, b) => Number(next.has(a)) - Number(next.has(b)));
+    const order: number[] = [first, ...rest];
+    const changes: [number, number][] = [];
+    if (current !== null && current !== first) changes.push([current, first]);
+    for (let i = 1; i < order.length; i++) changes.push([order[i - 1], order[i]]);
+    for (const [a, b] of changes) {
+      const g = opts.colourOf ? flushGrams(opts.colourOf(a), opts.colourOf(b)) : M.flushGrams;
+      flush += g;
+      addAt(slotWaste, b, g);
+    }
+    if (changes.length) {
+      swaps += changes.length;
+      lastSwap = k;
+    }
+    current = order[order.length - 1];
+  }
+  return { swaps, lastSwap, flush, slotWaste };
+}
+
+function addAt(arr: number[], i: number, v: number) {
+  while (arr.length <= i) arr.push(0);
+  arr[i] += v;
+}
+
+/**
+ * A plate of vase-mode bins, printed one bin after another. With colours, each
+ * bin's colour changes come as it rises, and the next bin starts in its first
+ * colour; spiral vase has no prime tower, so a swap only purges.
+ */
+function estimateSpiralPlate(parts: EstimatePart[], motion: PrinterMotion, opts: PlateColourOptions = {}): PlateEstimate {
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const mo = featureMotion(motion);
+  const breakdown = emptyBreakdown();
+  let print = 0;
+  let extruded = 0;
+  // Multi-colour: the slots of each layer, bin after bin.
+  const used: Set<number>[] = [];
+  const slotVolume: number[] = [];
+  for (const p of parts) {
+    const sp = p.spiral!;
+    const wall = { v: Math.min(P.speed.outer, motion.speed, motion.flow / (sp.line * P.layerHeight)), a: Math.min(P.accel.outer, motion.accel) };
+    for (let k = 0; k < p.stats.area.length; k++) {
+      const r = spiralLayer(p.stats, k, sp, mo, wall, p.w * p.d, breakdown);
+      extruded += r.volume;
+      breakdown.cooling += Math.max(0, P.minLayerTime - r.seconds);
+      print += Math.max(r.seconds, P.minLayerTime);
+      if (p.colour) {
+        const share = new Map<number, number>();
+        layerSlots(p, k, (k + 0.5) * P.layerHeight, share);
+        for (const [slot, f] of share) addAt(slotVolume, slot, r.volume * f);
+        used.push(new Set(share.keys()));
+      }
+    }
+    // Lift and move to the next bin.
+    breakdown.travel += 2 * M.island;
+    print += 2 * M.island;
+  }
+  const layers = parts.reduce((t, p) => Math.max(t, p.stats.area.length), 0);
+  const colour = used.length ? countSwaps(used, opts) : null;
+  const swaps = colour?.swaps ?? 0;
+  breakdown.swaps = swaps * (opts.manual ? M.manualSwap : motion.swap);
+  print += breakdown.swaps;
+  return {
+    seconds: print + (layers ? motion.prepare : 0),
+    printSeconds: print,
+    prepareSeconds: layers ? motion.prepare : 0,
+    layers,
+    swaps,
+    wasteGrams: colour?.flush ?? 0,
+    extruded,
+    breakdown,
+    ...(colour ? { slotVolume, slotWaste: colour.slotWaste } : {}),
+    ...(opts.manual && swaps ? { manual: true } : {}),
+  };
+}
+
+/** Print time of one plate on a printer. */
+export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEFAULT_MOTION, opts: PlateColourOptions = {}): PlateEstimate {
+  if (parts.length && parts.every((p) => p.spiral)) return estimateSpiralPlate(parts, motion, opts);
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const mo = featureMotion(motion);
+  const layers = parts.reduce((t, p) => Math.max(t, p.stats.area.length), 0);
+  const breakdown = emptyBreakdown();
+  let print = 0;
+  let extruded = 0;
+  const slotVolume: number[] = [];
+  // Which slots print each layer; the swaps between them come after.
+  const used: Set<number>[] = [];
+  for (let k = 0; k < layers; k++) {
+    let t = M.layer;
+    breakdown.travel += M.layer;
+    const z = (k + 0.5) * P.layerHeight;
+    const slots = new Set<number>();
+    for (const p of parts) {
+      if (k >= p.stats.area.length) continue;
+      const r = partLayer(p.stats, k, mo, p.w * p.d, breakdown);
+      t += r.seconds;
+      extruded += r.volume;
+      const share = new Map<number, number>();
+      layerSlots(p, k, z, share);
+      for (const [slot, f] of share) {
+        slots.add(slot);
+        addAt(slotVolume, slot, r.volume * f);
+      }
+    }
+    used.push(slots);
+    breakdown.cooling += Math.max(0, P.minLayerTime - t);
+    print += Math.max(t, P.minLayerTime);
+  }
+  const { swaps, lastSwap, flush, slotWaste } = countSwaps(used, opts);
+  // The prime tower is printed on every layer up to the last swap (not for swaps by hand), in that layer's filaments.
+  const tower = opts.manual ? 0 : lastSwap + 1;
+  for (let k = 0; k < tower; k++) for (const slot of used[k]) addAt(slotWaste, slot, M.towerGrams / Math.max(1, used[k].size));
+  breakdown.swaps = swaps * (opts.manual ? M.manualSwap : motion.swap) + tower * M.towerSeconds;
+  print += breakdown.swaps;
+  return {
+    seconds: print + (layers ? motion.prepare : 0),
+    printSeconds: print,
+    prepareSeconds: layers ? motion.prepare : 0,
+    layers,
+    swaps,
+    wasteGrams: flush + tower * M.towerGrams,
+    extruded,
+    breakdown,
+    slotVolume,
+    slotWaste,
+    ...(opts.manual && swaps ? { manual: true } : {}),
+  };
+}
+
+/**
+ * The colours of one part of a job (colours.ts): per body with 'part' and
+ * 'feature', by band with 'height'; null with multi-colour off.
+ */
+export function partColours(setup: PrintSetup, part: JobPart, spec: MeshSpec | undefined, stats: MeshPrintStats): PartColours | null {
+  const st = strategyOf(setup);
+  if (!st) return null;
+  if (st === 'height') return { bodies: [], bands: partProfile(setup, part, spec) };
+  // A split mesh not sliced yet (its whole mesh's data stands in): its bands by height are close,
+  // and its overlays (inlaid text, QR codes) still print in their own filament on every layer they span.
+  if (st === 'feature' && spec?.kind === 'split' && !stats.bodyRole?.[0]) {
+    const inlays = bodySlots(setup, part, spec, stats.bodyRole ?? [null]).map((slot, i) => (i ? slot : 0));
+    return { bodies: [], bands: partProfile(setup, part, spec), inlays };
+  }
+  return { bodies: bodySlots(setup, part, spec, stats.bodyRole ?? [null]) };
+}
+
+/** Colour changes on a plate are done by hand: the printer feeds fewer slots than the plate uses. */
+export function manualSwaps(setup: PrintSetup, printerId: string, slotsUsed: number): boolean {
+  return slotsUsed > printerSlots(setup, findPrinter(printerId).slots);
+}
+
+/**
+ * Per-plate estimates for a job; null for plates with parts not sliced yet.
+ * With several printers, `printerId` lists them and each plate is timed on its own (JobPlate.printer).
+ */
+export function estimateJob(
+  job: PrintJob,
+  stats: (meshKey: string) => MeshPrintStats | undefined,
+  printerId: string | readonly string[],
+  /** With multi-colour on (colours.ts): each part's colours, the palette for the purge, and the printer's slots. */
+  setup?: PrintSetup,
+): (PlateEstimate | null)[] {
+  const ids = typeof printerId === 'string' ? [printerId] : printerId;
+  const motions = ids.map((id) => findPrinter(id).motion ?? DEFAULT_MOTION);
+  const colours = setup && strategyOf(setup) ? setup : null;
+  const palette = colours ? paletteOf(colours, 16) : null;
+  const colourOf = (slot: number) => palette?.[slot - 1]?.colour ?? '#808080';
+  return job.plates.map((pl) => {
+    const motion = motions[pl.printer ?? 0] ?? motions[0];
+    const parts: EstimatePart[] = [];
+    for (const p of pl.placements) {
+      const part = job.parts[p.key];
+      const s = stats(part.meshKey);
+      if (!s) return null;
+      const colour = colours ? partColours(colours, part, job.meshes[part.meshKey], s) : null;
+      parts.push({ stats: s, w: part.w, d: part.d, ...(colour ? { colour } : {}), ...(part.spiral ? { spiral: part.spiral } : {}) });
+    }
+    if (!colours) return estimatePlate(parts, motion);
+    const est = estimatePlate(parts, motion, { colourOf });
+    const usedSlots = (est.slotVolume ?? []).filter((v) => v > 0).length;
+    // Too few slots on the printer: the changes are pauses for a swap by hand.
+    return est.swaps && manualSwaps(colours, ids[pl.printer ?? 0] ?? ids[0], usedSlots) ? estimatePlate(parts, motion, { colourOf, manual: true }) : est;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cost
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_FILAMENT_PRICE = 20;
+
+export interface CostBreakdown {
+  filament: number;
+  energy: number;
+  total: number;
+}
+
+/**
+ * Cost of a plate: filament 1 and 2 at their prices per kg (purge waste at the
+ * mean of the two), and electricity for the whole run when a kWh price is set.
+ * With `grams.slots` (multi-colour): grams by slot instead, and `slotWaste`
+ * the purge by slot, each at its slot's price (colours.ts slotPrice).
+ */
+export function plateCost(
+  grams: { main: number; second: number; waste: number; slots?: number[]; slotWaste?: number[] },
+  seconds: number,
+  setup: Pick<PrintSetup, 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'printerId' | 'filaments'>,
+): CostBreakdown {
+  const p1 = slotPrice(setup, 1, DEFAULT_FILAMENT_PRICE);
+  const p2 = slotPrice(setup, 2, DEFAULT_FILAMENT_PRICE);
+  let filament = (grams.main * p1 + grams.second * p2 + grams.waste * ((p1 + p2) / 2)) / 1000;
+  if (grams.slots) {
+    filament = 0;
+    grams.slots.forEach((g, slot) => g > 0 && (filament += (g * slotPrice(setup, slot, DEFAULT_FILAMENT_PRICE)) / 1000));
+    (grams.slotWaste ?? []).forEach((g, slot) => g > 0 && (filament += (g * slotPrice(setup, slot, DEFAULT_FILAMENT_PRICE)) / 1000));
+  }
+  const watts = setup.printerWatts ?? (findPrinter(setup.printerId).motion ?? DEFAULT_MOTION).watts;
+  const energy = setup.kwhPrice ? ((watts * seconds) / 3600 / 1000) * setup.kwhPrice : 0;
+  return { filament, energy, total: filament + energy };
+}
+
+/** Grams of extruded volume (mm³) in each slot's material (colours.ts slotDensity), by slot. */
+export function slotGrams(setup: Pick<PrintSetup, 'filaments'>, slotVolume: number[]): number[] {
+  return slotVolume.map((v, slot) => (slot && v > 0 ? (v / 1000) * slotDensity(setup, slot) : 0));
+}
+
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
+
+/** "45 min", "3 h 05 min". */
+export function formatDuration(seconds: number): string {
+  const min = Math.max(1, Math.round(seconds / 60));
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+}
+
+const LOCALE_CURRENCY: Record<string, string> = {
+  US: '$', CA: '$', AU: '$', NZ: '$', MX: '$', GB: '£', JP: '¥', CN: '¥', IN: '₹', KR: '₩', CH: 'CHF', SE: 'kr', NO: 'kr', DK: 'kr',
+  PL: 'zł', CZ: 'Kč', BR: 'R$', ZA: 'R', IL: '₪', TR: '₺', RU: '₽', UA: '₴', HU: 'Ft', SG: '$', HK: '$',
+};
+const EURO = new Set(['AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PT', 'SI', 'SK']);
+
+/** The currency symbol to show: the setting, or a guess from the browser's locale. */
+export function currencySymbol(setting: string | undefined, locale = typeof navigator === 'undefined' ? 'en-US' : navigator.language): string {
+  if (setting?.trim()) return setting.trim();
+  const region = /[-_]([A-Za-z]{2})\b/.exec(locale)?.[1]?.toUpperCase() ?? '';
+  if (EURO.has(region)) return '€';
+  return LOCALE_CURRENCY[region] ?? '$';
+}
+
+/** "$1.24", "12 kr" (symbols of more than one character go after the amount). */
+export function formatMoney(amount: number, symbol: string): string {
+  const v = amount.toFixed(2);
+  return symbol.length > 1 && !symbol.endsWith('$') ? `${v} ${symbol}` : `${symbol}${v}`;
+}

@@ -1,0 +1,151 @@
+/* My bins (MyBinsSection.tsx, MyBinsSave.tsx): the library list, its previews, the save form. */
+
+.mybins-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mybin-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.mybin-row[draggable='true'] {
+  cursor: grab;
+}
+.mybin-row.open {
+  border-color: var(--border-strong);
+}
+.mybin-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+.mybin-thumb {
+  flex-shrink: 0;
+  display: block;
+}
+.mybin-body {
+  fill: rgba(205, 213, 224, 0.07);
+  stroke: rgba(205, 213, 224, 0.7);
+  stroke-width: 1.2px;
+}
+.mybin-wall {
+  stroke: rgba(205, 213, 224, 0.55);
+  stroke-width: 1px;
+}
+.mybin-pocket {
+  fill: rgba(8, 10, 14, 0.35);
+  stroke: rgba(205, 213, 224, 0.4);
+  stroke-width: 0.8px;
+}
+.mybin-tool {
+  fill: rgba(245, 165, 36, 0.16);
+  stroke: var(--accent);
+  stroke-width: 1px;
+}
+.mybin-stacked {
+  fill: var(--accent);
+  font-weight: 700;
+}
+.mybin-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+}
+.mybin-name:hover:not(:disabled) {
+  background: none;
+}
+.mybin-name b,
+.mybin-name small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mybin-name b {
+  font-weight: 600;
+}
+.mybin-name small {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.mybin-name .mybin-contents {
+  color: var(--muted);
+}
+.mybin-place {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+.mybin-edit {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  cursor: default;
+}
+.mybins-search {
+  margin-bottom: 2px;
+}
+.mybins-status {
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.mybins-status.full,
+.mybins-status.memory {
+  border-color: rgba(245, 165, 36, 0.6);
+  color: var(--text);
+}
+.mybins-notice .link {
+  font-size: inherit;
+}
+.mybins-transfer {
+  margin-top: 4px;
+}
+.mybins-save {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 9px 10px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.mybins-done {
+  margin-top: 6px;
+}
+.mybins-done.error {
+  color: var(--danger);
+}
+
+/* Fingers: a bigger Place button and room around the rows. */
+@media (pointer: coarse) {
+  .mybin-place {
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+  .mybin-main {
+    padding: 8px 10px;
+  }
+  .mybin-name small {
+    font-size: 12.5px;
+  }
+}

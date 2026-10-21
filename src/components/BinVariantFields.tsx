@@ -1,0 +1,343 @@
+import { useMemo } from 'react';
+import { useUnits } from '../state/store';
+import { Field, LengthInput, Segmented, Slider, Stepper, Toggle } from './fields';
+import { PocketSettings } from './PocketFields';
+import { binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinCells, type BinOptions } from '../lib/geometry/bin';
+import { binBodyHeight, binFloorZ, heightMmFor, heightMmRange, WALLS, type HeightMode, type Wall, type WallMask } from '../lib/geometry/variants';
+import { pocketLayout } from '../lib/geometry/pockets';
+import { standingNoteFor } from '../lib/geometry/itemHeight';
+import { LID_HEIGHT } from '../lib/geometry/lid';
+import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
+import { LidTopFields, ShadowFloorField } from './InsertFields';
+import { VASE, isVaseBin } from '../lib/geometry/containers/vase';
+import { Find } from './findContext';
+
+type Props = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
+
+/** Height, as 7 mm units or as an inside / overall length in the app's units. */
+/** `cells`: the bin's cell sizes when it sits on partial edge cells, so the footprint is right. */
+export function HeightField({ opts, onChange, cells }: Props & { cells?: BinCells }) {
+  const { fmt } = useUnits();
+  const { w, d } = binSize(opts, cells);
+  const body = binBodyHeight(opts);
+  const inside = body - binFloorZ(opts);
+  const total = binTotalHeight(opts);
+  const mode = opts.heightMode;
+  const setMode = (m: HeightMode) =>
+    m === 'units'
+      ? onChange({ heightMode: 'units', heightUnits: Math.min(30, Math.max(MIN_HEIGHT_UNITS, Math.round(body / HEIGHT_UNIT))) })
+      : onChange({ heightMode: m, heightMm: heightMmFor(opts, m) });
+  const hint = `${fmt(inside)} inside, ${fmt(total)} overall · footprint ${fmt(w)} × ${fmt(d)}`;
+  const range = mode === 'units' ? null : heightMmRange(opts, mode);
+  return (
+    <>
+      <Find id="height-mode" set={mode !== 'units'}>
+        <Segmented
+          label="Height given as"
+          value={mode}
+          options={[
+            { value: 'units', label: '7 mm units', title: 'Gridfinity height units, not counting the lip' },
+            { value: 'internal', label: 'Inside', title: 'Usable depth from the floor to the top of the wall' },
+            { value: 'external', label: 'Overall', title: 'Overall height including the lip' },
+          ]}
+          onChange={setMode}
+        />
+      </Find>
+      {range ? (
+        <LengthInput
+          label={mode === 'internal' ? 'Inside depth' : 'Overall height'}
+          value={opts.heightMm}
+          min={range.min}
+          max={range.max}
+          onChange={(heightMm) => onChange({ heightMm })}
+          hint={hint}
+        />
+      ) : (
+        <Stepper
+          label="Height"
+          value={opts.heightUnits}
+          min={MIN_HEIGHT_UNITS}
+          max={30}
+          suffix="u"
+          onChange={(heightUnits) => onChange({ heightUnits })}
+          hint={hint}
+        />
+      )}
+    </>
+  );
+}
+
+/** Compartments or a pocket grid ("item holder"). */
+export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinCells }) {
+  const { fmt } = useUnits();
+  const pockets = opts.interior === 'pockets';
+  const layout = useMemo(() => {
+    if (!pockets) return null;
+    const { w, d } = binSize(opts, cells);
+    const body = binBodyHeight(opts);
+    return pocketLayout(opts, w, d, binFloorZ(opts), opts.lip ? body - LIP_SUPPORT_HEIGHT : body);
+  }, [pockets, opts, cells]);
+  // Rounds and other tall items: how tall the bin has to be for them.
+  const standing = useMemo(() => (pockets ? standingNoteFor(opts, cells, 'bin', undefined, fmt) : undefined), [pockets, opts, cells, fmt]);
+  return (
+    <>
+      <Find id="interior">
+        {/* Under the Inside heading, which names it. */}
+        <Segmented
+          ariaLabel="Inside"
+          value={opts.interior}
+          options={[
+            { value: 'compartments', label: 'Compartments' },
+            { value: 'pockets', label: 'Pocket grid', title: 'Fill the bin and cut a grid of pockets for batteries, bits, cards…' },
+            { value: 'cutouts', label: 'Tool cutouts', title: 'Fill the bin and cut pockets shaped like your tools (Tool library below)' },
+          ]}
+          onChange={(interior) => onChange({ interior })}
+          hint={opts.interior === 'cutouts' ? 'Lay the tools out in the Tool cutouts pane. Their pocket settings are in the Tool library.' : undefined}
+        />
+      </Find>
+      <Find id="shadow" set={opts.shadowFloor}>
+        <ShadowFloorField opts={opts} onChange={onChange} />
+      </Find>
+      {pockets && (
+        <Find id="pockets">
+          <div className="indent">
+            <PocketSettings
+              value={opts}
+              onChange={onChange}
+              layout={layout}
+              note={[standing, 'Compartment, scoop and label settings are not used.'].filter(Boolean).join(' ')}
+              find
+            />
+          </div>
+        </Find>
+      )}
+    </>
+  );
+}
+
+/** Foot style. */
+export function BaseField({ opts, onChange }: Props) {
+  // Vase-mode bins: hollow feet drawn as they print, or none (geometry/containers/vase.ts).
+  if (isVaseBin(opts)) {
+    const flat = opts.base === 'flat';
+    return (
+      <Segmented
+        label="Base"
+        value={flat ? 'flat' : 'standard'}
+        options={[
+          { value: 'standard', label: 'Feet', title: 'Gridfinity feet, hollow, printed as the bottom layers' },
+          { value: 'flat', label: 'Flat', title: 'No feet: a flat bottom' },
+        ]}
+        onChange={(base) => onChange({ base })}
+        hint={
+          flat
+            ? 'No feet: a flat-bottomed box for loose use. It does not lock into a baseplate.'
+            : `Gridfinity feet, hollow, with walls two lines thick, joined up to ${VASE.start} mm. A single wall can't go round separate feet, so they print as ordinary bottom layers and the spiral starts above them.`
+        }
+      />
+    );
+  }
+  const hints: Record<BinOptions['base'], string> = {
+    standard: 'Solid Gridfinity feet.',
+    lite: 'Hollow feet with thin walls (gridfinity-rebuilt “lite”): much less plastic. The floor follows the feet.',
+    efficient: 'A pocket in each foot with 1 mm walls (Gridfinity Extended “efficient floor”).',
+    flat: 'No feet: a flat-bottomed box for loose use. It does not lock into a baseplate.',
+  };
+  return (
+    <Segmented
+      label="Base"
+      value={opts.base}
+      options={[
+        { value: 'standard', label: 'Standard' },
+        { value: 'lite', label: 'Lite' },
+        { value: 'efficient', label: 'Efficient' },
+        { value: 'flat', label: 'Flat' },
+      ]}
+      onChange={(base) => onChange({ base })}
+      hint={hints[opts.base] + (opts.interior === 'pockets' && (opts.base === 'lite' || opts.base === 'efficient') ? ' Pocket grids keep solid feet.' : '')}
+    />
+  );
+}
+
+/** Magnet / screw holes and their details. */
+export function HoleFields({ opts, onChange }: Props) {
+  if (opts.base === 'flat') return <div className="field-hint">Flat bins have no feet, so no magnet or screw holes.</div>;
+  const magnets = opts.holes === 'magnets' || opts.holes === 'both';
+  const hint =
+    opts.holes === 'refined'
+      ? 'Gridfinity Refined: 6 × 2 mm magnets slide in from the side and are held by friction; a toothpick hole pushes them out.'
+      : magnets
+        ? '6 × 2 mm magnets (6.5 mm pockets).'
+        : undefined;
+  return (
+    <>
+      <Segmented
+        label="Bottom holes"
+        value={opts.holes}
+        options={[
+          { value: 'none', label: 'None' },
+          { value: 'magnets', label: 'Magnets' },
+          { value: 'screws', label: 'Screws' },
+          { value: 'both', label: 'Both' },
+          { value: 'refined', label: 'Refined', title: 'Side-loaded press-fit magnet slots (Gridfinity Refined)' },
+        ]}
+        onChange={(holes) => onChange({ holes })}
+        hint={hint}
+      />
+      {opts.holes !== 'none' && (
+        <div className="indent">
+          {opts.holes !== 'refined' && (
+            <Toggle label="Chamfered hole mouths" checked={opts.holeChamfer} onChange={(holeChamfer) => onChange({ holeChamfer })} />
+          )}
+          {magnets && (
+            <Toggle
+              label="Crush ribs"
+              checked={opts.holeCrushRibs}
+              onChange={(holeCrushRibs) => onChange({ holeCrushRibs })}
+              hint="Ribs inside the magnet pockets for a press fit, no glue."
+            />
+          )}
+          {opts.holes !== 'refined' && (
+            <Toggle
+              label="Printable hole tops"
+              checked={opts.holePrintable}
+              onChange={(holePrintable) => onChange({ holePrintable })}
+              hint="Bridges the top of each hole in thin stacked layers, so the holes print without supports."
+            />
+          )}
+          <Toggle
+            label="Outer corners only"
+            checked={opts.holeCorners}
+            onChange={(holeCorners) => onChange({ holeCorners })}
+            hint="Four holes per bin instead of four per cell: fewer magnets."
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Lip style, anti-slide notches and the stacking lid. */
+export function LipFields({ opts, onChange, cells }: Props & { cells?: BinCells }) {
+  const { fmt } = useUnits();
+  return (
+    <>
+      <Find id="lip-style">
+        <Segmented
+          label="Stacking lip"
+          value={opts.lip ? opts.lipStyle : 'none'}
+          options={[
+            { value: 'normal', label: 'Normal' },
+            { value: 'reduced', label: 'Reduced', title: 'No lower chamfer or support: more room inside, still stackable' },
+            { value: 'none', label: 'None' },
+          ]}
+          onChange={(v) => onChange(v === 'none' ? { lip: false } : { lip: true, lipStyle: v })}
+          hint={opts.lip && opts.lipStyle === 'reduced' ? 'Gridfinity Extended’s reduced lip: a wider opening, still stackable.' : undefined}
+        />
+      </Find>
+      {opts.lip ? (
+        <div className="indent">
+          <Find id="lip-style">
+            <Toggle
+              label="Anti-slide notches"
+              checked={opts.lipNotches}
+              onChange={(lipNotches) => onChange({ lipNotches })}
+              hint="On bins wider than one cell: cusps at the cell lines keep smaller bins stacked on top from sliding."
+            />
+          </Find>
+          <Find id="lid">
+            <Toggle
+              label="Stacking lid"
+              checked={opts.lid}
+              onChange={(lid) => onChange({ lid })}
+              hint={opts.lid ? undefined : `Prints a ${fmt(LID_HEIGHT)} lid that sits in the lip. Another bin stacks on it, or its top is a pocket grid.`}
+            />
+            {opts.lid && (
+              <div className="indent">
+                <LidTopFields opts={opts} onChange={onChange} cells={cells} />
+              </div>
+            )}
+          </Find>
+        </div>
+      ) : (
+        <Find id="lid">
+          <div className="field-hint">Lids need a stacking lip.</div>
+        </Find>
+      )}
+    </>
+  );
+}
+
+const WALL_NAMES: Record<Wall, string> = { f: 'Front', b: 'Back', l: 'Left', r: 'Right' };
+
+function WallPicker({ label, value, onChange, hint }: { label: string; value: WallMask; onChange: (v: WallMask) => void; hint?: string }) {
+  const toggle = (c: Wall) => onChange(WALLS.filter((k) => (k === c ? !value.includes(k) : value.includes(k))).join(''));
+  return (
+    <Field label={label} hint={hint}>
+      <div className="segmented" role="group" aria-label={label}>
+        {WALLS.map((c) => (
+          <button key={c} type="button" aria-pressed={value.includes(c)} className={value.includes(c) ? 'active' : ''} onClick={() => toggle(c)}>
+            {WALL_NAMES[c]}
+          </button>
+        ))}
+      </div>
+    </Field>
+  );
+}
+
+/** Wall cutouts, finger slides and the hex wall pattern. */
+export function WallFields({ opts, onChange }: Props) {
+  return (
+    <>
+      <Find id="wall-cutouts">
+        <WallPicker
+          label="Wall cutouts"
+          value={opts.cutoutWalls}
+          onChange={(cutoutWalls) => onChange({ cutoutWalls })}
+          hint={opts.cutoutWalls ? undefined : 'A rounded notch from the top of a wall, to reach in from the side.'}
+        />
+        {opts.cutoutWalls && (
+          <div className="indent row2">
+            <Slider
+              label="Width"
+              value={opts.cutoutWidth}
+              min={0.1}
+              max={1}
+              step={0.05}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onChange={(cutoutWidth) => onChange({ cutoutWidth })}
+            />
+            <LengthInput label="Depth from top" value={opts.cutoutDepth} min={1} max={200} onChange={(cutoutDepth) => onChange({ cutoutDepth })} />
+          </div>
+        )}
+      </Find>
+      <Find id="wall-slides">
+        <WallPicker
+          label="Finger slides"
+          value={opts.slideWalls}
+          onChange={(slideWalls) => onChange({ slideWalls })}
+          hint={opts.slideWalls ? undefined : 'A curved ramp where the floor meets the wall, along the whole wall.'}
+        />
+        {opts.slideWalls && (
+          <div className="indent">
+            <LengthInput label="Slide radius" value={opts.slideRadius} min={1} max={40} onChange={(slideRadius) => onChange({ slideRadius })} />
+          </div>
+        )}
+      </Find>
+      <Find id="wall-hex">
+        <WallPicker
+          label="Hex wall pattern"
+          value={opts.patternWalls}
+          onChange={(patternWalls) => onChange({ patternWalls })}
+          hint={opts.patternWalls ? undefined : 'Hexagonal holes through the walls save plastic on tall bins.'}
+        />
+        {opts.patternWalls && (
+          <div className="indent row2">
+            <LengthInput label="Hole size" value={opts.patternSize} min={3} max={30} onChange={(patternSize) => onChange({ patternSize })} />
+            <LengthInput label="Web" value={opts.patternWeb} min={1.2} max={10} onChange={(patternWeb) => onChange({ patternWeb })} />
+          </div>
+        )}
+      </Find>
+    </>
+  );
+}
