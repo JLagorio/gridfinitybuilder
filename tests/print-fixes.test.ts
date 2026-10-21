@@ -3,12 +3,14 @@ import Module from 'manifold-3d';
 import { readFileSync } from 'node:fs';
 import type { MeshData, Wasm } from '../src/lib/geometry/kernel';
 import { registerFont } from '../src/lib/geometry/text';
-import { sliceReport } from '../src/lib/geometry/printcheck';
+import { checkPart, sliceReport } from '../src/lib/geometry/printcheck';
+import { DEFAULT_BIN, binLabelTabs, buildBin, type BinOptions } from '../src/lib/geometry/bin';
 import { DEFAULT_BASEPLATE, buildBaseplatePiece, type BaseplateOptions } from '../src/lib/geometry/baseplate';
 import { CONNECTOR_MIN_WALL } from '../src/lib/geometry/spec';
 import { DEFAULT_DRAWER, computeLayout } from '../src/lib/layout/drawer';
 import { makePieces } from '../src/lib/layout/split';
 import { buildMesh, type PrintJob } from '../src/lib/project';
+import { setWallProps, uniformLayout } from '../src/lib/dividers';
 import { SAMPLE_GROUPS, printedParts } from '../scripts/sampler-cases';
 
 /**
@@ -82,5 +84,25 @@ describe('print fixes', () => {
   it('a removable wall’s slot has no knife-edge horns where the rounded compartment bottoms meet it', () => {
     expect(sliceReport(w, sample('compartments/removable.stl')).thin).toEqual([]);
     expect(sliceReport(w, sample('compartments/removable-notch.stl')).thin).toEqual([]);
+  });
+
+  it('a label tab in front of a removable wall hangs between the side walls, or there is none', () => {
+    const layout = setWallProps(uniformLayout(1, 2), 'y1', { removable: true });
+    for (const label of ['left', 'center', 'right'] as const) {
+      const o: BinOptions = { ...DEFAULT_BIN, unitsX: 2, unitsY: 2, heightUnits: 5, label, layout };
+      const c = checkPart(w, buildBin(w, o));
+      expect(c.topology.components, label).toHaveLength(1);
+      expect(c.slices!.islands, label).toEqual([]);
+      // The front compartment's tab spans its width, side wall to side wall.
+      const front = binLabelTabs(o).sort((a, b) => a.y0 - b.y0)[0];
+      expect(front.x1 - front.x0, label).toBeGreaterThan(75);
+    }
+    // With a removable wall beside it too, it has nothing to hang from: only the back row keeps tabs.
+    const grid = setWallProps(setWallProps(uniformLayout(2, 2), 'y1', { removable: true }), 'x1', { removable: true });
+    const o: BinOptions = { ...DEFAULT_BIN, unitsX: 2, unitsY: 2, heightUnits: 5, label: 'left', layout: grid };
+    const tabs = binLabelTabs(o);
+    expect(tabs.length).toBeGreaterThan(0);
+    expect(tabs.every((t) => t.y0 > 0)).toBe(true);
+    expect(checkPart(w, buildBin(w, o)).ok).toBe(true);
   });
 });

@@ -98,6 +98,8 @@ export interface CutterSpec {
   backCut?: { x0: number; x1: number; z: number } | null;
   /** Sides that are plain, full-height walls a tab reaching into them hangs from (default: neither). */
   sideWalls?: { left: boolean; right: boolean };
+  /** The back is a removable wall's slot: a tab there can only hang between the side walls. */
+  backFree?: boolean;
 }
 
 /** A label tab's flat top, in bin coordinates. */
@@ -147,6 +149,11 @@ export function tabShape(c: CutterSpec): TabShape | null {
   else if (c.label === 'right') tx0 = x1 + eps - tw;
   else tx0 = (x0 + x1) / 2 - tw / 2;
   let tx1 = tx0 + tw;
+  if (c.backFree) {
+    // Nothing to hang from at the back (the plate slides in behind): the tab spans side wall to side wall, or there is none.
+    if (!c.sideWalls?.left || !c.sideWalls?.right) return null;
+    [tx0, tx1] = [x0 - eps, x0 - eps + cw + 4 * eps];
+  }
   const cut = c.backCut;
   if (cut && tx0 < cut.x1 && tx1 > cut.x0 && cutsTabLoose(cut.z, tabTop, th, td, tan)) {
     // Across the cutout the tab no longer hangs from the back wall: keep it there only as a bridge.
@@ -597,6 +604,12 @@ function plainSides(r: Pick<ResolvedLayout, 'innerW' | 'walls'>, rc: CompRect): 
   };
 }
 
+/** Is the rect's back side a removable wall (its slot)? */
+function removableBehind(walls: ResolvedLayout['walls'], rc: CompRect): boolean {
+  const pos = rc.y1 + DIVIDER / 2;
+  return walls.some((x) => x.orient === 'h' && x.removable && Math.abs(x.pos - pos) < 1e-4 && x.start < rc.x1 && x.end > rc.x0);
+}
+
 const rectRadius = (r: { x0: number; x1: number; y0: number; y1: number }) =>
   Math.max(0, Math.min(INNER_RADIUS, (r.x1 - r.x0) / 2 - 0.05, (r.y1 - r.y0) / 2 - 0.05));
 
@@ -649,6 +662,7 @@ function planLayout(
   const backWall = (rc: CompRect) => ({
     backCut: rc.y1 >= r.innerD - 1e-6 ? back : null,
     sideWalls: r.walls ? plainSides({ innerW: r.innerW, walls: r.walls }, rc) : undefined,
+    ...(r.walls && removableBehind(r.walls, rc) ? { backFree: true } : {}),
   });
   // Pocket regions on the cavity edge stay clear of the lip when the fill reaches up under it.
   const region = (rc: CompRect, lip: number): PocketRegion => ({
