@@ -553,6 +553,10 @@ describe('dispenser', { timeout: 30_000 }, () => {
     expect(binLabel(disp({ item: 'aa' }))).toBe('3×2×8u dispenser 2 × AA');
     expect(binLabel(disp({ item: 'cr2032', shape: 'coin', itemD: 20, itemL: 3.2, columns: 1 }))).toBe('3×2×8u dispenser CR2032');
     expect(binLabel(disp({ style: 'channel' }, { unitsX: 1, unitsY: 4 }))).toBe('1×4×8u dispenser 1 channel');
+    // On a half grid the summary counts the columns of the real (21 mm) cells: 4 × 2 half cells take 3 AA in 42 mm cells, 1 in 21 mm ones.
+    const half = { half: true, x: [21, 21, 21, 21], y: [21, 21] };
+    expect(binLabel(disp({ item: 'aa' }, { unitsX: 4 }))).toBe('4×2×8u dispenser 3 × AA');
+    expect(binLabel(disp({ item: 'aa' }, { unitsX: 4 }), half)).toBe('2×1×8u dispenser AA');
     const job = planJob({
       ...DEFAULT_PROJECT,
       drawer: { ...DEFAULT_DRAWER, mode: 'grid', gridX: 6, gridY: 3 },

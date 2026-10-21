@@ -63,8 +63,8 @@ export interface ContainerDef<O = unknown> {
   parts?(bin: BinOptions, o: O, cells: BinCells): ContainerPart[];
   /** Build one of those parts: min corner at the origin, bottom at z = 0, in its print orientation. */
   buildPart?(w: Wasm, spec: unknown): MeshData;
-  /** Short text for the bin's name ("3 drawers"). */
-  summary?(bin: BinOptions, o: O): string;
+  /** Short text for the bin's name ("3 drawers"), for these cells (42 mm units when left out). */
+  summary?(bin: BinOptions, o: O, cells?: BinCells): string;
   /** Planning warnings (too short, too small, …). */
   notes?(bin: BinOptions, o: O, cells: BinCells): string[];
 }

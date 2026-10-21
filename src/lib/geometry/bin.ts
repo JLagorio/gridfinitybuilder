@@ -222,7 +222,7 @@ export function binLabel(o: BinOptions, cells?: Partial<BinCells> | null): strin
   const parts = [`${u(o.unitsX)}×${u(o.unitsY)}×${h}`];
   const c = activeContainer(o);
   if (c) {
-    const more = c.def.summary?.(sanitizeBin(o), c.opts);
+    const more = c.def.summary?.(sanitizeBin(o), c.opts, binCells(o, cells));
     return [...parts, c.def.label.toLowerCase(), ...(more ? [more] : [])].join(' ');
   }
   const tools = o.cutouts?.length ?? 0;

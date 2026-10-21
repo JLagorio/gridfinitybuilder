@@ -800,8 +800,8 @@ export function drawerUnitNotes(bin: BinOptions, o: DrawerUnitOptions, cells?: B
   return out;
 }
 
-export function drawerUnitSummary(bin: BinOptions, o: DrawerUnitOptions): string {
-  const plan = planDrawerUnit(bin, o);
+export function drawerUnitSummary(bin: BinOptions, o: DrawerUnitOptions, cells?: BinCells | null): string {
+  const plan = planDrawerUnit(bin, o, cells);
   const n = plan.slots.filter((sl) => sl.spec).length;
   return `${n} drawer${n === 1 ? '' : 's'}${plan.cols > 1 ? ` (${plan.cols} × ${plan.rows})` : ''}`;
 }

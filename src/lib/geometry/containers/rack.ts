@@ -593,8 +593,8 @@ export function rackNotes(bin: BinOptions, o: RackOptions, cells?: BinCells | nu
   return out;
 }
 
-export function rackSummary(bin: BinOptions, o: RackOptions): string {
-  const L = rackLayout(bin, o);
+export function rackSummary(bin: BinOptions, o: RackOptions, cells?: BinCells | null): string {
+  const L = rackLayout(bin, o, cells);
   const n = L.places.length;
   const noun = NOUN[o.style][n === 1 ? 0 : 1];
   const kind = o.style === 'drivers' && o.hole === 'hex' ? `hex ${noun}` : noun;

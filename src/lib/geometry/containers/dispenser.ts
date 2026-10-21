@@ -665,14 +665,14 @@ export function dispenserNotes(bin: BinOptions, o: DispenserOptions, cells?: Bin
   return out;
 }
 
-export function dispenserSummary(bin: BinOptions, o: DispenserOptions): string {
+export function dispenserSummary(bin: BinOptions, o: DispenserOptions, cells?: BinCells | null): string {
   if (o.style === 'magazine') {
-    const n = magazineLayout(bin, o).xs.length;
+    const n = magazineLayout(bin, o, cells).xs.length;
     const name = magazineItemLabel(o);
     return n > 1 ? `${n} × ${name}` : name;
   }
   if (o.style === 'tape') return `${o.tapeWidth} mm tape`;
-  const n = channelLayout(bin, o).centers.length;
+  const n = channelLayout(bin, o, cells).centers.length;
   return `${n} channel${n === 1 ? '' : 's'}`;
 }
 
