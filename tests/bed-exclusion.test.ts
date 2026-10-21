@@ -328,6 +328,66 @@ describe('the baseplate on a printer with an exclusion area', () => {
   });
 });
 
+describe('the job that was sliced in Bambu Studio', () => {
+  // A second, independent fix for the corner (fa11f3f, on another branch) was checked by slicing an X1C
+  // project of this job in Bambu Studio 02.08.04.57; that branch was merged in favour of this code
+  // (18d63ac), and the merge was sliced again. These are its checks, kept against this code.
+  const reference = (): NamedDrawer => ({
+    id: 'r',
+    name: 'Reference',
+    drawer: { ...DEFAULT_DRAWER, width: 510.5, depth: 376.5, clearance: 0.5 },
+    baseplate: { ...DEFAULT_BASEPLATE, connector: 'bowtie' },
+    bins: Array.from({ length: 96 }, (_, i): PlacedBin => ({ id: `b${i}`, x: i % 12, y: Math.floor(i / 12), opts: sanitizeBin({ ...DEFAULT_BIN, unitsX: 1, unitsY: 1 }) })),
+  });
+  const x1c = (o: Partial<PrintSetup> = {}): PrintSetup => ({ ...DEFAULT_SETUP, printerId: 'x1c', bedW: 256, bedD: 256, maxH: 256, ...o });
+
+  it('the reference drawer with bowtie keys and 96 1×1 bins: every part a spacing clear, nothing left out', () => {
+    for (const spacing of [3, 5]) {
+      const setup = x1c({ spacing });
+      const job = planPrint([reference()], setup, { baseplate: true, bins: true });
+      expect(job.warnings).toEqual([]);
+      expect(job.plates.filter((p) => p.group === 'bins').flatMap((p) => p.placements)).toHaveLength(96);
+      const o: PackOptions = { ...plateBed(setup), spacing, nest: setup.nest };
+      job.plates.forEach((pl, i) => {
+        // Bins pack at least 2 mm apart, baseplate pieces and keys at the setup's spacing.
+        const gap = pl.group === 'bins' ? Math.max(2, spacing) : spacing;
+        expect(problems(pl.placements, { ...o, spacing: gap }), `plate ${i + 1}`).toEqual([]);
+      });
+      // The split and plates it has on a P2S: 4 baseplate plates.
+      expect(job.plates.filter((p) => p.group === 'baseplate')).toHaveLength(4);
+    }
+  });
+
+  it('the reference drawer keeps the split it has on a P2S (packed as there, then moved or mirrored clear)', () => {
+    const layout = computeLayout({ ...DEFAULT_DRAWER, width: 510.5, depth: 376.5, clearance: 0.5 });
+    const x = planBaseplate(layout, x1c());
+    const p = planBaseplate(layout, { ...x1c(), printerId: 'p2s' });
+    expect(x.pieces.map((q) => [q.x0, q.y0, q.x1, q.y1])).toEqual(p.pieces.map((q) => [q.x0, q.y0, q.x1, q.y1]));
+    expect(x.plates.length).toBe(p.plates.length);
+  });
+
+  it('two pieces that fill the bed’s width share a plate: the shorter one behind the corner', () => {
+    for (const pair of [
+      [{ key: 'a', w: 87, d: 230 }, { key: 'b', w: 210, d: 146 }],
+      [{ key: 'a', w: 87, d: 146 }, { key: 'b', w: 213, d: 146 }],
+    ]) {
+      const { plates, oversize } = packPlates(pair, X1);
+      expect(oversize).toEqual([]);
+      expect(plates).toHaveLength(1);
+      expect(problems(plates[0].placements, X1)).toEqual([]);
+    }
+  });
+
+  it('a part as wide as the usable bed is pushed back behind the corner, and a full-bed part is left out', () => {
+    const o: PackOptions = { ...X1 };
+    const { plates } = packPlates([{ key: 'wide', w: 236, d: 210 }], o);
+    expect(problems(plates[0].placements, o)).toEqual([]);
+    expect(plates[0].placements[0].y).toBeGreaterThanOrEqual(28 + o.spacing - 1e-6);
+    expect(fitsOnBed(236, 236, o)).toBe(false);
+    expect(packPlates([{ key: 'full', w: 236, d: 236 }], o).oversize.map((q) => q.key)).toEqual(['full']);
+  });
+});
+
 describe('several printers, each with its own corner', () => {
   const printer = (id: string): PrinterSetup => {
     const p = findPrinter(id);

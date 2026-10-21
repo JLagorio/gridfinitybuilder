@@ -193,6 +193,51 @@ export function fitsOnBed(w: number, d: number, o: PlateBed): boolean {
  * returned in `oversize` instead of being dropped silently.
  */
 export function packPlates(items: PackItem[], o: PackOptions): { plates: PlateLayout[]; oversize: PackItem[] } {
+  const around = packAround(items, o);
+  if (!o.exclude?.length || around.plates.length < 2) return around;
+  // Packed as on a bed without the exclusion areas, then each plate moved (or
+  // mirrored) clear of them, sometimes takes fewer plates: a part can stand in
+  // front of the corner when a shorter one goes behind it. Plates that can't be
+  // cleared are packed again around the areas. The fewer plates win.
+  const left = new Set(around.oversize.map((it) => it.key));
+  const plain = packAround(
+    items.filter((it) => !left.has(it.key)),
+    { ...o, exclude: undefined },
+  );
+  const byKey = new Map(items.map((it) => [it.key, it]));
+  const plates: PlateLayout[] = [];
+  const redo: PackItem[] = [];
+  for (const pl of plain.plates) {
+    const moved = clearPlate(pl.placements, o);
+    if (moved) plates.push({ placements: moved });
+    else for (const p of pl.placements) redo.push(byKey.get(p.key)!);
+  }
+  const again = packAround(redo, o);
+  if (again.oversize.length || plates.length + again.plates.length >= around.plates.length) return around;
+  return { plates: [...plates, ...again.plates], oversize: around.oversize };
+}
+
+/** A packed plate moved clear of the exclusion areas as it is, or mirrored (either way, or both); null when none of those clears them. */
+function clearPlate(placements: Placement[], o: PlateBed): Placement[] | null {
+  const feet = placements.map(footOf);
+  const x0 = Math.min(...feet.map((f) => f.x));
+  const y0 = Math.min(...feet.map((f) => f.y));
+  const x1 = Math.max(...feet.map((f) => f.x + f.w));
+  const y1 = Math.max(...feet.map((f) => f.y + f.h));
+  for (const [mx, my] of [[false, false], [true, false], [false, true], [true, true]]) {
+    const flipped = placements.map((p, i) => ({
+      ...p,
+      x: mx ? x0 + x1 - feet[i].x - feet[i].w : p.x,
+      y: my ? y0 + y1 - feet[i].y - feet[i].h : p.y,
+    }));
+    const moved = movePlate(flipped, o);
+    if (moved) return moved;
+  }
+  return null;
+}
+
+/** packPlates, the exclusion areas taken out of every plate before anything goes on it. */
+function packAround(items: PackItem[], o: PackOptions): { plates: PlateLayout[]; oversize: PackItem[] } {
   const s = Math.max(0, o.spacing);
   const oversize: PackItem[] = [];
   const ok: PackItem[] = [];
