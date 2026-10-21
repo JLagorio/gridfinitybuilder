@@ -1,18 +1,18 @@
 import { useState } from 'react';
 import { history, useStore, useUnits } from '../state/store';
-import { LengthInput, NumberInput, Section, Segmented, Select, Stepper, TextInput, Toggle } from './fields';
-import { baseplateFloor, baseplateHeight, binSeatHeight, screwPlacement, type BaseplateStyle } from '../lib/geometry/baseplate';
+import { Group, LengthInput, NumberInput, Section, Segmented, Select, Stepper, TextInput, Toggle } from './fields';
+import { DEFAULT_BASEPLATE, baseplateFloor, baseplateHeight, binSeatHeight, screwPlacement, type BaseplateStyle } from '../lib/geometry/baseplate';
 import { PIN, SCREW_JOIN, WEIGHTED } from '../lib/geometry/spec';
 import { CellMaskEditor } from './CellMaskEditor';
-import { effectiveSize, spacerMargins, type EdgeFill } from '../lib/layout/drawer';
+import { DEFAULT_DRAWER, effectiveSize, spacerMargins, type EdgeFill } from '../lib/layout/drawer';
 import { unitsAcross } from '../lib/layout/halfgrid';
 import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
-import { DrawerMapButton } from './DrawerMap';
 import { PadFields } from './PadFields';
 import { EnclosureSection } from './EnclosureFields';
-
-const r1 = (v: number) => Math.round(v * 10) / 10;
+import { Find } from './findContext';
+import { FindPanel, MoreInAll } from './find';
+import { DRAWER_INDEX } from './panelIndex';
 
 /** What a style becomes on a half grid, where its per-cell features don't fit 21 mm cells. */
 const HALF_STYLE_HINT: Partial<Record<BaseplateStyle, string>> = {
@@ -68,6 +68,8 @@ function Samples({
   values: number[];
   onChange: (v: number[]) => void;
 }) {
+  // Nothing at all without extra measurements, so it adds no gap.
+  if (!values.length) return null;
   return (
     <div className="samples">
       {values.map((v, i) => (
@@ -90,7 +92,6 @@ function Samples({
 export function DrawerPanel({ job }: { job: PrintJob }) {
   const drawer = useStore((s) => s.drawer);
   const bp = useStore((s) => s.baseplate);
-  const explode = useStore((s) => s.ui.explode);
   const precision = useStore((s) => s.ui.inchPrecision);
   const active = useStore((s) => s.drawers.find((d) => d.id === s.activeDrawerId));
   const renameDrawer = useStore((s) => s.renameDrawer);
@@ -153,55 +154,68 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
               ? `${joints} jigsaw tabs on the left / front piece of each seam. Lower each neighbor onto them.`
               : `${joints} × ${SCREW_JOIN.screw} socket-head screws across the seams, in slots open underneath. Raises the floor to ${SCREW_JOIN.floor} mm.`;
 
+  const centered = drawer.alignX === DEFAULT_DRAWER.alignX && drawer.alignY === DEFAULT_DRAWER.alignY;
+  const edges = (['outerRadius', 'topTrim', 'bottomClearance', 'bottomChamfer'] as const).filter((k) => bp[k] !== DEFAULT_BASEPLATE[k]);
+  const EDGE_NAMES = { outerRadius: 'corner radius', topTrim: 'ridge trim', bottomClearance: 'bottom clearance', bottomChamfer: 'chamfer' };
+
   return (
-    <>
-      <Section title="Drawer">
-        {active && <TextInput label="Name" value={active.name} onChange={(name) => renameDrawer(active.id, name)} placeholder="Workbench, top drawer" />}
-        <Segmented
-          label="Size from"
-          value={drawer.mode}
-          options={[
-            { value: 'drawer', label: 'Drawer size' },
-            { value: 'grid', label: 'Grid units' },
-          ]}
-          onChange={(mode) => setDrawer({ mode })}
-        />
-        <Toggle
-          label="Half grid (21 mm)"
-          checked={half}
-          onChange={toggleHalf}
-          hint={
-            gridNote ??
-            (half
-              ? 'Cells, receptacles and bin feet are 21 mm: bins come in half units (1.5 × 2.5 u) and sit at any half-cell offset. A 1 × 1 u bin stands on 2 × 2 half feet.'
-              : 'Gridfinity Extended’s half pitch: 21 mm cells, so bins can be sized and placed in half units. Bins already drawn are converted.')
-          }
-        />
-        {drawer.mode === 'drawer' ? (
-          <>
+    <FindPanel index={DRAWER_INDEX} placeholder="Find a setting…">
+      <Section title="Drawer" find="drawer">
+        {active && (
+          <Find id="drawer-name">
+            <TextInput label="Name" value={active.name} onChange={(name) => renameDrawer(active.id, name)} placeholder="Workbench, top drawer" />
+          </Find>
+        )}
+        <Find id="drawer-size">
+          <Segmented
+            label="Size from"
+            value={drawer.mode}
+            options={[
+              { value: 'drawer', label: 'Drawer size' },
+              { value: 'grid', label: 'Grid units' },
+            ]}
+            onChange={(mode) => setDrawer({ mode })}
+          />
+          {drawer.mode === 'drawer' ? (
+            <>
+              <div className="row2">
+                <LengthInput label="Inside width" value={drawer.width} onChange={(width) => setDrawer({ width })} min={42} />
+                <LengthInput label="Inside depth" value={drawer.depth} onChange={(depth) => setDrawer({ depth })} min={42} />
+              </div>
+              <Samples label="Width" values={drawer.widthSamples} onChange={(widthSamples) => setDrawer({ widthSamples })} />
+              <Samples label="Depth" values={drawer.depthSamples} onChange={(depthSamples) => setDrawer({ depthSamples })} />
+              <div className="field-hint">
+                Measure wall to wall at the floor, in {units === 'in' ? 'inches (20 1/8, 1\' 8 1/8")' : 'mm (or 20 1/8 in)'}.{' '}
+                Drawers are rarely square:{' '}
+                <button className="link" onClick={() => setDrawer({ widthSamples: [...drawer.widthSamples, drawer.width] })}>
+                  + width
+                </button>{' '}
+                <button className="link" onClick={() => setDrawer({ depthSamples: [...drawer.depthSamples, drawer.depth] })}>
+                  + depth
+                </button>{' '}
+                measured elsewhere, and the smallest is used.
+                {(drawer.widthSamples.length > 0 || drawer.depthSamples.length > 0) && (
+                  <>
+                    {' '}
+                    Using <b>{fmt(usedW)}</b> × <b>{fmt(usedD)}</b>.
+                  </>
+                )}
+              </div>
+            </>
+          ) : half ? (
             <div className="row2">
-              <LengthInput label="Inside width" value={drawer.width} onChange={(width) => setDrawer({ width })} min={42} />
-              <LengthInput label="Inside depth" value={drawer.depth} onChange={(depth) => setDrawer({ depth })} min={42} />
+              <HalfStepper label="Units wide" cells={Math.round(drawer.gridX * 2)} max={80} onChange={(c) => setDrawer({ gridX: c / 2 })} />
+              <HalfStepper label="Units deep" cells={Math.round(drawer.gridY * 2)} max={80} onChange={(c) => setDrawer({ gridY: c / 2 })} />
             </div>
-            <Samples label="Width" values={drawer.widthSamples} onChange={(widthSamples) => setDrawer({ widthSamples })} />
-            <Samples label="Depth" values={drawer.depthSamples} onChange={(depthSamples) => setDrawer({ depthSamples })} />
-            <div className="field-hint">
-              Measure wall to wall at the floor, in {units === 'in' ? 'inches (20 1/8, 1\' 8 1/8")' : 'mm (or 20 1/8 in)'}.{' '}
-              Drawers are rarely square:{' '}
-              <button className="link" onClick={() => setDrawer({ widthSamples: [...drawer.widthSamples, drawer.width] })}>
-                + width
-              </button>{' '}
-              <button className="link" onClick={() => setDrawer({ depthSamples: [...drawer.depthSamples, drawer.depth] })}>
-                + depth
-              </button>{' '}
-              measured elsewhere, and the smallest is used.
-              {(drawer.widthSamples.length > 0 || drawer.depthSamples.length > 0) && (
-                <>
-                  {' '}
-                  Using <b>{fmt(usedW)}</b> × <b>{fmt(usedD)}</b>.
-                </>
-              )}
+          ) : (
+            <div className="row2">
+              <Stepper label="Units wide" value={drawer.gridX} min={1} max={40} onChange={(gridX) => setDrawer({ gridX })} />
+              <Stepper label="Units deep" value={drawer.gridY} min={1} max={40} onChange={(gridY) => setDrawer({ gridY })} />
             </div>
+          )}
+        </Find>
+        {drawer.mode === 'drawer' && (
+          <Find id="drawer-height">
             <LengthInput
               label="Inside height (optional)"
               value={drawer.height}
@@ -216,76 +230,7 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
                   : 'Floor to the underside of whatever is above the drawer. Used to warn about bins that are too tall.'
               }
             />
-            <LengthInput
-              label="Fit clearance"
-              value={drawer.clearance}
-              max={20}
-              onChange={(clearance) => setDrawer({ clearance })}
-              hint="Taken off each axis so the plate drops in without binding."
-            />
-            <Segmented
-              label="Grid position, left to right"
-              value={drawer.alignX}
-              options={[
-                { value: 0, label: 'Left' },
-                { value: 0.5, label: 'Center' },
-                { value: 1, label: 'Right' },
-              ]}
-              onChange={(alignX) => setDrawer({ alignX })}
-            />
-            <Segmented
-              label="Grid position, front to back"
-              value={drawer.alignY}
-              options={[
-                { value: 0, label: 'Front' },
-                { value: 0.5, label: 'Center' },
-                { value: 1, label: 'Back' },
-              ]}
-              onChange={(alignY) => setDrawer({ alignY })}
-            />
-            <Segmented
-              label="Leftover space"
-              value={fill}
-              options={[
-                { value: 'solid', label: 'Solid', title: 'Fill the gap around the grid with solid plastic' },
-                // On a half grid every cell is a half cell already.
-                ...(half ? [] : [{ value: 'half' as const, label: 'Half cells', title: 'Add a row of 21 mm half cells where the gap allows' }]),
-                { value: 'fit', label: 'Partial cells', title: 'Turn each gap into a row of narrower cells, so bins can use the space' },
-                // A case or wall grid has no drawer walls to wedge strips against.
-                ...(drawer.enclosure ? [] : [{ value: 'spacers' as const, label: 'Spacer strips', title: 'The baseplate is just the grid; the gaps print as separate strips' }]),
-              ]}
-              onChange={(fill) => setDrawer({ fill })}
-              hint={
-                fill === 'spacers'
-                  ? 'The baseplate is just the grid, and each gap prints as a strip that wedges in beside it (settings below).'
-                  : fill === 'solid'
-                    ? 'Partial cells use the gap for bins with narrower feet, or stretch a bin over it (Bins tab). Push the grid to one side to get one wide row instead of two thin ones.'
-                    : partialX.length + partialY.length
-                      ? `Partial cells: ${[...new Set([...partialX, ...partialY].map((v) => fmt(v)))].join(', ')}. Bins drawn on them get matching feet.`
-                      : `No gap is wide enough (${fill === 'half' ? fmt(21) : `at least ${fmt(drawer.minFill)}`}). Push the grid to one side to combine the gaps.`
-              }
-            />
-            {fill === 'fit' && (
-              <LengthInput
-                label="Narrowest partial cell"
-                value={drawer.minFill}
-                min={8}
-                max={41}
-                onChange={(minFill) => setDrawer({ minFill })}
-                hint="Thinner gaps stay solid."
-              />
-            )}
-          </>
-        ) : half ? (
-          <div className="row2">
-            <HalfStepper label="Units wide" cells={Math.round(drawer.gridX * 2)} max={80} onChange={(c) => setDrawer({ gridX: c / 2 })} />
-            <HalfStepper label="Units deep" cells={Math.round(drawer.gridY * 2)} max={80} onChange={(c) => setDrawer({ gridY: c / 2 })} />
-          </div>
-        ) : (
-          <div className="row2">
-            <Stepper label="Units wide" value={drawer.gridX} min={1} max={40} onChange={(gridX) => setDrawer({ gridX })} />
-            <Stepper label="Units deep" value={drawer.gridY} min={1} max={40} onChange={(gridY) => setDrawer({ gridY })} />
-          </div>
+          </Find>
         )}
         <div className="summary">
           <div className="summary-big">
@@ -317,176 +262,291 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
           </dl>
         </div>
         {units === 'in' && (
-          <Segmented
-            label="Show inches to"
-            value={precision}
-            options={[
-              { value: 8, label: '1/8' },
-              { value: 16, label: '1/16' },
-              { value: 32, label: '1/32' },
-              { value: 0, label: 'Decimal' },
-            ]}
-            onChange={(inchPrecision) => setUI({ inchPrecision })}
-          />
+          <Find id="inch-precision">
+            <Segmented
+              label="Show inches to"
+              value={precision}
+              options={[
+                { value: 8, label: '1/8' },
+                { value: 16, label: '1/16' },
+                { value: 32, label: '1/32' },
+                { value: 0, label: 'Decimal' },
+              ]}
+              onChange={(inchPrecision) => setUI({ inchPrecision })}
+            />
+          </Find>
         )}
+      </Section>
+
+      <Section title="Grid" find="grid">
+        {drawer.mode === 'drawer' && (
+          <Find id="leftover">
+            <Segmented
+              label="Leftover space"
+              value={fill}
+              options={[
+                { value: 'solid', label: 'Solid', title: 'Fill the gap around the grid with solid plastic' },
+                // On a half grid every cell is a half cell already.
+                ...(half ? [] : [{ value: 'half' as const, label: 'Half cells', title: 'Add a row of 21 mm half cells where the gap allows' }]),
+                { value: 'fit', label: 'Partial cells', title: 'Turn each gap into a row of narrower cells, so bins can use the space' },
+                // A case or wall grid has no drawer walls to wedge strips against.
+                ...(drawer.enclosure ? [] : [{ value: 'spacers' as const, label: 'Spacer strips', title: 'The baseplate is just the grid; the gaps print as separate strips' }]),
+              ]}
+              onChange={(fill) => setDrawer({ fill })}
+              hint={
+                fill === 'spacers'
+                  ? 'The baseplate is just the grid, and each gap prints as a strip that wedges in beside it (settings under Drawer, case or wall).'
+                  : fill === 'solid'
+                    ? 'Partial cells use the gap for bins with narrower feet, or stretch a bin over it (Bins tab). Push the grid to one side to get one wide row instead of two thin ones.'
+                    : partialX.length + partialY.length
+                      ? `Partial cells: ${[...new Set([...partialX, ...partialY].map((v) => fmt(v)))].join(', ')}. Bins drawn on them get matching feet.`
+                      : `No gap is wide enough (${fill === 'half' ? fmt(21) : `at least ${fmt(drawer.minFill)}`}). Push the grid to one side to combine the gaps.`
+              }
+            />
+            {fill === 'fit' && (
+              <LengthInput
+                label="Narrowest partial cell"
+                value={drawer.minFill}
+                min={8}
+                max={41}
+                onChange={(minFill) => setDrawer({ minFill })}
+                hint="Thinner gaps stay solid."
+              />
+            )}
+          </Find>
+        )}
+        <Group find="blocked" title="Blocked cells" status={nBlocked ? `${nBlocked} blocked` : 'none'} active={nBlocked > 0}>
+          <CellMaskEditor layout={L} mask={drawer.mask ?? []} onChange={(mask) => setDrawer({ mask })} />
+          <div className="field-hint">
+            Click or drag to mark cells that slide hardware or a bump gets in the way of. They get no receptacle, and bins
+            can&apos;t go there.
+            {nBlocked > 0 && (
+              <>
+                {' '}
+                {nBlocked} blocked.{' '}
+                <button className="link" onClick={() => setDrawer({ mask: [] })}>
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
+          {nBlocked > 0 && (
+            <Segmented
+              label="Blocked cells are"
+              value={drawer.maskStyle ?? 'solid'}
+              options={[
+                { value: 'solid', label: 'Filled flat', title: 'Solid plastic, level with the top of the plate' },
+                { value: 'void', label: 'Cut out', title: 'A hole or notch in the plate, so the obstacle pokes through' },
+              ]}
+              onChange={(maskStyle) => setDrawer({ maskStyle })}
+            />
+          )}
+        </Group>
+        {drawer.mode === 'drawer' && (
+          <>
+            <Find id="grid-position" set={!centered}>
+              <Segmented
+                label="Grid position, left to right"
+                value={drawer.alignX}
+                options={[
+                  { value: 0, label: 'Left' },
+                  { value: 0.5, label: 'Center' },
+                  { value: 1, label: 'Right' },
+                ]}
+                onChange={(alignX) => setDrawer({ alignX })}
+              />
+              <Segmented
+                label="Grid position, front to back"
+                value={drawer.alignY}
+                options={[
+                  { value: 0, label: 'Front' },
+                  { value: 0.5, label: 'Center' },
+                  { value: 1, label: 'Back' },
+                ]}
+                onChange={(alignY) => setDrawer({ alignY })}
+              />
+            </Find>
+            <Find id="clearance" set={drawer.clearance !== DEFAULT_DRAWER.clearance}>
+              <LengthInput
+                label="Fit clearance"
+                value={drawer.clearance}
+                max={20}
+                onChange={(clearance) => setDrawer({ clearance })}
+                hint="Taken off each axis so the plate drops in without binding."
+              />
+            </Find>
+          </>
+        )}
+        <Find id="half-grid" set={half}>
+          <Toggle
+            label="Half grid (21 mm)"
+            checked={half}
+            onChange={toggleHalf}
+            hint={
+              gridNote ??
+              (half
+                ? 'Cells, receptacles and bin feet are 21 mm: bins come in half units (1.5 × 2.5 u) and sit at any half-cell offset. A 1 × 1 u bin stands on 2 × 2 half feet.'
+                : 'Gridfinity Extended’s half pitch: 21 mm cells, so bins can be sized and placed in half units. Bins already drawn are converted.')
+            }
+          />
+        </Find>
+        <MoreInAll
+          ids={[
+            ...(drawer.mode === 'drawer'
+              ? ([
+                  ['grid-position', !centered],
+                  ['clearance', drawer.clearance !== DEFAULT_DRAWER.clearance],
+                ] as [string, boolean][])
+              : []),
+            ['half-grid', half],
+          ]}
+        />
       </Section>
 
       <EnclosureSection job={job} />
 
-      <Section title="Blocked cells">
-        <CellMaskEditor layout={L} mask={drawer.mask ?? []} onChange={(mask) => setDrawer({ mask })} />
-        <div className="field-hint">
-          Click or drag to mark cells that slide hardware or a bump gets in the way of. They get no receptacle, and bins
-          can&apos;t go there.
-          {nBlocked > 0 && (
-            <>
-              {' '}
-              {nBlocked} blocked.{' '}
-              <button className="link" onClick={() => setDrawer({ mask: [] })}>
-                Clear
-              </button>
-            </>
-          )}
-        </div>
-        {nBlocked > 0 && (
+      <Section title="Baseplate" find="baseplate">
+        <Find id="bp-style">
           <Segmented
-            label="Blocked cells are"
-            value={drawer.maskStyle ?? 'solid'}
+            label="Style"
+            value={bp.style}
             options={[
-              { value: 'solid', label: 'Filled flat', title: 'Solid plastic, level with the top of the plate' },
-              { value: 'void', label: 'Cut out', title: 'A hole or notch in the plate, so the obstacle pokes through' },
+              { value: 'frame', label: 'Frame', title: 'Open bottom, least filament' },
+              { value: 'weighted', label: 'Weighted', title: 'Pockets underneath for weights' },
+              { value: 'skeletonized', label: 'Skeleton', title: 'Floor only around the corner holes' },
+              { value: 'solid', label: 'Solid', title: 'Closed floor' },
             ]}
-            onChange={(maskStyle) => setDrawer({ maskStyle })}
+            onChange={(style) => setBp({ style })}
+            hint={half && HALF_STYLE_HINT[bp.style] ? `${STYLE_HINT[bp.style]} ${HALF_STYLE_HINT[bp.style]}` : STYLE_HINT[bp.style]}
           />
-        )}
-      </Section>
-
-      <Section title="Baseplate">
-        <Segmented
-          label="Style"
-          value={bp.style}
-          options={[
-            { value: 'frame', label: 'Frame', title: 'Open bottom, least filament' },
-            { value: 'weighted', label: 'Weighted', title: 'Pockets underneath for weights' },
-            { value: 'skeletonized', label: 'Skeleton', title: 'Floor only around the corner holes' },
-            { value: 'solid', label: 'Solid', title: 'Closed floor' },
-          ]}
-          onChange={(style) => setBp({ style })}
-          hint={half && HALF_STYLE_HINT[bp.style] ? `${STYLE_HINT[bp.style]} ${HALF_STYLE_HINT[bp.style]}` : STYLE_HINT[bp.style]}
-        />
-        <Toggle
-          label="Magnet pockets"
-          checked={bp.magnets}
-          onChange={(magnets) => setBp({ magnets })}
-          hint={
-            half
-              ? bp.magnets
-                ? '21 mm half cells have no room for 4 corner magnets, so none are cut on this half grid: turn this off to drop the floor they need. Bins keep their own magnets (one per half foot).'
-                : 'Not on a half grid: 21 mm cells have no room for the 4 corner magnets.'
-              : '4 pockets per cell so magnet bins snap in (none in partial edge cells).'
-          }
-        />
-        {bp.magnets && (
-          <div className="indent">
-            <div className="row2">
-              <NumberInput label="Magnet Ø" value={bp.magnetDiameter} min={2} max={15} step={0.5} onChange={(magnetDiameter) => setBp({ magnetDiameter })} />
-              <NumberInput label="Magnet height" value={bp.magnetHeight} min={0.5} max={6} step={0.5} onChange={(magnetHeight) => setBp({ magnetHeight })} />
+        </Find>
+        <Find id="bp-magnets">
+          <Toggle
+            label="Magnet pockets"
+            checked={bp.magnets}
+            onChange={(magnets) => setBp({ magnets })}
+            hint={
+              half
+                ? bp.magnets
+                  ? '21 mm half cells have no room for 4 corner magnets, so none are cut on this half grid: turn this off to drop the floor they need. Bins keep their own magnets (one per half foot).'
+                  : 'Not on a half grid: 21 mm cells have no room for the 4 corner magnets.'
+                : '4 pockets per cell so magnet bins snap in (none in partial edge cells).'
+            }
+          />
+          {bp.magnets && (
+            <div className="indent">
+              <div className="row2">
+                <NumberInput label="Magnet Ø" value={bp.magnetDiameter} min={2} max={15} step={0.5} onChange={(magnetDiameter) => setBp({ magnetDiameter })} />
+                <NumberInput label="Magnet height" value={bp.magnetHeight} min={0.5} max={6} step={0.5} onChange={(magnetHeight) => setBp({ magnetHeight })} />
+              </div>
+              <NumberInput
+                label="Pocket fit"
+                value={bp.magnetFit}
+                min={-0.3}
+                max={1}
+                step={0.05}
+                onChange={(magnetFit) => setBp({ magnetFit })}
+                hint="Added to the magnet diameter. 0.1–0.2 = press fit, 0.3+ = glue."
+              />
+              <Segmented
+                label="Insert magnets from"
+                value={bp.magnetSide}
+                options={[
+                  { value: 'top', label: 'Top' },
+                  { value: 'bottom', label: 'Bottom' },
+                ]}
+                onChange={(magnetSide) => setBp({ magnetSide })}
+              />
+              {bp.magnetSide === 'top' && (
+                <Toggle label="Push-out holes underneath" checked={bp.magnetRelease} onChange={(magnetRelease) => setBp({ magnetRelease })} />
+              )}
+              <Toggle
+                label="Crush ribs"
+                checked={bp.magnetRibs}
+                onChange={(magnetRibs) => setBp({ magnetRibs })}
+                hint="8 ribs grip the magnet, so it holds without glue."
+              />
+              <Toggle label="Chamfered mouth" checked={bp.magnetChamfer} onChange={(magnetChamfer) => setBp({ magnetChamfer })} />
+              <Toggle
+                label="Pry slot"
+                checked={bp.magnetSlot}
+                onChange={(magnetSlot) => setBp({ magnetSlot })}
+                hint="A slot beside each pocket to lever a magnet back out."
+              />
             </div>
-            <NumberInput
-              label="Pocket fit"
-              value={bp.magnetFit}
-              min={-0.3}
-              max={1}
-              step={0.05}
-              onChange={(magnetFit) => setBp({ magnetFit })}
-              hint="Added to the magnet diameter. 0.1–0.2 = press fit, 0.3+ = glue."
-            />
-            <Segmented
-              label="Insert magnets from"
-              value={bp.magnetSide}
-              options={[
-                { value: 'top', label: 'Top' },
-                { value: 'bottom', label: 'Bottom' },
-              ]}
-              onChange={(magnetSide) => setBp({ magnetSide })}
-            />
-            {bp.magnetSide === 'top' && (
-              <Toggle label="Push-out holes underneath" checked={bp.magnetRelease} onChange={(magnetRelease) => setBp({ magnetRelease })} />
-            )}
-            <Toggle
-              label="Crush ribs"
-              checked={bp.magnetRibs}
-              onChange={(magnetRibs) => setBp({ magnetRibs })}
-              hint="8 ribs grip the magnet, so it holds without glue."
-            />
-            <Toggle label="Chamfered mouth" checked={bp.magnetChamfer} onChange={(magnetChamfer) => setBp({ magnetChamfer })} />
-            <Toggle
-              label="Pry slot"
-              checked={bp.magnetSlot}
-              onChange={(magnetSlot) => setBp({ magnetSlot })}
-              hint="A slot beside each pocket to lever a magnet back out."
-            />
-          </div>
-        )}
-        <Toggle label="Screw holes" checked={bp.screws} onChange={(screws) => setBp({ screws })} hint={screwHint} />
-        {bp.screws && (
-          <div className="indent row2">
-            <NumberInput label="Screw Ø" value={bp.screwDiameter} min={2} max={6} step={0.5} onChange={(screwDiameter) => setBp({ screwDiameter })} />
-            <NumberInput label="Head Ø" value={bp.screwHeadDiameter} min={3} max={12} step={0.5} onChange={(screwHeadDiameter) => setBp({ screwHeadDiameter })} />
-          </div>
-        )}
+          )}
+        </Find>
+        <Find id="bp-screws">
+          <Toggle label="Screw holes" checked={bp.screws} onChange={(screws) => setBp({ screws })} hint={screwHint} />
+          {bp.screws && (
+            <div className="indent row2">
+              <NumberInput label="Screw Ø" value={bp.screwDiameter} min={2} max={6} step={0.5} onChange={(screwDiameter) => setBp({ screwDiameter })} />
+              <NumberInput label="Head Ø" value={bp.screwHeadDiameter} min={3} max={12} step={0.5} onChange={(screwHeadDiameter) => setBp({ screwHeadDiameter })} />
+            </div>
+          )}
+        </Find>
+        {/* Under both: the floor the magnet pockets and screw heads sit in. */}
         {(bp.magnets || bp.screws) && (
-          <NumberInput
-            label="Hole floor thickness"
-            value={bp.holeFloor}
-            min={Math.max(1, bp.magnets ? bp.magnetHeight + 0.6 : 1)}
-            max={10}
-            step={0.1}
-            onChange={(holeFloor) => setBp({ holeFloor })}
-          />
+          <Find id={bp.magnets ? 'bp-magnets' : 'bp-screws'}>
+            <NumberInput
+              label="Hole floor thickness"
+              value={bp.holeFloor}
+              min={Math.max(1, bp.magnets ? bp.magnetHeight + 0.6 : 1)}
+              max={10}
+              step={0.1}
+              onChange={(holeFloor) => setBp({ holeFloor })}
+            />
+          </Find>
         )}
-        <NumberInput
-          label="Extra solid floor"
-          value={bp.bottomPad}
-          min={0}
-          max={10}
-          step={0.2}
-          onChange={(bottomPad) => setBp({ bottomPad })}
-          hint={bp.style === 'frame' ? '0 = open-bottom frame (least filament).' : 'Added under the floor the style needs.'}
-        />
-        <Select
-          label="Connectors"
-          value={bp.connector}
-          options={[
-            { value: 'none', label: 'None' },
-            { value: 'bowtie', label: 'Bowtie keys' },
-            { value: 'pin', label: 'Filament pins' },
-            { value: 'puzzle', label: 'Puzzle tabs' },
-            { value: 'screw', label: 'M3 screws' },
-          ]}
-          onChange={(connector) => setBp({ connector })}
-          hint={connectorHint}
-        />
-        {bp.connector === 'screw' && (
-          <Segmented
-            label="Screws go into"
-            value={bp.screwFastener}
+        <Find id="bp-connectors">
+          <Select
+            label="Connectors"
+            value={bp.connector}
             options={[
-              { value: 'nut', label: 'Hex nuts', title: 'A slot for an M3 hex nut, open underneath' },
-              { value: 'insert', label: 'Heat-set inserts', title: 'A 4 mm hole in the seam face for an M3 insert' },
+              { value: 'none', label: 'None' },
+              { value: 'bowtie', label: 'Bowtie keys' },
+              { value: 'pin', label: 'Filament pins' },
+              { value: 'puzzle', label: 'Puzzle tabs' },
+              { value: 'screw', label: 'M3 screws' },
             ]}
-            onChange={(screwFastener) => setBp({ screwFastener })}
+            onChange={(connector) => setBp({ connector })}
+            hint={connectorHint}
           />
-        )}
-        <Toggle
-          label="Piece numbers underneath"
-          checked={bp.pieceNumbers}
-          onChange={(pieceNumbers) => setBp({ pieceNumbers })}
-          hint="Debossed in a solid spot and mirrored, so they read with the piece upside down. They match the assembly map."
-        />
-        <PadFields bp={bp} setBp={setBp} job={job} />
-        <details className="advanced">
-          <summary>Advanced</summary>
+          {bp.connector === 'screw' && (
+            <Segmented
+              label="Screws go into"
+              value={bp.screwFastener}
+              options={[
+                { value: 'nut', label: 'Hex nuts', title: 'A slot for an M3 hex nut, open underneath' },
+                { value: 'insert', label: 'Heat-set inserts', title: 'A 4 mm hole in the seam face for an M3 insert' },
+              ]}
+              onChange={(screwFastener) => setBp({ screwFastener })}
+            />
+          )}
+        </Find>
+        <Find id="bp-numbers" set={!bp.pieceNumbers}>
+          <Toggle
+            label="Piece numbers underneath"
+            checked={bp.pieceNumbers}
+            onChange={(pieceNumbers) => setBp({ pieceNumbers })}
+            hint="Debossed in a solid spot and mirrored, so they read with the piece upside down. They match the assembly map."
+          />
+        </Find>
+        <Find id="bp-floor" set={bp.bottomPad !== DEFAULT_BASEPLATE.bottomPad}>
+          <NumberInput
+            label="Extra solid floor"
+            value={bp.bottomPad}
+            min={0}
+            max={10}
+            step={0.2}
+            onChange={(bottomPad) => setBp({ bottomPad })}
+            hint={bp.style === 'frame' ? '0 = open-bottom frame (least filament).' : 'Added under the floor the style needs.'}
+          />
+        </Find>
+        <Find id="bp-pads" set={!!bp.pads}>
+          <PadFields bp={bp} setBp={setBp} job={job} />
+        </Find>
+        <Group find="bp-edges" title="Edges and fit" status={edges.length ? edges.map((k) => EDGE_NAMES[k]).join(' · ') : 'standard'} active={edges.length > 0}>
           <NumberInput label="Outer corner radius" value={bp.outerRadius} min={0} max={30} step={0.5} onChange={(outerRadius) => setBp({ outerRadius })} />
           <NumberInput
             label="Top ridge trim"
@@ -515,14 +575,17 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             onChange={(bottomChamfer) => setBp({ bottomChamfer })}
             hint="Elephant-foot relief on the outside edge."
           />
-          <div className="field-hint">Floor under receptacles: {r1(baseplateFloor(bp))} mm</div>
-        </details>
+          <div className="field-hint">Floor under the receptacles: {fmt(baseplateFloor(bp))}</div>
+        </Group>
+        <MoreInAll
+          ids={[
+            ['bp-numbers', !bp.pieceNumbers],
+            ['bp-floor', bp.bottomPad !== DEFAULT_BASEPLATE.bottomPad],
+            ['bp-pads', !!bp.pads],
+            ['bp-edges', edges.length > 0],
+          ]}
+        />
       </Section>
-
-      <Section title="View">
-        <Toggle label="Spread pieces apart" checked={explode} onChange={(v) => setUI({ explode: v })} />
-        <DrawerMapButton label="Drawer map (print / SVG)…" />
-      </Section>
-    </>
+    </FindPanel>
   );
 }

@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { allDrawers, printDrawers, projectFile, useStore } from '../state/store';
-import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
-import { PRINTERS, findPrinter } from '../lib/printers';
+import { allDrawers, printDrawers, projectFile, useStore, useUnits } from '../state/store';
+import { LengthInput, Section, Segmented, Select, Toggle } from './fields';
+import { findPrinter } from '../lib/printers';
 import { assemblyMaps, jobForPrinter, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
@@ -12,10 +12,14 @@ import { CopyShareLink } from './ShareLink';
 import { ContentsSection } from './InventoryList';
 import { NozzleField, PrintChecksSection } from './PrintChecks';
 import { baseplatePrinter, jobPrinters, printerNames, printerSetup, shortName } from '../lib/layout/fleet';
-import { printedOn } from '../lib/printed';
+import { hasPrints, printedOn } from '../lib/printed';
 import { formatDuration } from '../lib/estimate';
-import { MorePrinters } from './PrinterFields';
+import { MorePrinters, PRINTER_OPTIONS } from './PrinterFields';
 import { OnlyChangedField, PlatePrintedMark } from './PrintedMarks';
+import { DEFAULT_SETUP } from '../lib/layout/plan';
+import { Find } from './findContext';
+import { FindPanel, MoreInAll } from './find';
+import { PRINT_INDEX } from './panelIndex';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -126,11 +130,48 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const printedNow = useMemo(() => printedOn(job, store.printed), [job, store.printed]);
   const baseAt = baseplatePrinter(setup);
 
-  return (
+  const { fmt } = useUnits();
+  const splitSet = setup.splitStyle !== DEFAULT_SETUP.splitStyle || setup.nest !== DEFAULT_SETUP.nest || setup.splitMargins !== DEFAULT_SETUP.splitMargins;
+  const marginSet = setup.plateMargin !== DEFAULT_SETUP.plateMargin;
+  const spacingSet = setup.spacing !== DEFAULT_SETUP.spacing;
+  const onlySet = store.onlyChanged || hasPrints(store.printed);
+  // The first printer's own fields; with several, in a card like the others (PrinterFields.tsx).
+  const firstPrinter = (
     <>
+      <Find id="printer-model">
+        <Select
+          label="Model"
+          value={setup.printerId}
+          options={PRINTER_OPTIONS}
+          onChange={(id) => store.setPrinter(id)}
+        />
+        {setup.printerId === 'custom' && (
+          <div className="row3">
+            <LengthInput label="Bed X" value={setup.bedW} min={80} max={1000} onChange={(bedW) => store.setSetup({ bedW })} />
+            <LengthInput label="Bed Y" value={setup.bedD} min={80} max={1000} onChange={(bedD) => store.setSetup({ bedD })} />
+            <LengthInput label="Max Z" value={setup.maxH} min={20} max={1000} onChange={(maxH) => store.setSetup({ maxH })} />
+          </div>
+        )}
+      </Find>
+      {/* With several printers each card has its margin, like the others' (PrinterFields.tsx). */}
+      <Find id="bed-margin" set={marginSet || !!setup.printers}>
+        <LengthInput
+          label="Edge margin"
+          value={setup.plateMargin}
+          max={40}
+          onChange={(plateMargin) => store.setSetup({ plateMargin })}
+          hint={`Usable bed ${fmt(Math.max(0, setup.bedW - 2 * setup.plateMargin))} × ${fmt(Math.max(0, setup.bedD - 2 * setup.plateMargin))}`}
+        />
+      </Find>
+    </>
+  );
+
+  return (
+    <FindPanel index={PRINT_INDEX} placeholder="Find a setting…">
       {drawers.length > 1 && (
-        <Section title="Drawers to print">
+        <Section title="Drawers to print" find="print-drawers">
           <Segmented
+            ariaLabel="Drawers to print"
             value={store.printScope}
             options={[
               { value: 'active', label: 'This drawer' },
@@ -164,40 +205,177 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           </p>
         </Section>
       )}
-      <Section title={setup.printers ? 'Printers' : 'Printer'}>
-        <Select
-          label={setup.printers ? 'Printer 1' : 'Model'}
-          value={setup.printerId}
-          options={PRINTERS.map((p) => ({
-            value: p.id,
-            label: p.id === 'custom' ? p.name : `${p.name} — ${p.bedW}×${p.bedD}`,
-            group: p.brand,
-          }))}
-          onChange={(id) => store.setPrinter(id)}
-        />
-        <NozzleField />
-        {setup.printerId === 'custom' && (
-          <div className="row3">
-            <NumberInput label="Bed X" value={setup.bedW} min={80} max={1000} step={1} onChange={(bedW) => store.setSetup({ bedW })} />
-            <NumberInput label="Bed Y" value={setup.bedD} min={80} max={1000} step={1} onChange={(bedD) => store.setSetup({ bedD })} />
-            <NumberInput label="Max Z" value={setup.maxH} min={20} max={1000} step={1} onChange={(maxH) => store.setSetup({ maxH })} />
+      <Section title={setup.printers ? 'Printers' : 'Printer'} find="printers">
+        {setup.printers ? (
+          <div className="printer-card first">
+            <div className="printer-card-head">
+              <b>Printer 1</b>
+            </div>
+            {firstPrinter}
           </div>
+        ) : (
+          firstPrinter
         )}
-        <div className="row2">
-          <NumberInput
-            label="Edge margin"
-            value={setup.plateMargin}
-            min={0}
-            max={40}
-            step={1}
-            onChange={(plateMargin) => store.setSetup({ plateMargin })}
+        <Find id="more-printers">
+          <MorePrinters />
+        </Find>
+        <Find id="nozzle">
+          <NozzleField />
+        </Find>
+        <Find id="bed-margin" set={spacingSet}>
+          <LengthInput
+            label="Part spacing"
+            value={setup.spacing}
+            min={1}
+            max={30}
+            onChange={(spacing) => store.setSetup({ spacing })}
+            hint={setup.printers ? 'Between parts on a plate, on every printer.' : 'Between parts on a plate.'}
           />
-          <NumberInput label="Part spacing" value={setup.spacing} min={1} max={30} step={1} onChange={(spacing) => store.setSetup({ spacing })} />
-        </div>
-        <MorePrinters />
+        </Find>
+        <MoreInAll ids={[['bed-margin', marginSet || spacingSet]]} />
       </Section>
 
-      <Section title="Baseplate split">
+      <Find id="checks">
+        <PrintChecksSection job={job} />
+      </Find>
+
+      <Section title="Export" find="export">
+        <Find id="export-what">
+          <Toggle label="Baseplate" checked={include.baseplate} onChange={(v) => store.setInclude({ baseplate: v })} />
+          <Toggle
+            label={`Bins (${nBins})`}
+            checked={include.bins}
+            onChange={(v) => store.setInclude({ bins: v })}
+            hint={nBinPlates ? `${nBinPlates} plate${nBinPlates > 1 ? 's' : ''} of bins` : undefined}
+          />
+        </Find>
+        <Find id="only-changed" set={onlySet}>
+          <OnlyChangedField job={job} printed={printedNow} />
+        </Find>
+        {job.warnings.map((w) => (
+          <div key={w} className="field-error">
+            {w}
+          </div>
+        ))}
+        {twoColour && (
+          <Find id="label-colour">
+            <div className="field label-colour">
+              <label className="field-label" htmlFor="label-colour">
+                Label filament (slot 2)
+              </label>
+              <div className="field-control colour-row">
+                <input
+                  id="label-colour"
+                  type="color"
+                  value={setup.labelColour ?? '#161616'}
+                  onChange={(e) => store.setSetup({ labelColour: e.target.value })}
+                />
+                <span className="muted small">Inlaid label text and two-colour tool pocket floors print in this filament; the Bambu project gets a second filament set to it.</span>
+              </div>
+            </div>
+          </Find>
+        )}
+        <Find id="export-files">
+          <button className="primary wide" disabled={!!progress || !platesFor(0)} onClick={() => exportBambu(job.printers ? 0 : undefined)}>
+            {printer.bambu ? 'Bambu Studio project' : 'Slicer project'}{job.printers ? ` · ${shortName(names[0])}` : ''} (.3mf)
+          </button>
+          {/* Several printers: a project each, with its own plates and settings. */}
+          {job.printers?.slice(1).map((name, i) => (
+            <button key={i} className="primary wide" disabled={!!progress || !platesFor(i + 1)} onClick={() => exportBambu(i + 1)}>
+              {findPrinter(printers[i + 1].printerId).bambu ? 'Bambu Studio project' : 'Slicer project'} · {shortName(name)} (.3mf)
+            </button>
+          ))}
+          <div className="field-hint">
+            {job.printers
+              ? 'One file per printer, with its own plates, set up for it (Bambu printers: 0.20 mm Standard, PLA Basic). Open each one and press Slice all.'
+              : printer.bambu
+              ? `All ${job.plates.length} plates in one file, set up for the ${printer.name}: 0.20 mm Standard, PLA Basic. Open it and press Slice all.`
+              : 'All plates in one Bambu/Orca-style project. Other slicers: use the per-plate zip.'}
+          </div>
+          <div className="field">
+            <span className="field-label">Other files</span>
+            <div className="button-row">
+              <button disabled={!!progress || !job.plates.length} onClick={exportZip}>
+                Plates as 3MF (.zip)
+              </button>
+              <button disabled={!!progress || !job.plates.length} onClick={exportStlZip}>
+                Plates as STL (.zip)
+              </button>
+            </div>
+            <div className="button-row">
+              <button disabled={!!progress || !job.plates.length} onClick={exportStepZip} title="One STEP file per plate, parts arranged, flat faces for CAD">
+                Plates as STEP (.zip)
+              </button>
+              <button
+                disabled={!!progress || (!nPieces && !nBins)}
+                onClick={exportAssembled}
+                title="Baseplate, bins, lids and label plates put together, one solid per part, for CAD"
+              >
+                {multi ? 'Drawers assembled (.step)' : 'Drawer assembled (.step)'}
+              </button>
+            </div>
+            <div className="button-row">
+              <button disabled={!nPieces} onClick={exportMap}>
+                {multi ? 'Assembly maps (.txt)' : 'Assembly map (.txt)'}
+              </button>
+            </div>
+          </div>
+        </Find>
+        {progress && (
+          <div className="progress">
+            <div className="progress-label">
+              {progress.label}… {progress.done}/{progress.total}
+            </div>
+            <div className="progress-bar">
+              <span style={{ width: `${(100 * progress.done) / Math.max(1, progress.total)}%` }} />
+            </div>
+          </div>
+        )}
+        {error && <div className="field-error">{error}</div>}
+        <MoreInAll ids={[['only-changed', onlySet]]} />
+      </Section>
+
+      <Section title={`Plates (${job.plates.length})`} find="plates">
+        <div className="plate-list">
+          <button className={`plate-card all ${ui.plate < 0 ? 'active' : ''}`} onClick={() => store.setUI({ plate: -1 })}>
+            Show all plates
+          </button>
+          {job.plates.map((pl, i) => (
+            <Fragment key={i}>
+              {job.printers && (pl.printer ?? 0) !== (job.plates[i - 1]?.printer ?? -1) && (
+                <PrinterHeading job={job} printer={pl.printer ?? 0} seconds={estimate.bom.printers?.[pl.printer ?? 0]?.seconds} />
+              )}
+              <div className={`plate-card ${ui.plate === i ? 'active' : ''}`}>
+                <button className="plate-thumb" onClick={() => store.setUI({ plate: i })} title="Show this plate">
+                  <PlateThumb job={job} plate={i} bedW={printers[pl.printer ?? 0]?.bedW ?? setup.bedW} bedD={printers[pl.printer ?? 0]?.bedD ?? setup.bedD} />
+                </button>
+                <div className="plate-meta">
+                  <b>
+                    {i + 1}. {pl.name}
+                  </b>
+                  <span className="muted small">{plateContents(job, pl).map((n) => n.replace('Baseplate piece', 'Piece')).join(', ')}</span>
+                  {plateSummary(estimate.bom.plates[i], currency) && <span className="small plate-estimate">{plateSummary(estimate.bom.plates[i], currency)}</span>}
+                  <span className="plate-downloads">
+                    <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
+                      Download .3mf
+                    </button>
+                    <button className="link" disabled={!!progress} onClick={() => exportStlPlate(i)}>
+                      .stl
+                    </button>
+                    <button className="link" disabled={!!progress} onClick={() => exportStepPlate(i)}>
+                      .step
+                    </button>
+                  </span>
+                  <PlatePrintedMark job={job} plate={i} printed={printedNow} />
+                </div>
+              </div>
+            </Fragment>
+          ))}
+        </div>
+        <MoreInAll ids={[['split', splitSet]]} />
+      </Section>
+
+      <Section title="Baseplate split" find="split" set={splitSet}>
         <Segmented
           label="Strategy"
           value={setup.splitStyle}
@@ -243,101 +421,23 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             )}
             <dt>{setup.printers ? `Split for the ${names[baseAt]}` : 'Usable bed'}</dt>
             <dd>
-              {printers[baseAt].bedW - 2 * printers[baseAt].plateMargin} × {printers[baseAt].bedD - 2 * printers[baseAt].plateMargin} mm
+              {fmt(printers[baseAt].bedW - 2 * printers[baseAt].plateMargin)} × {fmt(printers[baseAt].bedD - 2 * printers[baseAt].plateMargin)}
             </dd>
           </dl>
         </div>
       </Section>
 
-      <PrintChecksSection job={job} />
+      <Find id="bom">
+        <BomSection job={job} stamp={stamp} estimate={estimate} />
+      </Find>
+      <Find id="testfit">
+        <TestFitSection />
+      </Find>
+      <Find id="contents-list">
+        <ContentsSection />
+      </Find>
 
-      <Section title="Export">
-        <Toggle label="Baseplate" checked={include.baseplate} onChange={(v) => store.setInclude({ baseplate: v })} />
-        <Toggle
-          label={`Bins (${nBins})`}
-          checked={include.bins}
-          onChange={(v) => store.setInclude({ bins: v })}
-          hint={nBinPlates ? `${nBinPlates} plate${nBinPlates > 1 ? 's' : ''} of bins` : undefined}
-        />
-        <OnlyChangedField job={job} printed={printedNow} />
-        {job.warnings.map((w) => (
-          <div key={w} className="field-error">
-            {w}
-          </div>
-        ))}
-        {twoColour && (
-          <div className="field label-colour">
-            <label className="field-label" htmlFor="label-colour">
-              Label filament (slot 2)
-            </label>
-            <div className="field-control colour-row">
-              <input
-                id="label-colour"
-                type="color"
-                value={setup.labelColour ?? '#161616'}
-                onChange={(e) => store.setSetup({ labelColour: e.target.value })}
-              />
-              <span className="muted small">Inlaid label text and two-colour tool pocket floors print in this filament; the Bambu project gets a second filament set to it.</span>
-            </div>
-          </div>
-        )}
-        <button className="primary wide" disabled={!!progress || !platesFor(0)} onClick={() => exportBambu(job.printers ? 0 : undefined)}>
-          {printer.bambu ? 'Bambu Studio project' : 'Slicer project'}{job.printers ? ` · ${shortName(names[0])}` : ''} (.3mf)
-        </button>
-        {/* Several printers: a project each, with its own plates and settings. */}
-        {job.printers?.slice(1).map((name, i) => (
-          <button key={i} className="primary wide" disabled={!!progress || !platesFor(i + 1)} onClick={() => exportBambu(i + 1)}>
-            {findPrinter(printers[i + 1].printerId).bambu ? 'Bambu Studio project' : 'Slicer project'} · {shortName(name)} (.3mf)
-          </button>
-        ))}
-        <div className="field-hint">
-          {job.printers
-            ? 'One file per printer, with its own plates, set up for it (Bambu printers: 0.20 mm Standard, PLA Basic). Open each one and press Slice all.'
-            : printer.bambu
-            ? `All ${job.plates.length} plates in one file, set up for the ${printer.name}: 0.20 mm Standard, PLA Basic. Open it and press Slice all.`
-            : 'All plates in one Bambu/Orca-style project. Other slicers: use the per-plate zip.'}
-        </div>
-        <div className="button-row">
-          <button disabled={!!progress || !job.plates.length} onClick={exportZip}>
-            Plates as 3MF (.zip)
-          </button>
-          <button disabled={!!progress || !job.plates.length} onClick={exportStlZip}>
-            Plates as STL (.zip)
-          </button>
-          <button disabled={!nPieces} onClick={exportMap}>
-            {multi ? 'Assembly maps' : 'Assembly map'}
-          </button>
-        </div>
-        <div className="button-row">
-          <button disabled={!!progress || !job.plates.length} onClick={exportStepZip} title="One STEP file per plate, parts arranged, flat faces for CAD">
-            Plates as STEP (.zip)
-          </button>
-          <button
-            disabled={!!progress || (!nPieces && !nBins)}
-            onClick={exportAssembled}
-            title="Baseplate, bins, lids and label plates put together, one solid per part, for CAD"
-          >
-            {multi ? 'Drawers assembled (.step)' : 'Drawer assembled (.step)'}
-          </button>
-        </div>
-        {progress && (
-          <div className="progress">
-            <div className="progress-label">
-              {progress.label}… {progress.done}/{progress.total}
-            </div>
-            <div className="progress-bar">
-              <span style={{ width: `${(100 * progress.done) / Math.max(1, progress.total)}%` }} />
-            </div>
-          </div>
-        )}
-        {error && <div className="field-error">{error}</div>}
-      </Section>
-
-      <BomSection job={job} stamp={stamp} estimate={estimate} />
-      <ContentsSection />
-      <TestFitSection />
-
-      <Section title="Project">
+      <Section title="Project" find="project">
         <p className="muted small">Your work is kept in this browser automatically. Save a file to back it up or move it to another computer.</p>
         <div className="button-row">
           <button onClick={saveProject}>Save project</button>
@@ -356,46 +456,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           />
         </div>
       </Section>
-
-      <Section title={`Plates (${job.plates.length})`}>
-        <div className="plate-list">
-          <button className={`plate-card all ${ui.plate < 0 ? 'active' : ''}`} onClick={() => store.setUI({ plate: -1 })}>
-            Show all plates
-          </button>
-          {job.plates.map((pl, i) => (
-            <Fragment key={i}>
-              {job.printers && (pl.printer ?? 0) !== (job.plates[i - 1]?.printer ?? -1) && (
-                <PrinterHeading job={job} printer={pl.printer ?? 0} seconds={estimate.bom.printers?.[pl.printer ?? 0]?.seconds} />
-              )}
-              <div className={`plate-card ${ui.plate === i ? 'active' : ''}`}>
-                <button className="plate-thumb" onClick={() => store.setUI({ plate: i })} title="Show this plate">
-                  <PlateThumb job={job} plate={i} bedW={printers[pl.printer ?? 0]?.bedW ?? setup.bedW} bedD={printers[pl.printer ?? 0]?.bedD ?? setup.bedD} />
-                </button>
-                <div className="plate-meta">
-                  <b>
-                    {i + 1}. {pl.name}
-                  </b>
-                  <span className="muted small">{plateContents(job, pl).map((n) => n.replace('Baseplate piece', 'Piece')).join(', ')}</span>
-                  {plateSummary(estimate.bom.plates[i], currency) && <span className="small plate-estimate">{plateSummary(estimate.bom.plates[i], currency)}</span>}
-                  <span className="plate-downloads">
-                    <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
-                      Download .3mf
-                    </button>
-                    <button className="link" disabled={!!progress} onClick={() => exportStlPlate(i)}>
-                      .stl
-                    </button>
-                    <button className="link" disabled={!!progress} onClick={() => exportStepPlate(i)}>
-                      .step
-                    </button>
-                  </span>
-                  <PlatePrintedMark job={job} plate={i} printed={printedNow} />
-                </div>
-              </div>
-            </Fragment>
-          ))}
-        </div>
-      </Section>
-    </>
+    </FindPanel>
   );
 }
 
