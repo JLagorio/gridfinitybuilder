@@ -76,6 +76,15 @@ describe('panel search index', () => {
     for (const [q, want] of cases) expect(hits(BIN_INDEX, q), q).toEqual(expect.arrayContaining(want));
   });
 
+  it('finds cartridge pockets by what people call them, and the Ammo preset', () => {
+    for (const q of ['556', '5.56', '223', '308', '7.62x51', '300blk', 'blackout', '9mm', '9x19', '12ga', '12 gauge', 'ammo', 'cartridge', 'shotgun shell', 'mosin']) {
+      expect(hits(BIN_INDEX, q), q).toContain('pocket-holds');
+    }
+    expect(hits(BIN_INDEX, 'ammo')).toEqual(expect.arrayContaining(['quick', 'pocket-holds']));
+    // A shown entry opens what it's in.
+    expect([...shows(BIN_INDEX, '308')]).toEqual(expect.arrayContaining(['inside', 'pockets', 'pocket-holds']));
+  });
+
   it('opens the groups a match is in: "magnet" finds the holes, in Base & holes, in Options', () => {
     const r = searchIndex(BIN_INDEX, 'magnet')!;
     expect(r.hits.has('holes')).toBe(true);

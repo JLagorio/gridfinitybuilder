@@ -31,6 +31,7 @@ import { clearInteriorSelection, compartmentOptions, interiorOf, useBinInterior,
 import { binCompartmentPockets } from '../lib/geometry/bin';
 import { binBodyHeight, binFloorZ, sanitizePocketFields } from '../lib/geometry/variants';
 import { PocketSettings } from './PocketFields';
+import { standingNoteFor } from '../lib/geometry/itemHeight';
 import { compartmentFloorShape, compartmentPocketOpts, defaultFloorRise } from '../lib/geometry/compartments';
 import {
   MAX_TIERS,
@@ -483,11 +484,14 @@ function FloorShapeFields({ info, own, set }: { info: BinInterior; own: Compartm
 
 /** Pocket settings of a pocket compartment (over the bin's), with the count that fits. */
 function CompartmentPocketFields({ info, c, own, set }: { info: BinInterior; c: Compartment; own: CompartmentOptions; set: (p: CompartmentPatch) => void }) {
+  const { fmt } = useUnits();
   const opts = sanitizePocketFields(compartmentPocketOpts(info.opts, own));
   const layouts = binCompartmentPockets(info.opts, info.cells, c);
   // An L-shaped compartment gets a grid per rectangle; the summary covers the first, the note the total.
   const count = layouts.reduce((t, L) => t + L.centers.length, 0);
-  const note = layouts.length > 1 ? `${count} pockets in all, across ${layouts.length} parts of this compartment.` : undefined;
+  const parts = layouts.length > 1 ? `${count} pockets in all, across ${layouts.length} parts of this compartment.` : undefined;
+  // Rounds and other tall items: how tall the bin has to be for them.
+  const note = [parts, standingNoteFor(info.opts, info.cells, 'compartment', c.key, fmt)].filter(Boolean).join(' ') || undefined;
   return (
     <div className="indent">
       <PocketSettings value={opts} onChange={(p) => set({ pockets: { ...own.pockets, ...p } })} layout={layouts[0] ?? null} note={note} />

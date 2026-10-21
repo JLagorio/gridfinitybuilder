@@ -351,7 +351,7 @@ export function Select<T extends string>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string; group?: string }[];
+  options: { value: T; label: string; group?: string; keywords?: string[] }[];
   onChange: (v: T) => void;
   hint?: ReactNode;
 }) {
