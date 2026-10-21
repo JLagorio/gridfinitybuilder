@@ -60,7 +60,7 @@ function useJobStats(job: PrintJob) {
     const missing = specs.filter((s) => geometry.printStats(s.key) === undefined && !geometry.printStatsFailed(s.key));
     if (!missing.length) return;
     let live = true;
-    // After the volumes (700 ms), so the BOM's grams come first.
+    // After the volumes (700 ms), so the BOM's quick grams come first; a sliced plate's replace them.
     const t = setTimeout(() => {
       setProgress([0, missing.length]);
       geometry
@@ -136,6 +136,8 @@ export function useJobEstimate(job: PrintJob): JobEstimate {
 
 const grams = (p: PlateBom) => (p.grams === null ? '…' : `${Math.round(p.grams)} g`);
 const meters = (p: PlateBom) => (p.meters === null ? '…' : `${(Math.round(p.meters * 10) / 10).toFixed(1)} m`);
+/** "5.2 m" for a filament cell's tooltip, flagging the quick guess shown until the plate is sliced. */
+const filamentTitle = (p: PlateBom) => (p.grams === null || p.sliced ? meters(p) : `${meters(p)}; a quick guess until the parts are sliced`);
 const duration = (p: PlateBom) => (p.seconds === null || p.seconds === undefined ? '…' : formatDuration(p.seconds));
 const cost = (p: PlateBom, symbol: string) => (p.cost ? formatMoney(p.cost.total, symbol) : '…');
 
@@ -201,7 +203,7 @@ export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: str
                   {i + 1}. {p.name}
                 </td>
                 <td>{p.parts}</td>
-                <td title={meters(p)}>{grams(p)}</td>
+                <td title={filamentTitle(p)}>{grams(p)}</td>
                 <td title={timeBreakdown(plates[i])}>{duration(p)}</td>
                 <td title={p.cost && bom.estimate?.electricity ? `filament ${formatMoney(p.cost.filament, symbol)}, electricity ${formatMoney(p.cost.energy, symbol)}` : undefined}>
                   {cost(p, symbol)}
@@ -213,7 +215,7 @@ export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: str
             <tr>
               <td>Total</td>
               <td>{bom.total.parts}</td>
-              <td title={meters(bom.total)}>{grams(bom.total)}</td>
+              <td title={filamentTitle(bom.total)}>{grams(bom.total)}</td>
               <td>{duration(bom.total)}</td>
               <td>{cost(bom.total, symbol)}</td>
             </tr>

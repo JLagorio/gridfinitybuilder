@@ -7,12 +7,24 @@ import { meshVolume } from '../src/lib/geometry/volume';
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput } from '../src/lib/layout/drawer';
 import { DEFAULT_SETUP, planBaseplate } from '../src/lib/layout/plan';
 import { DEFAULT_PROJECT, buildMesh, planJob, type PlacedBin } from '../src/lib/project';
-import { billOfMaterials, bomCsv, bomText, filamentFor } from '../src/lib/bom';
+import { billOfMaterials, bomCsv, bomText, filamentFor, filamentNote } from '../src/lib/bom';
+import type { PlateEstimate } from '../src/lib/estimate';
 import { planTestFit } from '../src/lib/testfit';
 
 const bin = (id: string, x: number, y: number, o: Partial<BinOptions> = {}): PlacedBin => ({ id, x, y, opts: { ...DEFAULT_BIN, ...o } });
 const grid = (gridX: number, gridY: number): DrawerInput => ({ ...DEFAULT_DRAWER, mode: 'grid', gridX, gridY });
 const hw = (b: ReturnType<typeof billOfMaterials>, re: RegExp) => b.hardware.filter((h) => re.test(h.item)).reduce((t, h) => t + h.count, 0);
+/** A sliced plate's estimate: what the BOM reads from it. */
+const sliced = (extruded: number, seconds = 1800): PlateEstimate => ({
+  seconds,
+  printSeconds: seconds,
+  prepareSeconds: 0,
+  layers: 100,
+  swaps: 0,
+  wasteGrams: 0,
+  extruded,
+  breakdown: { walls: 0, skin: 0, infill: 0, travel: 0, cooling: 0, swaps: 0 },
+});
 
 describe('bill of materials', () => {
   it('counts magnets in the baseplate and in bins', () => {
@@ -73,6 +85,49 @@ describe('bill of materials', () => {
     expect(csv.split('\n')[0]).toMatch(/^Section,Item,Quantity/);
     expect(csv).toContain('Total,2 plates,3,30,37.2,12.5');
     expect(bomText(b)).toContain('Filament total: 37 g');
+    expect(b.plates.every((p) => !p.sliced)).toBe(true);
+  });
+
+  it("takes a sliced plate's filament from its estimate, the rest from the mesh volumes, in every figure", () => {
+    const job = planJob({ ...DEFAULT_PROJECT, drawer: grid(2, 2), bins: [bin('a', 0, 0), bin('b', 1, 0)] });
+    const setup = { ...DEFAULT_SETUP, filamentPrice: 30 };
+    // The baseplate plate isn't sliced yet; the bins plate is, and extrudes less than its mesh volumes say.
+    const b = billOfMaterials(job, () => 10_000, { plates: [null, sliced(15_000)], setup, printer: 'x' });
+    expect(b.plates.map((p) => [p.volume, p.sliced])).toEqual([
+      [10_000, false],
+      [15_000, true],
+    ]);
+    const g = filamentFor(15_000);
+    expect(b.plates[1].grams).toBeCloseTo(g.grams, 9);
+    expect(b.plates[1].meters).toBeCloseTo(g.meters, 9);
+    // Cost is those grams at the price per kg.
+    expect(b.plates[1].cost!.filament).toBeCloseTo((g.grams * 30) / 1000, 9);
+    expect(b.plates[0].cost).toBeNull();
+    expect(b.total.volume).toBe(25_000);
+    expect(b.total.sliced).toBe(false);
+    expect(b.total.grams).toBeCloseTo(filamentFor(25_000).grams, 9);
+    // The exports show the same numbers.
+    const csv = bomCsv(b);
+    expect(csv).toContain(`Plate,2. ${b.plates[1].name},2,15,18.6,6.2,30`);
+    expect(csv).toContain('Total,2 plates,3,25,31,10.4');
+    const text = bomText(b);
+    expect(text).toContain(`2. ${b.plates[1].name}: 2 parts, 19 g, 6.2 m`);
+    expect(text).toContain('Filament total: 31 g, 10.4 m');
+
+    // Sliced plates need no mesh volumes.
+    const all = billOfMaterials(job, () => undefined, { plates: [sliced(5_000), sliced(15_000)], setup, printer: 'x' });
+    expect(all.total.volume).toBe(20_000);
+    expect(all.total.sliced).toBe(true);
+    expect(all.total.cost!.filament).toBeCloseTo((filamentFor(20_000).grams * 30) / 1000, 9);
+  });
+
+  it('says where the filament figure comes from', () => {
+    const note = filamentNote();
+    expect(note).toContain('1.75 mm PLA at 1.24 g/cm³');
+    expect(note).toContain('sliced layers');
+    expect(note).toContain('15 % infill');
+    expect(note).toContain('±10 %');
+    expect(note).toContain('before a plate is sliced');
   });
 });
 
