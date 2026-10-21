@@ -42,7 +42,8 @@ export interface PlateBom {
 
 export interface Bom {
   hardware: HardwareLine[];
-  parts: { pieces: number; bins: number; lids: number; keys: number; dividers: number; labels: number };
+  /** `trays` is only set when there are lift-out trays. Sliding lids count as lids, rail plates as dividers. */
+  parts: { pieces: number; bins: number; lids: number; keys: number; dividers: number; labels: number; trays?: number };
   plates: PlateBom[];
   total: PlateBom;
 }
@@ -125,7 +126,7 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
  */
 export function billOfMaterials(job: PrintJob, volumes: (meshKey: string) => number | undefined = () => undefined): Bom {
   const hardware = new Map<string, HardwareLine>();
-  const parts = { pieces: 0, bins: 0, lids: 0, keys: 0, dividers: 0, labels: 0 };
+  const parts: Bom['parts'] = { pieces: 0, bins: 0, lids: 0, keys: 0, dividers: 0, labels: 0 };
   const plates: PlateBom[] = job.plates.map((pl) => {
     let volume: number | null = 0;
     for (const p of pl.placements) {
@@ -135,6 +136,7 @@ export function billOfMaterials(job: PrintJob, volumes: (meshKey: string) => num
       else if (part.kind === 'lid') parts.lids++;
       else if (part.kind === 'divider') parts.dividers++;
       else if (part.kind === 'label') parts.labels++;
+      else if (part.kind === 'tray') parts.trays = (parts.trays ?? 0) + 1;
       else parts.keys++;
       for (const h of holesIn(job.meshes[part.meshKey])) {
         const line = hardware.get(h.item) ?? { item: h.item, count: 0, note: h.note };
@@ -174,6 +176,7 @@ export function bomCsv(b: Bom): string {
   rows.push(['Parts', 'Baseplate pieces', b.parts.pieces, '', '', '', '']);
   rows.push(['Parts', 'Bins', b.parts.bins, '', '', '', '']);
   if (b.parts.lids) rows.push(['Parts', 'Lids', b.parts.lids, '', '', '', '']);
+  if (b.parts.trays) rows.push(['Parts', 'Lift-out trays', b.parts.trays, '', '', '', '']);
   if (b.parts.keys) rows.push(['Parts', 'Connector keys', b.parts.keys, '', '', '', '']);
   if (b.parts.dividers) rows.push(['Parts', 'Removable dividers', b.parts.dividers, '', '', '', '']);
   if (b.parts.labels) rows.push(['Parts', 'Label plates', b.parts.labels, '', '', '', '']);
@@ -193,7 +196,8 @@ export function bomText(b: Bom): string {
   lines.push(
     '',
     'Parts',
-    `  ${b.parts.pieces} baseplate pieces, ${b.parts.bins} bins${b.parts.lids ? `, ${b.parts.lids} lids` : ''}${b.parts.keys ? `, ${b.parts.keys} connector keys` : ''}` +
+    `  ${b.parts.pieces} baseplate pieces, ${b.parts.bins} bins${b.parts.lids ? `, ${b.parts.lids} lids` : ''}${b.parts.trays ? `, ${b.parts.trays} trays` : ''}` +
+      `${b.parts.keys ? `, ${b.parts.keys} connector keys` : ''}` +
       `${b.parts.dividers ? `, ${b.parts.dividers} removable dividers` : ''}${b.parts.labels ? `, ${b.parts.labels} label plates` : ''}`,
   );
   lines.push('', `Plates (${b.plates.length})`);

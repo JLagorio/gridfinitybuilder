@@ -19,12 +19,15 @@ import {
   fullCells,
   insertKey,
   removableInserts,
+  sanitizeBin,
   type BinCells,
   type BinOptions,
   type DividerInsert,
 } from './geometry/bin';
 import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } from './geometry/labels';
 import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
+import { accessoryParts, planAccessories, type AccessoryPart } from './geometry/accessories';
+import { buildAccessoryPart } from './geometry/accessoryGeometry';
 import {
   buildConnectorKey,
   connectorKeySize,
@@ -122,12 +125,14 @@ export type MeshSpec =
   /** Slide-in plate for a removable divider. */
   | { kind: 'divider'; key: string; insert: DividerInsert }
   /** Swappable label plate. */
-  | { kind: 'label'; key: string; plate: LabelPlate };
+  | { kind: 'label'; key: string; plate: LabelPlate }
+  /** Lift-out tray, sliding lid or rail plate (accessories.ts). */
+  | { kind: 'accessory'; key: string; part: AccessoryPart };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label';
+  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray';
   meshKey: string;
   w: number;
   d: number;
@@ -136,6 +141,8 @@ export interface JobPart {
   drawer?: string;
   /** Baseplate piece number. */
   pieceId?: number;
+  /** Trays and sliding lids: where the part sits in its bin (min corner from the bin's min corner and bottom). */
+  assembled?: { x: number; y: number; z: number };
 }
 
 export interface JobPlate {
@@ -359,6 +366,16 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         parts[k] = { key: k, name, kind: 'label', meshKey, w: pl.width, d: pl.depth, h: labelPlateHeight(pl), drawer: d.id };
         if (include.bins) binItems.push({ key: k, w: pl.width, d: pl.depth });
       });
+      // Lift-out trays, sliding lids and rail plates (accessories.ts).
+      const acc = sanitizeBin(b.opts);
+      for (const msg of planAccessories(acc, w, dd).notes) warn(`Bin ${binLabel(b.opts)}: ${msg}`);
+      for (const a of accessoryParts(acc, w, dd)) {
+        meshes[a.meshKey] = { kind: 'accessory', key: a.meshKey, part: a.part };
+        const k = `${prefix}${a.slot}:${b.id}:${a.index}`;
+        parts[k] = { key: k, name: `${label}${a.name} (${owner})`, kind: a.kind, meshKey: a.meshKey, w: a.w, d: a.d, h: a.h, drawer: d.id };
+        if (a.assembled) parts[k].assembled = a.assembled;
+        if (include.bins) binItems.push({ key: k, w: a.w, d: a.d });
+      }
     }
   }
 
@@ -390,6 +407,7 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'key') return buildConnectorKey(w);
   if (spec.kind === 'divider') return buildDividerInsert(w, spec.insert);
   if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);
+  if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
   if (spec.kind === 'lid') {
     const { w: W, d: D } = lidSize(spec.opts, spec.cells);
     return translateMesh(buildBinLid(w, spec.opts, spec.cells), W / 2, D / 2, 0);

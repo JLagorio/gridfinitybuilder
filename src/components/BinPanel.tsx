@@ -17,6 +17,7 @@ import { CompartmentsSection } from './CompartmentFields';
 import { LabelFields } from './LabelFields';
 import { ToolLibrary } from './ToolLibrary';
 import { BinContentsFields } from './ContentsField';
+import { AccessoryFields, accessoriesActive, accessoryStatus } from './AccessoryFields';
 
 function BinFields({
   opts,
@@ -38,6 +39,7 @@ function BinFields({
   /** Half-grid drawer: sizes count 21 mm cells, shown in u (cells / 2). */
   half?: boolean;
 }) {
+  const { fmt } = useUnits();
   return (
     <>
       {sizeEditable && (
@@ -94,6 +96,9 @@ function BinFields({
       </OptionGroup>
       <OptionGroup title="Lip & lid" status={lipStatus(opts)} active={!opts.lip || opts.lipStyle !== 'normal' || opts.lipNotches || opts.lid}>
         <LipFields opts={opts} onChange={onChange} />
+      </OptionGroup>
+      <OptionGroup title="Trays, lids & rails" status={accessoryStatus(opts, fmt, cells)} active={accessoriesActive(opts)}>
+        <AccessoryFields opts={opts} onChange={onChange} cells={cells} />
       </OptionGroup>
       <OptionGroup title="Walls" status={wallStatus(opts)} active={!!(opts.cutoutWalls || opts.slideWalls || opts.patternWalls) || !opts.fillet}>
         <WallFields opts={opts} onChange={onChange} />
