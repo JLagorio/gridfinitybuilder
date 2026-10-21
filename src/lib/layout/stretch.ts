@@ -17,7 +17,7 @@ import type { GridLayout } from './drawer';
 export interface StretchBin {
   x: number;
   y: number;
-  opts: { unitsX: number; unitsY: number };
+  opts: { unitsX: number; unitsY: number; container?: string };
   stretch?: Partial<BinStretch>;
 }
 
@@ -30,6 +30,8 @@ const floor2 = (v: number) => Math.floor(v * 100 + 1e-6) / 100;
 
 /** How far the bin's body can reach on each side: to the plate edge where it touches the grid edge, else 0. */
 export function stretchRoom(layout: GridLayout, b: StretchBin): BinStretch {
+  // A vase-mode bin's single wall can't print an overhang (geometry/containers/vase.ts).
+  if (b.opts.container === 'vase') return { left: 0, right: 0, front: 0, back: 0 };
   const { nx, ny, margins: m } = layout;
   const side = (touches: boolean, margin: number) => (touches && margin >= MIN_STRETCH_MARGIN ? floor2(margin + INSET) : 0);
   return {

@@ -14,8 +14,10 @@ const root = resolve(__dirname, '..');
 /**
  * The app's own JS on the first screen (the entry and what it imports, minus the React and three.js
  * chunks), bytes. It was ~460 kB when the split was made; everything in one chunk was 1.5 MB.
+ * ~520 kB before vase-mode bins, whose planning (and, like every container type, geometry) is
+ * on the first screen: ~527 kB with them.
  */
-const FIRST_SCREEN_BUDGET = 520_000;
+const FIRST_SCREEN_BUDGET = 530_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
