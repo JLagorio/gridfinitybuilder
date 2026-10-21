@@ -475,8 +475,13 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
         </svg>
         {!cutouts.length && (
           <div className="co-hint">
-            Drag a tool here from the strip above. {bin.opts.interior === 'cutouts' ? 'The bin is filled solid' : 'The bin gets filled solid (no compartments)'} and each tool is cut
-            as a pocket.
+            Drag a tool here from the strip above.{' '}
+            {bin.opts.interior === 'cutouts'
+              ? 'The bin is filled solid'
+              : usesToolCompartments(bin.opts)
+                ? 'Its tool compartments are filled solid'
+                : 'The bin gets filled solid (no compartments)'}{' '}
+            and each tool is cut as a pocket{usesToolCompartments(bin.opts) ? ' where it lies in one of them' : ''}.
           </div>
         )}
       </div>

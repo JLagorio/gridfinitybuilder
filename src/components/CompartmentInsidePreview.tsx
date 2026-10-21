@@ -30,12 +30,10 @@ function usePockets(info: BinInterior, c: Compartment, on: boolean) {
 }
 
 /** Pocket count, or a word for the other insides and floor shapes (for the compartment's badge). */
-export function insideBadge(info: BinInterior, c: Compartment): string | null {
+export function useInsideBadge(info: BinInterior, c: Compartment): string | null {
   const o = compartmentOptions(info, c.key);
-  if (o.inside === 'pockets') {
-    const n = binCompartmentPockets(info.opts, info.cells, c).reduce((t, L) => t + L.centers.length, 0);
-    return `${n} pocket${n === 1 ? '' : 's'}`;
-  }
+  const n = usePockets(info, c, o.inside === 'pockets').centers.length;
+  if (o.inside === 'pockets') return `${n} pocket${n === 1 ? '' : 's'}`;
   if (o.inside === 'tools') return 'tools';
   if (o.inside === 'solid') return 'solid';
   const f = compartmentFloorShape(info.layout.comps?.[c.key], 1000);
@@ -55,7 +53,7 @@ export function CompartmentInsidePreview({ c, info, sy }: { c: Compartment; info
 
   if (o.inside === 'pockets') {
     const p = compartmentPocketOpts(info.opts, co);
-    const style = { fill: 'rgba(8, 10, 14, 0.45)', stroke: LINE, strokeWidth: 1 };
+    const style = { fill: 'rgba(8, 10, 14, 0.3)', stroke: LINE, strokeWidth: 1 };
     pockets.centers.forEach(([x, y], k) => {
       if (p.pocketShape === 'square') {
         content.push(

@@ -48,7 +48,7 @@ import {
   useInteriorSelection,
   type BinInterior,
 } from './interiorState';
-import { CompartmentInsidePreview, insideBadge } from './CompartmentInsidePreview';
+import { CompartmentInsidePreview, useInsideBadge } from './CompartmentInsidePreview';
 
 const T = DIVIDER;
 /** Pointer distances, in screen pixels. */
@@ -766,7 +766,7 @@ function Badge({
   const text = `${fmt(b.x1 - b.x0, { unit: false })} × ${fmt(b.y1 - b.y0)}${c.isRect ? '' : ' ⌐'}`;
   const extras: ReactNode[] = [];
   if (o.floor > 0) extras.push(`+${fmt(o.floor, { unit: false })} floor`);
-  const inside = insideBadge(info, c);
+  const inside = useInsideBadge(info, c);
   if (inside) extras.push(inside);
   const wch = text.length * fs * 0.56 + fs;
   if (wch * pxPerMm > (big.x1 - big.x0) * pxPerMm - 6 || fs * 1.7 * pxPerMm > (big.y1 - big.y0) * pxPerMm - 4) {

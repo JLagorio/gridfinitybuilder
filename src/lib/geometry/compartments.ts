@@ -607,8 +607,9 @@ function layoutCuts(
     // Material left inside the compartment: rounded bottom of L-shaped ones, ramps and steps.
     const minus: Manifold[] = [];
     if (!c.isRect && o.fillet && own.length) {
-      const radii = c.rects.flatMap((rc) => (rc.convex.some(Boolean) ? [rectRadius(rc)] : []));
-      const rf = Math.min(INNER_RADIUS, (topInfill - p.zf) / 2 - 0.05, ...radii);
+      // Like the rectangular cutters' corner spheres: as round as the (grown) corners allow.
+      const radii = c.rects.flatMap((rc) => (rc.convex.some(Boolean) ? [rectRadius(rc) + eps] : []));
+      const rf = Math.min(INNER_RADIUS + eps, (topInfill - p.zf) / 2 - 0.05, ...radii);
       if (rf > 0.3) minus.push(...outlineFillet(w, s, c, ix0, iy0, p.zf, rf, eps));
     }
     if (p.shape) {
@@ -795,6 +796,8 @@ function arcPts(cx: number, cy: number, r: number, from: number, to: number, n =
  */
 function outlineFillet(w: Wasm, s: Scope, c: Compartment, ix0: number, iy0: number, zf: number, rf: number, eps: number): Manifold[] {
   const G = 3 * eps; // reach into the wall, past the cutters' overlap
+  const OVERLAP = 0.05; // mm a straight run reaches into a corner's arc
+  const SPREAD = 3; // degrees a reflex blend reaches into the runs beside it
   const tol = 1e-6;
   const n = CORNER_SEGMENTS;
   // Profiles: x = distance in from the wall face (or radius), y = height above the floor.
@@ -834,7 +837,9 @@ function outlineFillet(w: Wasm, s: Scope, c: Compartment, ix0: number, iy0: numb
       const v = hi ? e.b : e.a;
       const [px, py] = e.orient === 'h' ? [v, e.at] : [e.at, v];
       const k = corners.find((q) => q.a0 === ends[hi ? 1 : 0] && Math.abs(q.x - px) < tol && Math.abs(q.y - py) < tol);
-      const trim = k ? k.r : eps;
+      // Run a little into the corner's arc piece (all of it inside that piece's material) rather than
+      // butting against it, so the two don't meet face to face.
+      const trim = k ? Math.max(0, k.r - OVERLAP) : eps;
       if (hi) s1 -= trim;
       else s0 += trim;
       // A reflex corner: blend the two fillets meeting there (once, from the 'h' edge).
@@ -843,7 +848,9 @@ function outlineFillet(w: Wasm, s: Scope, c: Compartment, ix0: number, iy0: numb
         const dy = e.side;
         const a0 = dx > 0 ? (dy > 0 ? 0 : 270) : dy > 0 ? 90 : 180;
         const vx = v - dx * eps;
-        out.push(s.t(s.t(s.t(w.Manifold.revolve([reflex], n, 90)).rotate([0, 0, a0])).translate([ix0 + vx, iy0 + line, zf])));
+        // A few degrees wider than the corner: the extra lies inside the two strips' material.
+        const blend = s.t(w.Manifold.revolve([reflex], n, 90 + 2 * SPREAD));
+        out.push(s.t(s.t(blend.rotate([0, 0, a0 - SPREAD])).translate([ix0 + vx, iy0 + line, zf])));
       }
     }
     if (s1 - s0 < 1e-4) continue;
