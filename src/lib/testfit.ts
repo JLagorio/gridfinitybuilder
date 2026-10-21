@@ -16,12 +16,16 @@ import { binSpec, pieceMeshKey, type JobPart, type MeshSpec, type PrintJob } fro
  *
  * On a half grid (`pitch.halfGrid`) the sample is 3 × 3 half cells (1.5 × 1.5 u)
  * and the bin is 1 × 1 u on 2 × 2 half feet, so it can be tried at a half-cell offset too.
+ *
+ * `o.haveBaseplate` (a "Just bins" drawer, DrawerInput.haveBaseplate): the
+ * baseplate is there already, so the kit is just the bin, to try in it.
  */
 export function planTestFit(
   baseplate: BaseplateOptions,
   bin: BinOptions,
   setup: PrintSetup,
   pitch: { x: number; y: number; halfGrid?: boolean } = { x: 42, y: 42 },
+  o: { haveBaseplate?: boolean } = {},
 ): PrintJob {
   const half = !!pitch.halfGrid;
   const layout = computeLayout({
@@ -33,8 +37,8 @@ export function planTestFit(
     pitchY: pitch.y,
     ...(half ? { halfGrid: true } : {}),
   });
-  const split = baseplate.connector !== 'none';
-  const pieces = makePieces(layout, split ? [0, layout.xs[1], layout.plateW] : [0, layout.plateW], [0, layout.plateD]);
+  const split = baseplate.connector !== 'none' && !o.haveBaseplate;
+  const pieces = o.haveBaseplate ? [] : makePieces(layout, split ? [0, layout.xs[1], layout.plateW] : [0, layout.plateW], [0, layout.plateD]);
   const sites = connectorSites(layout, pieces, baseplate);
   // Only bowtie joints print keys.
   const connectors = baseplate.connector === 'bowtie' ? sites : [];
@@ -126,6 +130,7 @@ export function planTestFit(
         steps: jointSteps(baseplate, baseplate.connector === 'bowtie' ? 0 : sites.length),
         plateOffset: 0,
         plateCount: plates.length,
+        ...(o.haveBaseplate ? { haveBaseplate: true as const } : {}),
       },
     ],
     parts,

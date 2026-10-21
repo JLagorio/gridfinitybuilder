@@ -15,7 +15,7 @@ import { maxBinUnits } from '../bins';
 import { usableBed, usableBeds } from '../bedfit';
 import { binCellsAt, type PlacedBin } from '../project';
 import { formatLength, MM_PER_IN, type Units } from '../units';
-import type { DrawerInput, GridLayout } from '../layout/drawer';
+import { insideHeight, type DrawerInput, type GridLayout } from '../layout/drawer';
 import type { PrintSetup } from '../layout/plan';
 import type { Tool } from '../tools';
 import { parseList, type ListItem } from './parse';
@@ -92,8 +92,9 @@ const MAX_EXTRA_DRAWERS = 4;
 
 /** Room above the baseplate for bins, mm: the drawer's inside height less the baseplate (Infinity when not set). */
 export function drawerRoom(drawer: DrawerInput, baseplate: BaseplateOptions): number {
-  if (drawer.mode !== 'drawer' || drawer.enclosure || !(drawer.height > 0)) return Infinity;
-  return drawer.height - binSeatHeight(baseplate) - (padStyle(baseplate) ? PAD.proud : 0);
+  const h = insideHeight(drawer);
+  if (drawer.enclosure || !(h > 0)) return Infinity;
+  return h - binSeatHeight(baseplate) - (padStyle(baseplate) ? PAD.proud : 0);
 }
 
 const round = (v: number) => (v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10));

@@ -189,6 +189,11 @@ export interface EnclosurePlan {
   views: { meshKey: string; part: EnclosurePart; view: EnclosureView }[];
   steps: string[];
   warnings: string[];
+  /**
+   * The warnings about the bins (also in `warnings`): what still holds when the
+   * enclosure isn't printed because it's there already (DrawerInput.haveBaseplate).
+   */
+  binNotes: string[];
   /** Room above the bin seat (for "taller than" warnings); Infinity when the planner warns itself. */
   room: number;
   scene: EnclosureScene;
@@ -289,6 +294,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
       views: [],
       steps: [],
       warnings: warnings.length ? warnings : ['The case could not be split to fit this bed.'],
+      binNotes: [],
       room: Infinity,
       scene: { kind: 'case', pieceAt, items: [], shift: { x: 0, y: 0 }, showBins: true, outline: false, seat: g.seat, info: {} },
     };
@@ -381,10 +387,12 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
 
   // Warnings: bins that don't fit, a case that's too big, a body that's too tall to print.
   const room = g.wallTop - g.seat;
+  const binNotes: string[] = [];
   for (const b of d.bins) {
     const top = Math.max(binTotalHeight(b.opts), hasLid(b.opts) ? lidStackHeight(b.opts) : 0);
-    if (top > room + 1e-6) warnings.push(`Bin ${binLabel(b.opts)} is taller than the case (${r1(room)} mm of room above the floor).`);
+    if (top > room + 1e-6) binNotes.push(`Bin ${binLabel(b.opts)} is taller than the case (${r1(room)} mm of room above the floor).`);
   }
+  warnings.push(...binNotes);
   if (g.W > 450 || g.D > 450 || g.lidTop > 250)
     warnings.push(`The case is ${r1(g.W)} × ${r1(g.D)} × ${r1(g.lidTop)} mm: bigger than is practical to carry. A smaller grid or several cases will be lighter and stiffer.`);
   if (g.wallTop + CASE.hinge.r > setup.maxH) warnings.push('The case body is taller than the printer allows.');
@@ -425,6 +433,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
     views,
     steps,
     warnings,
+    binNotes,
     room: Infinity,
     scene: {
       kind: 'case',
@@ -504,9 +513,11 @@ function planWall(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
   if (!d.baseplate.magnets) warnings.push('Wall grid without magnet pockets: bins can fall out. Turn on Magnet pockets, and give the bins magnets too.');
   if (band && bp.magnets && bp.magnetSide === 'bottom') warnings.push('Load the magnets from the top: bottom pockets in the French-cleat groove would be cut open.');
   const loose = d.bins.filter((b) => b.opts.base === 'flat' || !['magnets', 'both', 'refined'].includes(String(b.opts.holes ?? 'none'))).length;
+  const binNotes: string[] = [];
   if (loose && d.baseplate.magnets && !layout.halfGrid)
-    warnings.push(`${loose} bin${loose === 1 ? ' has' : 's have'} no magnets in ${loose === 1 ? 'its' : 'their'} feet and will fall off the wall (Bins tab → Base & holes → magnets).`);
-  if (layout.halfGrid && d.baseplate.magnets) warnings.push('21 mm half cells have no room for magnets: on a half-grid wall grid, rely on the ledge and keep bins light.');
+    binNotes.push(`${loose} bin${loose === 1 ? ' has' : 's have'} no magnets in ${loose === 1 ? 'its' : 'their'} feet and will fall off the wall (Bins tab → Base & holes → magnets).`);
+  if (layout.halfGrid && d.baseplate.magnets) binNotes.push('21 mm half cells have no room for magnets: on a half-grid wall grid, rely on the ledge and keep bins light.');
+  warnings.push(...binNotes);
 
   const ledgeFor = (p: PieceDef) =>
     wo.ledge && p.outer.front ? { x0: p.x0, x1: p.x1, y0: layout.originY - WALL.ledge, y1: layout.originY + 0.01, z1: top + wo.ledgeHeight } : null;
@@ -567,6 +578,7 @@ function planWall(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
     views: [],
     steps,
     warnings,
+    binNotes,
     room: Infinity,
     scene: {
       kind: 'wall',
@@ -664,6 +676,7 @@ function planSpacers(d: Parameters<typeof planEnclosure>[0], layout: GridLayout,
     views: [],
     steps,
     warnings,
+    binNotes: [],
     room: d.drawer.height > 0 ? d.drawer.height - binSeatHeight(bp) : Infinity,
     scene: {
       kind: 'spacers',

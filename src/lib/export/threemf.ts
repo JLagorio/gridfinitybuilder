@@ -187,11 +187,11 @@ function readme(job: PrintJob, setup: PrintSetup) {
     ...job.drawers.map(
       (d) =>
         `${d.name ? `${d.name}: ` : ''}baseplate ${round(d.layout.plateW)} × ${round(d.layout.plateD)} mm, ` +
-        `${d.layout.nx} × ${d.layout.ny} cells, ${d.plan.pieces.length} pieces`,
+        `${d.layout.nx} × ${d.layout.ny} cells, ${d.haveBaseplate ? 'not printed (you have it): just bins' : `${d.plan.pieces.length} pieces`}`,
     ),
     '',
     'Each .3mf file is one print plate with parts already arranged.',
-    'Baseplate pieces are numbered; see the assembly map for where each one goes.',
+    ...(job.drawers.some((d) => !d.haveBaseplate) ? ['Baseplate pieces are numbered; see the assembly map for where each one goes.'] : []),
     ...(keys ? ['', ...connectorSteps(keys)] : []),
     ...job.drawers.flatMap((d) => (d.steps.length ? ['', ...(job.drawers.length > 1 ? [`${d.name}:`] : []), ...d.steps] : [])),
     '',

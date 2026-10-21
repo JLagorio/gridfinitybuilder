@@ -55,8 +55,12 @@ export interface DrawerDoc extends NamedDrawer {
   fillList?: string;
 }
 
-/** Which drawers the print tab exports. */
-export type PrintScope = 'active' | 'all' | 'pick';
+/**
+ * Which drawers the print tab exports. 'selected': just the bins selected in
+ * the active drawer (and their lids, inserts, …), without its baseplate. The
+ * selection isn't saved, so neither is 'selected' (it opens as 'active').
+ */
+export type PrintScope = 'active' | 'all' | 'pick' | 'selected';
 
 export interface Store extends ProjectState {
   ui: UIState;
@@ -82,6 +86,13 @@ export interface Store extends ProjectState {
   /** Remove a tool and its pockets from every bin. */
   removeTool(id: string): void;
   setDrawer(p: Partial<DrawerInput>): void;
+  /**
+   * "Just bins" for the active drawer (DrawerInput.haveBaseplate), as one undo
+   * step. Turned on for a drawer with no bins yet that is sized to a drawer,
+   * the size switches to grid units, the natural way to give a baseplate you
+   * have (the drawer size is kept for a switch back).
+   */
+  setHaveBaseplate(on: boolean): void;
   setBaseplate(p: Partial<BaseplateOptions>): void;
   setSetup(p: Partial<PrintSetup>): void;
   setPrinter(id: string): void;
@@ -112,7 +123,8 @@ export interface Store extends ProjectState {
   /** Remember the list typed in "Fill from a list" for the active drawer (not an undo step of its own). */
   setFillList(text: string): void;
   // Drawers
-  addDrawer(name?: string): string;
+  /** A new drawer after the others; `haveBaseplate`: for a baseplate you have ("Just bins", sized in grid units). */
+  addDrawer(name?: string, o?: { haveBaseplate?: boolean }): string;
   duplicateDrawer(id: string): string;
   removeDrawer(id: string): void;
   renameDrawer(id: string, name: string): void;
@@ -194,6 +206,9 @@ function cleanDrawer(d: Partial<DrawerInput> | undefined): DrawerInput {
   // Half grid: only kept when on, so drawers saved before it existed stay as they were.
   if (out.halfGrid === true) out.halfGrid = true;
   else delete out.halfGrid;
+  // "Just bins" likewise: drawers saved before it existed print their baseplate.
+  if (out.haveBaseplate === true) out.haveBaseplate = true;
+  else delete out.haveBaseplate;
   return cleanEnclosure(out);
 }
 
@@ -248,10 +263,19 @@ export function activeDrawer(s: Store): DrawerDoc {
   return allDrawers(s).find((d) => d.id === s.activeDrawerId) ?? allDrawers(s)[0];
 }
 
-/** The drawers the print tab should export, in workspace order. */
+/**
+ * The drawers the print tab should export, in workspace order. With the
+ * 'selected' scope, the active drawer with just its selected bins, planned
+ * like a bins-only drawer (haveBaseplate) so no baseplate prints.
+ */
 export function printDrawers(s: Store): DrawerDoc[] {
   const all = allDrawers(s);
   if (s.printScope === 'all') return all;
+  if (s.printScope === 'selected') {
+    const doc = all.find((d) => d.id === s.activeDrawerId) ?? all[0];
+    const ids = new Set(selectedIds(s.ui));
+    return [{ ...doc, drawer: { ...doc.drawer, haveBaseplate: true }, bins: doc.bins.filter((b) => ids.has(b.id)) }];
+  }
   if (s.printScope === 'pick') {
     const picked = all.filter((d) => s.printPick.includes(d.id));
     if (picked.length) return picked;
@@ -269,6 +293,9 @@ function synced(s: Store): DrawerDoc[] {
   return allDrawers(s);
 }
 
+/** The print scope as saved: the bin selection isn't, so 'selected' opens as 'active'. */
+const savedScope = (p: PrintScope): PrintScope => (p === 'selected' ? 'active' : p);
+
 /** What autosave keeps. Undo/redo covers the same keys, minus `ui` (see `history` below). */
 function persisted(s: Store) {
   return {
@@ -280,7 +307,7 @@ function persisted(s: Store) {
     newBin: s.newBin,
     drawers: allDrawers(s),
     activeDrawerId: s.activeDrawerId,
-    printScope: s.printScope,
+    printScope: savedScope(s.printScope),
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,
@@ -310,6 +337,16 @@ export const useStore = create<Store>()(
       templates: [],
       tools: [],
       setDrawer: (p) => set((s) => ({ drawer: { ...s.drawer, ...p } })),
+      setHaveBaseplate: (on) => {
+        const s = get();
+        if (!!s.drawer.haveBaseplate === on) return;
+        const { haveBaseplate: _, ...rest } = s.drawer;
+        // Nothing drawn yet: a baseplate you have is easiest given by its cells.
+        const grid = on && !s.bins.length && s.drawer.mode === 'drawer' ? { mode: 'grid' as const } : {};
+        history.checkpoint();
+        set({ drawer: on ? { ...rest, ...grid, haveBaseplate: true } : rest });
+        history.checkpoint();
+      },
       setBaseplate: (p) => set((s) => ({ baseplate: { ...s.baseplate, ...p } })),
       setSetup: (p) => set((s) => ({ setup: { ...s.setup, ...p } })),
       setPrinter: (id) => {
@@ -456,7 +493,7 @@ export const useStore = create<Store>()(
         history.silently(() => set({ drawers: s.drawers.map((d) => (d.id === s.activeDrawerId ? next(d) : d)) }));
       },
 
-      addDrawer: (name) => {
+      addDrawer: (name, o = {}) => {
         const s = get();
         const id = newId();
         const docs = synced(s);
@@ -470,6 +507,8 @@ export const useStore = create<Store>()(
             clearance: s.drawer.clearance,
             fill: s.drawer.fill,
             ...(s.drawer.halfGrid ? { halfGrid: true } : {}),
+            // For a baseplate you have: given by its cells, and nothing of it prints.
+            ...(o.haveBaseplate ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
           },
           baseplate: { ...s.baseplate },
           bins: [],
@@ -710,7 +749,7 @@ export function projectFile(s: Store) {
     newBin: s.newBin,
     drawers: allDrawers(s),
     activeDrawerId: s.activeDrawerId,
-    printScope: s.printScope,
+    printScope: savedScope(s.printScope),
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,

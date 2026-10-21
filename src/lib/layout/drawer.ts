@@ -67,6 +67,14 @@ export interface DrawerInput {
   wallMount?: Partial<WallOptions>;
   /** Spacer-strip settings (fill 'spacers'). Missing = defaults. */
   spacers?: Partial<SpacerOptions>;
+  /**
+   * "Just bins": the baseplate is there already (printed before, or bought),
+   * so nothing of the grid prints: no baseplate pieces, connector keys, pads
+   * or spacer strips, and for a carry case or wall grid none of its parts
+   * either. The grid still says where the bins go and how they fit; the view
+   * draws it as not printed. Missing = the baseplate prints (only kept when on).
+   */
+  haveBaseplate?: true;
 }
 
 export type MaskStyle = 'solid' | 'void';
@@ -88,6 +96,15 @@ export const DEFAULT_DRAWER: DrawerInput = {
   fill: 'solid',
   minFill: 15,
 };
+
+/**
+ * The drawer's inside height when it counts for the bins (the "taller than
+ * the drawer" warnings, stacking room), mm; 0 when it isn't known. It's asked
+ * for with a drawer size, and for a bins-only drawer whatever gives its size.
+ */
+export function insideHeight(d: Pick<DrawerInput, 'mode' | 'height' | 'haveBaseplate'>): number {
+  return (d.mode === 'drawer' || d.haveBaseplate) && d.height > 0 ? d.height : 0;
+}
 
 /** Smallest positive measurement. */
 export function effectiveSize(primary: number, samples: number[] = []): number {

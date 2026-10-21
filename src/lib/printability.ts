@@ -63,7 +63,7 @@ import { RIB_THICKNESS, SLOT_CLEARANCE, T as DIVIDER_T, setWallProps } from './d
 import { computeLayout, spacerMargins, type DrawerInput, type GridLayout } from './layout/drawer';
 import { DEFAULT_NOZZLE, type PrintSetup } from './layout/plan';
 import { findPrinter } from './printers';
-import { binSpec, type NamedDrawer, type PlacedBin, type ProjectState } from './project';
+import { binSpec, printsBaseplate, type NamedDrawer, type PlacedBin, type ProjectState } from './project';
 
 export type CheckSeverity = 'warn' | 'info';
 
@@ -724,7 +724,8 @@ export function projectChecks(drawers: NamedDrawer[], setup: PrintSetup, include
   const opts = { ...o, nozzle: o?.nozzle ?? nozzleOf(setup) };
   const out: FoundCheck[] = [...setupChecks(setup, { bins: include.bins && drawers.some((d) => d.bins.length) }, opts)];
   for (const d of drawers) {
-    if (include.baseplate) out.push(...drawerChecks(d.drawer, d.baseplate, opts).map((c) => ({ ...c, drawerId: d.id })));
+    // Not for a baseplate that's there already ("Just bins"): it isn't printed.
+    if (printsBaseplate(d, include)) out.push(...drawerChecks(d.drawer, d.baseplate, opts).map((c) => ({ ...c, drawerId: d.id })));
     if (!include.bins) continue;
     const layout = computeLayout(d.drawer);
     for (const b of d.bins) out.push(...placedBinChecks(layout, b, opts).map((c) => ({ ...c, drawerId: d.id, binId: b.id })));

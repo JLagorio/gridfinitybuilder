@@ -868,7 +868,8 @@ const translate = (x: number, y: number, z: number): Mat12 => [1, 0, 0, 0, 1, 0,
  * Each drawer of a job as it goes together: baseplate pieces in place, bins
  * seated on it with their lids, trays, sliding lids, container parts and
  * label plates where the drawer view shows them. Connector keys and loose
- * divider plates are left out (they're on the print plates).
+ * divider plates are left out (they're on the print plates), and so is a
+ * baseplate that's there already ("Just bins"): its bins sit where they would on it.
  */
 export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): StepAssembly[] {
   const multi = job.drawers.length > 1;
@@ -880,7 +881,7 @@ export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): Step
       const part = job.parts[key];
       if (part) items.push({ name: part.name, meshKey: part.meshKey, transform: translate(x, y, z) });
     };
-    for (const p of dj.plan.pieces) add(`${prefix}piece:${p.id}`, p.x0, p.y0, 0);
+    if (!dj.haveBaseplate) for (const p of dj.plan.pieces) add(`${prefix}piece:${p.id}`, p.x0, p.y0, 0);
     if (doc) {
       const seat = binSeatHeight(doc.baseplate);
       // Stacked bins stand on the bin below (stacking.ts).
