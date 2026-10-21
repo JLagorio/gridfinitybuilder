@@ -8,6 +8,7 @@
  *   meet (the plate is solid there in every style, frames included).
  * - strips: a strip along every line between two rows of cells, under the
  *   wall (along the columns when there's only one row).
+ * On a half grid they go at every other line, one per 42 mm unit.
  *
  * Recesses stay PAD.edge clear of the outside (and its chamfer and rounded
  * corners), of the seams between pieces, of cut-out cells and of the seam
@@ -105,7 +106,10 @@ export function padSites(layout: GridLayout, piece: PieceDef, o: BaseplateOption
   const style = padStyle(o);
   if (!style) return [];
   const { face, blocked, inCorners } = keepouts(layout, piece, o, connectors);
-  const { xs, ys } = layout;
+  // On a half grid, one per 42 mm unit (every other line), not one per 21 mm cell.
+  const step = layout.halfGrid ? 2 : 1;
+  const xs = layout.xs.filter((_, i) => i % step === 0);
+  const ys = layout.ys.filter((_, i) => i % step === 0);
   const out: PadSite[] = [];
   if (style === 'dots') {
     const r = PAD.dot / 2;
@@ -121,8 +125,9 @@ export function padSites(layout: GridLayout, piece: PieceDef, o: BaseplateOption
   }
   const hw = PAD.strip / 2;
   // Between rows; along the columns when there is only one row.
-  const alongX = ys.length > 2;
-  const lines = (alongX ? ys : xs).slice(1, -1);
+  const inner = (b: number[]) => b.slice(1, -1).filter((_, i) => (i + 1) % step === 0);
+  const alongX = inner(layout.ys).length > 0;
+  const lines = alongX ? inner(layout.ys) : inner(layout.xs);
   for (const v of lines) {
     const [lo, hi] = alongX ? [face.y0, face.y1] : [face.x0, face.x1];
     if (v - hw < lo || v + hw > hi) continue;

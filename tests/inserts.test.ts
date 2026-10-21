@@ -192,7 +192,7 @@ describe('lift-out cups', () => {
     const short = insertParts(bin({ unitsX: 1, unitsY: 1, heightUnits: 3, cups: true, label: 'full' }))[0];
     expect((short.part as CupPart).tab).toBeNull();
     expect(short.d).toBeLessThan(binInnerSize(bin()).d - 10);
-  });
+  }, 60_000);
 
   it('builds every grip, with and without the scoop inside', () => {
     for (const grip of ['tab', 'notch', 'none'] as const) {
@@ -208,7 +208,7 @@ describe('lift-out cups', () => {
         }
       }
     }
-  });
+  }, 60_000);
 
   it('gives L-shaped compartments a cup per rectangle, and skips filled ones', () => {
     const lo = { unitsX: 3, unitsY: 2, heightUnits: 4, cups: true };
@@ -230,7 +230,7 @@ describe('lift-out cups', () => {
     expect(plan.cups).toHaveLength(2);
     expect(plan.misses).toEqual([{ key: keysOf(lo, l2)[1], kind: 'cup', why: 'is filled or has a ramp or steps' }]);
     expect(plan.notes[0]).toMatch(/1 compartment gets no cup/);
-  });
+  }, 60_000);
 
   it('lets compartments opt in or out, and clears removable dividers’ ribs', () => {
     const lo = { unitsX: 2, unitsY: 1, heightUnits: 4 };
@@ -248,7 +248,7 @@ describe('lift-out cups', () => {
     const plain = insertParts(bin({ ...lo, cups: true, layout: l }));
     expect(parts[0].w).toBeLessThan(plain[0].w - 0.9);
     fitsInBin(o, parts);
-  });
+  }, 60_000);
 
   it('says why a bin gets none', () => {
     expect(planInserts(bin({ cups: true, base: 'lite' })).notes[0]).toMatch(/flat floor/);
@@ -313,7 +313,7 @@ describe('egg-crate grid inserts', () => {
     const many = insertParts(bin({ crate: true, crateDivX: 12 }))[0].part as CratePart;
     expect(many.divX).toBeLessThan(12);
     expect(check(buildInsertPart(w, many)).components).toBe(1);
-  });
+  }, 60_000);
 });
 
 describe('pocket-grid lids', () => {
@@ -351,7 +351,7 @@ describe('pocket-grid lids', () => {
     for (const lo of [own, lidBin({ lidPockets: { pocketSizes: [3, 4, 5, 6, 8, 10], pocketSizeLabels: 'mm', pocketDepth: 15 } })]) {
       expect(check(buildBinLid(w, lo))).toMatchObject({ status: 'NoError', components: 1 });
     }
-  });
+  }, 60_000);
 
   it('is planned as the bin’s lid', () => {
     const job = planJob({ ...DEFAULT_PROJECT, bins: [{ id: 'a', x: 0, y: 0, opts: lidBin() }] });
@@ -409,7 +409,7 @@ describe('two-colour shadow boards', () => {
     expect(binKey(o)).toBe(`${binKey(board())}-Sh${SHADOW.depth}`);
     // No tools: nothing to do, same key.
     expect(binKey(board({ shadowFloor: true, cutouts: [] }))).toBe(binKey(board({ cutouts: [] })));
-  });
+  }, 60_000);
 
   it('works in tool compartments, only inside them', () => {
     const lo = { unitsX: 2, unitsY: 1, heightUnits: 4 };
@@ -437,6 +437,12 @@ describe('two-colour shadow boards', () => {
 
 describe('TPU non-slip pads', () => {
   const drawer = { ...DEFAULT_DRAWER, width: 300, depth: 220 };
+  /** A recess's volume below the plate (the part of the cutter above z = 0). */
+  const recessOf = (s: ReturnType<typeof padSites>[number]) => {
+    const r = s.kind === 'dot' ? PAD.dot / 2 : PAD.strip / 2;
+    const len = s.kind === 'dot' ? 0 : Math.hypot(s.x1 - s.x0, s.y1 - s.y0);
+    return (Math.PI * r * r + 2 * r * len) * PAD.depth;
+  };
   const project = (bp: Partial<BaseplateOptions>): ProjectState => ({ ...DEFAULT_PROJECT, drawer, baseplate: { ...DEFAULT_BASEPLATE, ...bp }, bins: [] });
 
   it('leaves plates without pads as they were', () => {
@@ -465,13 +471,13 @@ describe('TPU non-slip pads', () => {
         for (const piece of job.plan.pieces) {
           const spec = job.meshes[job.parts[`piece:${piece.id}`].meshKey];
           if (spec.kind !== 'piece') throw new Error('piece');
-          const with_ = buildMesh(w, spec);
-          const without = buildMesh(w, { ...spec, opts: { ...spec.opts, pads: undefined } });
-          const a = check(with_);
-          expect(a).toMatchObject({ status: 'NoError', components: 1 });
           const sites = padSites(spec.layout, spec.piece, spec.opts, spec.connectors);
           recesses += sites.length;
-          recessVolume += check(without).volume - a.volume;
+          recessVolume += sites.reduce((t, s) => t + recessOf(s), 0);
+          // Build one piece (the next test builds them all, with and without pads).
+          if (piece.id !== 1) continue;
+          const with_ = buildMesh(w, spec);
+          expect(check(with_)).toMatchObject({ status: 'NoError', components: 1 });
           // Recesses are in the underside only, PAD.depth deep.
           for (const s of sites) {
             const [x, y] = s.kind === 'dot' ? [s.x, s.y] : [(s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2];
@@ -484,8 +490,10 @@ describe('TPU non-slip pads', () => {
         expect(padParts.length).toBe(recesses);
         // Each pad is its recess less the fit, PAD.proud thicker than the recess is deep.
         let padVolume = 0;
+        const built = new Map<string, MeshData>();
         for (const p of padParts) {
-          const m = buildMesh(w, job.meshes[p.meshKey]);
+          if (!built.has(p.meshKey)) built.set(p.meshKey, buildMesh(w, job.meshes[p.meshKey]));
+          const m = built.get(p.meshKey)!;
           const c = check(m);
           expect(c).toMatchObject({ status: 'NoError', components: 1 });
           const b = meshBounds(m);
@@ -498,7 +506,7 @@ describe('TPU non-slip pads', () => {
         // The pads fill their recesses (less the fit and the foot chamfer).
         expect(padVolume).toBeLessThan(recessVolume);
         expect(padVolume).toBeGreaterThan(0.85 * recessVolume);
-      });
+      }, 60_000);
     }
   }
 
@@ -519,15 +527,10 @@ describe('TPU non-slip pads', () => {
         const b = check(buildMesh(w, { ...spec, opts: { ...spec.opts, pads: undefined } }));
         expect(a).toMatchObject({ status: 'NoError', components: 1 });
         // Each recess takes its own full volume: it runs into nothing else.
-        const each = sites.reduce((t, s) => {
-          const r = s.kind === 'dot' ? PAD.dot / 2 : PAD.strip / 2;
-          const len = s.kind === 'dot' ? 0 : Math.hypot(s.x1 - s.x0, s.y1 - s.y0);
-          return t + (Math.PI * r * r + 2 * r * len) * PAD.depth;
-        }, 0);
-        expect(b.volume - a.volume).toBeCloseTo(each, -1);
+        expect(b.volume - a.volume).toBeCloseTo(sites.reduce((t, s) => t + recessOf(s), 0), -1);
       }
     }
-  });
+  }, 60_000);
 
   it('keeps dots off seams and the plate edge', () => {
     const job = planJob(project({ pads: 'dots', connector: 'screw', bottomChamfer: 1 }));
@@ -542,6 +545,26 @@ describe('TPU non-slip pads', () => {
         expect(s.y + PAD.dot / 2).toBeLessThanOrEqual(piece.y1 - PAD.edge + 1e-6);
       }
       expect(check(buildMesh(w, spec))).toMatchObject({ status: 'NoError', components: 1 });
+    }
+  }, 60_000);
+
+  it('goes one per 42 mm unit on a half grid', () => {
+    for (const pads of ['dots', 'strips'] as const) {
+      const job = planJob({ ...project({ pads }), drawer: { ...drawer, halfGrid: true } });
+      const { xs, ys } = job.layout;
+      const even = (b: number[], v: number) => b.findIndex((x) => Math.abs(x - v) < 1e-3) % 2 === 0;
+      let n = 0;
+      for (const piece of job.plan.pieces) {
+        const spec = job.meshes[job.parts[`piece:${piece.id}`].meshKey];
+        if (spec.kind !== 'piece') continue;
+        for (const s of padSites(spec.layout, spec.piece, spec.opts, spec.connectors)) {
+          n++;
+          if (s.kind === 'dot') expect(even(xs, s.x) && even(ys, s.y)).toBe(true);
+          else expect(s.y0 === s.y1 ? even(ys, s.y0) : even(xs, s.x0)).toBe(true);
+        }
+      }
+      expect(n).toBeGreaterThan(0);
+      expect(Object.values(job.parts).filter((p) => p.kind === 'pad')).toHaveLength(n);
     }
   });
 

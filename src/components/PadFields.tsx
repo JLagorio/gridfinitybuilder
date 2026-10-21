@@ -11,7 +11,7 @@ export function PadFields({ bp, setBp, job }: { bp: BaseplateOptions; setBp: (p:
   const pads = Object.values(job.parts).filter((p) => p.kind === 'pad');
   let hint = 'Shallow recesses underneath and matching pads printed in TPU, so the baseplate doesn’t slide in the drawer.';
   if (style) {
-    const where = style === 'dots' ? 'at the cell corners' : `under the walls between ${job.layout.ny > 1 ? 'rows' : 'columns'}`;
+    const where = style === 'dots' ? 'at the cell corners' : `under the walls between ${job.layout.ny > (job.layout.halfGrid ? 2 : 1) ? 'rows' : 'columns'}`;
     hint = pads.length
       ? `${pads.length} TPU ${style === 'dots' ? 'pad' : 'strip'}${pads.length === 1 ? '' : 's'} ${where}, on a plate of their own (print them in TPU). Press them into the ${fmt(PAD.depth)} recesses; they stand ${fmt(PAD.proud)} proud, raising the plate that much.`
       : style === 'strips'
