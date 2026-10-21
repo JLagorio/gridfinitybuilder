@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { allDrawers, printDrawers, projectFile, useStore } from '../src/state/store';
+import { allDrawers, history, printDrawers, projectFile, useStore } from '../src/state/store';
 import { DEFAULT_BIN } from '../src/lib/geometry/bin';
 
 const s = () => useStore.getState();
@@ -76,5 +76,24 @@ describe('drawers', () => {
     expect(allDrawers(s()).map((d) => d.name)).toEqual(['Drawer 1', 'Garage']);
     expect(s().drawer.width).toBe(333);
     expect(allDrawers(s())[0].bins).toHaveLength(1);
+  });
+});
+
+describe('newProject', () => {
+  it('starts over with one empty drawer, keeps the printer setup and templates, and undoes in one step', () => {
+    s().setSetup({ bedW: 300, bedD: 300 });
+    s().addDrawer('Garage');
+    s().addBin(0, 0, 2, 1);
+    useStore.setState({ templates: [{ id: 't1', name: 'Mine', opts: DEFAULT_BIN } as never] });
+    const before = allDrawers(s()).length;
+    history.checkpoint();
+    s().newProject();
+    expect(allDrawers(s())).toHaveLength(1);
+    expect(s().bins).toHaveLength(0);
+    expect(s().setup.bedW).toBe(300);
+    expect(s().templates).toHaveLength(1);
+    history.undo();
+    expect(allDrawers(s())).toHaveLength(before);
+    expect(s().bins).toHaveLength(1);
   });
 });

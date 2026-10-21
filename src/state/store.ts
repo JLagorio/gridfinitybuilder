@@ -138,6 +138,11 @@ export interface Store extends ProjectState {
   /** Go to a bin found by search: switch to its drawer, open the Bins tab and select it (just the drawer without a bin). */
   locateBin(drawerId: string, binId?: string | null): void;
   resetAll(): void;
+  /**
+   * Start over with one empty drawer, as one undo step. Printers and print settings, templates,
+   * the tool library and the settings for new bins are kept: they belong to the user, not the project.
+   */
+  newProject(): void;
   /** Replace the project with one loaded from a saved file. */
   loadProject(data: unknown): void;
   /**
@@ -672,6 +677,12 @@ export const useStore = create<Store>()(
       },
 
       resetAll: () => set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, ui: { ...DEFAULT_UI, units: get().ui.units }, newBin: DEFAULT_BIN }),
+      newProject: () => {
+        const s = get();
+        history.checkpoint();
+        set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, setup: s.setup, ui: { ...DEFAULT_UI, units: s.ui.units } });
+        history.checkpoint();
+      },
       loadProject: (data) => {
         const p = (data ?? {}) as Partial<Store> & { app?: string };
         if (typeof p !== 'object' || (p.app !== undefined && p.app !== 'gridfit')) throw new Error('Not a Gridfit project file.');

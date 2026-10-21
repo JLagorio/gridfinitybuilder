@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { allDrawers, printDrawers, projectFile, selectedIds, useStore, useUnits } from '../state/store';
+import { allDrawers, history, printDrawers, projectFile, selectedIds, useStore, useUnits } from '../state/store';
 import { LengthInput, Section, Segmented, Toggle } from './fields';
 import { Combobox } from './combobox';
 import { findPrinter } from '../lib/printers';
@@ -122,8 +122,10 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       `gridfinity-drawer-${stamp}.gridfit.json`,
       'application/json',
     );
+  const [started, setStarted] = useState(false);
   const openProject = async (file: File) => {
     setError(null);
+    setStarted(false);
     try {
       store.loadProject(JSON.parse(await file.text()));
     } catch (e) {
@@ -477,6 +479,14 @@ export function PrintPanel({ job }: { job: PrintJob }) {
         <div className="button-row">
           <button onClick={saveProject}>Save project</button>
           <button onClick={() => fileInput.current?.click()}>Open project…</button>
+          <button
+            onClick={() => {
+              store.newProject();
+              setStarted(true);
+            }}
+          >
+            New project
+          </button>
           <CopyShareLink />
           <input
             ref={fileInput}
@@ -490,6 +500,20 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             }}
           />
         </div>
+        {started && (
+          <p className="muted small" role="status">
+            Started a new project. Printers, templates, the tool library and My bins are kept.{' '}
+            <button
+              className="link"
+              onClick={() => {
+                history.undo();
+                setStarted(false);
+              }}
+            >
+              Undo
+            </button>
+          </p>
+        )}
       </Section>
     </FindPanel>
   );
