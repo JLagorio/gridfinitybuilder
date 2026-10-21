@@ -94,7 +94,8 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   const setDrawer = useStore((s) => s.setDrawer);
   const setHalfGrid = useStore((s) => s.setHalfGrid);
   const binCount = useStore((s) => s.bins.length);
-  const [gridNote, setGridNote] = useState<string | null>(null);
+  // What the last half-grid switch did, shown while that drawer stays that way.
+  const [lastSwitch, setLastSwitch] = useState<{ id: string; on: boolean; text: string } | null>(null);
   const setBp = useStore((s) => s.setBaseplate);
   const setUI = useStore((s) => s.setUI);
   const { units, fmt } = useUnits();
@@ -117,14 +118,14 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
     history.checkpoint();
     const n = setHalfGrid(on);
     history.checkpoint();
-    setGridNote(
-      n
-        ? `${n} bin${n === 1 ? '' : 's'} changed size or moved to fit the ${on ? 'half' : 'whole-unit'} grid.`
-        : binCount
-          ? `Bins converted: ${on ? 'each 1 u is now 2 × 2 half cells' : 'back to whole units'}.`
-          : null,
-    );
+    const text = n
+      ? `${n} bin${n === 1 ? '' : 's'} changed size or moved to fit the ${on ? 'half' : 'whole-unit'} grid.`
+      : binCount
+        ? `Bins converted: ${on ? 'each 1 u is now 2 × 2 half cells' : 'back to whole units'}.`
+        : '';
+    setLastSwitch(text && active ? { id: active.id, on, text } : null);
   };
+  const gridNote = lastSwitch && lastSwitch.id === active?.id && lastSwitch.on === half ? lastSwitch.text : null;
   const sp = screwPlacement(bp);
   const screwHint = !bp.screws
     ? 'Countersunk holes to screw the plate down.'

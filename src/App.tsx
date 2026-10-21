@@ -273,7 +273,8 @@ export default function App() {
             {printer.name} · {state.setup.bedW}×{state.setup.bedD}
           </span>
           <span className="chip">
-            {job.layout.nx}×{job.layout.ny} grid · {job.plan.pieces.length} pieces · {printJob.plates.length} plates
+            {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} · {job.plan.pieces.length} pieces ·{' '}
+            {printJob.plates.length} plates
           </span>
           <ShortcutsHelp />
         </div>

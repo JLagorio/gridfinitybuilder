@@ -106,6 +106,20 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
     return [i, j];
   };
 
+  /** The cell under a point on a stretched bin's overhang (outside the grid), or null. */
+  const stretchedCellAt = (p: Pt): Pt | null => {
+    for (const b of bins) {
+      const st = stretchOf(effectiveStretch(layout, b));
+      if (st.left + st.right + st.front + st.back <= 0) continue;
+      const m = mmRect(binRect(b));
+      if (p[0] < m.x0 - st.left || p[0] > m.x1 + st.right || p[1] < m.y0 - st.front || p[1] > m.y1 + st.back) continue;
+      const i = cellIndexAt(xs, Math.min(Math.max(p[0], m.x0), m.x1 - 1e-6));
+      const j = cellIndexAt(ys, Math.min(Math.max(p[1], m.y0), m.y1 - 1e-6));
+      if (i >= 0 && j >= 0) return [i, j];
+    }
+    return null;
+  };
+
   const mmRect = (r: CellRect) => ({
     x0: cellEdge(xs, r.x, pitchX),
     x1: cellEdge(xs, r.x + r.w, pitchX),
@@ -162,7 +176,8 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
       setDrag({ kind: 'resize', id: single.id, handle, from: r, cur: r });
       return;
     }
-    const c = cellOf(p);
+    // Over the margin, a stretched bin's body counts as its edge cell.
+    const c = cellOf(p) ?? stretchedCellAt(p);
     const id = c ? occ[c[0]][c[1]] : null;
     if (c && id) {
       // Grabbing a selected bin drags the whole selection.

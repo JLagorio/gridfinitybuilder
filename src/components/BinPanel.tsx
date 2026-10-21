@@ -5,7 +5,7 @@ import { binLabel, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { hasLid } from '../lib/geometry/lid';
 import { canPlace, withBlocked } from '../lib/bins';
 import { binCellsAt, binSpec, binStretched, binUnitsText, lidSpec, type PlacedBin, type PrintJob } from '../lib/project';
-import { MAX_CELLS, STRETCH_SIDES, STRETCH_Z, hasStretch, stretchOf } from '../lib/geometry/placement';
+import { MAX_CELLS, MAX_STRETCH, STRETCH_SIDES, STRETCH_Z, hasStretch, stretchOf } from '../lib/geometry/placement';
 import { STRETCH_LABEL, autoStretch, effectiveStretch, stretchRoom } from '../lib/layout/stretch';
 import type { GridLayout } from '../lib/layout/drawer';
 import { HalfStepper } from './DrawerPanel';
@@ -179,11 +179,12 @@ function StretchSection({ layout, bin }: { layout: GridLayout; bin: PlacedBin })
           {open.map((k) => (
             <LengthInput
               key={k}
-              label={`${STRETCH_LABEL[k]} (up to ${fmt(room[k])})`}
+              label={`${STRETCH_LABEL[k]} (up to ${fmt(room[k], { mmDigits: 2 })})`}
               value={eff[k]}
               allowEmpty
               placeholder="0"
-              max={room[k] + 1e-6}
+              // More than there is room for just reaches the plate edge.
+              max={MAX_STRETCH}
               onChange={(mm) => set(k, mm)}
             />
           ))}
@@ -317,7 +318,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <BinFields opts={newBin} onChange={setNewBin} sizeEditable={false} half={half} />
         </Section>
       )}
-      {sel && !many && <StretchSection key={sel.id} layout={job.layout} bin={sel} />}
+      {sel && !many && <StretchSection key={`stretch-${sel.id}`} layout={job.layout} bin={sel} />}
       {sel ? (
         sel.opts.interior === 'compartments' && (
           <CompartmentsSection key={sel.id} opts={sel.opts} onChange={changeSelected} binId={sel.id} grid={job.layout} />
