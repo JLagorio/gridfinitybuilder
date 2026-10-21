@@ -44,6 +44,8 @@ export interface ContainerDef<O = unknown> {
   /** One line for the type picker. */
   description: string;
   defaults: O;
+  /** Height (7 mm units) to start from when a bin is switched to this type and is shorter. */
+  minHeightUnits?: number;
   /** Clean saved or edited options (`raw` may be anything, including undefined). */
   sanitize(raw: unknown, bin: BinOptions): O;
   /** Mesh-key text for the options (every geometry-affecting field). */

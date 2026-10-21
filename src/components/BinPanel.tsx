@@ -81,7 +81,11 @@ function ContainerTypeField({ opts, onChange }: { opts: BinOptions; onChange: (p
       label="Type"
       value={active ? active.def.kind : 'bin'}
       options={[{ value: 'bin', label: 'Bin' }, ...defs.map((d) => ({ value: d.kind, label: d.label }))]}
-      onChange={(container) => onChange({ container: container === 'bin' ? undefined : container })}
+      onChange={(container) => {
+        // Some types need more height than a bin (drawers): start them tall enough.
+        const min = defs.find((d) => d.kind === container)?.minHeightUnits ?? 0;
+        onChange({ container: container === 'bin' ? undefined : container, ...(opts.heightUnits < min ? { heightUnits: min } : {}) });
+      }}
       hint={active ? active.def.description : 'An open bin with compartments, pockets or tool cutouts.'}
     />
   );

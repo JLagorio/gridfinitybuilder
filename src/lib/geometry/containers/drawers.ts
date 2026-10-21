@@ -811,6 +811,7 @@ registerContainer<DrawerUnitOptions>({
   label: 'Drawer unit',
   description: 'A small chest with pull-out drawers that stands on the grid; the drawers print separately.',
   defaults: DEFAULT_DRAWER_UNIT,
+  minHeightUnits: 6,
   sanitize: (raw) => sanitizeDrawerUnit(raw),
   key: drawerUnitKey,
   height: drawerUnitHeight,
