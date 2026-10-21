@@ -19,3 +19,6 @@ import './kinds/cableClip';
 import './kinds/cableChannel';
 import './kinds/powerStrip';
 import './kinds/cableComb';
+import './kinds/gridShelf';
+import './kinds/gridPlate';
+import './kinds/gridClip';

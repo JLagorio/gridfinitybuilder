@@ -18,3 +18,6 @@ import './kinds/cableClip.ui';
 import './kinds/cableChannel.ui';
 import './kinds/powerStrip.ui';
 import './kinds/cableComb.ui';
+import './kinds/gridShelf.ui';
+import './kinds/gridPlate.ui';
+import './kinds/gridClip.ui';
