@@ -147,6 +147,12 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
 
 3. **Print plates.**
    - **Printer:** pick it. The Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles.
+   - **Nozzle:** 0.4 mm unless you pick 0.2, 0.6 or 0.8. The print checks measure walls, text and fits against it (Bambu projects stay set up for the 0.4 mm nozzle; pick yours in Bambu Studio).
+   - **Print checks:** before the exports, a list of what won't print well in everything being printed, from the settings alone:
+     - **likely to fail:** label text that doesn't fit its tab (and is left off) or has strokes thinner than the nozzle, a label tab against a removable divider (it prints in mid-air), drawers with too little play, very tall bins on a small base, a stretched body far over the margin
+     - **prints, but worse:** raised text under 3 mm, walls between pockets, hex struts, grid inserts and drawer walls under two nozzle lines, big hex holes, magnet + screw holes without printable tops, compartments too narrow and deep to reach into, wide bridges, an untrimmed baseplate ridge, and fits that are tight for a big nozzle (divider slots, the sliding lid's click, hinges, puzzle tabs and keys)
+     - Most have a one-click fix ("Make them 1.2 mm", "Turn on printable hole tops"). Click a bin's name to select it, switching drawer if needed.
+     - The selected bin shows its own checks above its settings, and bins with any get a small dot on the bin grid (yellow: likely to fail; blue: a tip).
    - **Split and pack:** Gridfit splits each baseplate on cell boundaries, so every receptacle stays whole. Each drawer's baseplate gets its own plates (named after the drawer). Bins, lids, removable dividers and label plates from every printed drawer share plates.
    - **Exports:**
      - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected (plus a second filament for inlaid labels). Open it and press **Slice all plates**.
@@ -222,6 +228,7 @@ src/lib/geometry/containers/  drawer units, parts boxes, hoppers, tool racks, di
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers; estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search
+src/lib/printability.ts  print checks: rule-based warnings from the options and the nozzle (cheap, no geometry)
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
 src/worker/         geometry Web Worker + client with a mesh queue/cache
 src/components/     React UI (three.js viewer, 2D bin layout editor, panels)

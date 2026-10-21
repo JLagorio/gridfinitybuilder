@@ -12,6 +12,7 @@ import { DrawerPanel } from './components/DrawerPanel';
 import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
+import { useBinCheckMarks } from './components/PrintChecks';
 import { BinInteriorEditor, BinPaneHeader, useInteriorPane } from './components/BinInteriorEditor';
 import { CutoutEditor } from './components/CutoutEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
@@ -242,6 +243,7 @@ export default function App() {
 
   useOpenSharedProject();
   const selection = useSelectedIds();
+  const checkMarks = useBinCheckMarks(job.layout, state.bins);
 
   // Delete / Backspace removes the selected bins (unless typing in a field).
   useEffect(() => {
@@ -383,6 +385,7 @@ export default function App() {
                     onResize={resizeBin}
                     bed={usableBed(state.setup)}
                     newBin={state.newBin}
+                    marks={checkMarks}
                   />
                 )}
               </div>

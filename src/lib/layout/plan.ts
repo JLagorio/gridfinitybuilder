@@ -40,7 +40,14 @@ export interface PrintSetup {
   kwhPrice?: number;
   /** Printer power draw while printing, W; unset: the printer's typical draw. */
   printerWatts?: number;
+  /** Nozzle diameter, mm (one of NOZZLES); unset: DEFAULT_NOZZLE. The print checks size lines and fits by it. */
+  nozzle?: number;
 }
+
+/** Nozzle sizes the printer section offers, mm. */
+export const NOZZLES = [0.2, 0.4, 0.6, 0.8] as const;
+/** What every Bambu profile here is set up for. */
+export const DEFAULT_NOZZLE = 0.4;
 
 export const DEFAULT_SETUP: PrintSetup = {
   printerId: 'p2s',
@@ -73,6 +80,8 @@ export function cleanSetup(saved: Partial<PrintSetup> | null | undefined, base: 
   const watts = price(s.printerWatts, 5000);
   if (watts === undefined || watts === 0) delete s.printerWatts;
   else s.printerWatts = watts;
+  // Only a size the field offers is kept; the default stays unset, like projects saved before it existed.
+  if (!NOZZLES.some((n) => n === s.nozzle) || s.nozzle === DEFAULT_NOZZLE) delete s.nozzle;
   return s;
 }
 

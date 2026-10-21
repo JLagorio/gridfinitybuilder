@@ -1,0 +1,103 @@
+/* ---------- print checks (PrintChecks.tsx) ---------- */
+
+:root {
+  /* Not the red of "too big for the printer": these still print. */
+  --check-warn: #f2c14e;
+  --check-info: #7fa7d9;
+}
+
+.print-notice {
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--check-info);
+  border-radius: 6px;
+  background: var(--panel-2);
+  padding: 7px 9px;
+  margin-bottom: 10px;
+}
+.print-notice.warn {
+  border-left-color: var(--check-warn);
+}
+.print-notice-head {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.pc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+.pc-item {
+  position: relative;
+  padding-left: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+/* A small dot per item: yellow for a likely failure, blue for a tip. */
+.pc-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--check-info);
+}
+.pc-item.warn::before {
+  background: var(--check-warn);
+}
+.pc-item.warn {
+  color: var(--text);
+}
+.pc-part {
+  font-weight: 600;
+  color: var(--text);
+}
+.pc-item button.link {
+  font-size: inherit;
+}
+
+.pc-groups {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.pc-group {
+  border-left: 2px solid var(--check-info);
+  padding-left: 8px;
+}
+.pc-group.warn {
+  border-left-color: var(--check-warn);
+}
+.pc-title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 3px;
+  text-align: left;
+}
+button.link.pc-title {
+  color: var(--text);
+}
+button.link.pc-title:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+/* Bins with print checks on the bin grid (BinGridEditor). */
+.ge-check {
+  stroke: #1a1e25;
+  stroke-width: 0.6;
+  pointer-events: none;
+}
+.ge-check.warn {
+  fill: var(--check-warn);
+}
+.ge-check.info {
+  fill: var(--check-info);
+}
