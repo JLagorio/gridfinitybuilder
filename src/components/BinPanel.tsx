@@ -32,6 +32,7 @@ import { FillFromListButton } from './FillFromList';
 import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { BIN_INDEX } from './panelIndex';
+import { ExternalBinButtons, ExternalBinPanel } from './ExternalBinPanel';
 
 type FieldProps = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -336,6 +337,12 @@ export function BinPanel({ job }: { job: PrintJob }) {
           Clear all
         </button>
       </div>
+      {/* Bins from elsewhere (lib/external.ts): ones you already have, and STL / 3MF downloads. */}
+      <Find id="external">
+        <div className="button-row">
+          <ExternalBinButtons />
+        </div>
+      </Find>
       {bins.length > 0 ? (
         <ul className="bin-counts">
           {[...counts.entries()].map(([label, n]) => (
@@ -350,6 +357,18 @@ export function BinPanel({ job }: { job: PrintJob }) {
       )}
     </Section>
   );
+
+  // A bin from elsewhere has its own fields: none of the options Gridfit builds apply (ExternalBinPanel.tsx).
+  if (sel?.external) {
+    return (
+      <FindPanel index={BIN_INDEX} placeholder="Find a setting…">
+        <ExternalBinPanel key={sel.id} job={job} bin={sel} many={selIds.length} onChange={changeSelected} sizeError={sizeError} />
+        <TemplatesSection />
+        <ToolLibrary job={job} />
+        {layout}
+      </FindPanel>
+    );
+  }
 
   return (
     <FindPanel index={BIN_INDEX} placeholder="Find a setting…">

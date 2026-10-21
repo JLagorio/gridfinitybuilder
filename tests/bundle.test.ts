@@ -72,6 +72,11 @@ describe('bundle', () => {
       'src/lib/autofill/index.ts',
       'src/lib/bom.ts',
       'src/lib/export/step.ts',
+      // Bins from elsewhere: the import dialog, the file readers, the mesh store, the share-link codec.
+      'src/components/ExternalBinDialog.tsx',
+      'src/lib/imported/parse.ts',
+      'src/lib/imported/meshStore.ts',
+      'src/lib/share.ts',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).

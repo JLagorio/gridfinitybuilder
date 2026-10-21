@@ -7,7 +7,7 @@ import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
 import { BomSection, TestFitSection, plateSummary, useJobEstimate } from './PrintExtras';
-import { CopyShareLink } from './ShareLink';
+import { CopyShareLink } from './CopyShareLink';
 import { ContentsSection } from './InventoryList';
 import { NozzleField, PrintChecksSection } from './PrintChecks';
 import { baseplatePrinter, jobPrinters, printerNames, printerSetup, shortName } from '../lib/layout/fleet';
@@ -20,6 +20,8 @@ import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { PRINT_INDEX } from './panelIndex';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
+import { isOwned } from '../lib/external';
+import { adoptMeshes, projectWithMeshes } from '../lib/imported/meshStore';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -46,7 +48,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const stamp = multi ? `${job.drawers.length}-drawers` : slug(printing[0]?.name ?? '') || `${job.layout.nx}x${job.layout.ny}`;
   const nPieces = job.drawers.reduce((t, d) => t + d.plan.pieces.length, 0);
-  const nBins = printing.reduce((t, d) => t + d.bins.length, 0);
+  // Bins you already have (lib/external.ts) never print.
+  const nBins = printing.reduce((t, d) => t + d.bins.filter((b) => !isOwned(b)).length, 0);
   // Several printers (fleet.ts): each gets its own project, with its plates and settings.
   const printers = jobPrinters(setup);
   const names = printerNames(setup);
@@ -108,22 +111,30 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     );
 
   const fileInput = useRef<HTMLInputElement>(null);
+  // With the meshes of imported bins in it, so the file opens complete anywhere (lib/imported/meshStore.ts).
   const saveProject = () =>
-    downloadBytes(
-      new TextEncoder().encode(JSON.stringify(projectFile(store), null, 2)),
-      `gridfinity-drawer-${stamp}.gridfit.json`,
-      'application/json',
-    );
+    run('Saving the project', async () => {
+      const file = await projectWithMeshes(projectFile(store));
+      downloadBytes(new TextEncoder().encode(JSON.stringify(file, null, 2)), `gridfinity-drawer-${stamp}.gridfit.json`, 'application/json');
+    });
   const openProject = async (file: File) => {
     setError(null);
     try {
-      store.loadProject(JSON.parse(await file.text()));
+      const data = JSON.parse(await file.text());
+      // Imported bins' meshes first (version 3 files), then the project.
+      adoptMeshes(data?.meshes);
+      store.loadProject(data);
     } catch (e) {
       setError(`Couldn't open ${file.name}: ${(e as Error).message}`);
     }
   };
 
   const twoColour = usesSecondFilament(job);
+  // Imported bins that aren't closed solids can't be STEP solids (export/step.ts stepSkips).
+  const notInStep = job.plates.flatMap((pl) => pl.placements).filter((p) => {
+    const spec = job.meshes[job.parts[p.key].meshKey];
+    return spec?.kind === 'imported' && !!spec.open;
+  }).length;
   const estimate = useJobEstimate(job);
   const currency = estimate.bom.estimate?.currency ?? '$';
   const nBasePlates = job.plates.filter((p) => p.group === 'baseplate').length;
@@ -311,6 +322,12 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                 {multi ? 'Drawers assembled (.step)' : 'Drawer assembled (.step)'}
               </button>
             </div>
+            {notInStep > 0 && (
+              <div className="field-hint">
+                STEP files leave out {notInStep === 1 ? 'the imported bin that isn’t' : `the ${notInStep} imported bins that aren’t`} a closed solid; the 3MF,
+                Bambu and STL files have {notInStep === 1 ? 'it' : 'them'}.
+              </div>
+            )}
             <div className="button-row">
               <button disabled={!nPieces} onClick={exportMap}>
                 {multi ? 'Assembly maps (.txt)' : 'Assembly map (.txt)'}
@@ -435,7 +452,10 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       </Find>
 
       <Section title="Project" find="project">
-        <p className="muted small">Your work is kept in this browser automatically. Save a file to back it up or move it to another computer.</p>
+        <p className="muted small">
+          Your work is kept in this browser automatically. Save a file to back it up or move it to another computer: it holds imported bins&apos; meshes too. A share
+          link has them as plain boxes.
+        </p>
         <div className="button-row">
           <button onClick={saveProject}>Save project</button>
           <button onClick={() => fileInput.current?.click()}>Open project…</button>

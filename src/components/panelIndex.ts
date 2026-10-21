@@ -18,6 +18,17 @@ export const BIN_INDEX: FindEntry[] = [
     id: 'layout',
     title: 'Layout',
     words: ['draw', 'fill', 'empty', 'fill from a list', 'list', 'autofill', 'clear all', 'remove', 'count', 'how many', 'bins in this drawer'],
+    children: [
+      // ExternalBins.tsx (lib/external.ts): placeholders and imported meshes.
+      {
+        id: 'external',
+        title: 'Bins from elsewhere',
+        words: [
+          'import', 'stl', '3mf', 'obj', 'mesh', 'placeholder', 'bought', 'downloaded', 'existing bin', 'bin i already have', 'already have',
+          'own', 'printables', 'makerworld', 'thingiverse', 'other generator', 'model', 'file',
+        ],
+      },
+    ],
   },
   // BinPanel: the selected bin (or the settings for new bins).
   {
@@ -349,5 +360,5 @@ export const PRINT_INDEX: FindEntry[] = [
   },
   { id: 'testfit', title: 'Test-fit kit', words: ['test', 'sample', 'fit', 'tolerance', 'check fit', 'try first'] },
   { id: 'contents-list', title: 'Drawer map & contents', words: ['map', 'drawer map', 'print', 'paper', 'svg', 'contents', 'list', 'csv', 'inventory', 'labels'] },
-  { id: 'project', title: 'Project', words: ['save', 'open', 'load', 'file', 'json', 'backup', 'share', 'link', 'url', 'copy'] },
+  { id: 'project', title: 'Project', words: ['save', 'open', 'load', 'file', 'json', 'backup', 'share', 'link', 'url', 'copy', 'imported meshes'] },
 ];

@@ -31,6 +31,8 @@ import { usePrintJob } from './components/usePrintJob';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
 import { stackPlaces } from './lib/stacking';
 import { PhoneNav, usePhoneView } from './components/PhoneNav';
+import { externalBox, importedSpec } from './lib/external';
+import { hasImported, importedVersion, subscribeImported } from './lib/imported/registry';
 import { useCoarsePointer } from './components/touch';
 import './components/workflow.css';
 
@@ -96,6 +98,28 @@ function drawerScene(
     // Stacked bins stand in the lip of the bin below; Lift spreads the levels apart (stacking.ts).
     const stacked = stackPlaces(job.layout, state.bins);
     for (const b of state.bins) {
+      // Bins from elsewhere (external.ts): the imported mesh once it's in memory, else a see-through box in the bin's colour.
+      if (b.external) {
+        const box = externalBox(job.layout, b);
+        const view = importedSpec(b, true);
+        const shown = view && hasImported(view.hash) ? view.key : null;
+        items.push({
+          id: b.id,
+          meshKey: shown ?? `ghost:${b.id}`,
+          x: box.x,
+          y: box.y,
+          z: seat + (stacked.get(b.id)?.z ?? 0),
+          w: box.w,
+          d: box.d,
+          h: box.h,
+          color: b.external.color,
+          ...(shown ? {} : { ghost: b.external.color }),
+          selected: selectedIds(state.ui).includes(b.id),
+          pickable: true,
+          lift: (stacked.get(b.id)?.level ?? 0) + 1,
+        });
+        continue;
+      }
       const part = job.parts[`bin:${b.id}`];
       if (!part) continue;
       // The mesh's front-left corner: its feet sit on the bin's cells, a stretched body reaches past them.
@@ -209,7 +233,8 @@ function platesScene(job: PrintJob, plate: number, setup: PrintSetup): Scene {
       const part = job.parts[p.key];
       items.push({
         id: `${pi}:${p.key}`,
-        meshKey: part.meshKey,
+        // A big imported mesh shows decimated (JobPart.preview).
+        meshKey: part.preview ?? part.meshKey,
         x: ox + p.x,
         y: oy + p.y,
         z: 0,
@@ -247,11 +272,13 @@ export default function App() {
 
   // Carry case: lid closed, open or off in the drawer view.
   const [lidView, setLidView] = useState<LidView>('open');
+  // Imported meshes coming in (from IndexedDB or a project file) replace their boxes.
+  const meshesIn = useSyncExternalStore(subscribeImported, importedVersion);
   const scene = useMemo<Scene>(() => {
     if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup);
     return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup, lidView]);
+  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup, lidView, meshesIn]);
 
   // Ask the worker for exactly the meshes on screen (selected bin first).
   useEffect(() => {
