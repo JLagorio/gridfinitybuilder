@@ -11,6 +11,7 @@ import { once } from './lazy';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { DEFAULT_CLEARANCE, DEFAULT_TOOL_DEPTH } from '../lib/tools';
 import { fingerPx, isTouch, useCoarsePointer } from './touch';
+import { inOpenList } from './shortcuts';
 
 export type TraceTab = 'photo' | 'import';
 
@@ -70,7 +71,8 @@ export function TraceDialog({ initialTab = 'photo', onClose }: { initialTab?: Tr
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      // An open pick list closes first.
+      if (e.key === 'Escape' && !inOpenList(e.target)) {
         e.stopPropagation();
         onClose();
       }
