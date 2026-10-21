@@ -72,6 +72,7 @@ import {
   type BinAccessoryOptions,
 } from './accessories';
 import { binAccessoryGeometry } from './accessoryGeometry';
+import { activeContainer, containerKeyPart, sanitizeContainerFields, type ContainerKind, type ContainerType } from './containers/registry';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
@@ -100,6 +101,10 @@ export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAcces
   cutouts?: BinCutout[];
   /** How those pockets are cut; missing fields use DEFAULT_CUTOUT_STYLE. */
   cutoutStyle?: Partial<CutoutStyle>;
+  /** Container type (containers/registry.ts); unset = a plain bin. */
+  container?: ContainerKind;
+  /** Each container type's options, kept while another type is active. */
+  containers?: Partial<Record<ContainerType, unknown>>;
 }
 
 export const DEFAULT_BIN: BinOptions = {
@@ -168,6 +173,8 @@ export function binHoleSites(o: Pick<BinOptions, 'unitsX' | 'unitsY' | 'holes' |
 
 /** Overall height including the lip. */
 export function binTotalHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'> & Partial<BinOptions>) {
+  const c = activeContainer(o);
+  if (c) return c.def.height(o as BinOptions, c.opts);
   return binBodyHeight(o) + lipRise(o);
 }
 
@@ -195,6 +202,7 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     ...variantKeyParts(o),
     ...labelKeyParts(o),
     ...cutoutKeyPart(o),
+    ...containerKeyPart(o),
     ...accessoryKeyParts(o, binSize(o, cells)),
     ...(live ? insideKeyParts(o, live) : []),
   ].join('-');
@@ -205,6 +213,11 @@ export function binLabel(o: BinOptions, cells?: Partial<BinCells> | null): strin
   const h = o.heightMode && o.heightMode !== 'units' ? `${Math.round(binTotalHeight(o) * 10) / 10}mm` : `${o.heightUnits}u`;
   const u = (n: number) => (cells?.half ? n / 2 : n);
   const parts = [`${u(o.unitsX)}×${u(o.unitsY)}×${h}`];
+  const c = activeContainer(o);
+  if (c) {
+    const more = c.def.summary?.(sanitizeBin(o), c.opts);
+    return [...parts, c.def.label.toLowerCase(), ...(more ? [more] : [])].join(' ');
+  }
   const tools = o.cutouts?.length ?? 0;
   if (o.interior === 'cutouts') parts.push(`${tools} tool pocket${tools === 1 ? '' : 's'}`);
   else if (o.interior === 'pockets') parts.push('pockets');
@@ -218,11 +231,46 @@ export function binLabel(o: BinOptions, cells?: Partial<BinCells> | null): strin
 }
 
 /**
+ * Gridfinity feet under every cell of a bin (sized to the cell, for partial
+ * edge cells; off-center by the stretch, if any), bin-centered, from z = 0 to
+ * just above BASE_PROFILE_HEIGHT. None for flat bases. Containers use these too.
+ */
+export function buildFeet(w: Wasm, s: Scope, o: Pick<BinOptions, 'unitsX' | 'unitsY' | 'base'>, cells: BinCells): Manifold[] {
+  const feet: Manifold[] = [];
+  if (o.base === 'flat') return feet;
+  const { fx, fy } = stretchOffset(cells.stretch);
+  const gap = GRID - BASE_TOP;
+  const totalX = sum(cells.x);
+  const totalY = sum(cells.y);
+  for (let i = 0, x0 = fx - totalX / 2; i < o.unitsX; x0 += cells.x[i], i++) {
+    for (let j = 0, y0 = fy - totalY / 2; j < o.unitsY; y0 += cells.y[j], j++) {
+      const cw = cells.x[i];
+      const cd = cells.y[j];
+      feet.push(
+        s.t(
+          loftRoundedRect(w, x0 + cw / 2, y0 + cd / 2, cw - gap, cd - gap, BASE_TOP_RADIUS, [
+            { z: 0, inset: BASE_PROFILE_DEPTH },
+            { z: BASE_PROFILE.chamfer1, inset: BASE_PROFILE.chamfer2 },
+            { z: BASE_PROFILE.chamfer1 + BASE_PROFILE.vertical, inset: BASE_PROFILE.chamfer2 },
+            { z: BASE_PROFILE_HEIGHT, inset: 0 },
+            { z: BASE_PROFILE_HEIGHT + 0.25, inset: 0 },
+          ]),
+        ),
+      );
+    }
+  }
+  return feet;
+}
+
+/**
  * Build a bin centered on the origin in XY with its bottom at z = 0.
  */
 export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells> | null): MeshData {
   const o = sanitizeBin(input);
   const cells = binCells(o, cellsIn);
+  // Drawer units, parts boxes, … (containers/) build their own body.
+  const container = activeContainer(o);
+  if (container) return container.def.build(w, o, container.opts, cells);
   const s = new Scope();
   try {
     const { w: W, d: D } = binSize(o, cells);
@@ -244,29 +292,10 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const solids: Manifold[] = [];
 
     // 1. Base profile under every grid cell (sized to the cell, for partial edge cells); none for flat bins.
-    const feet: Manifold[] = [];
+    const feet = buildFeet(w, s, o, cells);
     const gap = GRID - BASE_TOP;
     const totalX = sum(cells.x);
     const totalY = sum(cells.y);
-    for (let i = 0, x0 = fx - totalX / 2; i < o.unitsX && !flat; x0 += cells.x[i], i++) {
-      for (let j = 0, y0 = fy - totalY / 2; j < o.unitsY; y0 += cells.y[j], j++) {
-        const cw = cells.x[i];
-        const cd = cells.y[j];
-        const cx = x0 + cw / 2;
-        const cy = y0 + cd / 2;
-        feet.push(
-          s.t(
-            loftRoundedRect(w, cx, cy, cw - gap, cd - gap, BASE_TOP_RADIUS, [
-              { z: 0, inset: BASE_PROFILE_DEPTH },
-              { z: BASE_PROFILE.chamfer1, inset: BASE_PROFILE.chamfer2 },
-              { z: BASE_PROFILE.chamfer1 + BASE_PROFILE.vertical, inset: BASE_PROFILE.chamfer2 },
-              { z: BASE_PROFILE_HEIGHT, inset: 0 },
-              { z: BASE_PROFILE_HEIGHT + 0.25, inset: 0 },
-            ]),
-          ),
-        );
-      }
-    }
 
     // 2. Infill block (floor + dividers), with compartments (or item pockets) cut out.
     let block = s.t(extrudePolygon(w, outerRing, flat ? 0 : stretched ? STRETCH_Z : BASE_PROFILE_HEIGHT, topInfill));
@@ -371,6 +400,7 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     ...sanitizeAccessoryOptions(o),
     cutouts: sanitizeCutouts(o.cutouts),
     cutoutStyle: sanitizeCutoutStyle(o.cutoutStyle),
+    ...sanitizeContainerFields(o),
   };
 }
 

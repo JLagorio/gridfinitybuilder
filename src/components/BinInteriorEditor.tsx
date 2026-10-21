@@ -69,6 +69,7 @@ import { selectFreeWall } from './interiorState';
 import { LayoutActions, copyLayoutOf, dividerHeight, pasteLayoutInto } from './WallTools';
 import { isMod } from './shortcuts';
 import { CompartmentInsidePreview, useInsideBadge } from './CompartmentInsidePreview';
+import { isContainer } from '../lib/geometry/containers';
 import { stretchOf } from '../lib/geometry/placement';
 
 const T = DIVIDER;
@@ -118,7 +119,8 @@ interface Editing {
 export function BinPaneHeader() {
   const pane = useStore((s) => s.ui.binPane ?? 'drawer');
   const setUI = useStore((s) => s.setUI);
-  const exists = useStore((s) => !!s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId));
+  // Drawer units, parts boxes, … have no compartments to edit.
+  const exists = useStore((s) => !!s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts)));
   // Leave the compartment view when the bin is deselected, so picking a bin on the grid doesn't jump away from it.
   useEffect(() => {
     if (!exists && pane === 'compartments') setUI({ binPane: 'drawer' });
@@ -150,7 +152,7 @@ export function BinPaneHeader() {
 /** The bin whose compartments the left pane shows, or null for the drawer grid. */
 export function useInteriorPane(): string | null {
   return useStore((s) =>
-    s.ui.binPane === 'compartments' && s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId) ? s.ui.selectedBinId : null,
+    s.ui.binPane === 'compartments' && s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts)) ? s.ui.selectedBinId : null,
   );
 }
 

@@ -12,6 +12,7 @@ import {
   binLabel,
   binLabelPlatePlaces,
   binLabelPlates,
+  binCells,
   binLabelTexts,
   binSize,
   binTotalHeight,
@@ -25,6 +26,7 @@ import {
   type BinOptions,
   type DividerInsert,
 } from './geometry/bin';
+import { activeContainer, containerDef, type ContainerType } from './geometry/containers';
 import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } from './geometry/labels';
 import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
 import { accessoryParts, planAccessories, type AccessoryPart } from './geometry/accessories';
@@ -128,7 +130,9 @@ export type MeshSpec =
   /** Swappable label plate. */
   | { kind: 'label'; key: string; plate: LabelPlate }
   /** Lift-out tray, sliding lid or rail plate (accessories.ts). */
-  | { kind: 'accessory'; key: string; part: AccessoryPart };
+  | { kind: 'accessory'; key: string; part: AccessoryPart }
+  /** An extra part of a drawer unit, parts box, … (containers/). */
+  | { kind: 'container'; key: string; type: ContainerType; spec: unknown };
 
 export interface JobPart {
   key: string;
@@ -144,6 +148,8 @@ export interface JobPart {
   pieceId?: number;
   /** Trays and sliding lids: where the part sits in its bin (min corner from the bin's min corner and bottom). */
   assembled?: { x: number; y: number; z: number };
+  /** Container parts: the placed bin they belong to. */
+  bin?: string;
 }
 
 export interface JobPlate {
@@ -335,6 +341,21 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       if (h > setup.maxH) warn(`Bin ${binName} is taller than the printer allows.`);
       if (h > room + 1e-6) warn(`Bin ${binName} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
       if (include.bins) binItems.push({ key, w, d: dd });
+      // Drawer units, parts boxes, … (containers/) print their own extra parts instead of the bin's lid, plates and trays.
+      const container = activeContainer(b.opts);
+      if (container) {
+        const so = sanitizeBin(b.opts);
+        const cells = binCells(so, spec.cells);
+        for (const msg of container.def.notes?.(so, container.opts, cells) ?? []) warn(`${container.def.label} ${binName}: ${msg}`);
+        for (const p of container.def.parts?.(so, container.opts, cells) ?? []) {
+          meshes[p.meshKey] = { kind: 'container', key: p.meshKey, type: container.def.kind, spec: p.spec };
+          const k = `${prefix}${p.slot}:${b.id}:${p.index}`;
+          parts[k] = { key: k, name: `${label}${p.name} (${binName})`, kind: p.kind, meshKey: p.meshKey, w: p.w, d: p.d, h: p.h, drawer: d.id, bin: b.id };
+          if (p.assembled) parts[k].assembled = p.assembled;
+          if (include.bins) binItems.push({ key: k, w: p.w, d: p.d });
+        }
+        continue;
+      }
       // A stretched lip isn't the grid's shape, so a lid (feet per cell) wouldn't seat in it.
       const stretched = hasStretch(spec.cells?.stretch);
       if (hasLid(b.opts) && stretched) warn(`Bin ${binName} is stretched over the margin, so it gets no lid.`);
@@ -412,6 +433,11 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'divider') return buildDividerInsert(w, spec.insert);
   if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
+  if (spec.kind === 'container') {
+    const def = containerDef(spec.type);
+    if (!def?.buildPart) throw new Error(`No part builder for container type “${spec.type}”.`);
+    return def.buildPart(w, spec.spec);
+  }
   if (spec.kind === 'lid') {
     const { w: W, d: D } = lidSize(spec.opts, spec.cells);
     return translateMesh(buildBinLid(w, spec.opts, spec.cells), W / 2, D / 2, 0);

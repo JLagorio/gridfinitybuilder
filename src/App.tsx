@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { printDrawers, projectOf, selectedIds, useStore, type Tab } from './state/store';
 import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
-import { binOrigin, planJob, planPrint, type MeshSpec, type PrintJob } from './lib/project';
+import { binOrigin, planJob, planPrint, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
 import { plateOrigin } from './lib/export/bambu';
 import { findPrinter } from './lib/printers';
@@ -57,6 +57,9 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
   });
   if (withBins) {
     const seat = binSeatHeight(state.baseplate);
+    // Container parts that sit in their container (drawers in a drawer unit, …), by bin.
+    const placedParts = new Map<string, JobPart[]>();
+    for (const p of Object.values(job.parts)) if (p.bin && p.assembled) placedParts.set(p.bin, [...(placedParts.get(p.bin) ?? []), p]);
     for (const b of state.bins) {
       const part = job.parts[`bin:${b.id}`];
       if (!part) continue;
@@ -108,6 +111,20 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
             lift: true,
           });
         }
+      }
+      for (const p of placedParts.get(b.id) ?? []) {
+        items.push({
+          id: `${b.id}:${p.key}`,
+          meshKey: p.meshKey,
+          x: at.x + p.assembled!.x,
+          y: at.y + p.assembled!.y,
+          z: seat + p.assembled!.z,
+          w: p.w,
+          d: p.d,
+          h: p.h,
+          color: p.kind === 'lid' ? LID_COLOR : BIN_COLOR,
+          lift: true,
+        });
       }
       // Swappable label plates, pressed into their tabs.
       for (let i = 0; job.parts[`label:${b.id}:${i}`]; i++) {

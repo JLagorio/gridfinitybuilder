@@ -18,6 +18,10 @@ import { LabelFields } from './LabelFields';
 import { ToolLibrary } from './ToolLibrary';
 import { BinContentsFields } from './ContentsField';
 import { AccessoryFields, accessoriesActive, accessoryStatus } from './AccessoryFields';
+import { binTotalHeight, binCells } from '../lib/geometry/bin';
+import { activeContainer, containerDefs, type ContainerKind } from '../lib/geometry/containers';
+import { containerFields } from './containers';
+import { Select } from './fields';
 
 function BinFields({
   opts,
@@ -39,7 +43,6 @@ function BinFields({
   /** Half-grid drawer: sizes count 21 mm cells, shown in u (cells / 2). */
   half?: boolean;
 }) {
-  const { fmt } = useUnits();
   return (
     <>
       {sizeEditable && (
@@ -58,6 +61,68 @@ function BinFields({
           {sizeError && <div className="field-error">{sizeError}</div>}
         </>
       )}
+      <ContainerTypeField opts={opts} onChange={onChange} />
+      {activeContainer(opts) ? (
+        <ContainerBody opts={opts} onChange={onChange} cells={cells} contents={contents} half={half} />
+      ) : (
+        <PlainBinFields opts={opts} onChange={onChange} cells={cells} contents={contents} half={half} />
+      )}
+    </>
+  );
+}
+
+/** What the bin is: a plain bin, or a drawer unit, parts box, … (containers/). Hidden until a type is registered. */
+function ContainerTypeField({ opts, onChange }: { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void }) {
+  const defs = containerDefs();
+  if (!defs.length) return null;
+  const active = activeContainer(opts);
+  return (
+    <Select<ContainerKind>
+      label="Type"
+      value={active ? active.def.kind : 'bin'}
+      options={[{ value: 'bin', label: 'Bin' }, ...defs.map((d) => ({ value: d.kind, label: d.label }))]}
+      onChange={(container) => onChange({ container: container === 'bin' ? undefined : container })}
+      hint={active ? active.def.description : 'An open bin with compartments, pockets or tool cutouts.'}
+    />
+  );
+}
+
+type BodyProps = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void; cells?: BinCells; contents?: ReactNode; half?: boolean };
+
+/** A container's own fields, its height, contents, and the base it stands on. */
+function ContainerBody({ opts, onChange, cells, contents }: BodyProps) {
+  const { fmt } = useUnits();
+  const active = activeContainer(opts)!;
+  const Fields = containerFields(active.def.kind);
+  const kind = active.def.kind;
+  const setOwn = (patch: Record<string, unknown>) =>
+    onChange({ containers: { ...opts.containers, [kind]: { ...(active.opts as Record<string, unknown>), ...patch } } });
+  return (
+    <>
+      <Stepper
+        label="Height"
+        value={opts.heightUnits}
+        min={2}
+        max={30}
+        suffix="u"
+        onChange={(heightUnits) => onChange({ heightUnits })}
+        hint={`${fmt(binTotalHeight(opts))} overall`}
+      />
+      {Fields && <Fields bin={opts} value={active.opts} onChange={setOwn} onBinChange={onChange} cells={cells ?? binCells(opts)} />}
+      {contents}
+      <OptionGroup title="Base & holes" status={baseStatus(opts)} active={opts.base !== 'standard' || opts.holes !== 'none'}>
+        <BaseField opts={opts} onChange={onChange} />
+        <HoleFields opts={opts} onChange={onChange} />
+      </OptionGroup>
+    </>
+  );
+}
+
+/** A plain bin's fields: height, inside, scoop, labels, and the option groups. */
+function PlainBinFields({ opts, onChange, cells, contents, half }: BodyProps) {
+  const { fmt } = useUnits();
+  return (
+    <>
       <HeightField opts={opts} onChange={onChange} cells={cells} />
       <InteriorFields opts={opts} onChange={onChange} cells={cells} />
       <Slider
