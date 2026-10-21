@@ -258,10 +258,10 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
                 fill === 'spacers'
                   ? 'The baseplate is just the grid, and each gap prints as a strip that wedges in beside it (settings below).'
                   : fill === 'solid'
-                  ? 'Partial cells use the gap for bins with narrower feet, or stretch a bin over it (Bins tab). Push the grid to one side to get one wide row instead of two thin ones.'
-                  : partialX.length + partialY.length
-                    ? `Partial cells: ${[...new Set([...partialX, ...partialY].map((v) => fmt(v)))].join(', ')}. Bins drawn on them get matching feet.`
-                    : `No gap is wide enough (${fill === 'half' ? fmt(21) : `at least ${fmt(drawer.minFill)}`}). Push the grid to one side to combine the gaps.`
+                    ? 'Partial cells use the gap for bins with narrower feet, or stretch a bin over it (Bins tab). Push the grid to one side to get one wide row instead of two thin ones.'
+                    : partialX.length + partialY.length
+                      ? `Partial cells: ${[...new Set([...partialX, ...partialY].map((v) => fmt(v)))].join(', ')}. Bins drawn on them get matching feet.`
+                      : `No gap is wide enough (${fill === 'half' ? fmt(21) : `at least ${fmt(drawer.minFill)}`}). Push the grid to one side to combine the gaps.`
               }
             />
             {fill === 'fit' && (

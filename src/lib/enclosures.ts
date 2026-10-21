@@ -65,7 +65,7 @@ import {
 } from './geometry/wallmount';
 import { SPACER, buildSpacerSegment, planSpacerStrips, sanitizeSpacers, spacerBounds, spacerSocketCuts, type SpacerSegment } from './geometry/spacers';
 import { spacerMargins, type DrawerInput, type GridLayout } from './layout/drawer';
-import { packPlates, type PlateLayout } from './layout/pack';
+import { fitsOnBed, packPlates, type PlateLayout } from './layout/pack';
 import { pieceFootprint, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
 import type { PieceDef } from './layout/split';
 import type { BinOptions } from './geometry/bin';
@@ -235,8 +235,24 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
   const frame = caseFrame(layout, c, d.baseplate, tallestBin(d.bins));
   const cl = frame.layout;
   const protrude = pieceProtrusion(frame.baseplate);
-  const reach = Math.max(2 * CASE_REACH.lidSide, CASE_REACH.lidFront + CASE_REACH.lidBack, CASE_REACH.bodyFront + CASE_REACH.bodyBack);
-  const split = planBaseplate(cl, shrunkBed(setup, reach), { protrude });
+  // Room on the bed for what reaches past a piece's outline: the lid's handle pegs across, latches and knuckles front to back.
+  const side = c.handle !== 'none' ? CASE_REACH.lidSide : 0;
+  const rx = 2 * side;
+  const ry = Math.max(CASE_REACH.lidFront + CASE_REACH.lidBack, CASE_REACH.bodyFront + CASE_REACH.bodyBack);
+  const reachSize = (p: PieceDef) => {
+    const w = p.x1 - p.x0;
+    const d = p.y1 - p.y0;
+    const pr = (outer: boolean) => (outer ? 0 : protrude);
+    return [
+      { w: w + pr(p.outer.right), d: d + (p.outer.front ? CASE_REACH.bodyFront : 0) + (p.outer.back ? CASE_REACH.bodyBack : 0) + pr(p.outer.back) },
+      { w: w + (p.outer.left ? side : 0) + (p.outer.right ? side : 0), d: d + (p.outer.front ? CASE_REACH.lidFront : 0) + (p.outer.back ? CASE_REACH.lidBack : 0) },
+    ];
+  };
+  const bedFit = { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, spacing: setup.spacing, nest: true };
+  const fits = (sp: BaseplatePlan) => !sp.error && sp.pieces.every((p) => reachSize(p).every((f) => fitsOnBed(f.w, f.d, bedFit)));
+  // The tight reservation first; if a piece would then not fit turned either way, the most on both axes.
+  let split = planBaseplate(cl, { ...setup, bedW: setup.bedW - rx, bedD: setup.bedD - ry }, { protrude });
+  if (!fits(split)) split = planBaseplate(cl, shrunkBed(setup, Math.max(rx, ry)), { protrude });
   const seams = seamsOf(split.pieces);
   const g = caseGeom(frame, c, seams.x, seams.y);
   const off = frame.off;
@@ -517,7 +533,7 @@ function planWall(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
   for (const p of split.pieces) holes += wallHoles(layout, p, wo, band).length;
 
   const steps: string[] = ['Wall grid: the back of the layout is the top on the wall.'];
-  if (wo.mount === 'countersunk' && holes) steps.push(`Screw it up with ${holes} × ⌀${wo.screwDiameter} countersunk screws through the holes at the cell corners.`);
+  if (wo.mount === 'countersunk' && holes) steps.push(`Screw it to the wall with ${holes} × ⌀${wo.screwDiameter} countersunk screws through the holes at the cell corners.`);
   if (wo.mount === 'keyhole' && holes)
     steps.push(`Set ${holes} × ⌀${wo.screwDiameter} pan-head screws in the wall where the keyholes go, standing ${WALL.keyBack} mm proud; hang the plate on them and let it drop.`);
   if (band) steps.push('French cleat: screw the cleat to the wall, slope up and toward the wall, then hook the plate over it.');

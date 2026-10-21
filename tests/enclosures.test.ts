@@ -312,6 +312,13 @@ describe('carry case', () => {
     expect(big.warnings.some((m) => /bigger than is practical/.test(m))).toBe(true);
   });
 
+  it('keeps a case that fits the bed in one piece', () => {
+    const one = plan(drawerOf({ width: 220, depth: 170, enclosure: 'case' }));
+    expect(one.plan.pieces).toHaveLength(1);
+    const usable = DEFAULT_SETUP.bedW - 2 * DEFAULT_SETUP.plateMargin;
+    for (const p of Object.values(one.parts)) expect(Math.max(p.w, p.d), p.name).toBeLessThanOrEqual(usable + 1e-6);
+  });
+
   it('splits a case bigger than the bed into pieces that fit, with lid keys across the seams', () => {
     const setup = { ...DEFAULT_SETUP };
     // Connectors 'none': a split case still gets bowtie keys in its floor.
