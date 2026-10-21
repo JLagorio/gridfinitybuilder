@@ -13,6 +13,7 @@ const COLORS: Record<EnclosureSceneItem['role'], string> = {
   cleat: '#8d6e63',
   joint: '#3b3f46',
   standoff: '#3b3f46',
+  attachment: '#7aa6c2',
 };
 
 /** The enclosure's extra parts for the drawer view (plate coordinates; spread with the pieces). */
@@ -33,6 +34,8 @@ export function enclosureSceneItems(enc: EnclosureScene, lid: LidView, gap: numb
       h: it.h,
       color: COLORS[it.role],
       ...(paint?.(it.role) ? { paint: paint(it.role) } : {}),
+      ...(it.turn ? { turn: it.turn } : {}),
+      ...(it.pick ? { pickable: true, id: it.pick } : {}),
     });
   }
   return out;

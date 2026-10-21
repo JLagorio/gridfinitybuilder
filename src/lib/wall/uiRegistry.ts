@@ -1,0 +1,39 @@
+/**
+ * What the Attachments tab shows for each kind (components/WallPanel.tsx): its
+ * name, a line about it, its group in the picker and the form that edits its
+ * options. Apart from the planning defs (registry.ts) so it loads with the
+ * tab, not on the first screen. Each kind's `<kind>.ui.ts` registers here;
+ * ./ui.ts imports them all.
+ */
+import type { AttachmentField, AttachmentGroup } from './registry';
+
+export const GROUP_LABELS: Record<AttachmentGroup, string> = {
+  hooks: 'Hooks',
+  storage: 'Bins & cups',
+  gridfinity: 'Gridfinity',
+  containers: 'Rails & containers',
+  shelves: 'Shelves',
+  tools: 'Tools',
+  devices: 'Devices',
+  board: 'On the board',
+  other: 'Other',
+};
+
+export interface AttachmentUi {
+  type: string;
+  label: string;
+  /** One line for the picker. */
+  description: string;
+  group: AttachmentGroup;
+  /** The form that edits it, in order. */
+  fields: AttachmentField[];
+}
+
+const UIS = new Map<string, AttachmentUi>();
+
+export function registerAttachmentUi(ui: AttachmentUi): void {
+  UIS.set(ui.type, ui);
+}
+
+export const attachmentUi = (type: string): AttachmentUi | null => UIS.get(type) ?? null;
+export const attachmentUis = (): AttachmentUi[] => [...UIS.values()];

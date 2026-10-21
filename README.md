@@ -325,7 +325,7 @@ A vase-mode bin (*Type: Vase-mode bin*) prints in the slicer's spiral vase mode 
 
 ### Skådis boards
 
-**New: Skådis board** in the drawer menu adds a pegboard to the project, beside the drawers: IKEA SKÅDIS hooks, shelves and containers hang in it. Its first tab (*Skådis board*) takes the place of *Drawer & baseplate*; it has no bins (the Bins tab says where they go instead), and it prints, exports and shares like any drawer: on its own plates, in the Bambu project, the 3MF / STL / STEP files and the assembly map.
+**New: Skådis board** in the drawer menu adds a pegboard to the project, beside the drawers: IKEA SKÅDIS hooks, shelves and containers hang in it, and so do the attachments Gridfit makes for it (below). Its first tab (*Skådis board*) takes the place of *Drawer & baseplate*, its second (*Attachments*) the place of *Bins*, and it prints, exports and shares like any drawer: on its own plates, in the Bambu project, the 3MF / STL / STEP files and the assembly map. Have a board already (IKEA's, or one printed before)? *Print for this board: Just attachments* prints only what hangs on it; the IKEA buttons set its size (36, 56 or 76 × 56 cm) and its measured 5.1 mm thickness and 5.1 × 15.2 mm slots.
 
 - **The pattern is IKEA's:** upright 5 × 15 mm slots, columns 20 mm apart, the slots in a column 40 mm apart and every other column 20 mm higher, in a 5 mm board, chamfered on both faces. Slot size, chamfer and thickness can change (*All* settings), say for a looser fit.
 - **The space:** give the width and height of the space on the wall. A rectangle board fills it, the slots centred with at least the border (10 mm) around them; hexagons fit in it.
@@ -339,6 +339,22 @@ A vase-mode bin (*Type: Vase-mode bin*) prints in the slicer's spiral vase mode 
   - **Screws:** countersunk on the front (⌀4 by default, head ⌀8.5). A rectangle tile gets one near each corner and more about every 200 mm (*Screws about every*); a hexagon two, in its left and right corners, with posts in the other four (spacers need a screw each). The parts list counts them and says how long they need to be.
 - **Printing:** every tile prints face down, so the front is the side on the bed, and the slots and countersinks open toward the bed with a chamfer; a rectangle tile's number is debossed on the back. The 3D view shows the board that way, from the back as you put it together (its left on the right); *Spread pieces* pulls the tiles apart. The assembly map shows the tiles as seen from the front, with the steps: tabs into sockets, plates into pockets (a drop of glue makes it one board), screws into the wall.
 - **Colours:** tiles print in the *Wall grid* role's colour, joint plates and spacers in *Connector keys & spacer strips*.
+- **The 3D view** shows the board face up, as it hangs (the wall's up is away from you), with its attachments standing on it.
+
+#### Attachments
+
+The *Attachments* tab puts things on the board: pick one from the list and it goes on the first free spot; drag it on the board (the left pane, the board from the front, every slot drawn) and it snaps to slots where all its mounts fit; the arrow keys move the selected one a slot over, Delete removes it. Its options are on the left; they print with the bins, on plates of their own (*Board attachments 1*, …).
+
+- **One mount standard, made for this board.** Every attachment holds on the same way, sized from the board it's for (its thickness, slot size, and the fit picked under *Fit*), so it fits the board as printed:
+  - **Clips** for parts printed upright, as they hang (bins, cups, …): a peg as tall as most of a slot, split down the middle, a barb on each half. It pushes straight in, the halves spring out behind the board, and the part drops onto the bottoms of the slots; lifting it doesn't free it (the most common complaint about printed pegboard parts). It stands up from the bed, so the halves flex along the layers, and its underside rises at 45°, so no supports.
+  - **Hooks** for parts printed on their side (hooks, brackets): the classic pegboard hook, a lip that drops behind the board below its slot; its profile lies on the bed, so the arm is strong.
+  - **Studs** in the slots two below keep a tall or heavy part from tilting.
+  - Clips go every 40 mm across the top row, studs 40 mm below them, all on the staggered lattice. A clip reaches 2.3 mm behind the board, so the board needs its standoffs (a warning says so).
+- **Fit:** *Snug*, *Normal* or *Loose*. Print the **Fit test** first: three tabs, one notch per step looser, and keep the fit of the one that clicks in and holds.
+- **Kinds so far:** hooks (J, L, U, double, peg; reach, width, arm, tip, angle), bins (width, height, depth out from the board, a lower front, dividers, a label ledge), cups and rings (a row of them; open-bottomed rings), and the fit test.
+- **Checks:** an attachment whose mounts find no slots where it is turns red and says so; two that overlap are named; the parts list counts them.
+
+**Adding a kind** (developers): three files in `src/lib/wall/kinds/`: `<kind>.ts` registers its planning (options and their cleaning, size on the wall, mounts, print pose: `registerAttachment`), `<kind>.ui.ts` its name, description, picker group and form (`registerAttachmentUi`), `<kind>.geom.ts` its body in the part's frame (the mounts are added for it). List them in `src/lib/wall/index.ts`, `ui.ts` and `build.ts`; `tests/wall.test.ts` then builds and print-checks it with the others. `backMounts()` places the mounts across a part's back; the planning file is on the first screen, so keep it lean.
 
 ## Dimensions
 
@@ -401,6 +417,7 @@ src/lib/trace/      photo → tool outline (perspective, threshold, contours) an
 src/lib/autofill/   "Fill from a list": list parser, item matching, bin sizing, grouping, packing (pure TS)
 src/lib/geometry/containers/  vase-mode bins, drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
 src/lib/geometry/skadis.ts    Skådis pegboards: the slot pattern, tiles split to the bed, hexagons, joints, mounting, the tiles' solids
+src/lib/wall/                 what hangs on a board: the mount standard (mount.ts), placing on slots (plan.ts), the kinds (kinds/)
 src/lib/enclosures.ts         carry cases, wall grids, spacer strips and Skådis boards: their pieces, extra parts and drawer view
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers (a plate, every plate, one part); estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + buildMesh()

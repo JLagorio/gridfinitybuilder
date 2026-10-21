@@ -193,6 +193,7 @@ export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: str
         {dividers > 0 && ` · ${dividers} divider plate${dividers === 1 ? '' : 's'}`}
         {keys > 0 && ` · ${keys} connector key${keys === 1 ? '' : 's'}`}
         {pads > 0 && ` · ${pads} non-slip pad${pads === 1 ? '' : 's'} in TPU`}
+        {(bom.parts.attachments ?? 0) > 0 && ` · ${bom.parts.attachments} board attachment${bom.parts.attachments === 1 ? '' : 's'}`}
         {enclosureCounts(bom).map(([k, n]) => ` · ${enclosurePartsText(k, n)}`)} · {job.plates.length} plate{job.plates.length === 1 ? '' : 's'}
       </p>
       {job.plates.length > 0 && (

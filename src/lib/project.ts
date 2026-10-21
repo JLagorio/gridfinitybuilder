@@ -93,6 +93,9 @@ import { groupName, plateGroup, plateGroups, soloGroup, tagColours, useSplitMesh
 import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
 import { buildImported, type ImportedSpec } from './imported/registry';
 import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
+import { attachmentDef, type AttachmentLayout, type MountCtx } from './wall';
+import { attachmentKey, attachmentView, placeAttachments } from './wall/plan';
+import { buildAttachment, buildAttachmentPart } from './wall/build';
 import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
@@ -187,12 +190,16 @@ export type MeshSpec =
   /** `base` cut into a volume per colour role (multi-colour 'feature': geometry/colourRegions.ts); key: colours.ts splitMeshKey. */
   | { kind: 'split'; key: string; base: MeshSpec }
   /** An imported bin's mesh, as it is (external.ts, imported/registry.ts). */
-  | ImportedSpec;
+  | ImportedSpec
+  /** Something that hangs on a Skådis board (lib/wall), in its print pose. */
+  | { kind: 'attachment'; key: string; type: string; opts: object; layout: AttachmentLayout; ctx: MountCtx }
+  /** One of an attachment's extra parts. */
+  | { kind: 'attachmentPart'; key: string; type: string; part: unknown; ctx: MountCtx };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray' | 'pad' | 'enclosure';
+  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray' | 'pad' | 'enclosure' | 'attachment';
   /** Enclosure parts: which one (case lid, hinge pin, spacer strip, …). */
   enclosure?: EnclosurePartKind;
   meshKey: string;
@@ -207,6 +214,8 @@ export interface JobPart {
   assembled?: { x: number; y: number; z: number };
   /** Container parts: the placed bin they belong to. */
   bin?: string;
+  /** Attachments and their parts: the attachment's id (lib/wall). */
+  attachment?: string;
   /** Colour role of the part (multi-colour, colours.ts); set by planning. */
   role?: ColourRole;
   /** Its bin's or its drawer's own colour over the roles' (colourPlan.ts tagColours). */
@@ -584,8 +593,35 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       ...(enc?.map ? { map: enc.map } : {}),
       ...(have ? { haveBaseplate: true as const } : {}),
     });
-    // A Skådis board holds hooks, not bins.
-    if (enc?.kind === 'skadis') continue;
+    // A Skådis board holds attachments (lib/wall), not bins: they print with the bins, on shared plates.
+    if (enc?.kind === 'skadis') {
+      if (enc.wall) {
+        const { placed, warnings: notes } = placeAttachments(d.drawer.attachments ?? [], enc.wall);
+        for (const msg of notes) warn(msg);
+        const scene = drawerJobs[drawerJobs.length - 1].enclosure!;
+        drawerJobs[drawerJobs.length - 1].enclosure = { ...scene, wall: { board: enc.wall, placed }, items: [...scene.items] };
+        const items = drawerJobs[drawerJobs.length - 1].enclosure!.items;
+        const ctx = enc.wall.ctx;
+        for (const p of placed) {
+          const def = attachmentDef(p.type)!;
+          const meshKey = attachmentKey(p.type, p.opts, ctx);
+          meshes[meshKey] = { kind: 'attachment', key: meshKey, type: p.type, opts: p.opts, layout: p.layout, ctx };
+          const v = attachmentView(p, enc.wall);
+          const key = `${prefix}att:${p.id}`;
+          parts[key] = { key, name: `${label}${p.name}`, kind: 'attachment', meshKey, ...v.size, drawer: d.id, attachment: p.id };
+          if (include.bins) binItems.push({ key, w: v.size.w, d: v.size.d });
+          items.push({ id: `att-${p.id}`, pick: p.id, meshKey, x: v.at[0], y: v.at[1], z: v.at[2], ...v.size, turn: v.turn, role: 'attachment', when: 'always' });
+          for (const xp of def.parts?.(p.opts, ctx) ?? []) {
+            const pk = `attpart|${p.type}|${JSON.stringify(xp.spec)}|${JSON.stringify(ctx)}`;
+            meshes[pk] = { kind: 'attachmentPart', key: pk, type: p.type, part: xp.spec, ctx };
+            const k = `${prefix}att:${p.id}:${xp.key}`;
+            parts[k] = { key: k, name: `${label}${xp.name} (${p.name})`, kind: 'attachment', meshKey: pk, w: xp.w, d: xp.d, h: xp.h, drawer: d.id, attachment: p.id };
+            if (include.bins) binItems.push({ key: k, w: xp.w, d: xp.d });
+          }
+        }
+      }
+      continue;
+    }
 
     // TPU pads (pads.ts) lift the whole plate a little.
     const lift = padStyle(bpo) ? PAD.proud : 0;
@@ -774,7 +810,7 @@ function binPlates(
   bed: PackOptions,
   printerId: string,
   warnings: Set<string>,
-  count: { bins: number; vases: number },
+  count: { bins: number; vases: number; attachments?: number },
   printer?: number,
 ): JobPlate[] {
   const out: JobPlate[] = [];
@@ -787,7 +823,12 @@ function binPlates(
       bed,
     );
     for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
-    packed.plates.forEach((pl) => out.push({ name: `Bins ${++count.bins}${tag}`, group: 'bins', placements: pl.placements, ...at }));
+    packed.plates.forEach((pl) => {
+      // A plate of nothing but a board's attachments says so.
+      const board = pl.placements.every((p) => parts[p.key].kind === 'attachment');
+      const name = board ? `Board attachments ${(count.attachments = (count.attachments ?? 0) + 1)}` : `Bins ${++count.bins}`;
+      out.push({ name: `${name}${tag}`, group: 'bins', placements: pl.placements, ...at });
+    });
     // By height, a vase bin that changes colour prints alone: several on a plate print by object,
     // and Bambu Studio only makes per-layer changes on plates printed by layer.
     const vase = list.filter((it) => parts[it.key].spiral);
@@ -922,6 +963,8 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
   if (spec.kind === 'insertPart') return buildInsertPart(w, spec.part);
   if (spec.kind === 'imported') return buildImported(spec);
+  if (spec.kind === 'attachment') return buildAttachment(w, spec);
+  if (spec.kind === 'attachmentPart') return buildAttachmentPart(w, spec);
   if (spec.kind === 'container') {
     const def = containerDef(spec.type);
     if (!def?.buildPart) throw new Error(`No part builder for container type “${spec.type}”.`);

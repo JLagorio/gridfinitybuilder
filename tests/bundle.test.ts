@@ -28,8 +28,12 @@ const root = resolve(__dirname, '..');
  * Skådis boards' planning (the slot pattern, the split into tiles, joints, mounting points, the
  * assembly map and the drawer view) is too, being part of planning a print: ~20 kB (613 kB in
  * all). Their panel and its search index load with a board, their geometry with the mesh builders.
+ * Wall attachments' planning (lib/wall: the mount standard, snapping to slots, each kind's options,
+ * size and mounts) is on it too: ~12 kB with the first four kinds (625 kB in all), ~1.5 kB a kind
+ * more. Their names and forms (lib/wall/ui.ts) load with the Attachments tab, their geometry
+ * (lib/wall/build.ts) with the mesh builders.
  */
-const FIRST_SCREEN_BUDGET = 620_000;
+const FIRST_SCREEN_BUDGET = 660_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
@@ -103,9 +107,13 @@ describe('bundle', () => {
       'src/lib/share.ts',
       'src/lib/qrEncode.ts',
       'src/components/QrFields.tsx',
-      // Skådis boards: their panel and its search index.
+      // Skådis boards: their panel and its search index; the Attachments tab and its forms.
       'src/components/SkadisPanel.tsx',
       'src/components/skadisIndex.ts',
+      'src/components/WallPanel.tsx',
+      'src/components/WallEditor.tsx',
+      'src/lib/wall/ui.ts',
+      'src/state/wall.ts',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).

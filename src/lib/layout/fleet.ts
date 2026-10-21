@@ -179,7 +179,7 @@ export function roughSeconds(part: { kind: string; w: number; d: number; h: numb
   }
   if (part.kind === 'piece') minutes = 0.0018 * area + 7.4;
   // Thin walls on a floor: bins, lids, trays, case parts.
-  else if (part.kind === 'bin' || part.kind === 'lid' || part.kind === 'tray' || part.kind === 'enclosure') minutes = Math.max(1, 0.0021 * area + 0.0028 * sides - 1);
+  else if (part.kind === 'bin' || part.kind === 'lid' || part.kind === 'tray' || part.kind === 'enclosure' || part.kind === 'attachment') minutes = Math.max(1, 0.0021 * area + 0.0028 * sides - 1);
   // Small solid parts: keys, divider plates, label plates, pads.
   else minutes = 0.0008 * area * part.h + 0.4;
   return minutes * 60 * speedFactor(motion);

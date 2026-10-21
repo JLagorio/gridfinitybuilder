@@ -84,6 +84,7 @@ import {
   type SkadisTileSpec,
 } from './geometry/skadis';
 import { spacerMargins, type DrawerInput, type GridLayout } from './layout/drawer';
+import { wallBoard, type WallBoard, type WallPlacement } from './wall/plan';
 import { clearAreas, fitsOnBed, packPlates, plateBed, type PlateLayout } from './layout/pack';
 import { pieceFootprint, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
 import type { PieceDef } from './layout/split';
@@ -157,7 +158,11 @@ export interface EnclosureSceneItem {
   w: number;
   d: number;
   h: number;
-  role: 'lid' | 'hardware' | 'handle' | 'foot' | 'strip' | 'cleat' | 'joint' | 'standoff';
+  role: 'lid' | 'hardware' | 'handle' | 'foot' | 'strip' | 'cleat' | 'joint' | 'standoff' | 'attachment';
+  /** Turned before it's placed (degrees about x, y, z); (x, y, z) is still its min corner. */
+  turn?: [number, number, number];
+  /** Picked in the 3D view as this (an attachment's id). */
+  pick?: string;
   /** Shown with the lid closed, open, or always. */
   when: 'closed' | 'open' | 'always';
   /** Which piece's column / row it spreads with. */
@@ -180,6 +185,10 @@ export interface EnclosureScene {
   seat: number;
   /** Case outline in plate coordinates. */
   box?: { x0: number; y0: number; x1: number; y1: number; h: number };
+  /** Turn for every floor piece's mesh (a Skådis tile, printed face down, shown face up). */
+  pieceTurn?: [number, number, number];
+  /** A Skådis board: its slots and the attachments on it (lib/wall). */
+  wall?: { board: WallBoard; placed: WallPlacement[] };
   /** For the sidebar. */
   info: {
     /** Case: wall top, room above the floor, pieces, hinges, latches, lid keys. */
@@ -251,6 +260,8 @@ export interface EnclosurePlan {
   scene: EnclosureScene;
   /** An assembly map of its own (Skådis boards); unset: the baseplate's. */
   map?: string;
+  /** A Skådis board as attachments see it (lib/wall/plan.ts). */
+  wall?: WallBoard;
 }
 
 /** Bed size left for a piece that reaches `reach` past its outline (as planBaseplate sees it). */
@@ -755,10 +766,10 @@ function planSpacers(d: Parameters<typeof planEnclosure>[0], layout: GridLayout,
 // Skådis board
 // ---------------------------------------------------------------------------
 
-/** A tile as a floor piece; its column counts from the right, as the drawer view shows it (from the back). */
-const pieceOfTile = (t: SkadisPlan['tiles'][number], cols: number): PieceDef => ({
+/** A tile as a floor piece. */
+const pieceOfTile = (t: SkadisPlan['tiles'][number]): PieceDef => ({
   id: t.id,
-  col: cols - 1 - t.col,
+  col: t.col,
   row: t.row,
   x0: t.x0,
   y0: t.y0,
@@ -772,17 +783,16 @@ const pieceOfTile = (t: SkadisPlan['tiles'][number], cols: number): PieceDef => 
 /**
  * A Skådis board for the space on the wall (drawer.skadis): its tiles are the
  * floor pieces, the joint plates and spacers its parts. The drawer view shows
- * it face down, as it prints and as it goes together: the plates press into
- * the pockets on the back and the posts stand up. The board's left is on the
- * right there.
+ * it lying face up on its standoffs, as it hangs (the wall's up is the view's
+ * back), so attachments stand on its front; the tiles, printed face down, are
+ * turned over for it (EnclosureScene.pieceTurn).
  */
 function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, setup: PrintSetup): EnclosurePlan {
   const o = sanitizeSkadis(d.drawer.skadis);
   const areas = clearAreas({ ...plateBed(setup), spacing: setup.spacing }).map((a) => ({ w: a.w, d: a.d }));
   const plan = planSkadis(o, areas);
   const specs = skadisTileSpecs(plan, o);
-  const lastCol = Math.max(0, ...plan.tiles.map((t) => t.col));
-  const pieces = plan.tiles.map((t) => pieceOfTile(t, lastCol + 1));
+  const pieces = plan.tiles.map(pieceOfTile);
   const bounds = specs.map(tileBounds);
   const warnings = [...plan.warnings];
   if (plan.error) warnings.push(plan.error);
@@ -795,13 +805,14 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
     rows: plan.rows,
     ...(plan.error ? { error: plan.error } : {}),
   };
-  // Seen from the back: x mirrored across the space.
+  // Face up: the back (with posts, or on spacers) at the bottom.
+  const T = o.thickness;
+  const back = o.standoff === 'none' ? 0 : o.depth;
   const pieceAt: Record<number, Vec3> = {};
   plan.tiles.forEach((t, i) => {
     const b = bounds[i];
-    pieceAt[t.id] = [r1(o.width - (t.x0 + b.x0 + b.w)), t.y0 + b.y0, 0];
+    pieceAt[t.id] = [r1(t.x0 + b.x0), r1(t.y0 + b.y0), o.standoff === 'spacers' ? back : 0];
   });
-  const T = o.thickness;
   const parts: EnclosurePartPlan[] = [];
   const views: EnclosurePlan['views'] = [];
   const items: EnclosureSceneItem[] = [];
@@ -816,23 +827,20 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
     const part: EnclosurePart = { kind: 'skadisPlate', plate };
     const meshKey = `skadisplate|${JSON.stringify(plate)}`;
     const size = plateSize(plate);
-    const view: EnclosurePart = { kind: 'skadisPlate', plate, pinsDown: true };
-    const viewKey = `skadisplate-down|${JSON.stringify(plate)}`;
-    views.push({ meshKey: viewKey, part: view, view: { origin: [0, 0, 0] } });
     plates.forEach((j, i) => {
       parts.push({ key: `jointplate:${i + 1}`, name: `Joint plate ${i + 1}`, kind: 'enclosure', part, meshKey, ...size, group });
-      // In its pocket: flush with the back, pins down in their holes.
+      // In its pocket under the board, pins up in their holes, a hair inside the back.
       const tile = plan.tiles.find((t) => j.x >= t.x0 - 1e-6 && j.x <= t.x1 + 1e-6 && j.y >= t.y0 - 1e-6 && j.y <= t.y1 + 1e-6);
       items.push({
         id: `skadis-plate-${i}`,
-        meshKey: viewKey,
-        x: o.width - j.x - plate.size / 2,
+        meshKey,
+        x: j.x - plate.size / 2,
         y: j.y - plate.size / 2,
-        z: T - SKADIS.plate.pocket - plate.pinH,
+        z: back + SKADIS.plate.pocket - plate.t,
         ...size,
         role: 'joint',
         when: 'always',
-        ...(tile ? { col: lastCol - tile.col, row: tile.row } : {}),
+        ...(tile ? { col: tile.col, row: tile.row } : {}),
       });
     });
   }
@@ -847,13 +855,13 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
       items.push({
         id: `skadis-spacer-${i}`,
         meshKey,
-        x: o.width - m.x - spacer.d / 2,
+        x: m.x - spacer.d / 2,
         y: m.y - spacer.d / 2,
-        z: T,
+        z: 0,
         ...size,
         role: 'standoff',
         when: 'always',
-        ...(tile ? { col: lastCol - tile.col, row: tile.row } : {}),
+        ...(tile ? { col: tile.col, row: tile.row } : {}),
       });
     });
   }
@@ -929,11 +937,14 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
       shift: { x: 0, y: 0 },
       showBins: false,
       outline: false,
-      seat: T,
-      box: { x0: 0, y0: 0, x1: o.width, y1: o.height, h: T },
+      seat: back + T,
+      box: { x0: 0, y0: 0, x1: o.width, y1: o.height, h: back + T },
+      pieceTurn: [0, 180, 0],
+      wall: { board: wallBoard(plan, o), placed: [] },
       info: { skadis: info },
     },
     map: skadisMap(plan, info, o, steps),
+    wall: wallBoard(plan, o),
   };
 }
 

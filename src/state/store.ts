@@ -45,6 +45,8 @@ export interface UIState {
   plate: number;
   /** Bins tab, left pane (see BinPane). */
   binPane: BinPane;
+  /** A Skådis board's selected attachment (lib/wall), on its Attachments tab. */
+  selectedAttachment?: string | null;
 }
 
 /**
@@ -360,7 +362,7 @@ export const useStore = create<Store>()(
         if (!!s.drawer.haveBaseplate === on) return;
         const { haveBaseplate: _, ...rest } = s.drawer;
         // Nothing drawn yet: a baseplate you have is easiest given by its cells.
-        const grid = on && !s.bins.length && s.drawer.mode === 'drawer' ? { mode: 'grid' as const } : {};
+        const grid = on && !s.bins.length && s.drawer.mode === 'drawer' && s.drawer.enclosure !== 'skadis' ? { mode: 'grid' as const } : {};
         history.checkpoint();
         set({ drawer: on ? { ...rest, ...grid, haveBaseplate: true } : rest });
         history.checkpoint();

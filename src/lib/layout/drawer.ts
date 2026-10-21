@@ -3,6 +3,7 @@ import type { CaseOptions } from '../geometry/case';
 import type { WallOptions } from '../geometry/wallmount';
 import type { SpacerOptions } from '../geometry/spacers';
 import type { SkadisOptions } from '../geometry/skadis';
+import type { PlacedAttachment } from '../wall/registry';
 
 /**
  * What fills the space left over between the grid and the drawer walls.
@@ -71,6 +72,8 @@ export interface DrawerInput {
   spacers?: Partial<SpacerOptions>;
   /** Skådis board settings, the space on the wall included (enclosure 'skadis'). Missing = defaults. */
   skadis?: Partial<SkadisOptions>;
+  /** What hangs on a Skådis board (lib/wall). Missing = nothing. */
+  attachments?: PlacedAttachment[];
   /**
    * "Just bins": the baseplate is there already (printed before, or bought),
    * so nothing of the grid prints: no baseplate pieces, connector keys, pads

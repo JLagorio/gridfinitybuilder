@@ -51,11 +51,15 @@ const PrintPanel = lazyNamed(loadPrintPanel, 'PrintPanel');
 const BinInteriorEditor = lazyNamed(loadInterior, 'BinInteriorEditor');
 const CutoutEditor = lazyNamed(loadCutouts, 'CutoutEditor');
 const SkadisPanel = lazyNamed(loadSkadis, 'SkadisPanel');
-const SkadisBinsNote = lazyNamed(loadSkadis, 'SkadisBinsNote');
+// A board's Attachments tab (lib/wall): its panel and the board editor.
+const loadWall = once(() => import('./components/WallPanel'));
+const loadWallEditor = once(() => import('./components/WallEditor'));
+const WallPanel = lazyNamed(loadWall, 'WallPanel');
+const WallEditor = lazyNamed(loadWallEditor, 'WallEditor');
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
-  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts, loadSkadis);
+  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts, loadSkadis, loadWall, loadWallEditor);
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -114,6 +118,8 @@ function drawerScene(
       d: part.d,
       h: part.h,
       color: withBins ? BASEPLATE_COLOR : pieceColor(p.id),
+      // A Skådis tile is printed face down and shown face up.
+      ...(enc?.pieceTurn ? { turn: enc.pieceTurn } : {}),
       // Not printed (you have it): see-through, not in a filament's colour.
       ...(have ? { ghost: true } : paintOf(job, part.key)),
     };
@@ -245,7 +251,13 @@ function drawerScene(
     const pal = cs ? paletteOf(cs, 16) : null;
     const over = cs && state.baseplate.colour ? { plate: state.baseplate.colour } : undefined;
     const encPaint = cs && !have ? (role: string) => ({ main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }) : undefined;
-    items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint).map((it) => (have ? { ...it, ghost: true } : it)));
+    // A Skådis board's attachments are never "had": only the board itself can be.
+    const picked = state.ui.selectedAttachment;
+    items.push(
+      ...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint).map((it) =>
+        it.pickable ? { ...it, selected: it.id === picked } : have ? { ...it, ghost: true } : it,
+      ),
+    );
   }
   return {
     items: shiftItems(items, enc?.shift),
@@ -396,7 +408,7 @@ export default function App() {
         fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
         fitIds={focusing ? [ui.selectedBinId!] : undefined}
         legend={legend}
-        onPick={ui.tab === 'bins' ? (id) => state.setUI({ selectedBinId: id }) : undefined}
+        onPick={ui.tab === 'bins' ? (id) => state.setUI(board ? { selectedAttachment: id } : { selectedBinId: id }) : undefined}
         hint={
           coarse
             ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? ' · tap a bin to select it' : ''}`
@@ -416,11 +428,6 @@ export default function App() {
         )}
         {ui.tab === 'drawer' && (
           <div className="viewer-tools">
-            {board && (
-              <span className="viewer-note" title="Tiles print face down: the posts and the pockets for the joint plates are on the back">
-                Seen from the back, as it prints
-              </span>
-            )}
             {/* A baseplate you have is one piece, not printed: nothing to spread. */}
             {haveNote || (
               <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
@@ -458,7 +465,7 @@ export default function App() {
           {TABS.map((t, i) => (
             <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => state.setUI({ tab: t.id })}>
               <span className="tab-num">{i + 1}</span>
-              {board && t.id === 'drawer' ? 'Skådis board' : t.label}
+              {board && t.id === 'drawer' ? 'Skådis board' : board && t.id === 'bins' ? 'Attachments' : t.label}
             </button>
           ))}
         </nav>
@@ -484,7 +491,8 @@ export default function App() {
           <span className="chip">
             {board ? (
               <>
-                Skådis · {boardInfo?.tiles ?? 0} {boardInfo?.shape === 'hex' ? 'hexagons' : 'tiles'} ·{' '}
+                Skådis · {job.drawers[0]?.haveBaseplate ? 'just attachments' : `${boardInfo?.tiles ?? 0} ${boardInfo?.shape === 'hex' ? 'hexagons' : 'tiles'}`} ·{' '}
+                {state.drawer.attachments?.length ?? 0} attachments ·{' '}
               </>
             ) : (
               <>
@@ -510,8 +518,8 @@ export default function App() {
             ))}
           {ui.tab === 'bins' &&
             (board ? (
-              <LazyPart scope="The Skådis board panel">
-                <SkadisBinsNote />
+              <LazyPart scope="The Attachments panel">
+                <WallPanel job={viewJob} />
               </LazyPart>
             ) : (
               <LazyPart scope="The Bins panel">
@@ -525,7 +533,21 @@ export default function App() {
           )}
         </aside>
         <main className={`main main-${ui.tab}`}>
-          {ui.tab === 'bins' && !board ? (
+          {ui.tab === 'bins' && board ? (
+            <div className="split">
+              <div className="pane pane-2d">
+                <div className="pane-head">
+                  <div className="pane-title">The board from the front: drag attachments onto the slots</div>
+                </div>
+                {viewJob.drawers[0]?.enclosure?.wall && (
+                  <LazyPart scope="The board editor">
+                    <WallEditor board={viewJob.drawers[0].enclosure.wall.board} placed={viewJob.drawers[0].enclosure.wall.placed} selected={ui.selectedAttachment ?? null} />
+                  </LazyPart>
+                )}
+              </div>
+              <div className="pane pane-3d">{viewer}</div>
+            </div>
+          ) : ui.tab === 'bins' ? (
             <div className="split">
               <div className="pane pane-2d">
                 <BinPaneHeader />

@@ -50,15 +50,17 @@ function filled(mesh: MeshData, min: Vec3, max: Vec3): number {
   return v;
 }
 
-/** Volume two meshes share, each moved to its place. */
-function overlap(a: MeshData, at: Vec3, b: MeshData, bt: Vec3): number {
+/** Volume two meshes share, each moved to its place (its min corner there, after `turn`: degrees about x, y, z, as the 3D view turns it). */
+function overlap(a: MeshData, at: Vec3, b: MeshData, bt: Vec3, turnB?: Vec3): number {
   const ma = toManifold(a);
   const mb = toManifold(b);
   const pa = ma.translate(at);
-  const pb = mb.translate(bt);
+  const rb = turnB ? mb.rotate(turnB) : mb.translate([0, 0, 0]);
+  const bb = rb.boundingBox();
+  const pb = rb.translate([bt[0] - bb.min[0], bt[1] - bb.min[1], bt[2] - bb.min[2]]);
   const both = pa.intersect(pb);
   const v = both.volume();
-  for (const m of [ma, mb, pa, pb, both]) m.delete();
+  for (const m of [ma, mb, pa, rb, pb, both]) m.delete();
   return v;
 }
 
@@ -82,10 +84,10 @@ function toSlot(x: number, y: number, s: [number, number], o: SkadisOptions): nu
 // ---------------------------------------------------------------------------
 
 describe('options', () => {
-  it('defaults to an IKEA board: 5 × 15 slots, 5 mm thick, 56 cm square', () => {
+  it('defaults to an IKEA board: its measured 5.1 × 15.3 slots (printed ones come out a little small), 5 mm thick, 56 cm square', () => {
     const o = sanitizeSkadis(undefined);
     expect(o).toEqual(DEFAULT_SKADIS);
-    expect([o.slotW, o.slotL, o.thickness, o.width, o.height]).toEqual([5, 15, 5, 560, 560]);
+    expect([o.slotW, o.slotL, o.thickness, o.width, o.height]).toEqual([5.1, 15.3, 5, 560, 560]);
   });
 
   it('cleans bad values', () => {
@@ -182,8 +184,8 @@ describe('rectangle tiles', () => {
     expect(plan.seamsY.length).toBe(plan.rows - 1);
     for (const x of plan.seamsX) {
       expect(((x - L.ox) / P) % 1).toBeCloseTo(0, 6);
-      // 17.5 mm of plastic either side.
-      for (const s of slotCentres(plan)) expect(Math.abs(s[0] - x) - o.slotW / 2).toBeGreaterThanOrEqual(17.5 - 1e-6);
+      // A whole column's pitch of plastic either side, less half a slot.
+      for (const s of slotCentres(plan)) expect(Math.abs(s[0] - x) - o.slotW / 2).toBeGreaterThanOrEqual(P - o.slotW / 2 - 1e-6);
     }
     for (const y of plan.seamsY) {
       expect(((y - L.oy) / P) % 1).toBeCloseTo(0, 6);
@@ -192,7 +194,7 @@ describe('rectangle tiles', () => {
       // Every other slot is cut in half, the rest are well clear.
       for (const s of slotCentres(plan)) {
         const d = Math.abs(s[1] - y);
-        expect(d < 1e-6 || d - o.slotL / 2 >= 12.5 - 1e-6).toBe(true);
+        expect(d < 1e-6 || d - o.slotL / 2 >= P - o.slotL / 2 - 1e-6).toBe(true);
       }
     }
     // A cut slot is on both tiles, so each cuts its half.
@@ -473,15 +475,18 @@ describe('print job', () => {
     const plates = scene.items.filter((it) => it.role === 'joint');
     expect(plates.length).toBe(scene.info.skadis!.plates);
     const plateMesh = buildMesh(w, job.meshes[plates[0].meshKey]);
+    // Face up: the tiles turned over, on their spacers.
+    expect(scene.pieceTurn).toEqual([0, 180, 0]);
+    const back = DEFAULT_SKADIS.depth;
+    for (const t of tiles) expect(t.at[2]).toBe(back);
     for (const it of plates) {
-      for (const t of tiles) expect(overlap(plateMesh, [it.x, it.y, it.z], t.mesh, t.at)).toBeLessThan(1e-3);
+      for (const t of tiles) expect(overlap(plateMesh, [it.x, it.y, it.z], t.mesh, t.at, scene.pieceTurn as Vec3)).toBeLessThan(1e-3);
     }
-    // Flush with the back.
-    // Its back just under the board's back, in the pocket.
-    expect(plates[0].z + plates[0].h).toBeCloseTo(DEFAULT_SKADIS.thickness - SKADIS.plate.pocket + SKADIS.plate.t, 3);
+    // A hair inside the board's back, in the pocket, pins up into the board.
+    expect(plates[0].z).toBeCloseTo(back + SKADIS.plate.pocket - SKADIS.plate.t, 3);
     const spacers = scene.items.filter((it) => it.role === 'standoff');
     expect(spacers.length).toBe(scene.info.skadis!.screws);
-    expect(spacers.every((s) => s.z === DEFAULT_SKADIS.thickness)).toBe(true);
+    expect(spacers.every((s) => s.z === 0 && s.h === back)).toBe(true);
   });
 
   it('roles, hardware and the assembly map', () => {
@@ -539,11 +544,11 @@ describe('saved boards', () => {
   const s = () => useStore.getState();
   beforeEach(() => s().resetAll());
 
-  it('load cleaned, with no "just bins"', () => {
+  it('load cleaned, "just attachments" kept', () => {
     s().loadProject({ app: 'gridfit', drawer: { enclosure: 'skadis', haveBaseplate: true, skadis: { width: 'wide', shape: 'hex', depth: 999 } } });
     const d = s().drawer;
     expect(d.enclosure).toBe('skadis');
-    expect(d.haveBaseplate).toBeUndefined();
+    expect(d.haveBaseplate).toBe(true);
     expect(d.skadis).toMatchObject({ width: DEFAULT_SKADIS.width, shape: 'hex', depth: 60 });
   });
 

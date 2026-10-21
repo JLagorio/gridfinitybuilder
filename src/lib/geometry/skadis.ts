@@ -67,7 +67,12 @@ export interface SkadisOptions {
   hexGap: number;
   /** Tile numbers on the back, matching the assembly map. */
   numbers: boolean;
+  /** How tightly attachments' clips fit the slots (lib/wall/mount.ts). */
+  fit: SlotFit;
 }
+
+/** Clip fit in the slots: tighter for a board that runs large, looser for one that runs small. */
+export type SlotFit = 'snug' | 'normal' | 'loose';
 
 export const DEFAULT_SKADIS: SkadisOptions = {
   // IKEA's square board.
@@ -75,8 +80,9 @@ export const DEFAULT_SKADIS: SkadisOptions = {
   height: 560,
   shape: 'rect',
   thickness: 5,
-  slotW: 5,
-  slotL: 15,
+  // IKEA's slots measure about 5.1 × 15.2; printed slots come out a little smaller than drawn.
+  slotW: 5.1,
+  slotL: 15.3,
   chamfer: 0.6,
   border: 10,
   corner: 5,
@@ -88,6 +94,7 @@ export const DEFAULT_SKADIS: SkadisOptions = {
   hexWidth: 0,
   hexGap: 3,
   numbers: true,
+  fit: 'normal',
 };
 
 export const SKADIS = {
@@ -139,6 +146,7 @@ export function sanitizeSkadis(raw: unknown): SkadisOptions {
     hexWidth: num(r.hexWidth, 0, 1000, d.hexWidth),
     hexGap: num(r.hexGap, 0, 50, d.hexGap),
     numbers: r.numbers === undefined ? d.numbers : !!r.numbers,
+    fit: r.fit === 'snug' || r.fit === 'loose' ? r.fit : 'normal',
   };
 }
 
@@ -552,6 +560,43 @@ function hexSlots(o: SkadisOptions, hw: number, mounts: { x: number; y: number }
     }
   }
   return out;
+}
+
+/**
+ * Every slot an attachment can use, wall coordinates (slot centres): on a
+ * rectangle board the lattice less the upright seams (a slot a level seam cuts
+ * is whole once the tiles are together), on hexagons each one's own.
+ */
+export function boardSlots(plan: SkadisPlan, o: SkadisOptions): Vec2[] {
+  if (plan.shape === 'hex' && plan.hex) {
+    const hw = plan.hex.w;
+    const local = hexSlots(o, hw, hexLocalMounts(o, hw));
+    return plan.tiles.flatMap((t) => local.map(([x, y]) => [r3(t.x0 + x), r3(t.y0 + y)] as Vec2));
+  }
+  const L = plan.lattice;
+  if (!L || !plan.tiles.length) return [];
+  const P = SKADIS.pitch;
+  const seamCols = new Set(plan.seamsX.map((x) => Math.round((x - L.ox) / P)));
+  const out: Vec2[] = [];
+  for (let i = 0; i < L.nx; i++) {
+    if (seamCols.has(i)) continue;
+    for (let j = 0; j < L.ny; j++) if ((i + j) % 2 === 0) out.push([r3(L.ox + P * i), r3(L.oy + P * j)]);
+  }
+  return out;
+}
+
+/** Outline of each tile on the wall (CCW), for drawing the board. */
+export function tileOutlines(plan: SkadisPlan, o: SkadisOptions): Vec2[][] {
+  if (plan.shape === 'hex' && plan.hex) {
+    const hw = plan.hex.w;
+    return plan.tiles.map((t) => roundedPolygon(hexCorners((t.x0 + t.x1) / 2, (t.y0 + t.y1) / 2, hw), o.corner));
+  }
+  return plan.tiles.map((t) => [
+    [t.x0, t.y0],
+    [t.x1, t.y0],
+    [t.x1, t.y1],
+    [t.x0, t.y1],
+  ]);
 }
 
 // ---------------------------------------------------------------------------

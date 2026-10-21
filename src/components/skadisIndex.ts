@@ -11,6 +11,11 @@ export const SKADIS_INDEX: FindEntry[] = [
     title: 'Skådis board',
     words: ['skadis', 'pegboard', 'peg board', 'ikea', 'board', 'wall'],
     children: [
+      {
+        id: 'skadis-print',
+        title: 'Print for this board',
+        words: ['just attachments', 'have a board', 'ikea board', 'already have', 'own', 'bought', 'not printed', 'only attachments', '56 cm', '76 cm', '36 cm'],
+      },
       { id: 'skadis-name', title: 'Name', words: ['name', 'rename', 'title'] },
       { id: 'skadis-space', title: 'Space on the wall', words: ['size', 'width', 'height', 'space', 'measure', 'wall', 'fill', '56 cm', '76 cm'] },
       {

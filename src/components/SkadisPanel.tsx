@@ -6,6 +6,13 @@ import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { SKADIS_INDEX } from './skadisIndex';
 
+/** IKEA's boards, width × height, mm (its slots start 20 mm from each edge, as Gridfit's do). */
+const IKEA_BOARDS: [number, number][] = [
+  [360, 560],
+  [560, 560],
+  [760, 560],
+];
+
 /**
  * The Drawer tab of a Skådis board (drawer.enclosure 'skadis'): the space on
  * the wall, the tiles, how they join and hang, and the board itself.
@@ -15,6 +22,9 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
   const active = useStore((s) => s.drawers.find((d) => d.id === s.activeDrawerId));
   const renameDrawer = useStore((s) => s.renameDrawer);
   const setDrawer = useStore((s) => s.setDrawer);
+  const setHaveBaseplate = useStore((s) => s.setHaveBaseplate);
+  const have = !!drawer.haveBaseplate;
+  const setHave = (on: boolean) => setHaveBaseplate(on);
   const { fmt } = useUnits();
   const o = sanitizeSkadis(drawer.skadis);
   const set = (p: Partial<SkadisOptions>) => setDrawer({ skadis: { ...o, ...p } });
@@ -33,6 +43,31 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
   return (
     <FindPanel index={SKADIS_INDEX} placeholder="Find a setting…">
       <Section title="Skådis board" find="skadis">
+        <Find id="skadis-print" set={have}>
+          <Segmented
+            label="Print for this board"
+            value={have ? 'attachments' : 'all'}
+            options={[
+              { value: 'all', label: 'Board and attachments' },
+              { value: 'attachments', label: 'Just attachments', title: 'You have the board (IKEA’s, or one printed before): print only what hangs on it' },
+            ]}
+            onChange={(v) => setHave(v === 'attachments')}
+            hint={
+              have
+                ? 'The board isn’t printed: give its size (or pick IKEA’s) and thickness, and the attachments are made to fit it.'
+                : 'Have a board already? Pick Just attachments to print only what hangs on it.'
+            }
+          />
+          {have && (
+            <div className="wall-actions">
+              {IKEA_BOARDS.map(([bw, bh]) => (
+                <button key={`${bw}x${bh}`} onClick={() => set({ width: bw, height: bh, thickness: 5.1, slotW: 5.1, slotL: 15.2 })} title={`IKEA SKÅDIS ${bw / 10} × ${bh / 10} cm`}>
+                  IKEA {bw / 10} × {bh / 10}
+                </button>
+              ))}
+            </div>
+          )}
+        </Find>
         {active && (
           <Find id="skadis-name">
             <TextInput label="Name" value={active.name} onChange={(name) => renameDrawer(active.id, name)} placeholder="Workbench wall" />
@@ -232,26 +267,5 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
         />
       </Section>
     </FindPanel>
-  );
-}
-
-/** The Bins tab of a Skådis board: nothing to place, and where bins go instead. */
-export function SkadisBinsNote() {
-  const addDrawer = useStore((s) => s.addDrawer);
-  const setUI = useStore((s) => s.setUI);
-  return (
-    <Section title="Bins">
-      <p className="muted">A Skådis board holds IKEA SKÅDIS hooks, shelves and containers, not Gridfinity bins.</p>
-      <p className="muted">Bins go in a drawer, a carry case or a wall grid: switch to one in the drawer menu at the top, or start one here.</p>
-      <button
-        type="button"
-        onClick={() => {
-          addDrawer();
-          setUI({ tab: 'drawer' });
-        }}
-      >
-        New drawer
-      </button>
-    </Section>
   );
 }
