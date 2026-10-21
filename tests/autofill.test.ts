@@ -523,6 +523,7 @@ describe('the store', () => {
     expect(docs).toHaveLength(2);
     expect(docs[1].bins).toHaveLength(plan.placed.length - 3);
     expect(docs[1].drawer.width).toBe(s().drawer.width);
+    expect(docs[1].name).toBe('Drawer 2');
     expect(s().activeDrawerId).toBe(docs[0].id);
     history.undo();
     expect(allDrawers(s())).toHaveLength(1);

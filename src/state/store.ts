@@ -410,8 +410,8 @@ export const useStore = create<Store>()(
         const names = docs.map((d) => d.name);
         const more: DrawerDoc[] = (o.newDrawers ?? [])
           .filter((list) => list.length)
-          .map((list) => {
-            const name = uniqueName(`Drawer ${docs.length + 1}`, names);
+          .map((list, i) => {
+            const name = uniqueName(`Drawer ${docs.length + 1 + i}`, names);
             names.push(name);
             return { id: newId(), name, drawer: { ...s.drawer }, baseplate: { ...s.baseplate }, bins: mergeBins(layout, [], list, bed).bins };
           });
