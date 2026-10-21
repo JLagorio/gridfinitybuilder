@@ -484,6 +484,11 @@ export interface PartColours {
   bodies: number[];
   /** 'height': every body prints in the slot of the band it's in. */
   bands?: BandProfile;
+  /**
+   * With `bands`: the slot of each overlay body that keeps its own filament
+   * (inlaid text, QR codes), by body index; 0 or missing follows the band.
+   */
+  inlays?: number[];
 }
 
 export interface EstimatePart {
@@ -512,8 +517,17 @@ function layerSlots(p: EstimatePart, k: number, z: number, into: Map<number, num
   if (!(A > 0)) return;
   const c = p.colour;
   if (c?.bands) {
-    const slot = bandSlot(c.bands, z);
-    into.set(slot, (into.get(slot) ?? 0) + 1);
+    const band = bandSlot(c.bands, z);
+    if (c.inlays && s.bodyArea) {
+      s.bodyArea.forEach((ba, b) => {
+        const a = ba[k];
+        if (!(a > 0)) return;
+        const slot = (b && c.inlays![b]) || band;
+        into.set(slot, (into.get(slot) ?? 0) + a / A);
+      });
+      return;
+    }
+    into.set(band, (into.get(band) ?? 0) + 1);
     return;
   }
   if (c && s.bodyArea) {
@@ -723,8 +737,12 @@ export function partColours(setup: PrintSetup, part: JobPart, spec: MeshSpec | u
   const st = strategyOf(setup);
   if (!st) return null;
   if (st === 'height') return { bodies: [], bands: partProfile(setup, part, spec) };
-  // A split mesh not sliced yet (its whole mesh's data stands in): its bands by height are close.
-  if (st === 'feature' && spec?.kind === 'split' && !stats.bodyRole?.[0]) return { bodies: [], bands: partProfile(setup, part, spec) };
+  // A split mesh not sliced yet (its whole mesh's data stands in): its bands by height are close,
+  // and its overlays (inlaid text, QR codes) still print in their own filament on every layer they span.
+  if (st === 'feature' && spec?.kind === 'split' && !stats.bodyRole?.[0]) {
+    const inlays = bodySlots(setup, part, spec, stats.bodyRole ?? [null]).map((slot, i) => (i ? slot : 0));
+    return { bodies: [], bands: partProfile(setup, part, spec), inlays };
+  }
   return { bodies: bodySlots(setup, part, spec, stats.bodyRole ?? [null]) };
 }
 

@@ -11,7 +11,7 @@ import { buildMesh, planPrint, type NamedDrawer, type PlacedBin, type PrintJob }
 import { registerFont } from '../src/lib/geometry/text';
 import type { ColourSetup } from '../src/lib/colours';
 import { exportBambuProject } from '../src/lib/export/bambu';
-import { estimatePlate, sliceStats } from '../src/lib/estimate';
+import { estimateJob, estimatePlate, sliceStats } from '../src/lib/estimate';
 import { colourChecks } from '../src/lib/colourChecks';
 import { featureSplitBlocked } from '../src/lib/geometry/colourRegions';
 import { binSpiral } from '../src/lib/geometry/containers/vase';
@@ -241,5 +241,21 @@ describe('the X1 / P1 bed exclusion corner', () => {
       // The corner is at the bed's front-left, inside the edge margin: a part is clear when it's right of it or behind it.
       for (const p of pl.placements) expect(p.x >= corner.x + corner.w - 1e-6 || p.y >= corner.y + corner.d - 1e-6, `${pl.name}: ${p.key}`).toBe(true);
     }
+  });
+});
+
+describe('strategy estimates before the split is sliced', () => {
+  it('by feature: an inlaid front QR code still swaps on every layer it spans', () => {
+    const d = drawer([bin('q', { ...QR, heightUnits: 6 })]);
+    const part = withColours({ strategy: 'part', mix: true, roles: { qrCode: 2 } });
+    const feature = withColours({ strategy: 'feature', roles: { qrCode: 2 } });
+    const partJob = planPrint([d], part, { baseplate: false, bins: true });
+    const key = Object.values(partJob.parts).find((p) => p.kind === 'bin')!.meshKey;
+    // The whole (unsplit) mesh's slice stands in for the split one, as in the Colours section's table.
+    const stats = sliceStats(buildMesh(w, partJob.meshes[key]));
+    const byPart = estimateJob(partJob, () => stats, 'x1c', part)[0]!;
+    const byFeature = estimateJob(planPrint([d], feature, { baseplate: false, bins: true }), () => stats, 'x1c', feature)[0]!;
+    expect(byPart.swaps).toBeGreaterThan(20);
+    expect(byFeature.swaps).toBe(byPart.swaps);
   });
 });
