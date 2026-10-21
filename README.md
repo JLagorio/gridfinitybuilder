@@ -242,7 +242,7 @@ All constants live in `src/lib/geometry/spec.ts`.
 ## Development
 
 ```bash
-npm test             # vitest: layout, splitting, packing, every geometry variant's validity, dividers, tracing, 3MF/STL structure
+npm test             # vitest: layout, splitting, packing, every geometry variant's validity, dividers, tracing, 3MF/STL structure, the bundle split
 npm run typecheck
 npm run build
 npm run sample -- out   # build a whole drawer kit from the CLI (default: the 510.5 × 376.5 drawer)
@@ -253,6 +253,16 @@ To check an export against Bambu Studio itself, use the CLI that ships with the 
 ```bash
 /Applications/BambuStudio.app/Contents/MacOS/BambuStudio --slice 0 --outputdir out/sliced out/drawer-bambu-project.3mf
 ```
+
+### What loads when
+
+The first screen downloads only what it shows; the rest is code-split and loads on first use (`src/components/lazy.tsx`). `tests/bundle.test.ts` builds the app and keeps it that way.
+
+- **First screen:** the entry chunk (`index-*.js`: the app shell, the drawer panel, the bin grid, the 3D view) with the store and planning code it shares with the lazy parts (a few chunks rolldown splits off), React (`react-*.js`, with zustand) and three.js (`three-*.js`). Both libraries have chunks of their own, so a deploy that only changes the app doesn't download them again.
+- **On first use:** the Bins and Print plates panels, the compartment and tool-cutout editors, the trace dialog (the SVG / DXF readers load with the first file), *Fill from a list* (with `src/lib/autofill`), the drawer map and the STEP assembly layout. The tabs and editors also load in the background once the first mesh is on screen, so switching is instant. A returning visitor's saved tab (Bins or Print plates) gets its panel preloaded from `index.html` (`scripts/preload.ts`).
+- **Geometry worker:** its entry (`geometry.worker.ts`) is tiny. It starts downloading and compiling the Manifold WASM at once, while the mesh code (`meshes.ts`) loads beside it. The file writers, zips and the slicer (`writers.ts`) load on the first export or print-time estimate. The label font loads with the first mesh that may have text (baseplate pieces never do), or once the WASM is ready; the page loads its own copy when a label preview or a print check needs it, and for the bin grid's check marks only after the first view.
+- **Offline copy:** the service worker registers once the first mesh is in and the other tabs have loaded, so saving every file doesn't compete with the first view. It checks each file with the server (`cache: 'no-cache'`), so what the page just downloaded comes from the HTTP cache instead of being downloaded again. Every lazy chunk is in its list.
+- **A chunk that fails to load** (usually a deploy replaced it while the page was open) shows *Reload to update* in its place (`src/pwa/chunks.ts`, `ErrorBoundary.tsx`); exports say the same.
 
 ### Bambu printer settings
 
@@ -272,17 +282,18 @@ src/lib/dividers/   bin interior layouts: walls → compartments, edits, snappin
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
 src/lib/autofill/   "Fill from a list": list parser, item matching, bin sizing, grouping, packing (pure TS)
 src/lib/geometry/containers/  drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
-src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers; estimate.ts print time and cost
-src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters
+src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers (a plate, every plate, one part); estimate.ts print time and cost
+src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + buildMesh()
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search;
                     printed.ts what's been printed (part fingerprints), for reprinting only what changed
 src/lib/printability.ts  print checks: rule-based warnings from the options and the nozzle (cheap, no geometry)
 src/lib/stacking.ts bins stacked on bins: columns, rules, heights
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
-src/worker/         geometry Web Worker + client with a mesh queue/cache
-src/components/     React UI (three.js viewer, 2D bin layout editor, panels; touch.tsx: touch helpers)
-src/pwa/            offline use: the service worker and its registration
-scripts/            CLI sample generator, Bambu settings baker, pwa.ts (writes dist/sw.js with every built file)
+src/worker/         geometry Web Worker (a tiny entry, meshes.ts, writers.ts on first export) + client with a mesh queue/cache
+src/components/     React UI (three.js viewer, 2D bin layout editor, panels; touch.tsx: touch helpers; lazy.tsx: code splitting)
+src/pwa/            offline use: the service worker and its registration; chunks.ts: files that fail to load
+scripts/            CLI sample generator, Bambu settings baker, pwa.ts (writes dist/sw.js with every built file),
+                    preload.ts (preloads the saved tab's code-split panel)
 tests/              vitest suites
 ```
 
