@@ -500,10 +500,11 @@ function specFor(item: ListItem, h: Holder, ctx: SizeContext): { spec: Spec; rea
       return { spec: { kind: 'set', preset: h.preset, sizes: h.sizes, names: h.names }, reason: `${what}: a pocket for each of ${n} sizes, ${named}.`, cluster: 'Tools', warnings };
     }
     case 'tools': {
-      const names = [...new Set(h.tools.map((t) => t.name))].join(', ');
+      const names = [...new Set(h.tools.map((t) => t.name))];
+      const what = names.length === 1 && h.tools.length > 1 ? `${h.tools.length} × ${names[0]}` : names.join(', ');
       return {
         spec: { kind: 'tools', tools: h.tools },
-        reason: `Tool cutout${h.tools.length > 1 ? 's' : ''} for ${h.tools.length > 1 && names.split(', ').length === 1 ? `${h.tools.length} × ${names}` : names}, from your tool library.`,
+        reason: `Tool cutout${h.tools.length > 1 ? 's' : ''} for ${what}, from your tool library.`,
         cluster: 'Tools',
         warnings,
       };

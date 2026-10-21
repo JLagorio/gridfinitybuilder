@@ -195,7 +195,7 @@ function cellsAt(layout: GridLayout, ctx: SizeContext, x: number, y: number, s: 
 }
 
 /** Pack proposals into a drawer whose bins are `existing`. */
-export function packInto(layout: GridLayout, ctx: SizeContext, existing: PlacedBin[], proposals: Proposal[]): { placed: PlannedBin[]; left: Proposal[] } {
+function packInto(layout: GridLayout, ctx: SizeContext, existing: PlacedBin[], proposals: Proposal[]): { placed: PlannedBin[]; left: Proposal[] } {
   const byKey = new Map(proposals.map((p) => [p.key, p]));
   const items: PackItem[] = proposals.map((p) => {
     // Most spots are on full cells: one check each.
@@ -256,7 +256,9 @@ export function planFill(text: string, c: FillContext, o: FillOptions = {}): Fil
     extra.push(next.placed);
     rest = next.left;
   }
-  return { items, proposals, placed: here.placed, left: here.left, extra, never: rest, skipped: proposals.filter((p) => skip.has(p.key)), room: ctx.room, ctx };
+  // Past the last suggested drawer, only what wouldn't fit even alone.
+  const never = rest.filter((p) => !packInto(c.layout, ctx, [], [p]).placed.length);
+  return { items, proposals, placed: here.placed, left: here.left, extra, never, skipped: proposals.filter((p) => skip.has(p.key)), room: ctx.room, ctx };
 }
 
 const clampInt = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));

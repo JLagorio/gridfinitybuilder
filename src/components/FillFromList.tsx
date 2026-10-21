@@ -168,7 +168,13 @@ export function FillFromListDialog({ layout, onClose }: { layout: GridLayout; on
                             </span>
                           ))}
                           {!at && !skipped && (
-                            <span className="fill-warn small">{where >= 0 ? `No room in this drawer: it fits in a new one.` : 'No room for it, even in an empty drawer like this one.'}</span>
+                            <span className="fill-warn small">
+                              {where >= 0
+                                ? 'No room in this drawer: it fits in a new one.'
+                                : plan.never.includes(p)
+                                  ? 'No room for it, even in an empty drawer like this one.'
+                                  : 'No room in this drawer.'}
+                            </span>
                           )}
                         </div>
                         <div className="fill-controls">
