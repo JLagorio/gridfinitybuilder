@@ -8,6 +8,7 @@ import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
 import { BomSection, TestFitSection } from './PrintExtras';
 import { CopyShareLink } from './ShareLink';
+import { ContentsSection } from './InventoryList';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -273,6 +274,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       </Section>
 
       <BomSection job={job} stamp={stamp} />
+      <ContentsSection />
       <TestFitSection />
 
       <Section title="Project">

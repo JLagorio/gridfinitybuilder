@@ -19,6 +19,7 @@ import { CutoutEditor } from './components/CutoutEditor';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { HistoryButtons } from './components/HistoryButtons';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
+import { FindBox } from './components/FindBox';
 import { useOpenSharedProject } from './components/ShareLink';
 import { Segmented } from './components/fields';
 import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LID_COLOR, pieceColor } from './components/colors';
@@ -256,6 +257,7 @@ export default function App() {
           ))}
         </nav>
         <div className="topbar-status">
+          <FindBox />
           <HistoryButtons />
           {queue > 0 && (
             <span className="building">

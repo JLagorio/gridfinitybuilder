@@ -37,6 +37,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
     items: [
       { keys: [[MOD, 'Z']], label: 'Undo' },
       { keys: [[MOD, 'Shift', 'Z'], ...(IS_MAC ? [] : [['Ctrl', 'Y']])], label: 'Redo' },
+      { keys: [[MOD, 'K'], ['/']], label: 'Find what’s in your bins' },
       { keys: [['?']], label: 'Show or hide this list' },
       { keys: [['Esc']], label: 'Clear the selection, close this list' },
     ],

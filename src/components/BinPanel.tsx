@@ -12,6 +12,7 @@ import { TemplatesSection } from './TemplatesSection';
 import { CompartmentsSection } from './CompartmentFields';
 import { LabelFields } from './LabelFields';
 import { ToolLibrary } from './ToolLibrary';
+import { BinContentsFields } from './ContentsField';
 
 function BinFields({
   opts,
@@ -19,6 +20,7 @@ function BinFields({
   sizeEditable,
   sizeError,
   cells,
+  contents,
 }: {
   opts: BinOptions;
   onChange: (p: Partial<BinOptions>) => void;
@@ -26,6 +28,8 @@ function BinFields({
   sizeError?: string | null;
   /** Cell sizes under the selected bin (partial edge cells). */
   cells?: BinCells;
+  /** "What's in it" fields, shown after the label fields (placed bins only). */
+  contents?: ReactNode;
 }) {
   return (
     <>
@@ -63,6 +67,7 @@ function BinFields({
         onChange={(label) => onChange({ label })}
       />
       <LabelFields opts={opts} onChange={onChange} />
+      {contents}
       <OptionGroup title="Base & holes" status={baseStatus(opts)} active={opts.base !== 'standard' || opts.holes !== 'none'}>
         <BaseField opts={opts} onChange={onChange} />
         <HoleFields opts={opts} onChange={onChange} />
@@ -194,6 +199,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
             sizeEditable={!many}
             sizeError={sizeError}
             cells={binCellsAt(job.layout, sel)}
+            contents={!many && <BinContentsFields bin={sel} grid={job.layout} onLabel={(labelText) => changeSelected({ labelText })} />}
           />
           <div className="button-row">
             <button onClick={() => duplicateSelection()}>Duplicate</button>
