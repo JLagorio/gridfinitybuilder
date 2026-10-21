@@ -1,5 +1,6 @@
 import { useStore, useUnits } from '../state/store';
 import { LengthInput, Select } from './fields';
+import { Combobox } from './combobox';
 import { PRINTERS } from '../lib/printers';
 import { MAX_PRINTERS, baseplatePicked, biggestPrinter, printerNames } from '../lib/layout/fleet';
 import { addPrinter, removePrinter, setBaseplatePrinter, setPrinterAt } from '../state/printers';
@@ -33,7 +34,7 @@ export function MorePrinters() {
               Remove
             </button>
           </div>
-          <Select label="Model" value={p.printerId} options={PRINTER_OPTIONS} onChange={(printerId) => setPrinterAt(i + 1, { printerId })} />
+          <Combobox label="Model" value={p.printerId} options={PRINTER_OPTIONS} onChange={(printerId) => setPrinterAt(i + 1, { printerId })} />
           {p.printerId === 'custom' && (
             <div className="row3">
               <LengthInput label="Bed X" value={p.bedW} min={80} max={1000} onChange={(bedW) => setPrinterAt(i + 1, { bedW })} />

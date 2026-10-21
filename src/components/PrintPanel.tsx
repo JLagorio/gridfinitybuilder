@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
 import { allDrawers, printDrawers, projectFile, useStore, useUnits } from '../state/store';
-import { LengthInput, Section, Segmented, Select, Toggle } from './fields';
+import { LengthInput, Section, Segmented, Toggle } from './fields';
+import { Combobox } from './combobox';
 import { findPrinter } from '../lib/printers';
 import { assemblyMaps, jobForPrinter, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
@@ -141,7 +142,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const firstPrinter = (
     <>
       <Find id="printer-model">
-        <Select label="Model" value={setup.printerId} options={PRINTER_OPTIONS} onChange={(id) => store.setPrinter(id)} />
+        <Combobox label="Model" value={setup.printerId} options={PRINTER_OPTIONS} onChange={(id) => store.setPrinter(id)} />
         {setup.printerId === 'custom' && (
           <div className="row3">
             <LengthInput label="Bed X" value={setup.bedW} min={80} max={1000} onChange={(bedW) => store.setSetup({ bedW })} />
