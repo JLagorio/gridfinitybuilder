@@ -172,6 +172,8 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
         e.preventDefault();
         put({ rotation: normAngle(c.rotation + (e.shiftKey ? -15 : 15)) });
       } else if (e.key.startsWith('Arrow')) {
+        // A focused slider (the 3D view's section, any range field) keeps its own arrow keys.
+        if ((e.target as HTMLElement | null)?.closest?.('input, [role="slider"]')) return;
         e.preventDefault();
         const step = snapStep(live.current.units, live.current.precision) * (e.shiftKey ? 10 : 1);
         const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
