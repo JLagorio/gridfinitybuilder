@@ -26,6 +26,8 @@ import { addExternal, externalBin, setExternal, turnMesh } from '../src/state/ex
 import { copySelection, pasteClipboard, selectBins } from '../src/state/selection';
 import { stackBin } from '../src/state/stacks';
 import { applyPresetToBins, applyTemplateToBins, saveTemplate } from '../src/state/templates';
+import { searchIndex } from '../src/lib/panelSearch';
+import { BIN_INDEX } from '../src/components/panelIndex';
 
 let w: Wasm;
 /** A Gridfit 2×1×3u bin, exported as STL and imported again. */
@@ -373,5 +375,13 @@ describe('the registry', () => {
     expect(() => buildMesh(w, importedSpec(bin)!)).toThrow(/isn’t in this browser/);
     putImported(hash, o.mesh);
     expect(externalOpts({ unitsX: 1, unitsY: 1, heightMm: 5 }).heightMm).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe('finding it in the Bins panel', () => {
+  it('“Find a setting” knows the words for it', () => {
+    for (const q of ['import', 'stl', '3mf', 'placeholder', 'bought', 'downloaded', 'existing bin', 'printables', 'already have']) {
+      expect([...(searchIndex(BIN_INDEX, q)?.hits ?? [])], q).toContain('external');
+    }
   });
 });

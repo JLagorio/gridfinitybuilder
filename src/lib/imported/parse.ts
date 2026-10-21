@@ -26,7 +26,7 @@ export interface ImportedObject {
 }
 
 /** Most triangles an imported bin may have. */
-export const MAX_TRIANGLES = 4_000_000;
+export const MAX_TRIANGLES = 2_000_000;
 
 type Soup = { name: string; positions: number[] | Float32Array; indices?: number[] | Uint32Array };
 
@@ -76,6 +76,7 @@ export function parseSTL(bytes: Uint8Array): Soup {
   const head = strFromU8(bytes.subarray(0, Math.min(bytes.length, 512)));
   const binary = count >= 0 && (84 + count * 50 === bytes.length || (!/^\s*solid[\s\S]*facet/.test(head) && 84 + count * 50 <= bytes.length));
   if (binary) {
+    if (count > MAX_TRIANGLES) throw new Error(`This STL has ${Math.round(count / 1e5) / 10} million triangles; Gridfit takes up to ${MAX_TRIANGLES / 1e6} million.`);
     const p = new Float32Array(count * 9);
     for (let i = 0; i < count; i++) {
       const o = 84 + i * 50 + 12;
