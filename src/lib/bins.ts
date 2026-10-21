@@ -1,5 +1,8 @@
 import type { PlacedBin } from './project';
 import { DEFAULT_BIN, binTotalHeight } from './geometry/bin';
+import { binSeatHeight, type BaseplateOptions } from './geometry/baseplate';
+import { PAD, padStyle } from './geometry/pads';
+import type { DrawerInput } from './layout/drawer';
 
 /** Cell → bin id map for the drawer grid. Stacked bins (stacking.ts) don't count: the floor bin under them has the cells. */
 export function occupancy(bins: PlacedBin[], nx: number, ny: number): (string | null)[][] {
@@ -99,4 +102,10 @@ export function maxBinUnits(room: number, lip: boolean): number {
   let u = 0;
   while (binTotalHeight({ heightUnits: u + 1, lip }) <= room + 1e-6 && u < 60) u++;
   return u;
+}
+
+/** Room above the baseplate for bins, mm: the drawer's inside height less the baseplate (Infinity when not set). */
+export function drawerRoom(drawer: DrawerInput, baseplate: BaseplateOptions): number {
+  if (drawer.mode !== 'drawer' || drawer.enclosure || !(drawer.height > 0)) return Infinity;
+  return drawer.height - binSeatHeight(baseplate) - (padStyle(baseplate) ? PAD.proud : 0);
 }
