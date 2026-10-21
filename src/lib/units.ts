@@ -37,7 +37,8 @@ export function parseLength(input: string, defaultUnit: Units = 'mm'): number | 
     return inch === null ? null : feet + inch;
   }
 
-  const m = s.match(/^(\d+(?:\.\d+)?)?(?:\s*-?\s*(\d+)\s*\/\s*(\d+))?\s*(mm|cm|m|in|inch|inches|")?$/);
+  // A whole number and its fraction need a space or dash between them ("11/64" is not 1 1/64).
+  const m = s.match(/^(\d+(?:\.\d+)?)?(?:(?:^|\s+|\s*-\s*)(\d+)\s*\/\s*(\d+))?\s*(mm|cm|m|in|inch|inches|")?$/);
   if (!m || (!m[1] && !m[2])) return null;
   // "3/4" parses as whole = undefined, fraction = 3/4. "20 1/8" as 20 + 1/8.
   let v = m[1] ? parseFloat(m[1]) : 0;
