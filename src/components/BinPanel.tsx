@@ -399,12 +399,12 @@ export function BinPanel({ job }: { job: PrintJob }) {
         </Section>
       )}
       {sel && !many && <StretchSection key={`stretch-${sel.id}`} layout={job.layout} bin={sel} />}
+      {/* Drawer units, parts boxes, … have their own insides. */}
       {sel ? (
-        sel.opts.interior === 'compartments' && (
-          <CompartmentsSection key={sel.id} opts={sel.opts} onChange={changeSelected} binId={sel.id} grid={job.layout} />
-        )
+        sel.opts.interior === 'compartments' &&
+        !activeContainer(sel.opts) && <CompartmentsSection key={sel.id} opts={sel.opts} onChange={changeSelected} binId={sel.id} grid={job.layout} />
       ) : (
-        newBin.interior === 'compartments' && <CompartmentsSection opts={newBin} onChange={setNewBin} />
+        newBin.interior === 'compartments' && !activeContainer(newBin) && <CompartmentsSection opts={newBin} onChange={setNewBin} />
       )}
 
       <TemplatesSection />
