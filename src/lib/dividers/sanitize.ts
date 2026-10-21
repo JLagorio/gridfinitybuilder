@@ -1,4 +1,5 @@
 import { EDGE, MAX_WALLS, type CompartmentOptions, type DividerLayout, type DividerWall, type WallPos } from './types';
+import { MAX_FREE_WALLS, type FreeWall, type WallNotch } from './types';
 import type { LabelStyle } from '../geometry/bin';
 import { sanitizeLabelText } from '../geometry/labels';
 
@@ -10,6 +11,44 @@ function cleanId(v: unknown): string {
   return String(v ?? '')
     .replace(/[^A-Za-z0-9_-]/g, '')
     .slice(0, 24);
+}
+
+/** A finger notch, or null for none / nonsense. */
+export function cleanNotch(n: unknown): WallNotch | null {
+  if (!n || typeof n !== 'object') return null;
+  const o = n as Partial<Record<keyof WallNotch, unknown>>;
+  const width = num(o.width);
+  const depth = num(o.depth);
+  if (!(Number.isFinite(width) && width > 0 && Number.isFinite(depth) && depth > 0)) return null;
+  return { width: round(Math.min(300, Math.max(1, width)), 2), depth: round(Math.min(300, Math.max(0.5, depth)), 2) };
+}
+
+/** Diagonal / curved walls: ends clamped to the cavity, ids unique (also against `taken`, the straight walls' ids). */
+function cleanFreeWalls(input: unknown, taken: Set<string>): FreeWall[] {
+  if (!Array.isArray(input)) return [];
+  const out: FreeWall[] = [];
+  const frac = (v: unknown) => {
+    const x = num(v);
+    return Number.isFinite(x) ? round(Math.min(1, Math.max(0, x)), 6) : 0;
+  };
+  const pt = (p: unknown): [number, number] | null => (Array.isArray(p) && p.length >= 2 ? [frac(p[0]), frac(p[1])] : null);
+  input.slice(0, MAX_FREE_WALLS).forEach((f0, k) => {
+    const f = (f0 ?? {}) as Partial<Record<keyof FreeWall, unknown>>;
+    const a = pt(f.a);
+    const b = pt(f.b);
+    if (!a || !b || (a[0] === b[0] && a[1] === b[1])) return;
+    const want = cleanId(f.id);
+    let id = want || `f${k + 1}`;
+    for (let n = 2; taken.has(id); n++) id = `${want || 'f'}_${n}`;
+    taken.add(id);
+    const fw: FreeWall = { id, a, b };
+    const bend = num(f.bend);
+    if (Number.isFinite(bend) && Math.abs(bend) >= 0.01) fw.bend = round(Math.min(1000, Math.max(-1000, bend)), 2);
+    const lower = num(f.lower);
+    if (Number.isFinite(lower) && lower > 0) fw.lower = round(Math.min(300, lower), 2);
+    out.push(fw);
+  });
+  return out;
 }
 
 function cleanPos(p: unknown): WallPos {
@@ -72,6 +111,9 @@ export function sanitizeLayout(input: unknown): DividerLayout | null {
     };
     if (Number.isFinite(lower) && lower > 0) out.lower = round(Math.min(300, lower), 2);
     if (w.removable === true) out.removable = true;
+    const notch = cleanNotch(w.notch);
+    if (notch) out.notch = notch;
+    if (w.top === 'chamfer' || w.top === 'round') out.top = w.top;
     walls.push(out);
   });
   const byId = new Map(walls.map((w) => [w.id, w]));
@@ -103,6 +145,8 @@ export function sanitizeLayout(input: unknown): DividerLayout | null {
   for (const w of walls) if (!state.has(w.id)) visit(w);
 
   const out: DividerLayout = { walls };
+  const free = cleanFreeWalls(l.free, taken);
+  if (free.length) out.free = free;
   if (l.comps && typeof l.comps === 'object') {
     const comps: Record<string, CompartmentOptions> = {};
     for (const [k, v] of Object.entries(l.comps).slice(0, 512)) {
@@ -133,6 +177,7 @@ export function layoutKey(l: DividerLayout | null | undefined, live?: Set<string
         w.end,
         round(w.lower ?? 0, 2),
         w.removable ? 'R' : '',
+        ...wallExtrasKey(w),
       ].join(':'),
     );
   const comps = Object.keys(l.comps ?? {})
@@ -143,5 +188,22 @@ export function layoutKey(l: DividerLayout | null | undefined, live?: Set<string
       const text = c.labelText === undefined ? '' : `/${JSON.stringify(c.labelText)}`;
       return `${k}=${c.scoop === undefined ? '' : round(c.scoop, 3)}/${c.label ?? ''}/${c.floor ?? ''}${text}`;
     });
-  return `${walls.join(';')}|${comps.join(';')}`;
+  return `${walls.join(';')}|${comps.join(';')}${freeWallsKey(l.free)}`;
+}
+
+/** Key parts for a wall's notch and top shape; none when it has neither (so older layouts keep their keys). */
+function wallExtrasKey(w: DividerWall): string[] {
+  const out: string[] = [];
+  if (w.notch) out.push(`n${round(w.notch.width, 2)}x${round(w.notch.depth, 2)}`);
+  if (w.top && w.top !== 'flat') out.push(`t${w.top}`);
+  return out;
+}
+
+/** Key part for the diagonal / curved walls ('' without any). */
+function freeWallsKey(free: FreeWall[] | undefined): string {
+  if (!free?.length) return '';
+  const f = [...free]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((x) => [x.id, round(x.a[0], 6), round(x.a[1], 6), round(x.b[0], 6), round(x.b[1], 6), round(x.bend ?? 0, 2), round(x.lower ?? 0, 2)].join(':'));
+  return `|F${f.join(';')}`;
 }

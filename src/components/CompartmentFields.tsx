@@ -28,6 +28,7 @@ import {
 import { LengthInput, Section, Segmented, Slider, Stepper, Toggle } from './fields';
 import { clearInteriorSelection, interiorOf, useBinInterior, useInteriorSelection, type BinInterior } from './interiorState';
 import { compartmentOptions } from './BinInteriorEditor';
+import { FreeWallFields, WallFinishFields } from './WallTools';
 
 /**
  * Sidebar section for a bin's compartments: the quick columns × rows split,
@@ -100,9 +101,10 @@ export function CompartmentsSection({
         }
       />
       <AutoDivide info={info} compKey={sel.compKey} sized={!!binId} onLayout={(l, whole) => (whole ? setLayout(l) : setOwn(l))} />
+      {binId && sel.freeId && <FreeWallFields info={info} freeId={sel.freeId} onLayout={setOwn} />}
       {binId && sel.wallId && <WallFields info={info} wallId={sel.wallId} onLayout={setOwn} />}
       {binId && sel.compKey && <CompartmentFields info={info} compKey={sel.compKey} onLayout={setOwn} />}
-      {binId && !sel.wallId && !sel.compKey && pane === 'compartments' && (
+      {binId && !sel.wallId && !sel.compKey && !sel.freeId && pane === 'compartments' && (
         <p className="muted small">Click a wall or a compartment’s size label to edit it here.</p>
       )}
       {binId && <InsertSummary opts={opts} grid={grid} binId={binId} />}
@@ -300,6 +302,7 @@ function WallFields({ info, wallId, onLayout }: { info: BinInterior; wallId: str
         onChange={(removable) => onLayout(setWallProps(info.layout, wallId, { removable }))}
         hint={W.removable ? 'Prints as a separate plate that slides into slots.' : 'Slide-in plate instead of a fixed wall.'}
       />
+      <WallFinishFields info={info} wallId={wallId} onLayout={onLayout} />
       <div className="button-row">
         <button onClick={() => onLayout(distributeEvenly(info.layout, info.size, wallId))} title="Space this wall and its neighbours in the row evenly">
           Distribute evenly

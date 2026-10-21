@@ -11,7 +11,8 @@ import { binCellsAt } from '../lib/project';
 import type { GridLayout } from '../lib/layout/drawer';
 import { resolveLayout, uniformLayout, type DividerLayout, type InnerSize, type ResolvedLayout } from '../lib/dividers';
 
-export type InteriorTool = 'wall' | 'select';
+/** 'free': draw diagonal / curved walls. */
+export type InteriorTool = 'wall' | 'select' | 'free';
 export type OrientMode = 'auto' | 'v' | 'h';
 
 interface InteriorState {
@@ -19,6 +20,8 @@ interface InteriorState {
   binId: string | null;
   wallId: string | null;
   compKey: string | null;
+  /** Selected diagonal / curved wall. */
+  freeId: string | null;
   tool: InteriorTool;
   orient: OrientMode;
   set(p: Partial<Omit<InteriorState, 'set'>>): void;
@@ -28,21 +31,26 @@ export const useInterior = create<InteriorState>((set) => ({
   binId: null,
   wallId: null,
   compKey: null,
+  freeId: null,
   tool: 'wall',
   orient: 'auto',
   set: (p) => set(p),
 }));
 
 export function selectWall(binId: string, wallId: string | null) {
-  useInterior.getState().set({ binId, wallId, compKey: null });
+  useInterior.getState().set({ binId, wallId, compKey: null, freeId: null });
 }
 
 export function selectCompartment(binId: string, compKey: string | null) {
-  useInterior.getState().set({ binId, compKey, wallId: null });
+  useInterior.getState().set({ binId, compKey, wallId: null, freeId: null });
 }
 
 export function clearInteriorSelection() {
-  useInterior.getState().set({ wallId: null, compKey: null });
+  useInterior.getState().set({ wallId: null, compKey: null, freeId: null });
+}
+
+export function selectFreeWall(binId: string, freeId: string | null) {
+  useInterior.getState().set({ binId, freeId, wallId: null, compKey: null });
 }
 
 export interface BinInterior {
@@ -78,5 +86,6 @@ export function useInteriorSelection(binId: string | null, r: ResolvedLayout | n
   const mine = !!binId && sel.binId === binId;
   const wallId = mine && sel.wallId && r?.byId.has(sel.wallId) ? sel.wallId : null;
   const compKey = mine && sel.compKey && r?.compartments.some((c) => c.key === sel.compKey) ? sel.compKey : null;
-  return { wallId, compKey, tool: sel.tool, orient: sel.orient };
+  const freeId = mine && sel.freeId && r?.free.some((f) => f.id === sel.freeId) ? sel.freeId : null;
+  return { wallId, compKey, freeId, tool: sel.tool, orient: sel.orient };
 }

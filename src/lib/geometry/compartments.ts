@@ -44,6 +44,7 @@ import {
   type Compartment,
   type ResolvedLayout,
 } from '../dividers';
+import { applyWallExtras, insertExtras, insertExtrasKey, shapeInsert, type InsertExtras } from './wallExtras';
 
 export interface CutterSpec {
   /** Footprint, already grown by the overlap into the surrounding walls. */
@@ -407,6 +408,9 @@ function layoutCuts(
     }
   }
 
+  // Finger notches, shaped tops, diagonal / curved walls (wallExtras.ts).
+  applyWallExtras(w, s, r, ix0, iy0, zFloor, topInfill, { cut, keep });
+
   // Removable walls: slot + floor groove, guide ribs at each end.
   for (const seg of removableSegments(r, o.lip)) {
     const half = DIVIDER / 2 + SLOT_CLEARANCE;
@@ -453,7 +457,7 @@ function place(orient: 'v' | 'h', c0: number, r0: number, c1: number, r1: number
 // Removable divider plates
 // ---------------------------------------------------------------------------
 
-export interface DividerInsert {
+export interface DividerInsert extends InsertExtras {
   wallId: string;
   /** Segment along the wall (walls crossing a removable wall split it). */
   segment: number;
@@ -473,6 +477,7 @@ export function insertsFor(r: ResolvedLayout, lip: boolean, zFloor: number, topI
     length: round(seg.b - seg.a - seg.gapA - seg.gapB),
     height: round(topInfill - Math.min(seg.lower, maxLower) - (zFloor - SLOT_DEPTH)),
     thickness: DIVIDER,
+    ...insertExtras(r.byId.get(seg.wallId)),
   }));
 }
 
@@ -486,7 +491,7 @@ const INSERT_BEVEL = 0.8;
  * thickness along Z; min corner at the origin, bottom at z = 0. The edge that
  * goes into the floor groove is y = 0 (its corners are beveled).
  */
-export function buildDividerInsert(w: Wasm, ins: Pick<DividerInsert, 'length' | 'height' | 'thickness'>): MeshData {
+export function buildDividerInsert(w: Wasm, ins: Pick<DividerInsert, 'length' | 'height' | 'thickness' | 'notch' | 'top'>): MeshData {
   const s = new Scope();
   try {
     const L = ins.length;
@@ -500,7 +505,7 @@ export function buildDividerInsert(w: Wasm, ins: Pick<DividerInsert, 'length' | 
       [0, H],
       [0, c],
     ];
-    const m = s.t(extrudePolygon(w, outline, 0, ins.thickness));
+    const m = shapeInsert(w, s, ins, outline);
     assertValid(m, 'divider insert');
     return toMeshData(m);
   } finally {
@@ -509,7 +514,7 @@ export function buildDividerInsert(w: Wasm, ins: Pick<DividerInsert, 'length' | 
 }
 
 /** Mesh key for a plate, so identical plates share one mesh. */
-export function insertKey(ins: Pick<DividerInsert, 'length' | 'height' | 'thickness'>) {
-  return `insert|${ins.length}x${ins.height}x${ins.thickness}`;
+export function insertKey(ins: Pick<DividerInsert, 'length' | 'height' | 'thickness' | 'notch' | 'top'>) {
+  return `insert|${ins.length}x${ins.height}x${ins.thickness}${insertExtrasKey(ins)}`;
 }
 

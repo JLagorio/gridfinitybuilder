@@ -16,6 +16,7 @@ import {
   wallAt,
   type Side,
 } from './resolve';
+import { freeWallMid, freeWallShape } from './resolve';
 import { resolveIn, type InnerSize, type PlaceHow } from './edit';
 import { EDGE, MIN_GAP, MIN_WALL, T, type DividerLayout, type Orient, type Ref, type ResolvedLayout } from './types';
 
@@ -315,4 +316,193 @@ export function nearestTarget(targets: Side[], run: number): Side | null {
   let best: Side | null = null;
   for (const t of targets) if (!best || Math.abs(t.pos - run) < Math.abs(best.pos - run)) best = t;
   return best;
+}
+
+// ---------------------------------------------------------------------------
+// Points (diagonal / curved walls)
+// ---------------------------------------------------------------------------
+
+export type PointSnapKind = 'corner' | 'end' | 'mid' | 'fraction' | 'axis' | 'edge' | 'on-wall' | 'angle' | 'step' | 'free';
+
+export interface PointSnap {
+  x: number;
+  y: number;
+  kind: PointSnapKind;
+  /** Short text for the guide chip ("corner", "midpoint", "45°"…); '' for plain steps. */
+  label: string;
+}
+
+export interface PointSnapOptions {
+  tolerance: number;
+  /** Fine increment (mm) when nothing else snaps. */
+  step: number;
+  /** Alt held: no snapping at all. */
+  free?: boolean;
+  /** The other end of the wall being drawn: lines up with it, and `constrain` keeps 15° steps from it. */
+  from?: [number, number];
+  /** Shift held: angle in 15° steps from `from`. */
+  constrain?: boolean;
+  /** Free wall being edited: its own points don't count. */
+  exclude?: string;
+}
+
+interface PointTarget {
+  x: number;
+  y: number;
+  kind: PointSnapKind;
+  label: string;
+  prio: number;
+}
+
+/** Points a diagonal wall's end snaps to: cavity corners and edge midpoints, wall ends, midpoints and quarter points. */
+export function pointTargets(r: ResolvedLayout, exclude?: string): PointTarget[] {
+  const { innerW: W, innerD: D } = r;
+  const out: PointTarget[] = [
+    { x: 0, y: 0, kind: 'corner', label: 'corner', prio: 0 },
+    { x: W, y: 0, kind: 'corner', label: 'corner', prio: 0 },
+    { x: W, y: D, kind: 'corner', label: 'corner', prio: 0 },
+    { x: 0, y: D, kind: 'corner', label: 'corner', prio: 0 },
+    { x: W / 2, y: 0, kind: 'mid', label: 'edge midpoint', prio: 2 },
+    { x: W / 2, y: D, kind: 'mid', label: 'edge midpoint', prio: 2 },
+    { x: 0, y: D / 2, kind: 'mid', label: 'edge midpoint', prio: 2 },
+    { x: W, y: D / 2, kind: 'mid', label: 'edge midpoint', prio: 2 },
+  ];
+  for (const w of r.walls) {
+    const at = (run: number): [number, number] => (w.orient === 'v' ? [w.pos, run] : [run, w.pos]);
+    for (const [t, kind, label, prio] of [
+      [0, 'end', 'wall end', 1],
+      [1, 'end', 'wall end', 1],
+      [0.5, 'mid', 'midpoint', 2],
+      [0.25, 'fraction', '25%', 3],
+      [0.75, 'fraction', '75%', 3],
+    ] as const) {
+      const [x, y] = at(w.start + t * (w.end - w.start));
+      out.push({ x, y, kind, label, prio });
+    }
+  }
+  for (const f of r.free) {
+    if (f.id === exclude) continue;
+    const m = freeWallMid(f);
+    out.push(
+      { x: f.a[0], y: f.a[1], kind: 'end', label: 'wall end', prio: 1 },
+      { x: f.b[0], y: f.b[1], kind: 'end', label: 'wall end', prio: 1 },
+      { x: m[0], y: m[1], kind: 'mid', label: 'midpoint', prio: 2 },
+    );
+  }
+  return out;
+}
+
+const clampTo = (v: number, max: number) => Math.min(max, Math.max(0, v));
+
+/** Nearest point on segment p0–p1. */
+function project(p0: [number, number], p1: [number, number], x: number, y: number): [number, number] {
+  const dx = p1[0] - p0[0];
+  const dy = p1[1] - p0[1];
+  const L2 = dx * dx + dy * dy;
+  const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - p0[0]) * dx + (y - p0[1]) * dy) / L2)) : 0;
+  return [p0[0] + t * dx, p0[1] + t * dy];
+}
+
+/**
+ * Snap a point inside the cavity for drawing a diagonal / curved wall: corners,
+ * wall ends, midpoints and quarter points win when within tolerance, then lining
+ * up with the other end (0° / 90°), then the nearest point on a cavity edge or a
+ * wall; otherwise the point is rounded to the fine step. Shift (`constrain`)
+ * keeps the angle from `from` in 15° steps instead; Alt (`free`) turns it all off.
+ */
+export function snapPoint(r: ResolvedLayout, x: number, y: number, o: PointSnapOptions): PointSnap {
+  const { innerW: W, innerD: D } = r;
+  const cx = clampTo(x, W);
+  const cy = clampTo(y, D);
+  if (o.free) return { x: cx, y: cy, kind: 'free', label: '' };
+  const step = o.step > 0 ? o.step : 1;
+  if (o.constrain && o.from) {
+    const [fx, fy] = o.from;
+    const deg = Math.round((Math.atan2(y - fy, x - fx) * 180) / Math.PI / 15) * 15;
+    const a = (deg * Math.PI) / 180;
+    const ux = Math.cos(a);
+    const uy = Math.sin(a);
+    let len = Math.max(0, Math.round(((x - fx) * ux + (y - fy) * uy) / step) * step);
+    // Stay inside the cavity along the ray.
+    for (const [u, f, max] of [
+      [ux, fx, W],
+      [uy, fy, D],
+    ]) {
+      if (u > 1e-9) len = Math.min(len, (max - f) / u);
+      else if (u < -1e-9) len = Math.min(len, -f / u);
+    }
+    const norm = ((deg % 360) + 360) % 360;
+    return { x: fx + ux * len, y: fy + uy * len, kind: 'angle', label: `${norm > 180 ? norm - 180 : norm}°` };
+  }
+  const tol = o.tolerance;
+  let best: PointTarget | null = null;
+  let bestScore = Infinity;
+  for (const t of pointTargets(r, o.exclude)) {
+    const d = Math.hypot(t.x - x, t.y - y);
+    // Points are small targets: reach a little further for them than for lines.
+    if (d > tol * 1.5) continue;
+    const score = d + t.prio * 0.01;
+    if (score < bestScore) {
+      bestScore = score;
+      best = t;
+    }
+  }
+  if (best) return { x: best.x, y: best.y, kind: best.kind, label: best.label };
+
+  // Line up with the other end.
+  let px = cx;
+  let py = cy;
+  let axis = '';
+  if (o.from) {
+    if (Math.abs(x - o.from[0]) <= tol && Math.abs(x - o.from[0]) <= Math.abs(y - o.from[1])) {
+      px = o.from[0];
+      axis = '90°';
+    } else if (Math.abs(y - o.from[1]) <= tol) {
+      py = o.from[1];
+      axis = '0°';
+    }
+  }
+
+  // Nearest point on a cavity edge or a wall's centerline.
+  const lines: { p: [number, number][]; kind: PointSnapKind; label: string }[] = [
+    { p: [[0, 0], [W, 0]], kind: 'edge', label: 'edge' },
+    { p: [[W, 0], [W, D]], kind: 'edge', label: 'edge' },
+    { p: [[0, D], [W, D]], kind: 'edge', label: 'edge' },
+    { p: [[0, 0], [0, D]], kind: 'edge', label: 'edge' },
+    ...r.walls.map((w) => ({
+      p: (w.orient === 'v' ? [[w.pos, w.start], [w.pos, w.end]] : [[w.start, w.pos], [w.end, w.pos]]) as [number, number][],
+      kind: 'on-wall' as const,
+      label: 'on wall',
+    })),
+    ...r.free.filter((f) => f.id !== o.exclude).map((f) => ({ p: f.path, kind: 'on-wall' as const, label: 'on wall' })),
+  ];
+  let line: { x: number; y: number; d: number; kind: PointSnapKind; label: string } | null = null;
+  for (const l of lines) {
+    for (let i = 0; i + 1 < l.p.length; i++) {
+      const [p0, p1] = [l.p[i], l.p[i + 1]];
+      let q = project(p0, p1, x, y);
+      // Keep the alignment when the line runs across it (where it crosses the segment).
+      if (axis === '90°' && Math.abs(p1[0] - p0[0]) > 1e-9) q = [px, p0[1] + ((px - p0[0]) * (p1[1] - p0[1])) / (p1[0] - p0[0])];
+      else if (axis === '0°' && Math.abs(p1[1] - p0[1]) > 1e-9) q = [p0[0] + ((py - p0[1]) * (p1[0] - p0[0])) / (p1[1] - p0[1]), py];
+      const on = project(p0, p1, q[0], q[1]);
+      if (Math.hypot(on[0] - q[0], on[1] - q[1]) > 1e-6) continue;
+      const d = Math.hypot(q[0] - x, q[1] - y);
+      if (d <= tol && (!line || d < line.d) && q[0] >= -1e-9 && q[0] <= W + 1e-9 && q[1] >= -1e-9 && q[1] <= D + 1e-9) {
+        line = { x: q[0], y: q[1], d, kind: l.kind, label: axis ? `${l.label} · ${axis}` : l.label };
+      }
+    }
+  }
+  if (line) return { x: line.x, y: line.y, kind: line.kind, label: line.label };
+  const round = (v: number) => Math.round(v / step) * step;
+  if (axis) return { x: axis === '90°' ? px : clampTo(round(cx), W), y: axis === '0°' ? py : clampTo(round(cy), D), kind: 'axis', label: axis };
+  return { x: clampTo(round(cx), W), y: clampTo(round(cy), D), kind: 'step', label: '' };
+}
+
+/** Length (along the centerline) and angle (0–180°, 0 = left to right) of a wall from a to b. */
+export function freeWallMeasure(a: [number, number], b: [number, number], bend = 0) {
+  const s = freeWallShape(a, b, bend);
+  let deg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+  if (deg < 0) deg += 180;
+  if (deg >= 180 - 1e-9) deg -= 180;
+  return { length: s.length, chord: Math.hypot(b[0] - a[0], b[1] - a[1]), angle: deg, radius: s.arc?.r ?? null };
 }

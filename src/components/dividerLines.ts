@@ -29,6 +29,12 @@ export function dividerLines(layout: GridLayout, b: PlacedBin): PlateLine[] {
       ? { x1: ox + w.pos, x2: ox + w.pos, y1: oy + w.start, y2: oy + w.end }
       : { x1: ox + w.start, x2: ox + w.end, y1: oy + w.pos, y2: oy + w.pos },
   );
+  // Diagonal / curved walls, as segments of their centerlines.
+  for (const f of r.free) {
+    for (let k = 0; k + 1 < f.path.length; k++) {
+      lines.push({ x1: ox + f.path[k][0], y1: oy + f.path[k][1], x2: ox + f.path[k + 1][0], y2: oy + f.path[k + 1][1] });
+    }
+  }
   cache.set(b.opts, { key, lines });
   return lines;
 }
