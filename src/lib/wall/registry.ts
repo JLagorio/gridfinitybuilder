@@ -96,6 +96,12 @@ export interface AttachmentPart {
   w: number;
   d: number;
   h: number;
+  /**
+   * Where it sits when it's in use, to show it in place in the 3D view (a container on its rail, a lid on its
+   * channel): `turn` (degrees about x, then y, then z, as Manifold's rotate()) stands the part as printed the way it
+   * sits, and `at` is where its min corner then lands in the attachment's own frame. Unset: it shows on the plates only.
+   */
+  place?: { at: [number, number, number]; turn: [number, number, number] };
 }
 
 /** A line of the bill of materials. */

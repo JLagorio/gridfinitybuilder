@@ -11,6 +11,7 @@ import { hookBuilder } from './kinds/hook.geom';
 import { binBuilder } from './kinds/bin.geom';
 import { cupBuilder } from './kinds/cup.geom';
 import { fitTestBuilder } from './kinds/fitTest.geom';
+import { railBuilder } from './kinds/rail.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -28,6 +29,7 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   bin: binBuilder as AttachmentBuilder<never>,
   cup: cupBuilder as AttachmentBuilder<never>,
   fitTest: fitTestBuilder as AttachmentBuilder<never>,
+  rail: railBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
