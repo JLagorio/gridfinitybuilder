@@ -7,6 +7,7 @@ import { PRINT_ESTIMATE } from './geometry/volume';
 import type { MeshSpec, PrintJob } from './project';
 import type { PrintSetup } from './layout/plan';
 import { currencySymbol, formatDuration, formatMoney, plateCost, type CostBreakdown, type PlateEstimate } from './estimate';
+import { enclosurePartHardware, type EnclosurePartKind } from './enclosures';
 
 /**
  * Bill of materials for a print job: hardware to buy, parts and plates, and a
@@ -52,10 +53,21 @@ export interface PlateBom {
 export interface Bom {
   hardware: HardwareLine[];
   /**
-   * `trays` is only set when there are lift-out trays (cups count as trays), `pads` when there are TPU pads.
-   * Sliding lids count as lids, rail plates and grid inserts as dividers.
+   * `trays` is only set when there are lift-out trays (cups count as trays), `pads` when there are TPU pads, `enclosure` when there
+   * are case, wall-grid or spacer parts. Sliding lids count as lids, rail
+   * plates and grid inserts as dividers, lid keys as connector keys.
    */
-  parts: { pieces: number; bins: number; lids: number; keys: number; dividers: number; labels: number; trays?: number; pads?: number };
+  parts: {
+    pieces: number;
+    bins: number;
+    lids: number;
+    keys: number;
+    dividers: number;
+    labels: number;
+    trays?: number;
+    pads?: number;
+    enclosure?: Partial<Record<EnclosurePartKind, number>>;
+  };
   plates: PlateBom[];
   total: PlateBom;
   /** Set when the BOM has time and cost figures. */
@@ -87,9 +99,10 @@ export function filamentFor(volumeMm3: number) {
 /** Holes in one mesh, by kind of hardware. */
 function holesIn(spec: MeshSpec | undefined): { item: string; count: number; note?: string }[] {
   if (!spec) return [];
+  if (spec.kind === 'enclosure') return enclosurePartHardware(spec.part);
   if (spec.kind === 'piece') {
     const o = spec.opts;
-    const out = [];
+    const out: HardwareLine[] = [...(spec.enclosure?.hardware ?? [])];
     // Joints are shared by two pieces: count each on one side (pins: left / front; screws: the head side).
     const low = spec.connectors.filter((s) => lowSideOf(s, spec.piece));
     if (o.connector === 'pin' && low.length) {
@@ -168,6 +181,11 @@ export function billOfMaterials(
       else if (part.kind === 'label') parts.labels++;
       else if (part.kind === 'tray') parts.trays = (parts.trays ?? 0) + 1;
       else if (part.kind === 'pad') parts.pads = (parts.pads ?? 0) + 1;
+      else if (part.kind === 'enclosure') {
+        const e = (parts.enclosure ??= {});
+        const k = part.enclosure ?? 'lid';
+        e[k] = (e[k] ?? 0) + 1;
+      }
       else parts.keys++;
       for (const h of holesIn(job.meshes[part.meshKey])) {
         const line = hardware.get(h.item) ?? { item: h.item, count: 0, note: h.note };
@@ -249,6 +267,7 @@ export function bomCsv(b: Bom): string {
   if (b.parts.dividers) rows.push(['Parts', 'Removable dividers', b.parts.dividers, ...blank, '']);
   if (b.parts.labels) rows.push(['Parts', 'Label plates', b.parts.labels, ...blank, '']);
   if (b.parts.pads) rows.push(['Parts', 'Non-slip pads (TPU)', b.parts.pads, ...blank, 'print in TPU on their own plate; press into the recesses under the baseplate']);
+  for (const [k, n] of enclosureCounts(b)) rows.push(['Parts', ENCLOSURE_PARTS[k][1], n, ...blank, '']);
   b.plates.forEach((p, i) => {
     rows.push([
       'Plate',
@@ -297,7 +316,10 @@ export function bomText(b: Bom): string {
     'Parts',
     `  ${b.parts.pieces} baseplate pieces, ${b.parts.bins} bins${b.parts.lids ? `, ${b.parts.lids} lids` : ''}${b.parts.trays ? `, ${b.parts.trays} trays` : ''}` +
       `${b.parts.keys ? `, ${b.parts.keys} connector keys` : ''}` +
-      `${b.parts.dividers ? `, ${b.parts.dividers} removable dividers` : ''}${b.parts.labels ? `, ${b.parts.labels} label plates` : ''}`,
+      `${b.parts.dividers ? `, ${b.parts.dividers} removable dividers` : ''}${b.parts.labels ? `, ${b.parts.labels} label plates` : ''}` +
+      enclosureCounts(b)
+        .map(([k, n]) => `, ${enclosurePartsText(k, n)}`)
+        .join(''),
   );
   if (b.parts.pads) lines.push(`  ${b.parts.pads} non-slip pads in TPU (their own plate; press into the recesses under the baseplate)`);
   lines.push('', `Plates (${b.plates.length})`);
@@ -323,6 +345,25 @@ export function bomText(b: Bom): string {
   }
   lines.push('');
   return lines.join('\n');
+}
+
+/** Names of the enclosure parts in the parts list: one, several. */
+export const ENCLOSURE_PARTS: Record<EnclosurePartKind, [string, string]> = {
+  lid: ['Case lid piece', 'Case lid pieces'],
+  pin: ['Hinge pin', 'Hinge pins'],
+  handle: ['Handle part', 'Handle parts'],
+  foot: ['Printed foot', 'Printed feet'],
+  spacer: ['Spacer strip', 'Spacer strips'],
+  cleat: ['Wall cleat', 'Wall cleats'],
+};
+
+/** "2 hinge pins". */
+export const enclosurePartsText = (k: EnclosurePartKind, n: number) => `${n} ${ENCLOSURE_PARTS[k][n === 1 ? 0 : 1].toLowerCase()}`;
+
+/** Enclosure part counts, in a fixed order. */
+export function enclosureCounts(b: Bom): [EnclosurePartKind, number][] {
+  const e = b.parts.enclosure ?? {};
+  return (Object.keys(ENCLOSURE_PARTS) as EnclosurePartKind[]).filter((k) => e[k]).map((k) => [k, e[k]!]);
 }
 
 export function filamentNote() {

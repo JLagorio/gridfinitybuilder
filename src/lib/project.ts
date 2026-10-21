@@ -73,6 +73,16 @@ import type { PieceDef } from './layout/split';
 import { writeBambuProject, type BambuPlate } from './export/bambu';
 import { placeTransform, write3MF, type ExportObject } from './export/threemf';
 import { findPrinter } from './printers';
+import {
+  buildEnclosurePart,
+  buildEnclosurePiece,
+  planEnclosure,
+  type EnclosurePart,
+  type EnclosurePartKind,
+  type EnclosureScene,
+  type EnclosureView,
+  type PieceEnclosure,
+} from './enclosures';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
 export interface PlacedBin {
@@ -133,6 +143,8 @@ export type MeshSpec =
       opts: BaseplateOptions;
       /** Connector sites on this piece's seams. */
       connectors: ConnectorSite[];
+      /** Carry-case walls, wall-mount holes, spacer sockets (enclosures.ts). */
+      enclosure?: PieceEnclosure;
     }
   | { kind: 'bin'; key: string; opts: BinOptions; cells?: BinCells }
   | { kind: 'lid'; key: string; opts: BinOptions; cells?: BinCells }
@@ -146,12 +158,16 @@ export type MeshSpec =
   /** Lift-out cup or grid insert (cups.ts), or a baseplate's TPU pad (pads.ts). */
   | { kind: 'insertPart'; key: string; part: InsertPart }
   /** An extra part of a drawer unit, parts box, … (containers/). */
-  | { kind: 'container'; key: string; type: ContainerType; spec: unknown };
+  | { kind: 'container'; key: string; type: ContainerType; spec: unknown }
+  /** Case lid, hinge pin, handle, foot, spacer strip, wall cleat (enclosures.ts); `view` poses it for the drawer view. */
+  | { kind: 'enclosure'; key: string; part: EnclosurePart; view?: EnclosureView };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray' | 'pad';
+  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray' | 'pad' | 'enclosure';
+  /** Enclosure parts: which one (case lid, hinge pin, spacer strip, …). */
+  enclosure?: EnclosurePartKind;
   meshKey: string;
   w: number;
   d: number;
@@ -187,6 +203,8 @@ export interface DrawerJob {
   plateOffset: number;
   /** Plates that hold this drawer's baseplate (and keys). */
   plateCount: number;
+  /** Carry case, wall grid or spacer strips: what the drawer view draws (enclosures.ts). */
+  enclosure?: EnclosureScene;
 }
 
 export interface PrintJob {
@@ -292,26 +310,31 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     const label = multi ? `${d.name} · ` : '';
     const warn = (msg: string) => warnings.add(multi ? `${d.name}: ${msg}` : msg);
     const layout = computeLayout(d.drawer);
-    const protrude = pieceProtrusion(d.baseplate);
-    const plan = planBaseplate(layout, setup, { protrude, skip: (p) => pieceIsVoid(layout, p) });
-    if (plan.error) warn(plan.error);
+    // A carry case, wall grid or spacer strips plan their own floor pieces and extra parts (enclosures.ts).
+    const enc = planEnclosure(d, layout, setup);
+    const pieceLayout = enc?.pieceLayout ?? layout;
+    const bpo = enc?.baseplate ?? d.baseplate;
+    const protrude = pieceProtrusion(bpo);
+    const plan = enc?.plan ?? planBaseplate(layout, setup, { protrude, skip: (p) => pieceIsVoid(layout, p) });
+    if (plan.error && !enc) warn(plan.error);
 
-    const bpH = baseplateHeight(d.baseplate);
-    const sites = connectorSites(layout, plan.pieces, d.baseplate);
+    const bpH = baseplateHeight(bpo);
+    const sites = connectorSites(pieceLayout, plan.pieces, bpo);
     // Only bowtie joints print keys; the others need nothing (pins, puzzle tabs) or hardware (screws).
-    const connectors = d.baseplate.connector === 'bowtie' ? sites : [];
+    const connectors = bpo.connector === 'bowtie' ? sites : [];
     for (const piece of plan.pieces) {
       const key = `${prefix}piece:${piece.id}`;
       const mine = sitesOnPiece(sites, piece);
-      const meshKey = pieceMeshKey(layout, piece, d.baseplate, mine);
-      meshes[meshKey] = { kind: 'piece', key: meshKey, layout, piece, opts: d.baseplate, connectors: mine };
+      const ep = enc?.piece(piece);
+      const meshKey = pieceMeshKey(pieceLayout, piece, bpo, mine) + (ep ? `|enc${JSON.stringify(ep.enclosure)}` : '');
+      meshes[meshKey] = { kind: 'piece', key: meshKey, layout: pieceLayout, piece, opts: bpo, connectors: mine, ...(ep ? { enclosure: ep.enclosure } : {}) };
       parts[key] = {
         key,
-        name: `${label}Baseplate piece ${piece.id}`,
+        name: `${label}${ep?.name ?? `Baseplate piece ${piece.id}`}`,
         kind: 'piece',
         meshKey,
-        ...pieceFootprint(piece, protrude),
-        h: bpH,
+        ...(ep ? { w: ep.w, d: ep.d } : pieceFootprint(piece, protrude)),
+        h: ep?.h ?? bpH,
         drawer: d.id,
         pieceId: piece.id,
       };
@@ -335,7 +358,7 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       }));
       const packed = packIntoPlates(piecePlates, keys, { ...bed, spacing: setup.spacing, nest: true });
       packed.plates.forEach((pl, i) => {
-        plates.push({ name: `${label}Baseplate ${i + 1}`, group: 'baseplate', placements: pl.placements });
+        plates.push({ name: `${label}${enc?.kind === 'case' ? 'Case body' : 'Baseplate'} ${i + 1}`, group: 'baseplate', placements: pl.placements });
       });
       packed.extra.forEach((pl, i) => {
         const name = packed.extra.length > 1 ? `Connector keys ${i + 1}` : 'Connector keys';
@@ -344,7 +367,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       if (packed.oversize.length) warn('Connector keys are larger than the print bed and were left out.');
       // TPU non-slip pads (pads.ts) on plates of their own, so they print in another material.
       const pads: PackItem[] = [];
-      baseplatePads(layout, plan.pieces, d.baseplate, sites).forEach((p, i) => {
+      // Same layout and options the pieces (and their pad recesses) are built from, so a case floor's pads line up too.
+      baseplatePads(pieceLayout, plan.pieces, bpo, sites).forEach((p, i) => {
         const meshKey = padPartKey(p.part);
         meshes[meshKey] = { kind: 'insertPart', key: meshKey, part: p.part };
         const key = `${prefix}pad:${i}`;
@@ -359,12 +383,51 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         if (packedPads.oversize.length) warn('Some non-slip strips are longer than the print bed and were left out.');
       }
     }
-    const steps = jointSteps(d.baseplate, d.baseplate.connector === 'bowtie' ? 0 : sites.length);
-    drawerJobs.push({ id: d.id, name: d.name, layout, plan, connectors, sites, steps, plateOffset, plateCount: plates.length - plateOffset });
+    // ---- Enclosure parts: case lid, hinge pins, handle, feet, spacer strips, wall cleat (enclosures.ts) ----
+    if (enc) {
+      for (const msg of enc.warnings) warn(msg);
+      for (const v of enc.views) meshes[v.meshKey] = { kind: 'enclosure', key: v.meshKey, part: v.part, view: v.view };
+      const items: PackItem[] = [];
+      for (const p of enc.parts) {
+        const k = prefix + p.key;
+        if (p.part) meshes[p.meshKey] = { kind: 'enclosure', key: p.meshKey, part: p.part };
+        else meshes[p.meshKey] ??= { kind: 'key', key: p.meshKey, opts: bpo };
+        parts[k] = { key: k, name: label + p.name, kind: p.kind, meshKey: p.meshKey, w: p.w, d: p.d, h: p.h, drawer: d.id };
+        if (p.part) parts[k].enclosure = p.part.kind;
+        items.push({ key: k, w: p.w, d: p.d });
+      }
+      if (include.baseplate && items.length) {
+        const packed = packPlates(items, { ...bed, spacing: setup.spacing, nest: true });
+        const count = new Map<string, number>();
+        const group = (pl: PlateLayout) => enc.parts.find((p) => prefix + p.key === pl.placements[0].key)?.group ?? 'Parts';
+        const totals = new Map<string, number>();
+        for (const pl of packed.plates) totals.set(group(pl), (totals.get(group(pl)) ?? 0) + 1);
+        for (const pl of packed.plates) {
+          const gname = group(pl);
+          const n = (count.get(gname) ?? 0) + 1;
+          count.set(gname, n);
+          plates.push({ name: `${label}${gname}${totals.get(gname)! > 1 ? ` ${n}` : ''}`, group: 'baseplate', placements: pl.placements });
+        }
+        for (const o of packed.oversize) warn(`${parts[o.key].name} is larger than the print bed and was left out.`);
+      }
+    }
+    const steps = [...jointSteps(bpo, bpo.connector === 'bowtie' ? 0 : sites.length), ...(enc?.steps ?? [])];
+    drawerJobs.push({
+      id: d.id,
+      name: d.name,
+      layout,
+      plan,
+      connectors,
+      sites,
+      steps,
+      plateOffset,
+      plateCount: plates.length - plateOffset,
+      ...(enc ? { enclosure: enc.scene } : {}),
+    });
 
     // TPU pads (pads.ts) lift the whole plate a little.
-    const lift = padStyle(d.baseplate) ? PAD.proud : 0;
-    const room = d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) - lift : Infinity;
+    const lift = padStyle(bpo) ? PAD.proud : 0;
+    const room = enc ? enc.room - lift : d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) - lift : Infinity;
     // Raised front labels stand proud of the 0.5 mm gap to the bin in front.
     const clashes = frontLabelClashes(
       d.bins,
@@ -485,9 +548,11 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
 /** Build a mesh with its footprint's min corner at the origin and its bottom at z = 0. */
 export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'piece') {
+    if (spec.enclosure) return buildEnclosurePiece(w, spec.layout, spec.piece, spec.opts, spec.connectors, spec.enclosure);
     const m = buildBaseplatePiece(w, spec.layout, spec.piece, spec.opts, spec.connectors);
     return translateMesh(m, -spec.piece.x0, -spec.piece.y0, 0);
   }
+  if (spec.kind === 'enclosure') return buildEnclosurePart(w, spec.part, spec.view);
   if (spec.kind === 'key') return buildConnectorKey(w);
   if (spec.kind === 'divider') return buildDividerInsert(w, spec.insert);
   if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);

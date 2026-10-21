@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useStore } from '../state/store';
-import { billOfMaterials, bomCsv, bomText, estimateNote, filamentNote, type Bom, type PlateBom } from '../lib/bom';
+import { billOfMaterials, bomCsv, bomText, enclosureCounts, enclosurePartsText, estimateNote, filamentNote, type Bom, type PlateBom } from '../lib/bom';
 import { currencySymbol, estimateJob, formatDuration, formatMoney, type PlateEstimate } from '../lib/estimate';
 import { DEFAULT_MOTION } from '../lib/printers';
 import { planTestFit } from '../lib/testfit';
@@ -180,7 +180,8 @@ export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: str
         {trays > 0 && ` · ${trays} tray${trays === 1 ? '' : 's'}`}
         {dividers > 0 && ` · ${dividers} divider plate${dividers === 1 ? '' : 's'}`}
         {keys > 0 && ` · ${keys} connector key${keys === 1 ? '' : 's'}`}
-        {pads > 0 && ` · ${pads} non-slip pad${pads === 1 ? '' : 's'} in TPU`} · {job.plates.length} plate{job.plates.length === 1 ? '' : 's'}
+        {pads > 0 && ` · ${pads} non-slip pad${pads === 1 ? '' : 's'} in TPU`}
+        {enclosureCounts(bom).map(([k, n]) => ` · ${enclosurePartsText(k, n)}`)} · {job.plates.length} plate{job.plates.length === 1 ? '' : 's'}
       </p>
       {job.plates.length > 0 && (
         <table className="bom-table">

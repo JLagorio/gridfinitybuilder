@@ -15,6 +15,7 @@ import { carryContents, cleanBinContents, sanitizeContents, withCompContents, wi
 import { cleanStretch, type BinStretch } from '../lib/geometry/placement';
 import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
+import { cleanEnclosure } from '../lib/enclosureOptions';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -165,14 +166,14 @@ function cleanDrawer(d: Partial<DrawerInput> | undefined): DrawerInput {
   out.widthSamples = nums(out.widthSamples);
   out.depthSamples = nums(out.depthSamples);
   out.height = Number(out.height) > 0 ? Number(out.height) : 0;
-  if (!['solid', 'half', 'fit'].includes(out.fill)) out.fill = 'solid';
+  if (!['solid', 'half', 'fit', 'spacers'].includes(out.fill)) out.fill = 'solid';
   // Blocked cells: "i,j" keys, deduplicated.
   out.mask = Array.isArray(out.mask) ? [...new Set(out.mask.map(String).filter((k) => /^\d+,\d+$/.test(k)))] : [];
   out.maskStyle = out.maskStyle === 'void' ? 'void' : 'solid';
   // Half grid: only kept when on, so drawers saved before it existed stay as they were.
   if (out.halfGrid === true) out.halfGrid = true;
   else delete out.halfGrid;
-  return out;
+  return cleanEnclosure(out);
 }
 
 /** A bin with its stretch cleaned (dropped when there is none). */

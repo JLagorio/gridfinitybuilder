@@ -21,6 +21,7 @@ import { boxAt, cylinderAt, loftRoundedRect, ringAt, roundedRectRing, type Corne
 import { jointSolid, lowSideOf, type ConnectorSite, type ConnectorStyle } from './connectors';
 import { textRects, textSize } from './digits';
 import { growRect, maskSet, rectsOverlap, voidRects, type Rect } from './mask';
+import { buildSolid, type SolidDef } from './solids';
 import type { PieceDef } from '../layout/split';
 import type { GridLayout } from '../layout/drawer';
 import { padRecesses, type PadStyle } from './pads';
@@ -393,6 +394,8 @@ export function buildBaseplatePiece(
   piece: PieceDef,
   o: BaseplateOptions,
   connectors: ConnectorSite[] = [],
+  /** More to cut away: wall-mount screw holes, case feet recesses, spacer-strip sockets (enclosures). */
+  extraCuts: SolidDef[] = [],
 ): MeshData {
   const s = new Scope();
   try {
@@ -481,6 +484,7 @@ export function buildBaseplatePiece(
     }
     // Recesses for TPU non-slip pads (pads.ts); piece numbers keep clear of them.
     features.push(...padRecesses(w, s, layout, piece, o, connectors));
+    for (const c of extraCuts) features.push(s.t(buildSolid(w, c)));
 
     const negatives = [...cutouts, ...features];
     if (o.pieceNumbers) {
