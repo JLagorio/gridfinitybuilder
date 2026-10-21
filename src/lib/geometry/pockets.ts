@@ -54,14 +54,20 @@ export function presetFields(p: PocketPreset): Partial<BinVariantOptions> {
   };
 }
 
-type PocketOpts = Pick<BinVariantOptions, 'pocketShape' | 'pocketW' | 'pocketD' | 'pocketDepth' | 'pocketSpacing' | 'pocketChamfer'> & {
-  lip: boolean;
-};
+export type PocketOpts = Pick<BinVariantOptions, 'pocketShape' | 'pocketW' | 'pocketD' | 'pocketDepth' | 'pocketSpacing' | 'pocketChamfer'>;
+
+/** A clear rectangle (between wall faces) to fill with pockets, bin-centered mm. */
+export interface PocketRegion {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
 
 export interface PocketLayout {
-  /** Pocket centers, relative to the bin's center. */
+  /** Pocket centers, bin-centered mm. */
   centers: [number, number][];
-  /** Hex pockets: true = flat sides facing ±X (columns staggered), false = flat sides facing ±Y... see pocketCutters. */
+  /** Hex pockets: true = flat sides facing ±X (rows staggered along X); false = the layout turned 90°. */
   hexFlatX: boolean;
   /** Top of the solid fill. */
   fillTop: number;
@@ -113,19 +119,29 @@ function staggerCenters(aw: number, ad: number, sx: number, sy: number, sp: numb
   return pts.map(([x, y]) => [x - cx, y - cy]);
 }
 
-/**
- * Where the pockets go in a W × D bin whose floor is at `zFloor` and whose
- * infill may reach `topInfill`.
- */
-export function pocketLayout(o: PocketOpts, W: number, D: number, zFloor: number, topInfill: number): PocketLayout {
-  const depth = Math.max(0, Math.min(o.pocketDepth, topInfill - zFloor));
+/** Margin kept between the outer pockets and the region's walls. */
+const edgeMargin = (o: PocketOpts) => Math.max(o.pocketSpacing, o.pocketChamfer + 0.4);
+
+/** How deep the pockets can go with the floor at `zFloor` and the fill reaching at most `maxTop`. */
+export function pocketFill(o: PocketOpts, zFloor: number, maxTop: number): { fillTop: number; depth: number } {
+  const depth = Math.max(0, Math.min(o.pocketDepth, maxTop - zFloor));
   let fillTop = zFloor + depth;
-  if (fillTop > topInfill - 0.3) fillTop = topInfill;
-  // With the fill up under the lip, keep the pockets inside the lip's inner edge.
-  const wallLine = o.lip && fillTop >= topInfill - 1e-6 ? LIP_DEPTH : WALL;
-  const margin = Math.max(o.pocketSpacing, o.pocketChamfer + 0.4);
-  const aw = W - 2 * (wallLine + margin);
-  const ad = D - 2 * (wallLine + margin);
+  if (fillTop > maxTop - 0.3) fillTop = maxTop;
+  return { fillTop, depth: fillTop - zFloor };
+}
+
+/**
+ * Where the pockets go in a clear region whose floor is at `zFloor` and whose
+ * fill may reach `maxTop`. As many as fit: a square grid, or staggered rows or
+ * columns for round and hex pockets, whichever holds more.
+ */
+export function regionPocketLayout(o: PocketOpts, region: PocketRegion, zFloor: number, maxTop: number): PocketLayout {
+  const { fillTop, depth } = pocketFill(o, zFloor, maxTop);
+  const margin = edgeMargin(o);
+  const aw = region.x1 - region.x0 - 2 * margin;
+  const ad = region.y1 - region.y0 - 2 * margin;
+  const cx = (region.x0 + region.x1) / 2;
+  const cy = (region.y0 + region.y1) / 2;
   const sp = o.pocketSpacing;
   const [sx, sy] = extents(o);
   const options: { centers: [number, number][]; hexFlatX: boolean }[] = [{ centers: gridCenters(aw, ad, sx, sy, sp), hexFlatX: true }];
@@ -137,26 +153,31 @@ export function pocketLayout(o: PocketOpts, W: number, D: number, zFloor: number
   }
   let best = options[0];
   for (const c of options) if (c.centers.length > best.centers.length) best = c;
-  return { ...best, fillTop, depth: fillTop - zFloor };
+  return { centers: best.centers.map(([x, y]) => [x + cx, y + cy]), hexFlatX: best.hexFlatX, fillTop, depth };
 }
 
-/** Cutters for the pocket interior: the open space above the fill, and every pocket. */
-export function pocketCutters(
-  w: Wasm,
-  s: Scope,
-  o: PocketOpts,
-  W: number,
-  D: number,
-  zFloor: number,
-  topInfill: number,
-): Manifold[] {
-  const L = pocketLayout(o, W, D, zFloor, topInfill);
+/** The clear region a whole-bin pocket grid uses (inside the lip's inner edge when the fill reaches up under it). */
+function binRegion(o: PocketOpts & { lip: boolean }, W: number, D: number, zFloor: number, topInfill: number): PocketRegion {
+  const { fillTop } = pocketFill(o, zFloor, topInfill);
+  const wallLine = o.lip && fillTop >= topInfill - 1e-6 ? LIP_DEPTH : WALL;
+  return { x0: -W / 2 + wallLine, y0: -D / 2 + wallLine, x1: W / 2 - wallLine, y1: D / 2 - wallLine };
+}
+
+/**
+ * Where the pockets go in a W × D bin whose floor is at `zFloor` and whose
+ * infill may reach `topInfill`.
+ */
+export function pocketLayout(o: PocketOpts & { lip: boolean }, W: number, D: number, zFloor: number, topInfill: number): PocketLayout {
+  return regionPocketLayout(o, binRegion(o, W, D, zFloor, topInfill), zFloor, topInfill);
+}
+
+/**
+ * Cutters for the pockets of a region (not the open space above the fill),
+ * reaching up to `zTop`. Subtract them from solid material that fills the
+ * region up to the layout's `fillTop`.
+ */
+export function regionPocketCutters(w: Wasm, s: Scope, o: PocketOpts, L: PocketLayout, zFloor: number, zTop: number): Manifold[] {
   const out: Manifold[] = [];
-  const zTop = topInfill + 1;
-  if (L.fillTop < topInfill) {
-    const ring = roundedRectRing(-W / 2 + WALL, -D / 2 + WALL, W / 2 - WALL, D / 2 - WALL, INNER_RADIUS);
-    out.push(s.t(extrudePolygon(w, ring, L.fillTop, zTop)));
-  }
   if (L.depth < 0.5) return out;
   const c = Math.min(o.pocketChamfer, L.depth / 2);
   const z0 = zFloor;
@@ -186,5 +207,26 @@ export function pocketCutters(
       }
     }
   }
+  return out;
+}
+
+/** Cutters for the whole-bin pocket interior: the open space above the fill, and every pocket. */
+export function pocketCutters(
+  w: Wasm,
+  s: Scope,
+  o: PocketOpts & { lip: boolean },
+  W: number,
+  D: number,
+  zFloor: number,
+  topInfill: number,
+): Manifold[] {
+  const L = pocketLayout(o, W, D, zFloor, topInfill);
+  const out: Manifold[] = [];
+  const zTop = topInfill + 1;
+  if (L.fillTop < topInfill) {
+    const ring = roundedRectRing(-W / 2 + WALL, -D / 2 + WALL, W / 2 - WALL, D / 2 - WALL, INNER_RADIUS);
+    out.push(s.t(extrudePolygon(w, ring, L.fillTop, zTop)));
+  }
+  out.push(...regionPocketCutters(w, s, o, L, zFloor, zTop));
   return out;
 }
