@@ -33,7 +33,10 @@ import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } fro
 import { resolveContentLabels } from './geometry/labelContents';
 import { labelPlainText } from './geometry/labelIcons';
 import { frontLabelBottom, frontLabelClashes } from './geometry/frontLabel';
-import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
+import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight, planLidQr } from './geometry/lid';
+import { binQrPlate, resolveQrText } from './geometry/binQr';
+import { qrPlateHeight, qrPlateKey, type QrPlatePart } from './geometry/qrCode';
+import { buildQrPlate } from './geometry/qrSolid';
 import { accessoryParts, planAccessories, type AccessoryPart } from './geometry/accessories';
 import { buildAccessoryPart } from './geometry/accessoryGeometry';
 import { insertParts, planInserts } from './geometry/cups';
@@ -157,6 +160,8 @@ export type MeshSpec =
   | { kind: 'divider'; key: string; insert: DividerInsert }
   /** Swappable label plate. */
   | { kind: 'label'; key: string; plate: LabelPlate }
+  /** Stick-on QR code plate (qrCode.ts). */
+  | { kind: 'qrPlate'; key: string; plate: QrPlatePart }
   /** Lift-out tray, sliding lid or rail plate (accessories.ts). */
   | { kind: 'accessory'; key: string; part: AccessoryPart }
   /** Lift-out cup or grid insert (cups.ts), or a baseplate's TPU pad (pads.ts). */
@@ -270,13 +275,13 @@ export function binCellsAt(layout: GridLayout, b: PlacedBin): BinCells | undefin
 }
 
 /**
- * The mesh spec for a placed bin. Label text that asks for `{contents}` is
- * filled in from what's in the bin here (labelContents.ts), so only then does
- * the key follow the contents.
+ * The mesh spec for a placed bin. Label text that asks for `{contents}`, and a
+ * QR code that lists them, are filled in from what's in the bin here
+ * (labelContents.ts, binQr.ts), so only then does the key follow the contents.
  */
 export function binSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'bin' }> {
   const cells = binCellsAt(layout, b);
-  const opts = resolveContentLabels(b.opts, b);
+  const opts = resolveQrText(resolveContentLabels(b.opts, b), b, cells);
   return { kind: 'bin', key: `bin|${binKey(opts, cells)}`, opts, cells };
 }
 
@@ -285,11 +290,12 @@ export function binStretched(layout: GridLayout, b: PlacedBin): boolean {
   return hasStretch(binCellsAt(layout, b)?.stretch);
 }
 
-/** The mesh spec for a placed bin's stacking lid (lids depend only on the footprint; stretched bins get none). */
+/** The mesh spec for a placed bin's stacking lid (lids depend only on the footprint, and a QR code on them; stretched bins get none). */
 export function lidSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'lid' }> {
   const at = binCellsAt(layout, b);
   const cells = at && { x: at.x, y: at.y };
-  return { kind: 'lid', key: `lid|${lidKey(b.opts, cells)}`, opts: b.opts, cells };
+  const opts = b.opts.qr === 'lid' ? resolveQrText(b.opts, b, at) : b.opts;
+  return { kind: 'lid', key: `lid|${lidKey(opts, cells)}`, opts, cells };
 }
 
 /**
@@ -572,6 +578,16 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         if (platePlaces[i]) parts[k].assembled = platePlaces[i];
         if (include.bins) binItems.push({ key: k, w: pl.width, d: pl.depth });
       });
+      // A stick-on QR code plate (binQr.ts).
+      const qrPlate = binQrPlate(spec.opts, spec.cells)?.part;
+      if (qrPlate) {
+        const meshKey = qrPlateKey(qrPlate);
+        meshes[meshKey] = { kind: 'qrPlate', key: meshKey, plate: qrPlate };
+        const k = `${prefix}qr:${b.id}`;
+        const side = qrPlate.side;
+        parts[k] = { key: k, name: `${label}QR plate ${round1(side)} × ${round1(side)} mm (${owner})`, kind: 'label', meshKey, w: side, d: side, h: qrPlateHeight(qrPlate), drawer: d.id };
+        if (include.bins) binItems.push({ key: k, w: side, d: side });
+      }
       // Lift-out trays, sliding lids and rail plates (accessories.ts).
       const acc = sanitizeBin(spec.opts);
       for (const msg of planAccessories(acc, w, dd).notes) warn(`Bin ${binLabel(b.opts)}: ${msg}`);
@@ -732,6 +748,7 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'key') return buildConnectorKey(w);
   if (spec.kind === 'divider') return buildDividerInsert(w, spec.insert);
   if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);
+  if (spec.kind === 'qrPlate') return buildQrPlate(w, spec.plate);
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
   if (spec.kind === 'insertPart') return buildInsertPart(w, spec.part);
   if (spec.kind === 'container') {
@@ -770,6 +787,10 @@ export function usesSecondFilament(job: PrintJob): boolean {
       const spec = job.meshes[job.parts[p.key].meshKey];
       if (spec?.kind === 'bin' && binHasShadow(spec)) return true;
       if (spec?.kind === 'label' && spec.plate.style === 'inlaid' && spec.plate.text.trim()) return true;
+      // Inlaid QR codes: on a plate, a stacking lid, a sliding lid (an inlaid one on the front wall is binUsesInlay's).
+      if (spec?.kind === 'qrPlate' && spec.plate.spot.style === 'inlaid') return true;
+      if (spec?.kind === 'lid' && planLidQr(spec.opts, spec.cells)?.spot?.style === 'inlaid') return true;
+      if (spec?.kind === 'accessory' && spec.part.type === 'slideLid' && spec.part.qr?.style === 'inlaid') return true;
       // Inlaid tab text (with label plates it's on the plates, unless a tab is too small for one), two-tone or inlaid front labels.
       if (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) return true;
     }

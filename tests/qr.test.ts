@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import jsQR from 'jsqr';
-import { QR_ECCS, QR_QUIET, encodeQr, qrByteLength, qrCapacity, qrCodewords, qrDark, qrFit, qrMode, qrRects, qrSize, type QrCode, type QrEcc } from '../src/lib/qr';
+import { QR_ECCS, QR_QUIET, qrByteLength, qrCapacity, qrFit, qrMode, qrSize, type QrEcc } from '../src/lib/qr';
+import { encodeQr, qrCodewords, qrDark, qrRects, type QrCode } from '../src/lib/qrEncode';
 
 /** The code as an RGBA image, `px` pixels a module, with its quiet zone. */
 function render(code: QrCode, px = 4, quiet = QR_QUIET): { data: Uint8ClampedArray; width: number; height: number } {
