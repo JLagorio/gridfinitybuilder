@@ -198,7 +198,7 @@ export function ExternalBinDialog({ mode, onClose }: { mode: ExternalMode; onClo
 
   const common = (
     <>
-      <TextInput label="Name" value={name} onChange={setName} placeholder={tab === 'placeholder' ? 'e.g. Ammo can, IKEA box, Screw bin' : obj?.name} hint="On the grid and the drawer map, and what Find looks for." />
+      <TextInput label="Name" value={name} onChange={setName} placeholder={tab === 'placeholder' ? 'e.g. Ammo can, Shoe box, Screw bin' : obj?.name} hint="On the grid and the drawer map, and what Find looks for." />
       <ColorField value={color} onChange={setColor} />
       <Toggle
         label="Stackable"

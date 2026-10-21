@@ -6,8 +6,8 @@ import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { SKADIS_INDEX } from './skadisIndex';
 
-/** IKEA's boards, width × height, mm (its slots start 20 mm from each edge, as Gridfit's do). */
-const IKEA_BOARDS: [number, number][] = [
+/** The common Skådis board sizes, width × height, mm (their slots start 20 mm from each edge, as Gridfit's do). */
+const STANDARD_BOARDS: [number, number][] = [
   [360, 560],
   [560, 560],
   [760, 560],
@@ -40,7 +40,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
   const step = `${p.pitch} mm`;
 
   const patternHint = {
-    skadis: `Columns ${step} apart, the slots in a column ${2 * p.pitch} mm apart, every other column ${step} higher.${p.pitch === 20 ? ' IKEA’s own hooks fit.' : ' At 20 mm IKEA’s own hooks fit.'}`,
+    skadis: `Columns ${step} apart, the slots in a column ${2 * p.pitch} mm apart, every other column ${step} higher.${p.pitch === 20 ? ' Standard Skådis hooks fit.' : ' At 20 mm standard Skådis hooks fit.'}`,
     square: `A square grid, slots ${2 * p.pitch} mm apart both ways (openGrid-like at a 14 mm step).${hex ? '' : ' Seams run between the slots and cost none.'}`,
     dense: `A slot every ${step}: twice the slots, so attachments sit at any step.${p.pitch > o.pitch ? ` The step is ${step} at least, 4 mm longer than a slot.` : ''}`,
   }[o.pattern];
@@ -69,24 +69,24 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             value={have ? 'attachments' : 'all'}
             options={[
               { value: 'all', label: 'Board and attachments' },
-              { value: 'attachments', label: 'Just attachments', title: 'You have the board (IKEA’s, or one printed before): print only what hangs on it' },
+              { value: 'attachments', label: 'Just attachments', title: 'You have the board already: print only what hangs on it' },
             ]}
             onChange={(v) => setHave(v === 'attachments')}
             hint={
               have
-                ? 'The board isn’t printed: give its size (or pick IKEA’s) and thickness, and the attachments are made to fit it.'
+                ? 'The board isn’t printed: give its size (or pick a standard one) and thickness, and the attachments are made to fit it.'
                 : 'Have a board already? Pick Just attachments to print only what hangs on it.'
             }
           />
           {have && (
             <div className="wall-actions">
-              {IKEA_BOARDS.map(([bw, bh]) => (
+              {STANDARD_BOARDS.map(([bw, bh]) => (
                 <button
                   key={`${bw}x${bh}`}
                   onClick={() => set({ width: bw, height: bh, thickness: 5.1, slotW: 5.1, slotL: 15.2, pattern: 'skadis', pitch: 20 })}
-                  title={`IKEA SKÅDIS ${bw / 10} × ${bh / 10} cm`}
+                  title={`A standard ${bw / 10} × ${bh / 10} cm board: 5.1 mm thick, 5.1 × 15.2 mm slots`}
                 >
-                  IKEA {bw / 10} × {bh / 10}
+                  {bw / 10} × {bh / 10} cm
                 </button>
               ))}
             </div>
@@ -104,7 +104,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
           </div>
           <div className="field-hint">
             The space on the wall. {hex ? 'Whole hexagons fit in it, centred.' : 'The board fills it, the slots centred with at least the border around them.'}{' '}
-            IKEA’s own boards are 56 × 56, 76 × 56 and 36 × 56 cm.
+            Standard boards are 56 × 56, 76 × 56 and 36 × 56 cm.
           </div>
         </Find>
         <Find id="skadis-shape">
@@ -132,7 +132,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             label="Slot pattern"
             value={o.pattern}
             options={[
-              { value: 'skadis', label: 'Skådis', title: 'IKEA’s: every other column a step higher' },
+              { value: 'skadis', label: 'Skådis', title: 'The standard pattern: every other column a step higher' },
               { value: 'square', label: 'Square', title: 'A square grid, two steps apart both ways' },
               { value: 'dense', label: 'Dense', title: 'A slot at every step: attachments sit anywhere' },
             ]}
@@ -146,7 +146,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             max={40}
             step={0.5}
             onChange={(pitch) => set({ pitch })}
-            hint="The lattice the slots are on (IKEA: 20 mm). Attachments’ mounts are two steps apart."
+            hint="The lattice the slots are on (standard: 20 mm). Attachments’ mounts are two steps apart."
           />
         </Find>
         {hex && (
@@ -287,7 +287,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
                 hint={
                   p.depth > o.depth
                     ? `${p.hang === 'cleat' ? 'A cleat needs' : 'Door hooks need'} ${p.depth} mm or more: it is ${p.depth} mm.`
-                    : 'Room for the hooks to clip behind: IKEA’s are fine with 15–20 mm.'
+                    : 'Room for the hooks to clip behind: 15–20 mm suits most.'
                 }
               />
             )}
@@ -339,7 +339,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             onChange={(chamfer) => set({ chamfer })}
             hint="On both faces, so hooks slide in."
           />
-          <div className="field-hint">IKEA: 5 × 15 mm. A little wider (5.5–6) if your hooks or printer run tight.</div>
+          <div className="field-hint">Standard: 5 × 15 mm. A little wider (5.5–6) if your hooks or printer run tight.</div>
         </Group>
         <Find id="skadis-thickness" set={changed('thickness')}>
           <NumberInput
@@ -349,7 +349,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             max={10}
             step={0.1}
             onChange={(thickness) => set({ thickness })}
-            hint="IKEA’s board is 5 mm: its hooks are made for that."
+            hint="Standard boards are 5 mm: hooks are made for that."
           />
         </Find>
         <Find id="skadis-edge" set={changed('border', 'corner')}>

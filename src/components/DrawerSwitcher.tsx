@@ -89,7 +89,7 @@ export function DrawerSwitcher() {
             >
               New: just bins
             </button>
-            {/* A pegboard for a space on the wall: IKEA SKÅDIS slots, split to the bed (geometry/skadis.ts). */}
+            {/* A pegboard for a space on the wall: Skådis slots, split to the bed (geometry/skadis.ts). */}
             <button
               title="A Skådis pegboard for a space on the wall, split into tiles that fit your printer"
               onClick={() => {

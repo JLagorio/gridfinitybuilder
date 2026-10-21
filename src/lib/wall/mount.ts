@@ -14,7 +14,7 @@
  *   board below its slot, the classic pegboard hook; its profile lies on the
  *   bed, so it is strong and needs no support.
  *
- * Mounts sit on the slot lattice: columns two steps (40 mm on IKEA's spacing)
+ * Mounts sit on the slot lattice: columns two steps (40 mm on the standard spacing)
  * apart in the top row, studs two steps below. Units: wall coordinates of the
  * part's own frame (registry.ts).
  */

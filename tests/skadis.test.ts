@@ -84,7 +84,7 @@ function toSlot(x: number, y: number, s: [number, number], o: SkadisOptions): nu
 // ---------------------------------------------------------------------------
 
 describe('options', () => {
-  it('defaults to an IKEA board: its measured 5.1 × 15.3 slots (printed ones come out a little small), 5 mm thick, 56 cm square', () => {
+  it('defaults to a standard board: its measured 5.1 × 15.3 slots (printed ones come out a little small), 5 mm thick, 56 cm square', () => {
     const o = sanitizeSkadis(undefined);
     expect(o).toEqual(DEFAULT_SKADIS);
     expect([o.slotW, o.slotL, o.thickness, o.width, o.height]).toEqual([5.1, 15.3, 5, 560, 560]);
@@ -120,7 +120,7 @@ describe('options', () => {
 // ---------------------------------------------------------------------------
 
 describe('slot pattern', () => {
-  it('is IKEA’s: columns 20 mm apart, 40 mm in a column, every other column 20 mm up', () => {
+  it('is the standard pattern: columns 20 mm apart, 40 mm in a column, every other column 20 mm up', () => {
     const plan = planSkadis(opts(), [{ w: 1000, d: 1000 }]);
     const slots = slotCentres(plan);
     const col = slots.filter((s) => Math.abs(s[0] - slots[0][0]) < 1e-6).map((s) => s[1]);

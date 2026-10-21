@@ -530,7 +530,7 @@ export const useStore = create<Store>()(
             ...(s.drawer.halfGrid ? { halfGrid: true } : {}),
             // For a baseplate you have: given by its cells, and nothing of it prints.
             ...(o.haveBaseplate && !o.skadis ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
-            // A pegboard for a space on the wall, IKEA's square board to start.
+            // A pegboard for a space on the wall, a 56 cm square board to start.
             ...(o.skadis ? { enclosure: 'skadis' as const, skadis: { ...DEFAULT_SKADIS } } : {}),
           },
           baseplate: { ...s.baseplate },

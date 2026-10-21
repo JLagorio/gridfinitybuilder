@@ -15,7 +15,7 @@ Then open http://localhost:5199.
 
 ## Workflow
 
-A project holds **all your drawers**. Switch between them, add, duplicate, rename or delete them from the drawer menu in the top bar. Each drawer has its own size, baseplate settings and bins; print one, all, or a chosen set at once. Already have the baseplate? A drawer can print **just bins** (below); **New: just bins** in the drawer menu starts one in one click. **New: Skådis board** starts an IKEA SKÅDIS-compatible pegboard for a space on the wall instead (see [Skådis boards](#skådis-boards)).
+A project holds **all your drawers**. Switch between them, add, duplicate, rename or delete them from the drawer menu in the top bar. Each drawer has its own size, baseplate settings and bins; print one, all, or a chosen set at once. Already have the baseplate? A drawer can print **just bins** (below); **New: just bins** in the drawer menu starts one in one click. **New: Skådis board** starts a Skådis-pattern pegboard for a space on the wall instead (see [Skådis boards](#skådis-boards)).
 
 Lengths are stored in mm. The **mm / in** switch in the top bar changes what every length field shows and accepts. Inches show as fractions (1/8 to 1/32, or decimals), and you can type `20 1/8`, `20-1/8"`, `1' 8 1/8"`, `44.5mm` or `51cm` in either mode.
 
@@ -325,9 +325,9 @@ A vase-mode bin (*Type: Vase-mode bin*) prints in the slicer's spiral vase mode 
 
 ### Skådis boards
 
-**New: Skådis board** in the drawer menu adds a pegboard to the project, beside the drawers: IKEA SKÅDIS hooks, shelves and containers hang in it, and so do the attachments Gridfit makes for it (below). Its first tab (*Skådis board*) takes the place of *Drawer & baseplate*, its second (*Attachments*) the place of *Bins*, and it prints, exports and shares like any drawer: on its own plates, in the Bambu project, the 3MF / STL / STEP files and the assembly map. Have a board already (IKEA's, or one printed before)? *Print for this board: Just attachments* prints only what hangs on it; the IKEA buttons set its size (36, 56 or 76 × 56 cm) and its measured 5.1 mm thickness and 5.1 × 15.2 mm slots.
+**New: Skådis board** in the drawer menu adds a pegboard to the project, beside the drawers: Skådis hooks, shelves and containers hang in it, and so do the attachments Gridfit makes for it (below). Its first tab (*Skådis board*) takes the place of *Drawer & baseplate*, its second (*Attachments*) the place of *Bins*, and it prints, exports and shares like any drawer: on its own plates, in the Bambu project, the 3MF / STL / STEP files and the assembly map. Have a board already? *Print for this board: Just attachments* prints only what hangs on it; the standard-size buttons set its size (36, 56 or 76 × 56 cm) and its measured 5.1 mm thickness and 5.1 × 15.2 mm slots.
 
-- **The pattern is IKEA's:** upright 5 × 15 mm slots, columns 20 mm apart, the slots in a column 40 mm apart and every other column 20 mm higher, in a 5 mm board, chamfered on both faces. Slot size, chamfer and thickness can change (*All* settings), say for a looser fit.
+- **The standard pattern:** upright 5 × 15 mm slots, columns 20 mm apart, the slots in a column 40 mm apart and every other column 20 mm higher, in a 5 mm board, chamfered on both faces. Slot size, chamfer and thickness can change (*All* settings), say for a looser fit.
 - **Or another pattern** (*Slot pattern*), on a lattice of any step from 14 to 40 mm: a **square grid** (a slot where both lattice indices are even: openGrid-like 28 mm squares at a 14 mm step) or **dense** (a slot at every step; the step stays at least the slot length + 4 mm). Attachments' mounts are two steps apart, so they fit all three. Seams never cost a square grid any slots; a dense board loses the column or row a seam takes.
 - **The space:** give the width and height of the space on the wall. A rectangle board fills it, the slots centred with at least the border (10 mm) around them; hexagons fit in it.
 - **Rectangle tiles:** the board is split into the fewest, most even tiles that fit the bed (its edge margin, either way round, clear of an X1 / P1's front-left corner), as MOSS 3D's Skadis Pegboard Generator does it:
@@ -380,7 +380,7 @@ The dimensions follow the community spec (gridfinity.xyz) as implemented by [gri
 
 All constants live in `src/lib/geometry/spec.ts`.
 
-**Skådis boards** (`src/lib/geometry/skadis.ts`, rim strips and hanging parts in `skadisParts.ts`): IKEA's 5 × 15 mm slots on a 20 mm lattice (every lattice point whose column and row add up to an even number), a 5 mm board, 0.6 mm chamfers. Joint plates 20 × 20 × 1.4 mm with ⌀5 pins 2.3 mm long, in 1.5 mm pockets (0.2 mm clear round) with ⌀5.3 holes 2.5 mm deep. Dovetail tabs 8 mm long, 8 mm wide at the seam and 12 at the end, 0.15 mm clear in their sockets. Posts ⌀13 at the board, ⌀10 at the wall.
+**Skådis boards** (`src/lib/geometry/skadis.ts`, rim strips and hanging parts in `skadisParts.ts`): 5 × 15 mm slots on a 20 mm lattice (every lattice point whose column and row add up to an even number), a 5 mm board, 0.6 mm chamfers. Joint plates 20 × 20 × 1.4 mm with ⌀5 pins 2.3 mm long, in 1.5 mm pockets (0.2 mm clear round) with ⌀5.3 holes 2.5 mm deep. Dovetail tabs 8 mm long, 8 mm wide at the seam and 12 at the end, 0.15 mm clear in their sockets. Posts ⌀13 at the board, ⌀10 at the wall.
 
 ## Development
 
@@ -456,4 +456,4 @@ tests/              vitest suites
 
 ## Credits
 
-Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT). Several options follow other community projects: Gridfinity Extended (lip styles, efficient floor, wall cutouts, pocket grids, half-pitch grids), Gridfinity Refined (side-loaded magnets), GridFlock (pin and puzzle joints), cq-gridfinity, and Tracefinity (tool tracing). Skådis boards follow MOSS 3D's Fully Customisable Skadis Pegboard Generator (seams through the pattern, plates on the back) and Azntek's Hexagonal Skadis board; IKEA and SKÅDIS are IKEA's trademarks, and the boards here are only made to fit its hooks. The QR encoder follows Project Nayuki's QR Code generator (MIT). The label font is Roboto Condensed (SIL Open Font License, `public/fonts/RobotoCondensed-OFL.txt`).
+Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT). Several options follow other community projects: Gridfinity Extended (lip styles, efficient floor, wall cutouts, pocket grids, half-pitch grids), Gridfinity Refined (side-loaded magnets), GridFlock (pin and puzzle joints), cq-gridfinity, and Tracefinity (tool tracing). Skådis boards follow MOSS 3D's Fully Customisable Skadis Pegboard Generator (seams through the pattern, plates on the back) and Azntek's Hexagonal Skadis board. The QR encoder follows Project Nayuki's QR Code generator (MIT). The label font is Roboto Condensed (SIL Open Font License, `public/fonts/RobotoCondensed-OFL.txt`).

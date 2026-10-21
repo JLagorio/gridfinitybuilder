@@ -951,7 +951,7 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
     if (o.hang === 'door') steps.push('Hang the board over the door: 2.5 mm goes over its top.');
     if (o.hang === 'desk') steps.push(o.deskMount === 'stand' ? 'Stand it on the desk.' : 'Slide the clamps over the desk’s back edge and tighten the bolts.');
     steps.push(
-      o.pitch === 20 ? 'Hooks and accessories made for IKEA SKÅDIS hang in the slots.' : 'Attachments made for this board (Attachments tab) hang in its slots.',
+      o.pitch === 20 ? 'Skådis hooks and accessories hang in the slots.' : 'Attachments made for this board (Attachments tab) hang in its slots.',
     );
   }
 
@@ -1031,7 +1031,7 @@ function skadisMap(plan: SkadisPlan, info: SkadisInfo, o: ReturnType<typeof sani
   lines.push(`Space: ${r1(o.width)} × ${r1(o.height)} mm`);
   if (hex && plan.hex) lines.push(`Hexagons: ${plan.tiles.length}, ${r1(plan.hex.w)} mm corner to corner, ${r1(plan.hex.h)} mm high, ${o.hexGap} mm apart`);
   else lines.push(`Board: ${r1(o.width)} × ${r1(o.height)} mm in ${plan.cols} × ${plan.rows} tiles`);
-  const pattern = o.pattern === 'skadis' && o.pitch === 20 ? 'IKEA SKÅDIS spacing' : `${o.pattern} pattern, ${o.pitch} mm step`;
+  const pattern = o.pattern === 'skadis' && o.pitch === 20 ? 'standard Skådis spacing' : `${o.pattern} pattern, ${o.pitch} mm step`;
   lines.push(`Slots: ${plan.slots} (${o.slotW} × ${o.slotL} mm, ${pattern})`);
   if (info.plates || info.tabs) lines.push(`Joints: ${info.tabs} dovetail tabs, ${info.plates} joint plates`);
   if (info.mounts) lines.push(`Mounting: ${info.screws} screw holes${o.standoff === 'none' ? '' : `, ${o.depth} mm ${o.standoff === 'posts' ? 'posts' : 'spacers'}`}`);

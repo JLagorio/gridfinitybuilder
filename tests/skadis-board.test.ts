@@ -149,7 +149,7 @@ describe('slot patterns', () => {
     expect(plannedSkadis(opts({ pattern: 'skadis', pitch: 15 })).pitch).toBe(15);
   });
 
-  it('IKEA’s pattern at another step: columns a step apart, two steps in a column', () => {
+  it('the standard pattern at another step: columns a step apart, two steps in a column', () => {
     const o = opts({ pitch: 25, width: 400, height: 300 });
     const p = planSkadis(o, BIG);
     for (const [i, j] of indices(p, boardSlots(p, o))) expect(Math.abs((i + j) % 2)).toBeCloseTo(0, 6);
@@ -166,7 +166,7 @@ describe('slot patterns', () => {
     ['dense', 20],
     ['dense', 24],
   ] as const) {
-    it(`${pattern} at ${pitch} mm: tiles fit the bed, seams cut no slot (IKEA’s level ones only through a row), joints and mounts clear the slots`, () => {
+    it(`${pattern} at ${pitch} mm: tiles fit the bed, seams cut no slot (the standard pattern's level ones only through a row), joints and mounts clear the slots`, () => {
       const o = opts({ pattern, pitch, width: 900, height: 700 });
       const p = planSkadis(o, BED);
       expect(p.error).toBeUndefined();

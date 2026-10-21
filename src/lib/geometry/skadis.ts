@@ -1,16 +1,16 @@
 /**
- * IKEA SKÅDIS-compatible pegboards: a drawer whose `enclosure` is 'skadis'
+ * Skådis-pattern pegboards: a drawer whose `enclosure` is 'skadis'
  * prints a pegboard for a space on the wall instead of a Gridfinity grid
  * (enclosures.ts plans it, this file holds the board and its parts).
  *
- * The pattern is IKEA's: 5 × 15 mm upright slots, columns 20 mm apart, the
+ * The standard pattern: 5 × 15 mm upright slots, columns 20 mm apart, the
  * slots in a column 40 mm apart, every other column 20 mm higher. On a 20 mm
  * lattice that is every point (i, j) with i + j even; the points with i + j
  * odd are solid, 17.5 mm from the slots beside them and 12.5 mm from the slot
  * ends above and below. Joints and mounting points go there. Two more patterns
  * use the same lattice (any step from 14 to 40 mm): 'square', a slot where i
  * and j are both even (a square grid two steps apart: openGrid-like 28 mm
- * squares on a 14 mm step), and 'dense', a slot at every point (twice IKEA's,
+ * squares on a 14 mm step), and 'dense', a slot at every point (twice the standard's,
  * so attachments sit at any step; its solid points are the middles between
  * four slots). Attachments' mounts are always an even number of steps apart,
  * so on every pattern a part whose anchor is on a slot finds all its slots.
@@ -60,7 +60,7 @@ export type SkadisShape = 'rect' | 'hex';
 export type SkadisJoin = 'both' | 'tabs' | 'plates' | 'none';
 /** What holds the board off the wall: posts printed on the back, separate spacers, or nothing. */
 export type SkadisStandoff = 'posts' | 'spacers' | 'none';
-/** Where the slots are on the lattice: IKEA's staggered pattern, a square grid (two steps apart), or every point. */
+/** Where the slots are on the lattice: the standard staggered pattern, a square grid (two steps apart), or every point. */
 export type SkadisPattern = 'skadis' | 'square' | 'dense';
 /** A rim proud of the front all round (separate frame strips), with or without an LED channel round the back edge. */
 export type SkadisFrame = 'none' | 'rim' | 'led';
@@ -83,9 +83,9 @@ export interface SkadisOptions {
   width: number;
   height: number;
   shape: SkadisShape;
-  /** Board thickness, mm. IKEA's board is 5 mm; its hooks are made for that. */
+  /** Board thickness, mm. Standard boards are 5 mm; hooks are made for that. */
   thickness: number;
-  /** Slot width and length, mm (IKEA: 5 × 15). */
+  /** Slot width and length, mm (standard: 5 × 15). */
   slotW: number;
   slotL: number;
   /** 45° chamfer on the slot edges, front and back, mm. */
@@ -110,7 +110,7 @@ export interface SkadisOptions {
   numbers: boolean;
   /** How tightly attachments' clips fit the slots (lib/wall/mount.ts). */
   fit: SlotFit;
-  /** Slot pattern and lattice step, mm (IKEA: 'skadis', 20). */
+  /** Slot pattern and lattice step, mm (standard: 'skadis', 20). */
   pattern: SkadisPattern;
   pitch: number;
   /** Rectangle boards: a frame, how far its rim stands proud of the front (mm), and the LED strip's width (mm). */
@@ -130,12 +130,12 @@ export interface SkadisOptions {
 export type SlotFit = 'snug' | 'normal' | 'loose';
 
 export const DEFAULT_SKADIS: SkadisOptions = {
-  // IKEA's square board.
+  // The standard square board.
   width: 560,
   height: 560,
   shape: 'rect',
   thickness: 5,
-  // IKEA's slots measure about 5.1 × 15.2; printed slots come out a little smaller than drawn.
+  // Standard boards' slots measure about 5.1 × 15.2; printed slots come out a little smaller than drawn.
   slotW: 5.1,
   slotL: 15.3,
   chamfer: 0.6,
@@ -295,7 +295,7 @@ export const pinHoleDepth = (thickness: number) => Math.min(SKADIS.plate.holeDep
 // Planning (no kernel)
 // ---------------------------------------------------------------------------
 
-/** The slot lattice of a rectangle board: point (i, j) is at (ox + p i, oy + p j); the pattern says which have slots (IKEA's: i + j even). */
+/** The slot lattice of a rectangle board: point (i, j) is at (ox + p i, oy + p j); the pattern says which have slots (the standard one: i + j even). */
 export interface SkadisLattice {
   ox: number;
   oy: number;
