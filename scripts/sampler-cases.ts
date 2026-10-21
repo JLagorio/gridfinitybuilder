@@ -308,6 +308,21 @@ const labels = binGroup('labels', 'Label styles: raised, engraved, inlaid, swapp
   { id: 'front-per-compartment', opts: { unitsX: 3, heightUnits: 4, frontLabel: 'engraved', layout: withComps({ unitsX: 3 }, uniformLayout(3, 1), [[0, { labelText: 'A' }], [1, { labelText: 'B' }], [2, { labelText: 'C' }]]) } },
 ]);
 
+const QR_URL = 'https://example.com/inventory/bin/42';
+const qrFront = (o: Partial<BinOptions>): Partial<BinOptions> => ({ unitsX: 2, unitsY: 1, heightUnits: 6, qr: 'front', qrContent: 'custom', qrText: QR_URL, ...o });
+const QR_LIST: Partial<PlacedBin> = { contents: 'M3 × 8 socket screws\nM3 × 12 socket screws\nM3 nuts\nM3 washers' };
+const qr = binGroup('qr', 'QR codes: front wall (inlaid, raised, engraved beside a front label), stacking and sliding lids, stick-on plates; from What’s in it or custom text', [
+  { id: 'front-inlaid', opts: qrFront({}) },
+  { id: 'front-raised', opts: qrFront({ qrStyle: 'raised' }) },
+  { id: 'front-engraved-label', opts: qrFront({ unitsX: 3, qrStyle: 'engraved', label: 'none', labelText: 'Bits', frontLabel: 'engraved' }) },
+  { id: 'lid-inlaid-contents', opts: { unitsX: 1, unitsY: 1, heightUnits: 3, lid: true, labelText: 'M3', qr: 'lid', qrContent: 'contents' }, place: QR_LIST },
+  { id: 'lid-engraved', opts: { unitsX: 2, unitsY: 1, heightUnits: 3, lid: true, qr: 'lid', qrStyle: 'engraved', qrContent: 'custom', qrText: QR_URL } },
+  { id: 'slide-lid-inlaid', opts: { unitsX: 2, unitsY: 2, heightUnits: 5, lip: false, slideLid: true, slideLidText: 'Bits', qr: 'lid', qrContent: 'custom', qrText: QR_URL } },
+  { id: 'plate-inlaid-contents', opts: { unitsX: 1, unitsY: 1, heightUnits: 3, labelText: 'M3', qr: 'plate', qrContent: 'contents' }, place: QR_LIST },
+  { id: 'plate-raised', opts: { qr: 'plate', qrStyle: 'raised', qrContent: 'custom', qrText: QR_URL } },
+  { id: 'plate-engraved-h', opts: { qr: 'plate', qrStyle: 'engraved', qrEcc: 'H', qrContent: 'custom', qrText: QR_URL } },
+]);
+
 const HALF: Partial<DrawerInput> = { halfGrid: true };
 const placement = binGroup('placement', 'Half-grid bins, bins on partial edge cells, stretched bins', [
   { id: 'half-1x1', opts: { unitsX: 1, unitsY: 1, heightUnits: 3, holes: 'magnets' }, drawer: HALF },
@@ -406,6 +421,7 @@ export const SAMPLE_GROUPS: SampleGroup[] = [
   pocketGrids,
   toolBins,
   labels,
+  qr,
   placement,
   baseplates,
   enclosures,
