@@ -40,6 +40,7 @@ import {
 import { Segmented } from './fields';
 import {
   clearInteriorSelection,
+  compartmentOptions,
   selectCompartment,
   selectWall,
   useBinInterior,
@@ -67,6 +68,7 @@ import { fitNotch } from '../lib/geometry/wallExtras';
 import { selectFreeWall } from './interiorState';
 import { LayoutActions, copyLayoutOf, dividerHeight, pasteLayoutInto } from './WallTools';
 import { isMod } from './shortcuts';
+import { CompartmentInsidePreview, useInsideBadge } from './CompartmentInsidePreview';
 
 const T = DIVIDER;
 /** Pointer distances, in screen pixels. */
@@ -971,11 +973,8 @@ function InteriorToolbar({ info, onLayout }: { info: BinInterior & { binId: stri
   );
 }
 
-/** Effective options of a compartment (its own, else the bin's). */
-export function compartmentOptions(info: BinInterior, key: string) {
-  const co = info.layout.comps?.[key];
-  return { scoop: co?.scoop ?? info.opts.scoop, label: co?.label ?? info.opts.label, floor: co?.floor ?? 0, own: !!co };
-}
+/** Effective options of a compartment (its own, else the bin's); see interiorState.ts. */
+export { compartmentOptions };
 
 function CompartmentShape({
   c,
@@ -997,6 +996,7 @@ function CompartmentShape({
       {c.rects.map((r, k) => (
         <rect key={k} x={r.x0} y={sy(r.y1)} width={r.x1 - r.x0} height={r.y1 - r.y0} />
       ))}
+      <CompartmentInsidePreview c={c} info={info} sy={sy} />
       {o.scoop > 0 &&
         c.rects
           .filter((r) => c.isRect || r.open.front)
@@ -1053,6 +1053,8 @@ function Badge({
   const text = `${fmt(b.x1 - b.x0, { unit: false })} × ${fmt(b.y1 - b.y0)}${c.isRect ? '' : ' ⌐'}`;
   const extras: ReactNode[] = [];
   if (o.floor > 0) extras.push(`+${fmt(o.floor, { unit: false })} floor`);
+  const inside = useInsideBadge(info, c);
+  if (inside) extras.push(inside);
   const wch = text.length * fs * 0.56 + fs;
   if (wch * pxPerMm > (big.x1 - big.x0) * pxPerMm - 6 || fs * 1.7 * pxPerMm > (big.y1 - big.y0) * pxPerMm - 4) {
     // Too small for a label: a dot still lets it be picked.

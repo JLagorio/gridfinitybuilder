@@ -11,8 +11,20 @@ import {
   WALL,
 } from './spec';
 import { extrudePolygon, loftRoundedRect, roundedRectRing } from './shapes';
-import { buildDividerInsert, insertKey, insertsFor, interiorCuts, labelTabs, type DividerInsert, type LabelTab } from './compartments';
-import { layoutKey, resolveLayout, sanitizeLayout, uniformLayout, type DividerLayout, type ResolvedLayout } from '../dividers';
+import {
+  buildDividerInsert,
+  compartmentPocketLayouts,
+  hasFilledCompartment,
+  insertKey,
+  insertsFor,
+  insideKeyParts,
+  insideSummary,
+  interiorCuts,
+  labelTabs,
+  type DividerInsert,
+  type LabelTab,
+} from './compartments';
+import { layoutKey, resolveLayout, sanitizeLayout, uniformLayout, type Compartment, type DividerLayout, type ResolvedLayout } from '../dividers';
 import {
   DEFAULT_VARIANTS,
   binBodyHeight,
@@ -27,7 +39,7 @@ import { holeBosses, holeCutters, holeSites } from './holes';
 import { clipToHollow, hollowFloor, isHollowBase } from './binbase';
 import { lipCavityKnots, lipNotches } from './lip';
 import { fingerSlides, wallCutouts, wallPattern } from './walls';
-import { pocketCutters, pocketLayout } from './pockets';
+import { pocketCutters, pocketLayout, type PocketLayout } from './pockets';
 import {
   DEFAULT_LABELS,
   compartmentLabelText,
@@ -164,6 +176,7 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
   const cellPart = fullCells(c) ? [] : [`c${c.x.join('/')}x${c.y.join('/')}`];
   // Placement (placement.ts): half-grid holes, stretched body.
   const placePart = [...(c.half ? ['h'] : []), ...(c.stretch ? [stretchKey(c.stretch)] : [])];
+  const live = o.layout ? new Set(binLayout(o, cells).compartments.map((k) => k.key)) : null;
   return [
     ...cellPart,
     ...placePart,
@@ -177,11 +190,12 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     Math.round(o.scoop * 100),
     o.label,
     o.fillet ? 'F' : 'n',
-    ...(o.layout ? [`D{${layoutKey(o.layout, new Set(binLayout(o, cells).compartments.map((c) => c.key)))}}`] : []),
+    ...(o.layout && live ? [`D{${layoutKey(o.layout, live)}}`] : []),
     ...variantKeyParts(o),
     ...labelKeyParts(o),
     ...cutoutKeyPart(o),
     ...accessoryKeyParts(o, binSize(o, cells)),
+    ...(live ? insideKeyParts(o, live) : []),
   ].join('-');
 }
 
@@ -194,8 +208,10 @@ export function binLabel(o: BinOptions, cells?: Partial<BinCells> | null): strin
   if (o.interior === 'cutouts') parts.push(`${tools} tool pocket${tools === 1 ? '' : 's'}`);
   else if (o.interior === 'pockets') parts.push('pockets');
   else if (o.layout) {
-    const n = binLayout(o).compartments.length;
-    if (n > 1) parts.push(`${n} compartments`);
+    const r = binLayout(o);
+    const n = r.compartments.length;
+    const desc = [n > 1 ? `${n} compartments` : '', ...insideSummary(o, r)].filter(Boolean).join(', ');
+    if (desc) parts.push(desc);
   } else if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
   return parts.join(' ');
 }
@@ -259,8 +275,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
       block = s.t(w.Manifold.union([block, s.t(extrudePolygon(w, feetRing, BASE_PROFILE_HEIGHT, STRETCH_Z + 0.5))]));
     }
     // Lite / efficient bases: compartments go down into the feet (clipped to the foot pockets below).
-    // Removable-divider slots need solid floor under them, so those bins keep the full floor.
-    const hollowCut = hollow && !o.layout?.walls.some((wall) => wall.removable) && !accessoryNeedsFloor(o);
+    // Removable-divider slots, filled compartments and rails need solid floor under them, so those bins keep the full floor.
+    const hollowCut = hollow && !keepsFullFloor(o, cells) && !accessoryNeedsFloor(o);
     const cutFloor = hollowCut ? hollowFloor(o.base) : zFloor;
     const interior = toolCuts
       ? { cut: cutoutCutters(w, s, o, W, D, topInfill), add: [] as Manifold[] }
@@ -280,6 +296,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
         cut = s.t(clipped.translate([fx, fy, 0]));
       } else cut = clipToHollow(w, s, o.base, cells, W, D, zFloor, cut, keep);
     }
+    // Pockets and tool cutouts of filled compartments.
+    if (interior.after?.length) cut = s.t(w.Manifold.union(cut ? [cut, ...interior.after] : interior.after));
     solids.push(cut ? s.t(block.subtract(cut)) : block, ...interior.add);
     if (cut && hollowCut && feet.length) solids.push(s.t(s.t(w.Manifold.union(feet)).subtract(cut)));
     else solids.push(...feet);
@@ -401,8 +419,28 @@ export function binLabelTabs(opts: BinOptions, cells?: Partial<BinCells> | null)
   const H = binBodyHeight(o);
   const topInfill = accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H);
   // Same floor buildBin cuts the compartments from.
-  const hollowCut = isHollowBase(o.base) && o.interior !== 'pockets' && !o.layout?.walls.some((wall) => wall.removable) && !accessoryNeedsFloor(o);
+  const hollowCut = isHollowBase(o.base) && o.interior !== 'pockets' && !keepsFullFloor(o, cells) && !accessoryNeedsFloor(o);
   return labelTabs(o, W, D, hollowCut ? hollowFloor(o.base) : binFloorZ(o), topInfill);
+}
+
+/**
+ * Bins whose compartments can't reach down into hollow (lite / efficient) feet:
+ * removable-divider slots and filled compartments need the full floor.
+ */
+function keepsFullFloor(o: BinOptions, cells?: Partial<BinCells> | null): boolean {
+  if (o.layout?.walls.some((wall) => wall.removable)) return true;
+  return !!o.layout?.comps && o.interior === 'compartments' && hasFilledCompartment(o, binLayout(o, cells));
+}
+
+/**
+ * The pocket grid of each rect of a 'pockets' compartment of the bin's layout
+ * (bin-centered mm), as buildBin cuts it; [] for any other compartment.
+ */
+export function binCompartmentPockets(opts: BinOptions, cells: Partial<BinCells> | null | undefined, c: Compartment): PocketLayout[] {
+  const o = sanitizeBin(opts);
+  const { w, d } = binInnerSize(o, cells);
+  const H = binBodyHeight(o);
+  return compartmentPocketLayouts(o, c, w, d, binFloorZ(o), o.lip ? H - LIP_SUPPORT_HEIGHT : H);
 }
 
 /** Swappable label plates the bin needs (one per tab when `labelPlates` is on). */

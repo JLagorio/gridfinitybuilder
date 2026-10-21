@@ -7,18 +7,28 @@
  *   optional rounded bottom (hull of corner spheres), scoop on the front (−Y)
  *   wall, label tab on the back (+Y) wall, each with its own options.
  * - Non-rectangular ones (L/T/U shapes) are cut as a union of strips with only
- *   the outline's convex corners rounded. Simplifications: no rounded bottom;
- *   the scoop goes on strips whose whole front edge is a wall; one label tab, on
- *   the widest strip whose whole back edge is a wall.
+ *   the outline's convex corners rounded. Their rounded bottom is a fillet swept
+ *   along the outline's walls (`outlineFillet`). Simplifications: the scoop goes
+ *   on strips whose whole front edge is a wall; one label tab, on the widest
+ *   strip whose whole back edge is a wall.
+ * - Insides (CompartmentOptions.inside): 'pockets' fills the compartment up to
+ *   the pocket depth and cuts its own pocket grid into each strip (pockets.ts);
+ *   'tools' fills it to the top and cuts the bin's tool cutouts (cutouts.ts)
+ *   only inside it; 'solid' fills it flat. Filled compartments get no scoop or
+ *   label tab, and their cuts are returned in `after` (past finger slides).
+ * - Floor shapes (open compartments): a ramp or steps rising toward one side,
+ *   left as solid material like a raised floor. A tab over the high side shrinks
+ *   to stay clear of it.
  * - Lowered walls: above each distinct lowered height the compartments either
  *   side are re-derived without those walls and cut again from that height up
- *   (with rounded corners), protecting tabs, scoop ramps and raised floors.
+ *   (with rounded corners), protecting tabs, scoop ramps, raised and shaped
+ *   floors and filled compartments.
  * - Removable walls: a slot through the wall's footprint (+ clearance) down into
  *   the floor, and guide ribs at each end (returned in `add`).
  * - Label tabs are also listed without building anything (`labelTabs`), for the
  *   label text and label-plate recesses in labels.ts.
  */
-import type { Manifold, MeshData, Vec3, Wasm } from './kernel';
+import type { Manifold, MeshData, Vec2, Vec3, Wasm } from './kernel';
 import { Scope, assertValid, toMeshData } from './kernel';
 import {
   DIVIDER,
@@ -30,9 +40,14 @@ import {
   LIP_DEPTH,
   WALL,
 } from './spec';
-import { boxAt, extrudePolygon, ringAt, roundedRectRing, type CornerRadii } from './shapes';
+import { CORNER_SEGMENTS, boxAt, extrudePolygon, ringAt, roundedRectRing, type CornerRadii } from './shapes';
 import type { BinOptions, LabelStyle } from './bin';
+import { binFloorZ } from './variants';
+import { pocketFill, regionPocketCutters, regionPocketLayout, type PocketLayout, type PocketRegion } from './pockets';
+import { cutoutCutters, cutoutKeyPart } from './cutouts';
 import {
+  MAX_TIERS,
+  MIN_TIERS,
   RIB_ENGAGE,
   RIB_THICKNESS,
   SLOT_CLEARANCE,
@@ -42,6 +57,10 @@ import {
   resolveLayout,
   type CompRect,
   type Compartment,
+  type CompartmentInside,
+  type CompartmentOptions,
+  type CompartmentPockets,
+  type FloorHigh,
   type ResolvedLayout,
 } from '../dividers';
 import { applyWallExtras, insertExtras, insertExtrasKey, shapeInsert, type InsertExtras } from './wallExtras';
@@ -68,6 +87,8 @@ export interface CutterSpec {
   key?: string;
   /** How far the stacking lip overhangs the back of the tab, hiding it from above. */
   backInset?: number;
+  /** Top of a shaped floor under the tab (default: zFloor); the tab shrinks to stay clear of it. */
+  tabZ?: number;
 }
 
 /** A label tab's flat top, in bin coordinates. */
@@ -104,7 +125,7 @@ function tabShape(c: CutterSpec): TabShape | null {
   const { x0, x1, y1, cw, cd, zFloor, topInfill, zTop } = c;
   const tabTop = c.tabTop ?? topInfill;
   const lowered = tabTop < topInfill - 1e-6;
-  const room = tabTop - zFloor;
+  const room = tabTop - (c.tabZ ?? zFloor);
   const tan = Math.tan((TAB_SUPPORT_ANGLE_DEG * Math.PI) / 180);
   let td = Math.min(TAB_DEPTH, cd * 0.45);
   if (tan * td + TAB_TIP_HEIGHT > room - 1) td = (room - 1 - TAB_TIP_HEIGHT) / tan;
@@ -190,6 +211,11 @@ export interface InteriorCuts {
   cut: Manifold[];
   /** Unioned onto the bin afterwards (guide ribs for removable dividers). */
   add: Manifold[];
+  /**
+   * Also subtracted, but after finger slides are left uncut: what filled
+   * compartments cut (pockets, tool cutouts, the open space above a pocket fill).
+   */
+  after?: Manifold[];
 }
 
 /** Everything that shapes the interior of a bin's infill block. */
@@ -205,7 +231,7 @@ export function interiorCuts(
   if (!o.layout) return { cut: uniformCutters(w, s, o, W, D, zFloor, topInfill), add: [] };
   const innerW = W - 2 * WALL;
   const innerD = D - 2 * WALL;
-  return layoutCuts(w, s, o, resolveLayout(o.layout, innerW, innerD), -W / 2 + WALL, -D / 2 + WALL, zFloor, topInfill);
+  return layoutCuts(w, s, o, resolveLayout(o.layout, innerW, innerD), W, D, zFloor, topInfill);
 }
 
 /**
@@ -223,9 +249,135 @@ export function labelTabs(o: BinOptions, W: number, D: number, zFloor: number, t
     }
   } else {
     const r = resolveLayout(o.layout, W - 2 * WALL, D - 2 * WALL);
-    specs = layoutSpecs(o, r, -W / 2 + WALL, -D / 2 + WALL, zFloor, topInfill).flatMap((x) => x.specs);
+    specs = planLayout(o, r, -W / 2 + WALL, -D / 2 + WALL, zFloor, topInfill).flatMap((x) => x.specs);
   }
   return specs.map(tabOf).filter((t): t is LabelTab => !!t);
+}
+
+// ---------------------------------------------------------------------------
+// Compartment insides and floor shapes
+// ---------------------------------------------------------------------------
+
+/** A compartment's inside ('open' when unset or unknown). */
+export function compartmentInside(co: CompartmentOptions | null | undefined): CompartmentInside {
+  const v = co?.inside;
+  return v === 'pockets' || v === 'tools' || v === 'solid' ? v : 'open';
+}
+
+/** Every pocket field. */
+export type PocketSettings = Required<CompartmentPockets>;
+
+/** A 'pockets' compartment's pocket settings: every pocket field of the bin, then its own. */
+export function compartmentPocketOpts(o: BinOptions, co?: CompartmentOptions | null): PocketSettings {
+  const own = Object.entries(co?.pockets ?? {}).filter(([, v]) => v !== undefined && v !== null);
+  return { ...Object.fromEntries(Object.entries(o).filter(([k]) => k.startsWith('pocket'))), ...Object.fromEntries(own) } as PocketSettings;
+}
+
+export interface FloorShapeSpec {
+  kind: 'ramp' | 'tiers';
+  /** How far the high side (the top step) is above the floor, mm. */
+  rise: number;
+  high: FloorHigh;
+  /** Number of steps; 1 for a ramp. */
+  tiers: number;
+}
+
+/** Rise of a new ramp or steps: half the depth, at most 10 mm. */
+export function defaultFloorRise(depth: number): number {
+  return Math.max(0, Math.round(Math.min(10, depth / 2)));
+}
+
+/**
+ * An open compartment's floor shape, its rise clamped like a raised floor
+ * (`depth` is the depth above the floor it rises from), or null for a flat floor.
+ */
+export function compartmentFloorShape(co: CompartmentOptions | null | undefined, depth: number): FloorShapeSpec | null {
+  if (!co || compartmentInside(co) !== 'open' || (co.floorShape !== 'ramp' && co.floorShape !== 'tiers')) return null;
+  const rise = Math.min(Math.max(0, depth - 2), Math.max(0, co.floorRise ?? defaultFloorRise(depth)));
+  if (!(rise >= 0.5)) return null;
+  const tiers = co.floorShape === 'tiers' ? Math.min(MAX_TIERS, Math.max(MIN_TIERS, Math.round(co.tiers ?? 3))) : 1;
+  return { kind: co.floorShape, rise, high: co.floorHigh ?? 'back', tiers };
+}
+
+/** 0 at the low edge of `b`, 1 at the high edge (not clamped). */
+function toward(f: Pick<FloorShapeSpec, 'high'>, b: XY, x: number, y: number): number {
+  if (f.high === 'front') return (b.y1 - y) / (b.y1 - b.y0);
+  if (f.high === 'left') return (b.x1 - x) / (b.x1 - b.x0);
+  if (f.high === 'right') return (x - b.x0) / (b.x1 - b.x0);
+  return (y - b.y0) / (b.y1 - b.y0);
+}
+
+/** Height of a shaped floor above its base at (x, y); `b` is the compartment's bounds, in the same coordinates. */
+export function floorShapeHeight(f: FloorShapeSpec, b: XY, x: number, y: number): number {
+  const t = toward(f, b, x, y);
+  if (f.kind === 'ramp') return f.rise * t;
+  const k = Math.min(f.tiers - 1, Math.max(0, Math.floor(t * f.tiers + 1e-9)));
+  return (f.rise * k) / (f.tiers - 1);
+}
+
+/** Does any compartment that exists in `r` have a filled inside? */
+export function hasFilledCompartment(o: BinOptions, r: ResolvedLayout): boolean {
+  const comps = o.layout?.comps;
+  return !!comps && r.compartments.some((c) => compartmentInside(comps[c.key]) !== 'open');
+}
+
+/** True when the bin's tool cutouts go into compartments (laying out tools then keeps its compartments). */
+export function usesToolCompartments(o: Pick<BinOptions, 'interior' | 'layout'>): boolean {
+  return (!o.interior || o.interior === 'compartments') && Object.values(o.layout?.comps ?? {}).some((c) => c?.inside === 'tools');
+}
+
+/** "1 pocket grid", "2 solid", … for the filled compartments of a layout. */
+export function insideSummary(o: BinOptions, r: ResolvedLayout): string[] {
+  const n = { pockets: 0, tools: 0, solid: 0 };
+  for (const c of r.compartments) {
+    const i = compartmentInside(o.layout?.comps?.[c.key]);
+    if (i !== 'open') n[i]++;
+  }
+  const out: string[] = [];
+  if (n.pockets) out.push(`${n.pockets} pocket grid${n.pockets === 1 ? '' : 's'}`);
+  if (n.tools) out.push(`${n.tools} for tools`);
+  if (n.solid) out.push(`${n.solid} solid`);
+  return out;
+}
+
+/**
+ * Mesh-key parts for what filled compartments take from the bin: its pocket
+ * fields and its tool cutouts. [] unless a compartment in `live` uses them,
+ * so other bins keep their keys.
+ */
+export function insideKeyParts(o: BinOptions, live: Set<string>): string[] {
+  if (o.interior && o.interior !== 'compartments') return [];
+  const used = new Set(
+    Object.entries(o.layout?.comps ?? {})
+      .filter(([k]) => live.has(k))
+      .map(([, co]) => compartmentInside(co)),
+  );
+  const p: string[] = [];
+  if (used.has('pockets')) {
+    const fields = Object.entries(o)
+      .filter(([k]) => k.startsWith('pocket') && k !== 'pocketPreset')
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${k.slice(6)}${typeof v === 'object' ? JSON.stringify(v) : v}`);
+    p.push(`Ip{${fields.join(',')}}`);
+  }
+  if (used.has('tools')) p.push(...cutoutKeyPart({ ...o, interior: 'cutouts' }).map((k) => `I${k}`));
+  return p;
+}
+
+/**
+ * The pocket grid of each rect of a 'pockets' compartment of an innerW × innerD
+ * cavity (bin-centered mm), as `interiorCuts` cuts it; [] for other compartments.
+ */
+export function compartmentPocketLayouts(
+  o: BinOptions,
+  c: Compartment,
+  innerW: number,
+  innerD: number,
+  zFloor: number,
+  topInfill: number,
+): PocketLayout[] {
+  if ((o.interior && o.interior !== 'compartments') || compartmentInside(o.layout?.comps?.[c.key]) !== 'pockets') return [];
+  return planLayout(o, { innerW, innerD, compartments: [c] }, -innerW / 2, -innerD / 2, zFloor, topInfill)[0]?.pockets ?? [];
 }
 
 /** The classic divX × divY grid (geometry identical to before layouts existed). */
@@ -287,15 +439,34 @@ const rectRadius = (r: { x0: number; x1: number; y0: number; y1: number }) =>
 const strapRadii = (rc: CompRect, r: number, eps: number): CornerRadii =>
   rc.convex.map((cv) => (cv && r > 0 ? r + eps : 0)) as CornerRadii;
 
-/** Cutter specs of a layout's compartments (one per rect), with each compartment's floor. */
-function layoutSpecs(
+/** One layout compartment, planned without building anything. */
+interface CompPlan {
+  c: Compartment;
+  inside: CompartmentInside;
+  /** Raised floor (mm) and the floor it gives. */
+  floor: number;
+  zf: number;
+  /** Top of the solid fill of a filled compartment (zf for open ones). */
+  fillTop: number;
+  pocketOpts?: PocketSettings;
+  /** 'pockets': the grid of each rect. */
+  pockets?: PocketLayout[];
+  shape: FloorShapeSpec | null;
+  /** Floor the shape rises from (never inside a hollow base's feet). */
+  shapeBase: number;
+  /** Cutters for the open space, one per rect ('pockets': above the fill; none for 'tools' / 'solid'). */
+  specs: CutterSpec[];
+}
+
+/** Each layout compartment's cutter specs (one per rect), floor, inside and floor shape. */
+function planLayout(
   o: BinOptions,
-  r: ResolvedLayout,
+  r: Pick<ResolvedLayout, 'innerW' | 'innerD' | 'compartments'>,
   ix0: number,
   iy0: number,
   zFloor: number,
   topInfill: number,
-): { c: Compartment; floor: number; specs: CutterSpec[] }[] {
+): CompPlan[] {
   const innerH = topInfill - zFloor;
   if (innerH < 0.5) return [];
   const eps = 0.01;
@@ -308,33 +479,65 @@ function layoutSpecs(
     y1: iy0 + rc.y1 + grow,
   });
   const backInset = (rc: CompRect) => (rc.y1 >= r.innerD - 1e-6 ? lipInset(o) : 0);
+  // Pocket regions on the cavity edge stay clear of the lip when the fill reaches up under it.
+  const region = (rc: CompRect, lip: number): PocketRegion => ({
+    x0: ix0 + rc.x0 + (rc.x0 <= 1e-6 ? lip : 0),
+    y0: iy0 + rc.y0 + (rc.y0 <= 1e-6 ? lip : 0),
+    x1: ix0 + rc.x1 - (rc.x1 >= r.innerW - 1e-6 ? lip : 0),
+    y1: iy0 + rc.y1 - (rc.y1 >= r.innerD - 1e-6 ? lip : 0),
+  });
+  const realFloor = binFloorZ(o);
 
-  return r.compartments.map((c) => {
+  return r.compartments.map((c): CompPlan => {
     const co = o.layout?.comps?.[c.key];
-    const scoop = co?.scoop ?? o.scoop;
-    const label = co?.label ?? o.label;
-    const floor = Math.min(Math.max(0, co?.floor ?? 0), Math.max(0, innerH - 2));
+    const inside = compartmentInside(co);
+    const filled = inside !== 'open';
+    const scoop = filled ? 0 : (co?.scoop ?? o.scoop);
+    const label = filled ? 'none' : (co?.label ?? o.label);
+    const floor = inside === 'tools' || inside === 'solid' ? 0 : Math.min(Math.max(0, co?.floor ?? 0), Math.max(0, innerH - 2));
     const zf = zFloor + floor;
-    const spec = { zFloor: zf, topInfill, zTop, key: c.key };
+    const plan: CompPlan = { c, inside, floor, zf, fillTop: zf, shape: null, shapeBase: zf, specs: [] };
+    if (inside === 'pockets') {
+      const po = compartmentPocketOpts(o, co);
+      plan.pocketOpts = po;
+      plan.fillTop = pocketFill(po, zf, topInfill).fillTop;
+      const lip = plan.fillTop >= topInfill - 1e-6 ? lipInset(o) : 0;
+      plan.pockets = c.rects.map((rc) => regionPocketLayout(po, region(rc, lip), zf, topInfill));
+    } else if (filled) plan.fillTop = topInfill;
+    else {
+      plan.shapeBase = Math.max(zf, realFloor);
+      plan.shape = compartmentFloorShape(co, topInfill - plan.shapeBase);
+    }
+    if (plan.fillTop >= topInfill - 1e-6) return plan;
+
+    const spec = { zFloor: plan.fillTop, topInfill, zTop, key: c.key };
+    const b = box(c.bounds, 0);
+    const shape = plan.shape;
+    // The highest point of a shaped floor along a strip's back edge, for the tab over it.
+    const tabZ = (rc: CompRect) =>
+      shape
+        ? { tabZ: plan.shapeBase + Math.max(floorShapeHeight(shape, b, ix0 + rc.x0, iy0 + rc.y1), floorShapeHeight(shape, b, ix0 + rc.x1, iy0 + rc.y1)) }
+        : {};
     if (c.isRect) {
       const rc = c.rects[0];
-      const b = box(rc, eps);
       const one: CutterSpec = {
-        ...b,
+        ...box(rc, eps),
         ...spec,
         cw: rc.x1 - rc.x0,
         cd: rc.y1 - rc.y0,
         radius: rectRadius(rc) + eps,
-        fillet: o.fillet,
+        fillet: o.fillet && !filled,
         scoop,
         label,
         tabTop: topInfill - Math.min(rc.backLower, maxLower),
         backInset: backInset(rc),
+        ...tabZ(rc),
       };
-      return { c, floor, specs: [one] };
+      plan.specs = [one];
+      return plan;
     }
     const tabStrip = c.rects.filter((x) => x.open.back).sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0))[0];
-    const specs = c.rects.map(
+    plan.specs = c.rects.map(
       (rc): CutterSpec => ({
         ...box(rc, eps),
         ...spec,
@@ -346,9 +549,10 @@ function layoutSpecs(
         label: rc === tabStrip ? label : 'none',
         tabTop: topInfill - Math.min(rc.backLower, maxLower),
         backInset: backInset(rc),
+        ...tabZ(rc),
       }),
     );
-    return { c, floor, specs };
+    return plan;
   });
 }
 
@@ -357,29 +561,66 @@ function layoutCuts(
   s: Scope,
   o: BinOptions,
   r: ResolvedLayout,
-  ix0: number,
-  iy0: number,
+  W: number,
+  D: number,
   zFloor: number,
   topInfill: number,
 ): InteriorCuts {
   const innerH = topInfill - zFloor;
   if (innerH < 0.5) return { cut: [], add: [] };
+  const ix0 = -W / 2 + WALL;
+  const iy0 = -D / 2 + WALL;
   const eps = 0.01;
   const zTop = topInfill + 1;
   const maxLower = Math.max(0, innerH - 2);
   const cut: Manifold[] = [];
   const keep: Manifold[] = [];
   const add: Manifold[] = [];
+  const after: Manifold[] = [];
   const box = (rc: { x0: number; y0: number; x1: number; y1: number }, grow: number) => ({
     x0: ix0 + rc.x0 - grow,
     y0: iy0 + rc.y0 - grow,
     x1: ix0 + rc.x1 + grow,
     y1: iy0 + rc.y1 + grow,
   });
+  const footprint = (c: Compartment, grow: number, z0: number, z1: number) =>
+    s.t(w.Manifold.union(c.rects.map((rc) => s.t(prism(w, box(rc, grow), z0, z1)))));
+  // The bin's tool cutouts, built once for every 'tools' compartment.
+  let tools: Manifold | null | undefined;
 
-  for (const { c, floor, specs } of layoutSpecs(o, r, ix0, iy0, zFloor, topInfill)) {
-    for (const spec of specs) cut.push(compartmentCutter(w, s, spec, keep));
-    if (floor > 0) for (const rc of c.rects) keep.push(s.t(prism(w, box(rc, 0), zFloor - 1, zFloor + floor)));
+  for (const p of planLayout(o, r, ix0, iy0, zFloor, topInfill)) {
+    const { c } = p;
+    const own = p.specs.map((spec) => compartmentCutter(w, s, spec, keep));
+    if (p.inside !== 'open') {
+      // Filled: lowered-wall cuts leave the fill alone (grown past the cutters' overlap so no slit opens along the walls).
+      keep.push(footprint(c, 2 * eps, zFloor - 1, p.fillTop));
+      after.push(...own);
+      if (p.pocketOpts) for (const L of p.pockets ?? []) after.push(...regionPocketCutters(w, s, p.pocketOpts, L, p.zf, zTop));
+      if (p.inside === 'tools') {
+        if (tools === undefined) {
+          const t = cutoutCutters(w, s, o, W, D, topInfill);
+          tools = t.length ? s.t(w.Manifold.union(t)) : null;
+        }
+        if (tools) after.push(s.t(tools.intersect(footprint(c, 0, zFloor - 2, zTop + 1))));
+      }
+      continue;
+    }
+    // Material left inside the compartment: rounded bottom of L-shaped ones, ramps and steps.
+    const minus: Manifold[] = [];
+    if (!c.isRect && o.fillet && own.length) {
+      // Like the rectangular cutters' corner spheres: as round as the (grown) corners allow.
+      const radii = c.rects.flatMap((rc) => (rc.convex.some(Boolean) ? [rectRadius(rc) + eps] : []));
+      const rf = Math.min(INNER_RADIUS + eps, (topInfill - p.zf) / 2 - 0.05, ...radii);
+      if (rf > 0.3) minus.push(...outlineFillet(w, s, c, ix0, iy0, p.zf, rf, eps));
+    }
+    if (p.shape) {
+      const solid = floorShapeSolid(w, s, p.shape, c, box, p.shapeBase, p.zf - 1 - p.shape.rise, 2 * eps);
+      minus.push(solid);
+      keep.push(solid);
+    }
+    if (minus.length && own.length) cut.push(s.t(s.t(w.Manifold.union(own)).subtract(s.t(w.Manifold.union(minus)))));
+    else cut.push(...own);
+    if (p.floor > 0) for (const rc of c.rects) keep.push(s.t(prism(w, box(rc, 0), zFloor - 1, zFloor + p.floor)));
   }
 
   // Lowered walls: re-cut the merged space above each lowered height.
@@ -433,7 +674,199 @@ function layoutCuts(
       }
     }
   }
-  return { cut, add };
+  return after.length ? { cut, add, after } : { cut, add };
+}
+
+/**
+ * The material a ramp or steps add over a compartment, from `z0` (below its
+ * cutters) up to the shaped floor rising from `base`. One plane (or one set of
+ * steps) spans the compartment's bounds and is clipped to its rects grown by
+ * `grow`, so the strips of an L-shaped compartment share one continuous floor.
+ */
+function floorShapeSolid(
+  w: Wasm,
+  s: Scope,
+  f: FloorShapeSpec,
+  c: Compartment,
+  box: (rc: XY, grow: number) => XY,
+  base: number,
+  z0: number,
+  grow: number,
+): Manifold {
+  const b = box(c.bounds, 0);
+  const B = box(c.bounds, 1);
+  let core: Manifold;
+  if (f.kind === 'ramp') {
+    const pts: Vec3[] = [];
+    for (const [x, y] of [
+      [B.x0, B.y0],
+      [B.x1, B.y0],
+      [B.x1, B.y1],
+      [B.x0, B.y1],
+    ]) {
+      pts.push([x, y, z0], [x, y, base + floorShapeHeight(f, b, x, y)]);
+    }
+    core = s.t(w.Manifold.hull(pts));
+  } else {
+    // Nested boxes, each reaching from its step to the high side.
+    const steps: Manifold[] = [];
+    for (let k = 1; k < f.tiers; k++) {
+      const t = k / f.tiers;
+      const r = { ...B };
+      if (f.high === 'back') r.y0 = b.y0 + t * (b.y1 - b.y0);
+      else if (f.high === 'front') r.y1 = b.y1 - t * (b.y1 - b.y0);
+      else if (f.high === 'right') r.x0 = b.x0 + t * (b.x1 - b.x0);
+      else r.x1 = b.x1 - t * (b.x1 - b.x0);
+      steps.push(s.t(prism(w, r, z0, base + (f.rise * k) / (f.tiers - 1))));
+    }
+    core = s.t(w.Manifold.union(steps));
+  }
+  const clip = s.t(w.Manifold.union(c.rects.map((rc) => s.t(prism(w, box(rc, grow), z0 - 1, base + f.rise + 1)))));
+  return s.t(core.intersect(clip));
+}
+
+/** A straight run of a compartment's outline that is a wall face (cavity mm). */
+interface OutlineEdge {
+  /** 'h': along x at y = `at`; 'v': along y at x = `at`. */
+  orient: 'h' | 'v';
+  at: number;
+  a: number;
+  b: number;
+  /** +1 when the compartment is on the + side of `at`. */
+  side: 1 | -1;
+}
+
+/** Parts of [a, b] not covered by `cuts`. */
+function intervalMinus(a: number, b: number, cuts: [number, number][], tol = 1e-6): [number, number][] {
+  let parts: [number, number][] = [[a, b]];
+  for (const [c0, c1] of cuts) {
+    const next: [number, number][] = [];
+    for (const [p, q] of parts) {
+      if (c1 <= p + tol || c0 >= q - tol) next.push([p, q]);
+      else {
+        if (c0 > p + tol) next.push([p, c0]);
+        if (c1 < q - tol) next.push([c1, q]);
+      }
+    }
+    parts = next;
+  }
+  return parts.filter(([p, q]) => q - p > tol);
+}
+
+/** Every wall face of a compartment's outline: rect sides less the parts shared with its other rects, collinear runs merged. */
+export function outlineEdges(c: Pick<Compartment, 'rects'>): OutlineEdge[] {
+  const tol = 1e-6;
+  const raw: OutlineEdge[] = [];
+  for (const R of c.rects) {
+    const others = c.rects.filter((q) => q !== R);
+    const span = (pick: (q: CompRect) => boolean, along: 'x' | 'y') =>
+      others.filter(pick).map((q): [number, number] => (along === 'x' ? [q.x0, q.x1] : [q.y0, q.y1]));
+    const sides: [OutlineEdge['orient'], number, number, number, 1 | -1, [number, number][]][] = [
+      ['h', R.y0, R.x0, R.x1, 1, span((q) => Math.abs(q.y1 - R.y0) < tol, 'x')],
+      ['h', R.y1, R.x0, R.x1, -1, span((q) => Math.abs(q.y0 - R.y1) < tol, 'x')],
+      ['v', R.x0, R.y0, R.y1, 1, span((q) => Math.abs(q.x1 - R.x0) < tol, 'y')],
+      ['v', R.x1, R.y0, R.y1, -1, span((q) => Math.abs(q.x0 - R.x1) < tol, 'y')],
+    ];
+    for (const [orient, at, a, b, side, cuts] of sides) for (const [p, q] of intervalMinus(a, b, cuts)) raw.push({ orient, at, a: p, b: q, side });
+  }
+  raw.sort((p, q) => (p.orient === q.orient ? 0 : p.orient < q.orient ? -1 : 1) || p.side - q.side || p.at - q.at || p.a - q.a);
+  const out: OutlineEdge[] = [];
+  for (const e of raw) {
+    const last = out[out.length - 1];
+    if (last && last.orient === e.orient && last.side === e.side && Math.abs(last.at - e.at) < tol && e.a <= last.b + tol) last.b = Math.max(last.b, e.b);
+    else out.push({ ...e });
+  }
+  return out;
+}
+
+/** Points of an arc (degrees, inclusive) around (cx, cy). */
+function arcPts(cx: number, cy: number, r: number, from: number, to: number, n = CORNER_SEGMENTS): Vec2[] {
+  const out: Vec2[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = ((from + ((to - from) * i) / n) * Math.PI) / 180;
+    out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return out;
+}
+
+/**
+ * Rounded bottom for an L/T/U-shaped compartment, as material to subtract from
+ * its flat-bottomed strips: a concave fillet of radius `rf` along every wall of
+ * the outline (none at the seams between strips), swept around the rounded
+ * convex corners and blended around the reflex ones, which is what a ball
+ * rolled along the walls leaves (the rectangular compartments' hull of corner
+ * spheres). Built on the strips' grown faces (`eps` out), so it meets them flush.
+ * It only ever leaves material inside this compartment.
+ */
+function outlineFillet(w: Wasm, s: Scope, c: Compartment, ix0: number, iy0: number, zf: number, rf: number, eps: number): Manifold[] {
+  const G = 3 * eps; // reach into the wall, past the cutters' overlap
+  const OVERLAP = 0.05; // mm a straight run reaches into a corner's arc
+  const SPREAD = 3; // degrees a reflex blend reaches into the runs beside it
+  const tol = 1e-6;
+  const n = CORNER_SEGMENTS;
+  // Profiles: x = distance in from the wall face (or radius), y = height above the floor.
+  const straight: Vec2[] = [[-G, -0.5], [rf, -0.5], ...arcPts(rf, rf, rf, 270, 180, n), [-G, rf]];
+  const reflex: Vec2[] = [[0, -0.5], [rf, -0.5], ...arcPts(rf, rf, rf, 270, 180, n)];
+  const out: Manifold[] = [];
+
+  // Convex corners (rounded in plan), with the angle their arc starts at (as roundedRectRing).
+  const corners: { x: number; y: number; r: number; a0: number }[] = [];
+  for (const R of c.rects) {
+    const r = rectRadius(R);
+    const at: [number, number, number][] = [
+      [R.x0, R.y0, 180],
+      [R.x1, R.y0, 270],
+      [R.x1, R.y1, 0],
+      [R.x0, R.y1, 90],
+    ];
+    R.convex.forEach((cv, k) => cv && corners.push({ x: at[k][0], y: at[k][1], r, a0: at[k][2] }));
+  }
+  for (const k of corners) {
+    const R0 = k.r + eps;
+    const prof: Vec2[] = [[R0 - rf, -0.5], [k.r + G, -0.5], [k.r + G, rf], ...arcPts(R0 - rf, rf, rf, 0, -90, n)];
+    const cx = k.x + (k.a0 === 90 || k.a0 === 180 ? k.r : -k.r);
+    const cy = k.y + (k.a0 === 180 || k.a0 === 270 ? k.r : -k.r);
+    out.push(s.t(s.t(s.t(w.Manifold.revolve([prof], n, 90)).rotate([0, 0, k.a0])).translate([ix0 + cx, iy0 + cy, zf])));
+  }
+  // Which corner arc an edge end belongs to: [low end, high end] per orientation and side.
+  const cornerOf: Record<string, [number, number]> = { 'h1': [180, 270], 'h-1': [90, 0], 'v1': [180, 90], 'v-1': [270, 0] };
+
+  for (const e of outlineEdges(c)) {
+    const ends = cornerOf[`${e.orient}${e.side}`];
+    let s0 = e.a;
+    let s1 = e.b;
+    // Grown wall face (the strips overlap the wall by eps).
+    const line = e.at - e.side * eps;
+    for (const hi of [false, true]) {
+      const v = hi ? e.b : e.a;
+      const [px, py] = e.orient === 'h' ? [v, e.at] : [e.at, v];
+      const k = corners.find((q) => q.a0 === ends[hi ? 1 : 0] && Math.abs(q.x - px) < tol && Math.abs(q.y - py) < tol);
+      // Run a little into the corner's arc piece (all of it inside that piece's material) rather than
+      // butting against it, so the two don't meet face to face.
+      const trim = k ? Math.max(0, k.r - OVERLAP) : eps;
+      if (hi) s1 -= trim;
+      else s0 += trim;
+      // A reflex corner: blend the two fillets meeting there (once, from the 'h' edge).
+      if (!k && e.orient === 'h') {
+        const dx = hi ? 1 : -1;
+        const dy = e.side;
+        const a0 = dx > 0 ? (dy > 0 ? 0 : 270) : dy > 0 ? 90 : 180;
+        const vx = v - dx * eps;
+        // A few degrees wider than the corner: the extra lies inside the two strips' material.
+        const blend = s.t(w.Manifold.revolve([reflex], n, 90 + 2 * SPREAD));
+        out.push(s.t(s.t(blend.rotate([0, 0, a0 - SPREAD])).translate([ix0 + vx, iy0 + line, zf])));
+      }
+    }
+    if (s1 - s0 < 1e-4) continue;
+    // Extrude the profile along the edge: local x → into the compartment, y → up, z → along the edge (a proper rotation).
+    const [nx, ny] = e.orient === 'h' ? [0, e.side] : [e.side, 0];
+    const [ex, ey] = [ny, -nx];
+    const t0 = ex + ey > 0 ? s0 : s1;
+    const [ox, oy] = e.orient === 'h' ? [t0, line] : [line, t0];
+    const m = s.t(w.Manifold.extrude([straight], s1 - s0));
+    out.push(s.t(m.transform([nx, ny, 0, 0, 0, 0, 1, 0, ex, ey, 0, 0, ix0 + ox, iy0 + oy, zf, 1])));
+  }
+  return out;
 }
 
 interface XY {

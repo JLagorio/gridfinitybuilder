@@ -25,9 +25,22 @@ import {
   type Preset,
   type SplitResult,
 } from '../lib/dividers';
-import { LengthInput, Section, Segmented, Slider, Stepper, Toggle } from './fields';
-import { clearInteriorSelection, interiorOf, useBinInterior, useInteriorSelection, type BinInterior } from './interiorState';
-import { compartmentOptions } from './BinInteriorEditor';
+import { LengthInput, Section, Segmented, Select, Slider, Stepper, Toggle } from './fields';
+import { clearInteriorSelection, compartmentOptions, interiorOf, useBinInterior, useInteriorSelection, type BinInterior } from './interiorState';
+import type { ReactNode } from 'react';
+import { binCompartmentPockets } from '../lib/geometry/bin';
+import { binBodyHeight, binFloorZ } from '../lib/geometry/variants';
+import { POCKET_PRESETS, findPocketPreset, presetFields } from '../lib/geometry/pockets';
+import { compartmentFloorShape, compartmentPocketOpts, defaultFloorRise, type PocketSettings } from '../lib/geometry/compartments';
+import {
+  MAX_TIERS,
+  MIN_TIERS,
+  type Compartment,
+  type CompartmentInside,
+  type CompartmentOptions,
+  type CompartmentPockets,
+  type FloorHigh,
+} from '../lib/dividers';
 import { FreeWallFields, WallFinishFields } from './WallTools';
 
 /**
@@ -330,15 +343,25 @@ const LABELS: { value: LabelStyle | 'default'; label: string }[] = [
   { value: 'right', label: 'Right' },
 ];
 
+const INSIDES: { value: CompartmentInside; label: string; title: string }[] = [
+  { value: 'open', label: 'Open', title: 'An empty compartment' },
+  { value: 'pockets', label: 'Pockets', title: 'Filled up to the pocket depth, with a grid of pockets for batteries, bits, cards…' },
+  { value: 'tools', label: 'Tools', title: 'Filled solid, with the bin’s tool cutouts cut into it' },
+  { value: 'solid', label: 'Solid', title: 'Filled flat to the top: a blank or a spacer' },
+];
+
+type CompartmentPatch = Parameters<typeof setCompartmentOptions>[2];
+
 function CompartmentFields({ info, compKey, onLayout }: { info: BinInterior; compKey: string; onLayout: (l: DividerLayout) => void }) {
   const { fmt } = useUnits();
   const c = compartmentByKey(info.resolved, compKey);
   if (!c) return null;
   const own = info.layout.comps?.[compKey] ?? {};
   const eff = compartmentOptions(info, compKey);
-  const set = (patch: Parameters<typeof setCompartmentOptions>[2]) => onLayout(setCompartmentOptions(info.layout, compKey, patch));
+  const set = (patch: CompartmentPatch) => onLayout(setCompartmentOptions(info.layout, compKey, patch));
   const depth = innerHeight(info.opts);
   const maxFloor = Math.max(0, Math.floor(depth - 2));
+  const open = eff.inside === 'open';
   return (
     <div className="cf-block">
       <div className="cf-head">
@@ -348,38 +371,203 @@ function CompartmentFields({ info, compKey, onLayout }: { info: BinInterior; com
           {c.isRect ? '' : ' (L-shaped)'}
         </small>
       </div>
-      <Slider
-        label={own.scoop === undefined ? 'Finger scoop (bin setting)' : 'Finger scoop'}
-        value={eff.scoop}
-        min={0}
-        max={1}
-        step={0.05}
-        format={(v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`)}
-        onChange={(scoop) => set({ scoop })}
-      />
-      <Segmented label="Label tab" value={own.label ?? 'default'} options={LABELS} onChange={(v) => set({ label: v === 'default' ? undefined : v })} />
-      {eff.label !== 'none' && (
-        <LabelTextField
-          label="Label text"
-          value={own.labelText ?? ''}
-          placeholder={info.opts.labelText.trim() ? `${info.opts.labelText.split('\n')[0]} (bin text)` : 'e.g. M3 × 8'}
-          onChange={(t) => set({ labelText: t.trim() ? t : undefined })}
+      <Segmented label="Inside" value={eff.inside} options={INSIDES} onChange={(v) => set({ inside: v === 'open' ? undefined : v })} />
+      {eff.inside === 'pockets' && <CompartmentPocketFields info={info} c={c} own={own} set={set} />}
+      {eff.inside === 'tools' && <ToolsHint info={info} c={c} />}
+      {eff.inside === 'solid' && <div className="field-hint">Filled flat to the top: a blank, or a spacer for something that sits on it.</div>}
+      {open && (
+        <>
+          <Slider
+            label={own.scoop === undefined ? 'Finger scoop (bin setting)' : 'Finger scoop'}
+            value={eff.scoop}
+            min={0}
+            max={1}
+            step={0.05}
+            format={(v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`)}
+            onChange={(scoop) => set({ scoop })}
+          />
+          <Segmented label="Label tab" value={own.label ?? 'default'} options={LABELS} onChange={(v) => set({ label: v === 'default' ? undefined : v })} />
+          {eff.label !== 'none' && (
+            <LabelTextField
+              label="Label text"
+              value={own.labelText ?? ''}
+              placeholder={info.opts.labelText.trim() ? `${info.opts.labelText.split('\n')[0]} (bin text)` : 'e.g. M3 × 8'}
+              onChange={(t) => set({ labelText: t.trim() ? t : undefined })}
+            />
+          )}
+        </>
+      )}
+      {(open || eff.inside === 'pockets') && (
+        <LengthInput
+          label="Raise floor"
+          value={own.floor ?? 0}
+          min={0}
+          max={maxFloor}
+          allowEmpty
+          onChange={(mm) => set({ floor: mm > 0 ? mm : undefined })}
+          hint={open ? `${fmt(Math.max(0, depth - (own.floor ?? 0)))} deep` : 'The pockets start this far above the bin’s floor.'}
         />
       )}
-      <LengthInput
-        label="Raise floor"
-        value={own.floor ?? 0}
-        min={0}
-        max={maxFloor}
-        allowEmpty
-        onChange={(mm) => set({ floor: mm > 0 ? mm : undefined })}
-        hint={`${fmt(Math.max(0, depth - (own.floor ?? 0)))} deep${c.isRect ? '' : ' · flat floor (L-shaped compartments skip the rounded bottom)'}`}
-      />
+      {open && <FloorShapeFields info={info} own={own} set={set} />}
       {Object.keys(own).length > 0 && (
-        <button className="link" onClick={() => set({ scoop: undefined, label: undefined, floor: undefined, labelText: undefined })}>
+        <button className="link" onClick={() => set(Object.fromEntries(Object.keys(own).map((k) => [k, undefined])))}>
           Use the bin’s settings
         </button>
       )}
+    </div>
+  );
+}
+
+/** Usable depth above the bin's floor (to the top of the infill). */
+function binDepth(o: BinOptions) {
+  return binBodyHeight(o) - (o.lip ? LIP_SUPPORT_HEIGHT : 0) - binFloorZ(o);
+}
+
+const HIGH_SIDES: { value: FloorHigh; label: string }[] = [
+  { value: 'back', label: 'Back' },
+  { value: 'front', label: 'Front' },
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
+];
+const LOW_SIDE: Record<FloorHigh, string> = { back: 'front', front: 'back', left: 'right', right: 'left' };
+
+/** Flat, ramp or steps, for an open compartment. */
+function FloorShapeFields({ info, own, set }: { info: BinInterior; own: CompartmentOptions; set: (p: CompartmentPatch) => void }) {
+  const { fmt } = useUnits();
+  const depth = binDepth(info.opts) - (own.floor ?? 0);
+  const kind = own.floorShape ?? 'flat';
+  const shape = compartmentFloorShape(own, depth);
+  const high = own.floorHigh ?? 'back';
+  const maxRise = Math.max(0.5, Math.floor((depth - 2) * 10) / 10);
+  let hint = 'Not deep enough for a shaped floor.';
+  if (shape?.kind === 'ramp') hint = `Slopes up ${fmt(shape.rise)} toward the ${high}, so parts slide to the ${LOW_SIDE[high]}.`;
+  else if (shape) hint = `${shape.tiers} steps, ${fmt(shape.rise / (shape.tiers - 1))} apart, rising toward the ${high}.`;
+  return (
+    <>
+      <Segmented
+        label="Floor"
+        value={kind}
+        options={[
+          { value: 'flat', label: 'Flat' },
+          { value: 'ramp', label: 'Ramp', title: 'A sloped floor: parts slide toward the low side (and the scoop)' },
+          { value: 'tiers', label: 'Steps', title: 'A stepped floor, like stadium seating' },
+        ]}
+        onChange={(v) =>
+          set(
+            v === 'flat'
+              ? { floorShape: undefined }
+              : { floorShape: v, floorRise: own.floorRise ?? defaultFloorRise(depth), tiers: v === 'tiers' ? (own.tiers ?? 3) : own.tiers },
+          )
+        }
+      />
+      {kind !== 'flat' && (
+        <div className="indent">
+          <Segmented label="Rises toward" value={high} options={HIGH_SIDES} onChange={(v) => set({ floorHigh: v === 'back' ? undefined : v })} />
+          <div className="row2">
+            <LengthInput
+              label={kind === 'tiers' ? 'Top step' : 'Rise'}
+              value={shape?.rise ?? own.floorRise ?? 0}
+              min={0.5}
+              max={maxRise}
+              onChange={(floorRise) => set({ floorRise })}
+            />
+            {kind === 'tiers' && <Stepper label="Steps" value={own.tiers ?? 3} min={MIN_TIERS} max={MAX_TIERS} onChange={(tiers) => set({ tiers })} />}
+          </div>
+          <div className="field-hint">{hint}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Pocket settings of a pocket compartment (over the bin's), with the count that fits. */
+function CompartmentPocketFields({ info, c, own, set }: { info: BinInterior; c: Compartment; own: CompartmentOptions; set: (p: CompartmentPatch) => void }) {
+  const { fmt } = useUnits();
+  const opts = compartmentPocketOpts(info.opts, own);
+  const layouts = binCompartmentPockets(info.opts, info.cells, c);
+  const count = layouts.reduce((t, L) => t + L.centers.length, 0);
+  const depth = layouts[0]?.depth ?? 0;
+  let summary = `${count} pocket${count === 1 ? '' : 's'}, ${fmt(depth)} deep`;
+  if (layouts.length && depth < opts.pocketDepth - 0.01) summary += ` (the bin is too short for ${fmt(opts.pocketDepth)})`;
+  return (
+    <div className="indent">
+      <PocketGridFields opts={opts} onChange={(p) => set({ pockets: { ...own.pockets, ...p } })} summary={summary} />
+      {own.pockets && (
+        <button className="link" onClick={() => set({ pockets: undefined })}>
+          Use the bin’s pocket settings
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compact pocket-grid settings: what it holds, shape, size, depth, spacing.
+ * Takes the full pocket fields and reports changed ones, like the bin's own
+ * pocket settings, so a fuller pocket editor can take its place.
+ */
+export function PocketGridFields({ opts, onChange, summary }: { opts: PocketSettings; onChange: (p: CompartmentPockets) => void; summary?: ReactNode }) {
+  const custom = (p: CompartmentPockets) => onChange({ ...p, pocketPreset: 'custom' });
+  const preset = findPocketPreset(opts.pocketPreset) ? opts.pocketPreset : 'custom';
+  const sizeLabel = opts.pocketShape === 'round' ? 'Diameter' : opts.pocketShape === 'hex' ? 'Across flats' : 'Size X';
+  return (
+    <>
+      <Select
+        label="Holds"
+        value={preset}
+        options={[...POCKET_PRESETS.map((p) => ({ value: p.id, label: p.label })), { value: 'custom', label: 'Custom' }]}
+        onChange={(id) => {
+          const p = findPocketPreset(id);
+          onChange(p ? presetFields(p) : { pocketPreset: 'custom' });
+        }}
+      />
+      <Segmented
+        label="Pocket shape"
+        value={opts.pocketShape}
+        options={[
+          { value: 'round', label: 'Round' },
+          { value: 'square', label: 'Square' },
+          { value: 'hex', label: 'Hex' },
+        ]}
+        onChange={(pocketShape) => custom({ pocketShape })}
+      />
+      <div className="row2">
+        <LengthInput label={sizeLabel} value={opts.pocketW} min={1} max={200} onChange={(pocketW) => custom({ pocketW })} />
+        {opts.pocketShape === 'square' ? (
+          <LengthInput label="Size Y" value={opts.pocketD} min={1} max={200} onChange={(pocketD) => custom({ pocketD })} />
+        ) : (
+          <LengthInput label="Depth" value={opts.pocketDepth} min={1} max={200} onChange={(pocketDepth) => custom({ pocketDepth })} />
+        )}
+      </div>
+      <div className="row2">
+        {opts.pocketShape === 'square' && (
+          <LengthInput label="Depth" value={opts.pocketDepth} min={1} max={200} onChange={(pocketDepth) => custom({ pocketDepth })} />
+        )}
+        <LengthInput label="Spacing" value={opts.pocketSpacing} min={0.8} max={20} onChange={(pocketSpacing) => custom({ pocketSpacing })} />
+      </div>
+      {summary && <div className="field-hint">{summary}</div>}
+    </>
+  );
+}
+
+/** Where the tools of a tool compartment come from. */
+function ToolsHint({ info, c }: { info: BinInterior; c: Compartment }) {
+  const setUI = useStore((s) => s.setUI);
+  // Tool centers are bin-centered; compartments are in cavity mm.
+  const n = (info.opts.cutouts ?? []).filter((t) =>
+    c.rects.some((r) => {
+      const x = t.x + info.size.w / 2;
+      const y = t.y + info.size.d / 2;
+      return x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1;
+    }),
+  ).length;
+  return (
+    <div className="field-hint">
+      Filled to the top; the bin’s tool cutouts are cut only inside this compartment ({n} tool{n === 1 ? '' : 's'} here now).{' '}
+      <button className="link" onClick={() => setUI({ binPane: 'cutouts' })}>
+        Lay out tools
+      </button>{' '}
+      in the Tool cutouts pane; their pocket settings are in the Tool library section.
     </div>
   );
 }
