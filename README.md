@@ -24,7 +24,10 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **Size:** enter the inside width and depth. Drawers are rarely square, so add width or depth measurements taken at other spots; the smallest is used.
      - **Inside height** (optional): shows the tallest bin that fits and warns about bins that don't.
      - Gridfit fits as many 42 mm cells as possible, then places the grid left/center/right and front/center/back.
-   - **Leftover space** around the grid can stay solid plastic, or become a row of **half (21 mm) cells**, or **partial cells** that use the whole gap. Bins drawn on partial cells get feet sized to each cell. Push the grid to one side to turn two thin gaps into one useful row.
+   - **Leftover space** around the grid can stay solid plastic, or become a row of **half (21 mm) cells**, **partial cells** that use the whole gap, or separate **spacer strips** (lattice or solid, split to the bed with dovetails, tabbed into the plate's edge). Bins drawn on partial cells get feet sized to each cell. Push the grid to one side to turn two thin gaps into one useful row.
+   - **Drawer, case or wall:** the grid can also be the floor of a **carry case**, or a **wall grid**.
+     - **Carry case:** walls sized to the tallest bin, a lid on snap-pin hinges, flexing latches, a fold-down or fixed handle, and feet. It splits into bed-sized pieces like a baseplate. The 3D view shows it with the lid closed, open or off.
+     - **Wall grid:** countersunk holes or keyhole slots every few cells, an optional French cleat (with a printed wall cleat) and a ledge along the bottom. Bins stay on with magnets in both the bins and the plate.
    - **Half grid** (21 mm): the baseplate gets 21 mm receptacles and every bin stands on 21 mm half feet, so bins come in half units (1.5 × 2.5 u) and sit at any half-cell offset. Sizes still show in 42 mm units. Turning it on or off converts the drawer's bins in one undo step. Magnet holes go in the corners of each 42 mm unit, as in Gridfinity Extended.
    - **Blocked cells:** click or drag on the cell map to mark cells where slide hardware or a bump gets in the way. They get no receptacle (filled flat, or cut out of the plate) and bins can't go there.
    - **Baseplate options:**
@@ -46,6 +49,12 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Drag the handles of a selected bin to resize it.
      - "Fill empty with 1×1" fills the rest of the drawer.
      - **Stretch into the gap:** a bin on the edge of the grid can reach over the solid margin to the drawer wall (Auto, or mm per side). Its feet stay on the grid. The stretched part starts just above the baseplate.
+   - **Type:** a plain **bin**, or one of these containers, each on the same Gridfinity feet:
+     - **Drawer unit:** a small chest of 1–8 pull-out drawers in up to 4 columns, with notch, tab, knob or recessed pulls, drawer stops, compartments and labels on the drawer fronts. The top can be flat, have a stacking lip, or have receptacles for bins.
+     - **Parts box:** a snap-on hinged lid, a snap latch or magnets, compartments with scoops, and a label on the lid.
+     - **Hopper bin:** an open front with a sloped floor, a front lip with a label slot, and dividers.
+     - **Tool rack:** holes for screwdrivers, hex keys and files; slots for pliers; stepped slots for wrenches. Sizes come from presets or a typed list, with optional engraving and lean.
+     - **Dispenser:** a gravity-fed magazine for batteries (AA to D, 18650, 21700), a coin-cell stack, a tape-roll holder or a zip-tie channel.
    - **Each bin has:**
      - height in 7 mm units, or as an inside depth or overall height in mm
      - **inside:** compartments, a pocket grid, or tool cutouts (see below)
@@ -56,13 +65,15 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
        - optional crush ribs, chamfered mouths, printable hole tops (no supports) and corner-only holes
      - **lip & lid:**
        - stacking lip: normal, reduced or none, with optional anti-slide notches
-       - optional stacking lid, printed as its own part
+       - optional stacking lid, printed as its own part; its top can be a **pocket grid** instead of receptacles
      - **walls:** cutouts, finger slides and a hex wall pattern, per wall; rounded inside corners
      - **trays, lids & rails:**
        - **lift-out trays** (up to 3, stacked) on printed ledges, each with its own compartments and lift tabs
        - a **sliding lid** for bins without a stacking lip, with a click detent and optional engraved text
        - **divider rails:** guide ribs every few mm on opposite walls, so loose divider plates slide in anywhere
        - trays, the lid and the plates print as their own parts
+     - **inserts:** a **lift-out cup** in every compartment (or chosen ones) to pour parts out, or a **drop-in grid**; both print separately and show in place
+     - **two-colour shadow boards:** tool pockets get a thin floor in filament 2, so a missing tool stands out
      - **What's in it:** a list of what the bin holds, per bin or per compartment. It's for finding things and for the drawer map, and doesn't change the print.
 
      The base, lip and wall groups fold away. Each says what's set, and starts open when anything in it isn't the default.
@@ -119,7 +130,11 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
    **Labels.** Type label text for a bin, or per compartment. It shrinks to fit each tab, up to 3 lines, and can be:
    - **raised**, or **engraved** into the tab
    - **inlaid**: engraved and filled flush in a second filament. The Bambu project gets a second filament for it; pick its colour in *Print plates*. Needs an AMS or a filament change.
-   - on **swappable label plates**: the tab gets a shallow recess with a pry notch, and small text plates print with the bins and press in, so you can relabel later.
+   - on **swappable label plates**: the tab gets a shallow recess with a pry notch, and small text plates print with the bins and press in, so you can relabel later. The drawer view shows them in place.
+   - in **Cullenect** or **Pred** sockets, so community snap-in labels fit; Gridfit can print matching labels with your text.
+   - **Icons:** type `{bolt:12}`, `{screw:socket}`, `{nut}`, `{washer}`, `{insert}`, `{battery}`, `{|}` and 15 more, like gflabel, or pick them from the Icons menu. The preview shows the real label.
+   - **From What's in it:** `{contents}` (or `{contents:2}`) puts the bin's or compartment's first contents lines on the label.
+   - **Front-wall labels** go on the outside of the front wall: raised, two-tone, engraved or inlaid, one per front compartment.
 
    **3D view.** Orbit all the way under the model, or jump to Iso / Top / Front / Side / Under. The tool bar adds:
    - **Section (C):** a cut along X, Y or Z, with the cut faces filled in
@@ -136,12 +151,16 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected (plus a second filament for inlaid labels). Open it and press **Slice all plates**.
      - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus an assembly map per drawer showing which piece goes where.
      - **Plates as STL (.zip):** one binary STL per plate, parts already arranged.
+     - **STEP** for CAD (Fusion 360, FreeCAD, Onshape): the selected bin, one plate, all plates (.zip), or each drawer assembled. Flat areas become single faces.
      - Any single plate or bin, as 3MF or STL.
      - **Test-fit kit:** a small baseplate sample with your joints and magnets, plus one 1 × 1 bin, on one plate. Use it to check the fit before printing everything.
      - **Save / Open project** as a `.gridfit.json` file; it also autosaves in the browser. **Copy share link** puts the whole project, compressed, in the link itself (nothing is uploaded).
    - **Bill of materials:**
      - Counts magnets, screws, nuts or inserts, filament pins, connector keys, parts and plates. Partial and blocked cells get no holes.
      - Estimates filament per plate the way a slicer would print it (Bambu's 0.20 mm Standard: about 0.85 mm of walls and top/bottom layers solid, 15 % infill inside) for 1.75 mm PLA at 1.24 g/cm³. Expect ±15 %.
+     - **Print time** per plate and in total for the selected printer, from a slice of each part at 0.20 mm (checked against a slicer; expect ±25 %).
+     - **Cost** from your filament price per kg (a second price for two-colour parts) and, optionally, electricity.
+     - TPU non-slip pads (an option under Baseplate) print on their own plate.
      - Downloads as CSV or text.
    - **Drawer map & contents:** a printable top view of a drawer (or all of them) with each bin's label and contents, fit to a page or at actual size across several pages, or as an SVG. Also a contents list of every bin, and a CSV of it.
 
@@ -198,7 +217,8 @@ src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (M
 src/lib/layout/     drawer → grid fit, bed splitting, plate packing
 src/lib/dividers/   bin interior layouts: walls → compartments, edits, snapping (pure TS)
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
-src/lib/export/     plain 3MF, Bambu Studio project and binary STL writers
+src/lib/geometry/containers/  drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
+src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers; estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
