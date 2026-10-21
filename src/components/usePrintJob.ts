@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { printDrawers, type Store } from '../state/store';
-import { planPrint, withPrinted, type PlanPrintOptions, type PrintJob } from '../lib/project';
+import { asDrawer, planPrint, withPrinted, type PlanPrintOptions, type PrintJob } from '../lib/project';
 import { slicedSeconds } from '../lib/layout/fleet';
 import { hasPrints } from '../lib/printed';
 import { geometry } from '../worker/client';
@@ -21,7 +21,11 @@ export function usePrintJob(state: Store, job: PrintJob): PrintJob {
       const docs = printDrawers(state);
       const opts: PlanPrintOptions = hasPrints(state.printed) ? { printed: state.printed, onlyChanged: state.onlyChanged } : {};
       if (several) opts.seconds = slicedSeconds(state.setup, (key) => geometry.printStats(key));
-      if (docs.length === 1 && docs[0].id === state.activeDrawerId && !several && !opts.onlyChanged) return opts.printed ? withPrinted(job, opts.printed) : job;
+      if (docs.length === 1 && docs[0].id === state.activeDrawerId && !several && !opts.onlyChanged) {
+        // Its parts know their drawer, for what's printed (printed.ts).
+        const mine = asDrawer(job, state.activeDrawerId);
+        return opts.printed ? withPrinted(mine, opts.printed) : mine;
+      }
       return planPrint(docs, state.setup, state.include, opts);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

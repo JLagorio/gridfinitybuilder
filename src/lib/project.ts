@@ -337,6 +337,12 @@ export function withPrinted(job: PrintJob, rec: PrintedRecord): PrintJob {
   return { ...job, printed: [...coveredParts(job, rec)] };
 }
 
+/** A one-drawer plan (planJob) as drawer `id`'s, like planPrint makes it: its parts say which drawer they're for. */
+export function asDrawer(job: PrintJob, id: string): PrintJob {
+  const parts = Object.fromEntries(Object.entries(job.parts).map(([k, p]) => [k, { ...p, drawer: id }]));
+  return { ...job, parts, drawers: job.drawers.map((d) => ({ ...d, id })) };
+}
+
 function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include'], opts: PlanPrintOptions, skip?: Set<string>): PrintJob {
   const multi = drawers.length > 1;
   const parts: Record<string, JobPart> = {};

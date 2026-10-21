@@ -15,7 +15,8 @@ function step(fn: () => void) {
 
 /** Record every part on these plates of the job as printed (parts already covered are left as they are). */
 export function markPlates(job: PrintJob, plates: number[]) {
-  step(() => useStore.setState((s) => ({ printed: markPrinted(s.printed, job, plates) })));
+  // Printing only what's changed, the plates are packed again without these: show them all.
+  step(() => useStore.setState((s) => ({ printed: markPrinted(s.printed, job, plates), ...(s.onlyChanged ? { ui: { ...s.ui, plate: -1 } } : {}) })));
 }
 
 /** Take back the prints that cover these plates' parts. */

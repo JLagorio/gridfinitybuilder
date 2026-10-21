@@ -3,7 +3,7 @@ import { DEFAULT_BIN, type BinOptions } from '../src/lib/geometry/bin';
 import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput } from '../src/lib/layout/drawer';
 import { DEFAULT_SETUP } from '../src/lib/layout/plan';
-import { binSpec, lidSpec, planJob, planPrint, DEFAULT_PROJECT, type NamedDrawer, type PlacedBin, type PrintJob } from '../src/lib/project';
+import { asDrawer, binSpec, lidSpec, planJob, planPrint, DEFAULT_PROJECT, type NamedDrawer, type PlacedBin, type PrintJob } from '../src/lib/project';
 import {
   NO_PRINTS,
   binPrintMarks,
@@ -29,7 +29,7 @@ const grid = (gridX: number, gridY: number): DrawerInput => ({ ...DEFAULT_DRAWER
 const layout = computeLayout(grid(8, 6));
 const fp = (b: PlacedBin) => fingerprint(binSpec(layout, b).key);
 const include = { baseplate: true, bins: true };
-const drawerOf = (bins: PlacedBin[], drawer: DrawerInput = grid(8, 6)): NamedDrawer => ({ id: 'd1', name: 'Drawer 1', drawer, baseplate: DEFAULT_BASEPLATE, bins });
+const drawerOf = (bins: PlacedBin[], drawer: DrawerInput = grid(8, 6), id = 'd1'): NamedDrawer => ({ id, name: `Drawer ${id}`, drawer, baseplate: DEFAULT_BASEPLATE, bins });
 const plan = (bins: PlacedBin[], rec?: PrintedRecord, onlyChanged = false, drawer?: DrawerInput) =>
   planPrint([drawerOf(bins, drawer)], DEFAULT_SETUP, include, rec ? { printed: rec, onlyChanged } : {});
 const all = (job: PrintJob) => job.plates.map((_, i) => i);
@@ -68,7 +68,7 @@ describe('marking plates as printed', () => {
     const rec = markPrinted(NO_PRINTS, job, all(job));
     expect(rec.counts[fp(bins[0])]).toBe(3);
     expect(rec.counts[fp(bins[3])]).toBe(1);
-    expect(rec.parts['bin:a']).toBe(fp(bins[0]));
+    expect(rec.parts['d1/bin:a']).toBe(fp(bins[0]));
     expect(printCount(rec)).toBe(onPlates(job).length);
     // Marking again changes nothing.
     expect(markPrinted(rec, { ...job, printed: [...coveredParts(job, rec)] }, all(job))).toEqual(rec);
@@ -92,7 +92,7 @@ describe('marking plates as printed', () => {
     const job = plan(bins);
     const rec = markPrinted(NO_PRINTS, job, all(job));
     const moved = bins.map((b) => (b.id === 'a' ? { ...b, x: 6, y: 4 } : b.id === 'd' ? { ...b, opts: { ...b.opts, heightUnits: 5 } } : b));
-    const marks = binPrintMarks(planJob({ ...DEFAULT_PROJECT, drawer: grid(8, 6), bins: [...moved, bin('n', 0, 5, 1, 1)] }), rec);
+    const marks = binPrintMarks(asDrawer(planJob({ ...DEFAULT_PROJECT, drawer: grid(8, 6), bins: [...moved, bin('n', 0, 5, 1, 1)] }), 'd1'), rec);
     expect(marks).toEqual({ a: 'printed', b: 'printed', c: 'printed', d: 'changed' });
   });
 });
@@ -126,6 +126,25 @@ describe('only what’s changed', () => {
     expect(full.leftOut).toBeUndefined();
     expect(full.printed?.sort()).toEqual(job.leftOut?.sort());
     expect(onPlates(full).length).toBe(Object.keys(full.parts).length);
+  });
+
+  it("doesn't let a drawer printed on its own take another drawer's prints", () => {
+    const only = { baseplate: false, bins: true };
+    const a = drawerOf([bin('a1', 0, 0, 1, 1), bin('a2', 1, 0, 1, 1)], grid(4, 3), 'A');
+    const b = drawerOf([bin('b1', 0, 0, 1, 1), bin('b2', 1, 0, 1, 1)], grid(4, 3), 'B');
+    const jobA = planPrint([a], DEFAULT_SETUP, only);
+    const rec = markPrinted(NO_PRINTS, jobA, all(jobA));
+    expect(Object.keys(rec.parts).sort()).toEqual(['A/bin:a1', 'A/bin:a2']);
+    // Drawer B alone: its identical bins still need printing.
+    const jobB = planPrint([b], DEFAULT_SETUP, only, { printed: rec, onlyChanged: true });
+    expect(onPlates(jobB).sort()).toEqual(['bin:b1', 'bin:b2']);
+    expect(jobB.leftOut).toBeUndefined();
+    // Both together: drawer A's are left out.
+    const both = planPrint([a, b], DEFAULT_SETUP, only, { printed: rec, onlyChanged: true });
+    expect(onPlates(both).sort()).toEqual(['B/bin:b1', 'B/bin:b2']);
+    // A bin redrawn in drawer A after it was printed takes the print of the one it replaces.
+    const redrawn = drawerOf([bin('a1', 0, 0, 1, 1), bin('a3', 3, 2, 1, 1)], grid(4, 3), 'A');
+    expect(planPrint([redrawn], DEFAULT_SETUP, only, { printed: rec, onlyChanged: true }).plates).toEqual([]);
   });
 
   it('reprints the baseplate when the drawer changes', () => {

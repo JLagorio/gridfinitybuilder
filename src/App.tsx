@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { projectOf, selectedIds, useStore, type Tab } from './state/store';
 import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
-import { binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
+import { asDrawer, binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
 import { plateOrigin } from './lib/export/bambu';
 import { findPrinter } from './lib/printers';
@@ -221,7 +221,7 @@ export default function App() {
   // The print tab can cover several drawers, printers, and only what's changed.
   const printJob = usePrintJob(state, job);
   // Printed (or changed since) bins, for the grid editor.
-  const printMarks = useMemo(() => binPrintMarks(viewJob, state.printed), [viewJob, state.printed]);
+  const printMarks = useMemo(() => binPrintMarks(asDrawer(viewJob, state.activeDrawerId), state.printed), [viewJob, state.activeDrawerId, state.printed]);
 
   // Carry case: lid closed, open or off in the drawer view.
   const [lidView, setLidView] = useState<LidView>('open');

@@ -10,6 +10,10 @@ import type { JobPart, PrintJob } from './project';
  * moving it changes nothing; resizing it or changing one of its options
  * does. Prints are counted per fingerprint: three identical bins are three
  * prints of one fingerprint, and any of them can stand in for another.
+ *
+ * The record also says which part each print was (by drawer and part key),
+ * so a drawer printed on its own doesn't take the prints of another drawer's
+ * identical bins.
  */
 export interface PrintedRecord {
   /** Prints per fingerprint. */
@@ -49,21 +53,31 @@ export function fingerprint(meshKey: string): string {
   return hit;
 }
 
-/** The part's key without its drawer prefix (`bin:<id>`, `piece:3`): the same whichever drawers are printed. */
-export function partId(part: Pick<JobPart, 'key' | 'drawer'>): string {
+/** The part's key in its drawer (`bin:<id>`, `piece:3`), without the prefix a job of several drawers gives it. */
+export function localKey(part: Pick<JobPart, 'key' | 'drawer'>): string {
   return part.drawer && part.key.startsWith(`${part.drawer}/`) ? part.key.slice(part.drawer.length + 1) : part.key;
+}
+
+/** The part's id in the record, the same whichever drawers are printed: `d1/bin:<id>`, `d1/piece:3`. */
+export function partId(part: Pick<JobPart, 'key' | 'drawer'>): string {
+  return part.drawer ? `${part.drawer}/${localKey(part)}` : localKey(part);
 }
 
 /**
  * The parts on the job's plates the record covers, as far as its counts go:
  * the parts it names (with the fingerprint they have now) first, then the
- * others in plate order.
+ * others in plate order. Prints of drawers that aren't in the job stay theirs.
  */
-export function coveredParts(job: Pick<PrintJob, 'plates' | 'parts'>, rec: PrintedRecord): Set<string> {
+export function coveredParts(job: Pick<PrintJob, 'plates' | 'parts' | 'drawers'>, rec: PrintedRecord): Set<string> {
   const out = new Set<string>();
   if (!hasPrints(rec)) return out;
   const keys = job.plates.flatMap((pl) => pl.placements.map((p) => p.key));
   const left = new Map(Object.entries(rec.counts));
+  const drawers = new Set(job.drawers.map((d) => d.id));
+  for (const [id, f] of Object.entries(rec.parts)) {
+    const at = id.indexOf('/');
+    if (at > 0 && !drawers.has(id.slice(0, at)) && (left.get(f) ?? 0) > 0) left.set(f, left.get(f)! - 1);
+  }
   const take = (k: string) => {
     const f = fingerprint(job.parts[k].meshKey);
     const n = left.get(f) ?? 0;
@@ -123,7 +137,7 @@ export function binPrintMarks(job: PrintJob, rec: PrintedRecord): Record<string,
   const covered = coveredParts(job, rec);
   for (const part of Object.values(job.parts)) {
     if (part.kind !== 'bin') continue;
-    const id = partId(part).slice('bin:'.length);
+    const id = localKey(part).slice('bin:'.length);
     const was = rec.parts[partId(part)];
     if (covered.has(part.key)) out[id] = 'printed';
     else if (was && was !== fingerprint(part.meshKey)) out[id] = 'changed';
