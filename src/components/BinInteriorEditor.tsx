@@ -47,6 +47,25 @@ import {
   useInteriorSelection,
   type BinInterior,
 } from './interiorState';
+import {
+  MIN_FREE_WALL,
+  addFreeWall,
+  freeWallAt,
+  freeWallMeasure,
+  freeWallMid,
+  freeWallOutline,
+  freeWallShape,
+  removeFreeWall,
+  snapPoint,
+  updateFreeWall,
+  wallSpans,
+  type PointSnap,
+  type ResolvedFreeWall,
+} from '../lib/dividers';
+import { fitNotch } from '../lib/geometry/wallExtras';
+import { selectFreeWall } from './interiorState';
+import { LayoutActions, copyLayoutOf, dividerHeight, pasteLayoutInto } from './WallTools';
+import { isMod } from './shortcuts';
 
 const T = DIVIDER;
 /** Pointer distances, in screen pixels. */
@@ -73,7 +92,13 @@ type EndDrag = {
   layout: DividerLayout;
   preview: { target: Side; layout: DividerLayout; resolved: ResolvedLayout } | null;
 };
-type Drag = WallDrag | EndDrag;
+type FreePreview = { layout: DividerLayout; resolved: ResolvedLayout } | null;
+/** Drawing a diagonal / curved wall from `a`. */
+type DrawDrag = { kind: 'draw'; a: PointSnap; b: PointSnap | null; press: [number, number]; startPx: [number, number]; moved: boolean; preview: null };
+type FreeEndDrag = { kind: 'free-end'; id: string; which: 'a' | 'b'; layout: DividerLayout; at: PointSnap | null; preview: FreePreview };
+type FreeBendDrag = { kind: 'free-bend'; id: string; layout: DividerLayout; preview: FreePreview };
+type FreeMoveDrag = { kind: 'free-move'; id: string; layout: DividerLayout; origin: [number, number]; startPx: [number, number]; moved: boolean; preview: FreePreview };
+type Drag = WallDrag | EndDrag | DrawDrag | FreeEndDrag | FreeBendDrag | FreeMoveDrag;
 
 interface Editing {
   wallId: string;
@@ -153,6 +178,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   const cellsX = useMemo(() => (info ? cellLines(info.cells.x) : []), [info]);
   const cellsY = useMemo(() => (info ? cellLines(info.cells.y) : []), [info]);
   const snapOpts = (alt: boolean) => ({ tolerance: SNAP_PX / pxPerMm, step, free: alt, cellsX, cellsY });
+  const pointOpts = (alt: boolean) => ({ tolerance: SNAP_PX / pxPerMm, step, free: alt });
 
   // Track the drawing scale (font sizes and hit tolerances are in screen pixels).
   useEffect(() => {
@@ -190,11 +216,23 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
         if (d) {
           setDrag(null);
           stop();
-        } else if (s.wallId || s.compKey) {
+        } else if (s.wallId || s.compKey || s.freeId) {
           clearInteriorSelection();
           stop();
         }
         return;
+      }
+      // Layout clipboard: copy this bin's layout, paste one into it.
+      if (isMod(e) && !e.shiftKey && !e.altKey && !d) {
+        const k = e.key.toLowerCase();
+        if (k === 'c' && !window.getSelection()?.toString()) {
+          copyLayoutOf(inf.opts);
+          stop();
+        } else if (k === 'v' && pasteLayoutInto([binId])) {
+          clearInteriorSelection();
+          stop();
+        }
+        if (k === 'c' || k === 'v') return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Never delete the whole bin from here.
@@ -203,6 +241,25 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
           history.checkpoint();
           updateBin(binId, { opts: { layout: removeWall(inf.layout, inf.size, s.wallId) } });
           clearInteriorSelection();
+        } else if (s.freeId && !d) {
+          history.checkpoint();
+          updateBin(binId, { opts: { layout: removeFreeWall(inf.layout, s.freeId) } });
+          clearInteriorSelection();
+        }
+        return;
+      }
+      if (e.key.startsWith('Arrow') && s.freeId && !d) {
+        const F = inf.resolved.free.find((f) => f.id === s.freeId);
+        const dir = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowDown: [0, -1], ArrowUp: [0, 1] } as Record<string, [number, number]>)[e.key];
+        if (!F || !dir) return;
+        stop();
+        const st = latest.current.step * (e.shiftKey ? 10 : 1);
+        const xs = [F.a[0], F.b[0]];
+        const ys = [F.a[1], F.b[1]];
+        const dx = Math.min(inf.size.w - Math.max(...xs), Math.max(-Math.min(...xs), dir[0] * st));
+        const dy = Math.min(inf.size.d - Math.max(...ys), Math.max(-Math.min(...ys), dir[1] * st));
+        if (Math.abs(dx) + Math.abs(dy) > 1e-9) {
+          updateBin(binId, { opts: { layout: updateFreeWall(inf.layout, inf.size, F.id, { a: [F.a[0] + dx, F.a[1] + dy], b: [F.b[0] + dx, F.b[1] + dy] }) } });
         }
         return;
       }
@@ -227,6 +284,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
       else if (k === 'a') st.set({ orient: 'auto' });
       else if (k === 'w') st.set({ tool: 'wall' });
       else if (k === 's') st.set({ tool: 'select' });
+      else if (k === 'd') st.set({ tool: 'free' });
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Shift' || e.key === 'Alt') setMods({ alt: e.altKey, shift: e.shiftKey });
@@ -275,7 +333,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     return o;
   };
   const ghostFor = (x: number, y: number, alt: boolean, shift: boolean): Ghost | null => {
-    if (wallAt(info.resolved, x, y, px(HIT_PX))) return null;
+    if (wallAt(info.resolved, x, y, px(HIT_PX)) || freeWallAt(info.resolved, x, y, px(HIT_PX))) return null;
     return ghostAt(info.resolved, x, y, orientAt(x, y, shift), snapOpts(alt));
   };
   const handleAt = (W: ResolvedWall, which: 'start' | 'end'): [number, number] => {
@@ -284,9 +342,27 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   };
 
   const ghost = !drag && !editing && hover && !hover.onBadge && sel.tool === 'wall' ? ghostFor(hover.x, hover.y, mods.alt, mods.shift) : null;
-  const hoverWall = !drag && hover ? wallAt(view, hover.x, hover.y, px(HIT_PX)) : null;
-  const hoverComp = !drag && hover && !hoverWall ? compartmentAt(view, hover.x, hover.y) : null;
+  const hoverFree = !drag && hover && sel.tool !== 'free' ? freeWallAt(view, hover.x, hover.y, px(HIT_PX)) : null;
+  const hoverWall = !drag && hover && !hoverFree ? wallAt(view, hover.x, hover.y, px(HIT_PX)) : null;
+  const hoverComp = !drag && hover && !hoverWall && !hoverFree ? compartmentAt(view, hover.x, hover.y) : null;
   const selWall = sel.wallId ? view.byId.get(sel.wallId) ?? null : null;
+  const selFree = sel.freeId ? view.free.find((f) => f.id === sel.freeId) ?? null : null;
+  /** Which handle of a free wall is under a point: an end, or the middle (bend). */
+  const freeHandleAt = (F: ResolvedFreeWall, x: number, y: number): 'a' | 'b' | 'mid' | null => {
+    const near = (q: [number, number]) => Math.hypot(q[0] - x, q[1] - y) <= px(HANDLE_PX + 3);
+    return near(F.a) ? 'a' : near(F.b) ? 'b' : near(freeWallMid(F)) ? 'mid' : null;
+  };
+  /** Sagitta for a bend handle dragged to (x, y): snaps to straight, then to the fine step. */
+  const bendAt = (F: ResolvedFreeWall, x: number, y: number, alt: boolean) => {
+    const dx = F.b[0] - F.a[0];
+    const dy = F.b[1] - F.a[1];
+    const c = Math.hypot(dx, dy);
+    let s = ((x - (F.a[0] + F.b[0]) / 2) * -dy + (y - (F.a[1] + F.b[1]) / 2) * dx) / c;
+    s = Math.max(-c / 2, Math.min(c / 2, s));
+    if (!alt) s = Math.abs(s) < SNAP_PX / pxPerMm ? 0 : Math.round(s / step) * step;
+    return s;
+  };
+  const hoverSnap = !drag && hover && !hover.onBadge && sel.tool === 'free' ? snapPoint(info.resolved, hover.x, hover.y, pointOpts(mods.alt)) : null;
 
   // ------------------------------------------------------------------ pointer
 
@@ -297,6 +373,17 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     setEditing(null);
     svgRef.current?.setPointerCapture(e.pointerId);
     const r = info.resolved;
+    if (selFree) {
+      const h = freeHandleAt(selFree, p.x, p.y);
+      if (h === 'mid') {
+        setDrag({ kind: 'free-bend', id: selFree.id, layout: info.layout, preview: null });
+        return;
+      }
+      if (h) {
+        setDrag({ kind: 'free-end', id: selFree.id, which: h, layout: info.layout, at: null, preview: null });
+        return;
+      }
+    }
     if (selWall) {
       for (const which of ['start', 'end'] as const) {
         const [hx, hy] = handleAt(selWall, which);
@@ -305,6 +392,18 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
           return;
         }
       }
+    }
+    if (sel.tool === 'free') {
+      // Press, drag, release: a diagonal wall between the two (snapped) points.
+      const a = snapPoint(r, p.x, p.y, pointOpts(e.altKey));
+      setDrag({ kind: 'draw', a, b: null, press: [p.x, p.y], startPx: [e.clientX, e.clientY], moved: false, preview: null });
+      return;
+    }
+    const fhit = freeWallAt(r, p.x, p.y, px(HIT_PX));
+    if (fhit) {
+      selectFreeWall(binId, fhit.id);
+      setDrag({ kind: 'free-move', id: fhit.id, layout: info.layout, origin: [p.x, p.y], startPx: [e.clientX, e.clientY], moved: false, preview: null });
+      return;
     }
     const hit = wallAt(r, p.x, p.y, px(HIT_PX));
     if (hit) {
@@ -341,6 +440,43 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     setHover({ x: p.x, y: p.y, onBadge });
     if (mods.alt !== e.altKey || mods.shift !== e.shiftKey) setMods({ alt: e.altKey, shift: e.shiftKey });
     if (!drag) return;
+    if (drag.kind === 'draw') {
+      const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > 3;
+      if (!moved) return;
+      const b = snapPoint(info.resolved, p.x, p.y, { ...pointOpts(e.altKey), from: [drag.a.x, drag.a.y], constrain: e.shiftKey });
+      setDrag({ ...drag, moved, b });
+      return;
+    }
+    if (drag.kind === 'free-end' || drag.kind === 'free-bend' || drag.kind === 'free-move') {
+      const r0 = resolveIn(drag.layout, info.size);
+      const F = r0.free.find((f) => f.id === drag.id);
+      if (!F) return;
+      const show = (lay: DividerLayout) => ({ layout: lay, resolved: resolveIn(lay, info.size) });
+      if (drag.kind === 'free-end') {
+        const fixed = drag.which === 'a' ? F.b : F.a;
+        const at = snapPoint(r0, p.x, p.y, { ...pointOpts(e.altKey), from: fixed, constrain: e.shiftKey, exclude: F.id });
+        if (Math.hypot(at.x - fixed[0], at.y - fixed[1]) < MIN_FREE_WALL) return;
+        const end: [number, number] = [at.x, at.y];
+        setDrag({ ...drag, at, preview: show(updateFreeWall(drag.layout, info.size, F.id, drag.which === 'a' ? { a: end } : { b: end })) });
+      } else if (drag.kind === 'free-bend') {
+        setDrag({ ...drag, preview: show(updateFreeWall(drag.layout, info.size, F.id, { bend: bendAt(F, p.x, p.y, e.altKey) })) });
+      } else {
+        const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > 3;
+        if (!moved) return;
+        let dx = p.x - drag.origin[0];
+        let dy = p.y - drag.origin[1];
+        if (!e.altKey) {
+          dx = Math.round(dx / step) * step;
+          dy = Math.round(dy / step) * step;
+        }
+        // Both ends stay in the cavity.
+        dx = Math.min(IW - Math.max(F.a[0], F.b[0]), Math.max(-Math.min(F.a[0], F.b[0]), dx));
+        dy = Math.min(ID - Math.max(F.a[1], F.b[1]), Math.max(-Math.min(F.a[1], F.b[1]), dy));
+        const lay = updateFreeWall(drag.layout, info.size, F.id, { a: [F.a[0] + dx, F.a[1] + dy], b: [F.b[0] + dx, F.b[1] + dy] });
+        setDrag({ ...drag, moved: true, preview: show(lay) });
+      }
+      return;
+    }
     if (drag.kind === 'wall') {
       const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > 3;
       if (!moved) return;
@@ -374,6 +510,24 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     } else if (drag?.kind === 'end' && drag.preview) {
       const cur = drag.layout.walls.find((w) => w.id === drag.id);
       if (cur && cur[drag.which] !== drag.preview.target.ref) commit(drag.preview.layout);
+    } else if (drag?.kind === 'draw') {
+      if (drag.moved && drag.b) {
+        const res = addFreeWall(info.layout, info.size, [drag.a.x, drag.a.y], [drag.b.x, drag.b.y]);
+        if (res) {
+          commit(res.layout);
+          selectFreeWall(binId, res.id);
+        }
+      } else {
+        // A click: pick what's under it.
+        const [x, y] = drag.press;
+        const f = freeWallAt(info.resolved, x, y, px(HIT_PX));
+        const wl = f ? null : wallAt(info.resolved, x, y, px(HIT_PX));
+        if (f) selectFreeWall(binId, f.id);
+        else if (wl) selectWall(binId, wl.id);
+        else clearInteriorSelection();
+      }
+    } else if ((drag?.kind === 'free-end' || drag?.kind === 'free-bend' || drag?.kind === 'free-move') && drag.preview) {
+      commit(drag.preview.layout);
     }
     setDrag(null);
   };
@@ -491,17 +645,28 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
 
   const pad = Math.max(WALL + px(28), Math.max(IW, ID) * 0.05);
   const cursor = drag
-    ? drag.kind === 'end'
-      ? 'grabbing'
-      : drag.ctx.orient === 'v'
+    ? drag.kind === 'wall'
+      ? drag.ctx.orient === 'v'
         ? 'ew-resize'
         : 'ns-resize'
-    : selWall && hover && (['start', 'end'] as const).some((wh) => {
-          const [hx, hy] = handleAt(selWall, wh);
-          return Math.hypot(hx - hover.x, hy - hover.y) <= px(HANDLE_PX + 3);
-        })
+      : drag.kind === 'draw'
+        ? 'crosshair'
+        : drag.kind === 'free-move'
+          ? 'move'
+          : 'grabbing'
+    : (selWall &&
+          hover &&
+          (['start', 'end'] as const).some((wh) => {
+            const [hx, hy] = handleAt(selWall, wh);
+            return Math.hypot(hx - hover.x, hy - hover.y) <= px(HANDLE_PX + 3);
+          })) ||
+        (selFree && hover && freeHandleAt(selFree, hover.x, hover.y))
       ? 'grab'
-      : hoverWall
+      : sel.tool === 'free'
+        ? 'crosshair'
+        : hoverFree
+          ? 'move'
+          : hoverWall
         ? hoverWall.orient === 'v'
           ? 'ew-resize'
           : 'ns-resize'
@@ -514,9 +679,85 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   const dragSnap = drag?.kind === 'wall' ? drag.preview?.snap ?? null : null;
   const dragged = drag?.kind === 'wall' && drag.preview ? view.byId.get(drag.id) : null;
 
+  // ------------------------------------------------------------------ wall extras (notches, diagonal / curved walls)
+
+  const wallH = dividerHeight(info.opts);
+  const notchMarks = (W: ResolvedWall) => {
+    if (!W.wall.notch) return null;
+    return wallSpans(view, W.id).map((sp, k) => {
+      const n = fitNotch(W.wall.notch, sp.b - sp.a, Math.max(1, wallH - W.lower));
+      if (!n) return null;
+      const c = (sp.a + sp.b) / 2;
+      const [x0, x1, y0, y1] =
+        W.orient === 'v' ? [W.pos - T / 2, W.pos + T / 2, c - n.width / 2, c + n.width / 2] : [c - n.width / 2, c + n.width / 2, W.pos - T / 2, W.pos + T / 2];
+      return <rect key={`n${k}`} className="ie-notch" x={x0} y={sy(y1)} width={x1 - x0} height={y1 - y0} />;
+    });
+  };
+  const ringPath = (ring: [number, number][]) => `M${ring.map(([x, y]) => `${x},${sy(y)}`).join('L')}Z`;
+  const polyPoints = (path: [number, number][]) => path.map(([x, y]) => `${x},${sy(y)}`).join(' ');
+  /** A text chip with its left edge at (x, y), flipped to the left of x near the right edge. */
+  const chipAt = (key: string, x: number, y: number, text: string, cls: string) => {
+    const wch = text.length * fs * 0.56 + fs;
+    const left = x + wch > IW + WALL ? x - wch - px(20) : x;
+    return (
+      <g key={key} className={cls}>
+        <rect x={left} y={sy(y) - fs * 0.8} width={wch} height={fs * 1.6} rx={fs * 0.8} />
+        <text x={left + wch / 2} y={sy(y)} fontSize={fs} textAnchor="middle" dominantBaseline="central">
+          {text}
+        </text>
+      </g>
+    );
+  };
+  const measureText = (a: [number, number], b: [number, number], bend = 0) => {
+    const m = freeWallMeasure(a, b, bend);
+    return `${fmt(m.length)} · ${Math.round(m.angle * 10) / 10}°${m.radius ? ` · R ${fmt(m.radius)}` : ''}`;
+  };
+  const snapMark = (key: string, pt: PointSnap, labelBelow = false) => (
+    <g key={key} className="ie-pt-snap">
+      <circle cx={pt.x} cy={sy(pt.y)} r={px(pt.label ? 4 : 2.5)} />
+      {pt.label && chipAt(`${key}l`, pt.x + px(10), pt.y + px(labelBelow ? -16 : 16), pt.label, 'ie-snap-chip')}
+    </g>
+  );
+  const freeOverlay = () => {
+    if (drag?.kind === 'draw') {
+      if (!drag.b) return snapMark('a', drag.a);
+      const a: [number, number] = [drag.a.x, drag.a.y];
+      const b: [number, number] = [drag.b.x, drag.b.y];
+      const shape = freeWallShape(a, b);
+      return (
+        <g className="ie-ghost-group">
+          <g className="ie-ghost ie-free-ghost">
+            <path d={ringPath(freeWallOutline(shape))} />
+            <polyline points={polyPoints(shape.path)} />
+          </g>
+          {snapMark('a', drag.a)}
+          {snapMark('b', drag.b)}
+          {chipAt('len', drag.b.x + px(12), drag.b.y - px(16), measureText(a, b), 'ie-measure')}
+        </g>
+      );
+    }
+    if ((drag?.kind === 'free-end' || drag?.kind === 'free-bend') && selFree) {
+      const m = freeWallMid(selFree);
+      const at = drag.kind === 'free-end' ? drag.at : null;
+      const [lx, ly] = at ? [at.x, at.y] : m;
+      return (
+        <g className="ie-ghost-group">
+          {at && snapMark('at', at)}
+          {chipAt('len', lx + px(12), ly - px(16), measureText(selFree.a, selFree.b, selFree.bend), 'ie-measure')}
+        </g>
+      );
+    }
+    if (!drag && selFree) {
+      const m = freeWallMid(selFree);
+      return chipAt('len', m[0] + px(12), m[1] - px(16), measureText(selFree.a, selFree.b, selFree.bend), 'ie-measure quiet');
+    }
+    if (!drag && hoverSnap) return snapMark('hover', hoverSnap);
+    return null;
+  };
+
   return (
     <div className={`interior-editor ${drag || ghost || selWall ? 'measuring' : ''}`}>
-      <InteriorToolbar info={info} />
+      <InteriorToolbar info={info} onLayout={(l) => commit(l)} />
       <div className="ie-canvas" ref={wrapRef}>
         <svg
           ref={svgRef}
@@ -562,9 +803,27 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
                   y1={sy(W.orient === 'v' ? W.start : W.pos)}
                   y2={sy(W.orient === 'v' ? W.end : W.pos)}
                 />
+                {notchMarks(W)}
                 <title>
-                  {[W.removable ? 'Removable divider' : 'Divider', W.lower > 0 ? `lowered ${fmt(W.lower)}` : ''].filter(Boolean).join(', ')}
+                  {[
+                    W.removable ? 'Removable divider' : 'Divider',
+                    W.lower > 0 ? `lowered ${fmt(W.lower)}` : '',
+                    W.wall.notch ? 'finger notch' : '',
+                    W.wall.top && W.wall.top !== 'flat' ? `${W.wall.top === 'chamfer' ? 'chamfered' : 'rounded'} top` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}
                 </title>
+              </g>
+            );
+          })}
+          {view.free.map((F) => {
+            const cls = ['ie-wall', 'ie-free', F.lower > 0 && 'lowered', F.id === sel.freeId && 'selected', F.id === hoverFree?.id && 'hover'].filter(Boolean).join(' ');
+            return (
+              <g key={F.id} className={cls}>
+                <path d={ringPath(freeWallOutline(F))} />
+                <polyline points={polyPoints(F.path)} />
+                <title>{[F.bend ? 'Curved wall' : 'Diagonal wall', fmt(F.length), F.lower > 0 ? `lowered ${fmt(F.lower)}` : ''].filter(Boolean).join(', ')}</title>
               </g>
             );
           })}
@@ -595,6 +854,23 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
               })}
             </g>
           )}
+          {selFree && drag?.kind !== 'free-move' && (
+            <g className="ie-handles">
+              {[selFree.a, selFree.b].map((q, k) => (
+                <circle key={k} className="ie-handle" cx={q[0]} cy={sy(q[1])} r={px(HANDLE_PX)} />
+              ))}
+              {(() => {
+                const [mx, my] = freeWallMid(selFree);
+                const h = px(HANDLE_PX * 0.85);
+                return (
+                  <rect className="ie-handle ie-bend-handle" x={mx - h} y={sy(my) - h} width={2 * h} height={2 * h} transform={`rotate(45 ${mx} ${sy(my)})`}>
+                    <title>Drag to curve the wall</title>
+                  </rect>
+                );
+              })()}
+            </g>
+          )}
+          {freeOverlay()}
           <text className="ie-caption" x={IW / 2} y={-WALL - px(8)} textAnchor="middle" fontSize={fs * 0.9}>
             back
           </text>
@@ -624,7 +900,12 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
         )}
       </div>
       <div className="ie-hint">
-        {sel.tool === 'wall' ? (
+        {sel.tool === 'free' ? (
+          <>
+            Drag from point to point to draw a wall · snaps to corners, wall ends, midpoints and quarter points · <kbd>Shift</kbd> 15° steps ·{' '}
+            <kbd>Alt</kbd> no snapping · drag the middle handle to curve it · <kbd>Del</kbd> removes
+          </>
+        ) : sel.tool === 'wall' ? (
           <>
             Click to add a wall · drag a wall to move it · <kbd>Shift</kbd> flips direction · <kbd>R</kbd> locks it · <kbd>Alt</kbd>{' '}
             turns off snapping · click a size to type it · <kbd>Del</kbd> removes
@@ -652,7 +933,7 @@ function GhostWall({ g, sy }: { g: Ghost; sy: (y: number) => number }) {
   );
 }
 
-function InteriorToolbar({ info }: { info: BinInterior }) {
+function InteriorToolbar({ info, onLayout }: { info: BinInterior & { binId: string }; onLayout: (l: DividerLayout) => void }) {
   const tool = useInterior((s) => s.tool);
   const orient = useInterior((s) => s.orient);
   const set = useInterior((s) => s.set);
@@ -663,11 +944,12 @@ function InteriorToolbar({ info }: { info: BinInterior }) {
         value={tool}
         options={[
           { value: 'wall', label: 'Add walls', title: 'Click inside the bin to add a wall (W)' },
+          { value: 'free', label: 'Diagonal / curved', title: 'Drag from point to point to draw a diagonal wall; drag its middle handle to curve it (D)' },
           { value: 'select', label: 'Select', title: 'Click compartments to edit them (S)' },
         ]}
         onChange={(t) => set({ tool: t })}
       />
-      <Segmented
+      {tool !== 'free' && <Segmented
         value={orient}
         options={[
           { value: 'auto', label: 'Auto', title: 'Direction follows the pointer (A)' },
@@ -675,11 +957,13 @@ function InteriorToolbar({ info }: { info: BinInterior }) {
           { value: 'h', label: '━', title: 'Side-to-side walls (H)' },
         ]}
         onChange={(o) => set({ orient: o })}
-      />
+      />}
       <span className="ie-status">
         {n} compartment{n === 1 ? '' : 's'}
         {!info.custom && info.opts.divX * info.opts.divY > 1 ? ` · ${info.opts.divX} × ${info.opts.divY} grid` : ''}
+        {info.resolved.free.length ? ` · ${info.resolved.free.length} diagonal` : ''}
       </span>
+      <LayoutActions info={info} onLayout={onLayout} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   selectedBins,
 } from '../state/selection';
 import { isMod, isTyping, keyLetter } from './shortcuts';
+import { hasLayoutClip, pasteLayoutInto } from './WallTools';
 
 const ARROWS: Record<string, [number, number]> = {
   ArrowLeft: [-1, 0],
@@ -24,6 +25,12 @@ export function useLayoutShortcuts(hoveredCell: () => [number, number] | null) {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || isTyping(e.target)) return;
       const k = keyLetter(e);
+      // Paste a compartment layout copied in the compartment editor into every selected bin.
+      if (isMod(e) && e.shiftKey && k === 'v' && hasLayoutClip() && selectedBins().length) {
+        pasteLayoutInto(selectedBins().map((b) => b.id));
+        e.preventDefault();
+        return;
+      }
       if (isMod(e) && !e.shiftKey) {
         // Leave copying selected page text to the browser.
         const textSelected = !!window.getSelection()?.toString();

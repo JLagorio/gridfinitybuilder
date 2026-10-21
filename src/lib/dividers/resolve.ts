@@ -10,10 +10,12 @@
  */
 import {
   EDGE,
+  MIN_FREE_WALL,
   MIN_GAP,
   MIN_WALL,
   T,
   type CompRect,
+  type ResolvedFreeWall,
   type Compartment,
   type DividerLayout,
   type DividerWall,
@@ -154,7 +156,179 @@ export function resolveLayout(layout: DividerLayout | null | undefined, innerW: 
     byId: new Map(out.map((w) => [w.id, w])),
     compartments: deriveCompartments(innerW, innerD, out),
     dropped: walls.filter((w) => !valid.has(w.id)).map((w) => w.id),
+    free: resolveFreeWalls(layout, innerW, innerD),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Diagonal / curved walls
+// ---------------------------------------------------------------------------
+
+type P2 = [number, number];
+
+/** Degrees per centerline segment of a curved wall. */
+const ARC_STEP = (4 * Math.PI) / 180;
+
+/**
+ * Centerline of a wall from `a` to `b` (cavity mm) bent into a circular arc
+ * with sagitta `bend` (positive bulges to the left of a → b), clamped to a half
+ * circle.
+ */
+export function freeWallShape(a: P2, b: P2, bend = 0): Pick<ResolvedFreeWall, 'bend' | 'path' | 'length' | 'arc'> {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const c = Math.hypot(dx, dy);
+  const s = c > 0 ? clamp(Number(bend) || 0, -c / 2, c / 2) : 0;
+  if (Math.abs(s) < 0.01 || c < EPS) return { bend: 0, path: [a, b], length: c };
+  const nx = -dy / c;
+  const ny = dx / c;
+  const R = (c * c) / 4 / (2 * Math.abs(s)) + Math.abs(s) / 2;
+  const k = s - Math.sign(s) * R;
+  const cx = (a[0] + b[0]) / 2 + nx * k;
+  const cy = (a[1] + b[1]) / 2 + ny * k;
+  const a0 = Math.atan2(a[1] - cy, a[0] - cx);
+  const theta = 2 * Math.asin(Math.min(1, c / (2 * R)));
+  // Bulging left of a → b runs clockwise around the center.
+  const sweep = s > 0 ? -theta : theta;
+  // An even count puts a vertex on the apex.
+  const n = Math.max(6, 2 * Math.ceil(theta / (2 * ARC_STEP)));
+  const path: P2[] = [a];
+  for (let i = 1; i < n; i++) {
+    const t = a0 + (sweep * i) / n;
+    path.push([cx + R * Math.cos(t), cy + R * Math.sin(t)]);
+  }
+  path.push(b);
+  return { bend: s, path, length: R * theta, arc: { cx, cy, r: R, a0, a1: a0 + sweep } };
+}
+
+/** Diagonal / curved walls in cavity mm. Bad or too-short ones are left out. */
+export function resolveFreeWalls(layout: DividerLayout | null | undefined, innerW: number, innerD: number): ResolvedFreeWall[] {
+  const out: ResolvedFreeWall[] = [];
+  const seen = new Set<string>();
+  const frac = (v: unknown) => clamp(Number.isFinite(Number(v)) ? Number(v) : 0, 0, 1);
+  for (const f of layout?.free ?? []) {
+    if (!f || typeof f.id !== 'string' || seen.has(f.id) || !Array.isArray(f.a) || !Array.isArray(f.b)) continue;
+    const a: P2 = [frac(f.a[0]) * innerW, frac(f.a[1]) * innerD];
+    const b: P2 = [frac(f.b[0]) * innerW, frac(f.b[1]) * innerD];
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < MIN_FREE_WALL) continue;
+    seen.add(f.id);
+    out.push({ id: f.id, a, b, lower: Math.max(0, Number(f.lower) || 0), ...freeWallShape(a, b, f.bend), wall: f });
+  }
+  return out;
+}
+
+/** Point on a free wall's centerline halfway along it (the apex of an arc). */
+export function freeWallMid(f: Pick<ResolvedFreeWall, 'a' | 'b' | 'arc'>): P2 {
+  if (!f.arc) return [(f.a[0] + f.b[0]) / 2, (f.a[1] + f.b[1]) / 2];
+  const t = (f.arc.a0 + f.arc.a1) / 2;
+  return [f.arc.cx + f.arc.r * Math.cos(t), f.arc.cy + f.arc.r * Math.sin(t)];
+}
+
+/**
+ * Outline of a free wall `half` mm either side of its centerline, with round
+ * ends, CCW. Straight walls give a stadium; bent ones are offset radially.
+ */
+export function freeWallOutline(f: Pick<ResolvedFreeWall, 'path' | 'arc'>, half = T / 2, capSegs = 8): P2[] {
+  const p = f.path;
+  const n = p.length;
+  // Left normal of the direction of travel at each point.
+  const normals: P2[] = p.map((q, i) => {
+    if (f.arc) {
+      const sweep = f.arc.a1 - f.arc.a0;
+      const ux = (q[0] - f.arc.cx) / f.arc.r;
+      const uy = (q[1] - f.arc.cy) / f.arc.r;
+      return sweep > 0 ? [-ux, -uy] : [ux, uy];
+    }
+    const [q0, q1] = i < n - 1 ? [q, p[i + 1]] : [p[i - 1], q];
+    const L = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]) || 1;
+    return [-(q1[1] - q0[1]) / L, (q1[0] - q0[0]) / L];
+  });
+  const out: P2[] = [];
+  const cap = (c: P2, from: P2) => {
+    const a0 = Math.atan2(from[1], from[0]);
+    for (let k = 1; k < capSegs; k++) {
+      const t = a0 + (Math.PI * k) / capSegs;
+      out.push([c[0] + half * Math.cos(t), c[1] + half * Math.sin(t)]);
+    }
+  };
+  for (let i = 0; i < n; i++) out.push([p[i][0] - half * normals[i][0], p[i][1] - half * normals[i][1]]);
+  cap(p[n - 1], [-normals[n - 1][0], -normals[n - 1][1]]);
+  for (let i = n - 1; i >= 0; i--) out.push([p[i][0] + half * normals[i][0], p[i][1] + half * normals[i][1]]);
+  cap(p[0], normals[0]);
+  return out;
+}
+
+/** Distance from a point to a polyline. */
+export function distToPath(path: P2[], x: number, y: number): number {
+  let best = Infinity;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const [x0, y0] = path[i];
+    const [x1, y1] = path[i + 1];
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const L2 = dx * dx + dy * dy;
+    const t = L2 > 0 ? clamp(((x - x0) * dx + (y - y0) * dy) / L2, 0, 1) : 0;
+    best = Math.min(best, Math.hypot(x - (x0 + t * dx), y - (y0 + t * dy)));
+  }
+  return best;
+}
+
+/** The free wall under a point (within `tol` mm of its faces), nearest first. */
+export function freeWallAt(r: ResolvedLayout, x: number, y: number, tol = 0): ResolvedFreeWall | null {
+  let best: ResolvedFreeWall | null = null;
+  let bestD = Infinity;
+  for (const f of r.free) {
+    const d = distToPath(f.path, x, y);
+    if (d <= T / 2 + tol && d < bestD) {
+      bestD = d;
+      best = f;
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Wall segments (finger notches and shaped tops)
+// ---------------------------------------------------------------------------
+
+export interface WallSpan {
+  /** Clear run between the faces of the walls (or edges) at its ends (cavity mm, along the wall). */
+  a: number;
+  b: number;
+  aEdge: boolean;
+  bEdge: boolean;
+}
+
+/**
+ * The parts of a straight wall's run between the perpendicular walls that cross
+ * or meet it (on either side), face to face.
+ */
+export function wallSpans(r: ResolvedLayout, id: string): WallSpan[] {
+  const W = r.byId.get(id);
+  if (!W) return [];
+  const runSize = acrossSize(other(W.orient), r.innerW, r.innerD);
+  const blocks = r.walls
+    .filter(
+      (P) =>
+        P.orient !== W.orient &&
+        P.start <= W.pos + T / 2 + EPS &&
+        P.end >= W.pos - T / 2 - EPS &&
+        P.pos > W.start - T / 2 - EPS &&
+        P.pos < W.end + T / 2 + EPS,
+    )
+    .map((P) => [P.pos - T / 2, P.pos + T / 2] as const)
+    .sort((p, q) => p[0] - q[0]);
+  const out: WallSpan[] = [];
+  let at = W.start;
+  const push = (a: number, b: number) => {
+    if (b - a > 0.5) out.push({ a, b, aEdge: a <= EPS, bEdge: b >= runSize - EPS });
+  };
+  for (const [b0, b1] of blocks) {
+    if (b0 > at) push(at, Math.min(b0, W.end));
+    at = Math.max(at, b1);
+  }
+  if (W.end > at) push(at, W.end);
+  return out;
 }
 
 /** Footprint of a wall in cavity mm. */

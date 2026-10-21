@@ -11,6 +11,9 @@ import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, t
 import { cleanTemplates, mergeTemplates, type BinTemplate } from '../lib/templates';
 import { trackHistory, type Snapshot } from './history';
 import { cleanTool, cleanTools, mergeTools, removeToolFromBins, syncToolInBins, type Tool } from '../lib/tools';
+import { binCellsAt } from '../lib/project';
+import { binInnerSize } from '../lib/geometry/bin';
+import { fitLayout, type DividerLayout } from '../lib/dividers';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -88,6 +91,32 @@ export interface Store extends ProjectState {
   resetAll(): void;
   /** Replace the project with one loaded from a saved file. */
   loadProject(data: unknown): void;
+  /**
+   * Put a divider layout (walls, diagonal walls, per-compartment options) into
+   * other bins, in this drawer or any other, as one undo step. `from` is a bin
+   * of this drawer or a layout. Ratio walls adapt to each bin's size; fixed-size
+   * walls that don't fit a bin are dropped there (and reported).
+   */
+  copyLayout(from: string | LayoutSource, to: LayoutTarget[]): CopyLayoutReport;
+}
+
+/** What copyLayout copies: a layout, or columns × rows when `layout` is null. */
+export interface LayoutSource {
+  layout: DividerLayout | null;
+  divX: number;
+  divY: number;
+}
+
+export interface LayoutTarget {
+  drawerId: string;
+  binId: string;
+}
+
+export interface CopyLayoutReport {
+  /** Bins that got the layout. */
+  copied: number;
+  /** Bins where fixed-size walls didn't fit and were left out (how many). */
+  dropped: { drawerId: string; binId: string; walls: number }[];
 }
 
 /** Every selected bin id, primary first. */
@@ -411,6 +440,42 @@ export const useStore = create<Store>()(
             return bins === d.bins ? d : { ...d, bins };
           }),
         })),
+
+      copyLayout: (from, to) => {
+        const s = get();
+        const src = typeof from === 'string' ? s.bins.find((b) => b.id === from)?.opts : from;
+        const report: CopyLayoutReport = { copied: 0, dropped: [] };
+        if (!src) return report;
+        const want = new Map<string, Set<string>>();
+        for (const t of to) {
+          if (typeof from === 'string' && t.binId === from && t.drawerId === s.activeDrawerId) continue;
+          if (!want.has(t.drawerId)) want.set(t.drawerId, new Set());
+          want.get(t.drawerId)!.add(t.binId);
+        }
+        const apply = (doc: DrawerDoc): PlacedBin[] => {
+          const ids = want.get(doc.id);
+          if (!ids) return doc.bins;
+          const grid = computeLayout(doc.drawer);
+          return doc.bins.map((b) => {
+            if (!ids.has(b.id)) return b;
+            let patch: Partial<BinOptions> = { divX: src.divX, divY: src.divY, layout: null };
+            if (src.layout) {
+              const fit = fitLayout(src.layout, binInnerSize(b.opts, binCellsAt(grid, b)));
+              if (fit.dropped.length) report.dropped.push({ drawerId: doc.id, binId: b.id, walls: fit.dropped.length });
+              patch = { layout: fit.layout };
+            }
+            report.copied++;
+            return { ...b, opts: sanitizeBin({ ...b.opts, ...patch }) };
+          });
+        };
+        const bins = apply(activeDrawer(s));
+        const drawers = s.drawers.map((d) => (d.id === s.activeDrawerId || !want.has(d.id) ? d : { ...d, bins: apply(d) }));
+        if (!report.copied) return report;
+        history.checkpoint();
+        set({ bins, drawers });
+        history.checkpoint();
+        return report;
+      },
 
       resetAll: () => set({ ...DEFAULT_PROJECT, ...DEFAULT_WORKSPACE, ui: { ...DEFAULT_UI, units: get().ui.units }, newBin: DEFAULT_BIN }),
       loadProject: (data) => {

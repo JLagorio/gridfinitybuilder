@@ -27,6 +27,7 @@ import {
   type Ref,
   type ResolvedLayout,
 } from './types';
+import { MAX_FREE_WALLS, MAX_WALLS, MIN_FREE_WALL, type Compartment, type FreeWall, type WallNotch, type WallTop } from './types';
 
 /** Inner cavity size (mm). */
 export interface InnerSize {
@@ -50,6 +51,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 function withWalls(l: DividerLayout, walls: DividerWall[], comps = l.comps): DividerLayout {
   const out: DividerLayout = { walls };
+  // Diagonal / curved walls don't take part in wall edits; they just come along.
+  if (l.free?.length) out.free = l.free;
   if (comps && Object.keys(comps).length) out.comps = comps;
   return out;
 }
@@ -230,22 +233,47 @@ export function makeRatio(l: DividerLayout, size: InnerSize, id: string): Divide
   );
 }
 
-export function setWallProps(l: DividerLayout, id: string, patch: { lower?: number; removable?: boolean }): DividerLayout {
+export interface WallPropsPatch {
+  lower?: number;
+  removable?: boolean;
+  /** null removes the notch. */
+  notch?: WallNotch | null;
+  top?: WallTop;
+}
+
+function patchWall(w: DividerWall, patch: WallPropsPatch): DividerWall {
+  const out: DividerWall = { ...w };
+  if (patch.lower !== undefined) {
+    if (patch.lower > 0) out.lower = patch.lower;
+    else delete out.lower;
+  }
+  if (patch.removable !== undefined) {
+    if (patch.removable) out.removable = true;
+    else delete out.removable;
+  }
+  if (patch.notch !== undefined) {
+    if (patch.notch && patch.notch.width > 0 && patch.notch.depth > 0) out.notch = { width: patch.notch.width, depth: patch.notch.depth };
+    else delete out.notch;
+  }
+  if (patch.top !== undefined) {
+    if (patch.top === 'chamfer' || patch.top === 'round') out.top = patch.top;
+    else delete out.top;
+  }
+  return out;
+}
+
+export function setWallProps(l: DividerLayout, id: string, patch: WallPropsPatch): DividerLayout {
   return withWalls(
     l,
-    l.walls.map((w) => {
-      if (w.id !== id) return w;
-      const out: DividerWall = { ...w };
-      if (patch.lower !== undefined) {
-        if (patch.lower > 0) out.lower = patch.lower;
-        else delete out.lower;
-      }
-      if (patch.removable !== undefined) {
-        if (patch.removable) out.removable = true;
-        else delete out.removable;
-      }
-      return out;
-    }),
+    l.walls.map((w) => (w.id === id ? patchWall(w, patch) : w)),
+  );
+}
+
+/** The same properties on every straight wall ("apply to all walls"). */
+export function setAllWallProps(l: DividerLayout, patch: WallPropsPatch): DividerLayout {
+  return withWalls(
+    l,
+    l.walls.map((w) => patchWall(w, patch)),
   );
 }
 
@@ -464,4 +492,234 @@ export function distributeEvenly(l: DividerLayout, size: InnerSize, id: string):
     return { ...w, lo: k === 0 ? loRef : sibs[k - 1], hi: hiRef, pos: { kind: 'ratio' as const, t: 1 / (n + 1 - k) } };
   });
   return carryOptions(l, withWalls(cur, walls), size);
+}
+
+// ---------------------------------------------------------------------------
+// Diagonal / curved walls
+// ---------------------------------------------------------------------------
+
+type Pt = [number, number];
+
+function withFree(l: DividerLayout, free: FreeWall[]): DividerLayout {
+  const out: DividerLayout = { walls: l.walls };
+  if (free.length) out.free = free;
+  if (l.comps && Object.keys(l.comps).length) out.comps = l.comps;
+  return out;
+}
+
+/** Next free id of the form f1, f2, … (not taken by any wall). */
+export function newFreeId(l: DividerLayout): string {
+  const taken = new Set([...l.walls.map((w) => w.id), ...(l.free ?? []).map((f) => f.id)]);
+  let n = 0;
+  for (const f of l.free ?? []) {
+    const m = /^f(\d+)$/.exec(f.id);
+    if (m) n = Math.max(n, Number(m[1]));
+  }
+  while (taken.has(`f${n + 1}`)) n++;
+  return `f${n + 1}`;
+}
+
+/** A point in cavity mm as fractions of the cavity (clamped to it). */
+export const toCavityFraction = (p: Pt, size: InnerSize): Pt => [
+  size.w > 0 ? clamp(p[0] / size.w, 0, 1) : 0,
+  size.d > 0 ? clamp(p[1] / size.d, 0, 1) : 0,
+];
+
+/** Add a diagonal / curved wall from `a` to `b` (cavity mm). Null when it's too short or there are too many. */
+export function addFreeWall(l: DividerLayout, size: InnerSize, a: Pt, b: Pt, bend = 0): { layout: DividerLayout; id: string } | null {
+  if ((l.free?.length ?? 0) >= MAX_FREE_WALLS) return null;
+  const fa = toCavityFraction(a, size);
+  const fb = toCavityFraction(b, size);
+  if (Math.hypot((fb[0] - fa[0]) * size.w, (fb[1] - fa[1]) * size.d) < MIN_FREE_WALL) return null;
+  const id = newFreeId(l);
+  const fw: FreeWall = { id, a: fa, b: fb };
+  if (Math.abs(bend) >= 0.01) fw.bend = bend;
+  return { layout: withFree(l, [...(l.free ?? []), fw]), id };
+}
+
+export interface FreeWallPatch {
+  /** New ends, in cavity mm. */
+  a?: Pt;
+  b?: Pt;
+  bend?: number;
+  lower?: number;
+}
+
+export function updateFreeWall(l: DividerLayout, size: InnerSize, id: string, patch: FreeWallPatch): DividerLayout {
+  return withFree(
+    l,
+    (l.free ?? []).map((f) => {
+      if (f.id !== id) return f;
+      const out: FreeWall = { ...f };
+      if (patch.a) out.a = toCavityFraction(patch.a, size);
+      if (patch.b) out.b = toCavityFraction(patch.b, size);
+      if (patch.bend !== undefined) {
+        if (Math.abs(patch.bend) >= 0.01) out.bend = patch.bend;
+        else delete out.bend;
+      }
+      if (patch.lower !== undefined) {
+        if (patch.lower > 0) out.lower = patch.lower;
+        else delete out.lower;
+      }
+      return out;
+    }),
+  );
+}
+
+export function removeFreeWall(l: DividerLayout, id: string): DividerLayout {
+  return withFree(
+    l,
+    (l.free ?? []).filter((f) => f.id !== id),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mirror / rotate
+// ---------------------------------------------------------------------------
+
+/** The same position measured from the other side (the axis is flipped). */
+const flipPos = (p: DividerWall['pos']): DividerWall['pos'] =>
+  p.kind === 'ratio' ? { kind: 'ratio', t: 1 - p.t } : { ...p, from: p.from === 'lo' ? 'hi' : 'lo' };
+/** Flip across the wall's axis: low and high neighbors trade places. */
+const swapSides = (w: DividerWall): DividerWall => ({ ...w, lo: w.hi, hi: w.lo, pos: flipPos(w.pos) });
+/** Flip along the wall's run: its two ends trade places. */
+const swapEnds = (w: DividerWall): DividerWall => ({ ...w, start: w.end, end: w.start });
+
+interface LayoutMap {
+  wall(w: DividerWall): DividerWall;
+  /** Cavity edge tag (^L ^R ^F ^B) → its new tag. */
+  edges: Record<string, string>;
+  /** Do the `<` / `>` sides of a wall of this (original) orientation trade places? */
+  flipsSides(o: Orient): boolean;
+  /** Fractions of the cavity → new fractions. */
+  point(p: Pt): Pt;
+  /** Mirrors turn arcs the other way relative to a → b. */
+  bend: 1 | -1;
+}
+
+const MIRROR_X: LayoutMap = {
+  wall: (w) => (w.orient === 'v' ? swapSides(w) : swapEnds(w)),
+  edges: { '^L': '^R', '^R': '^L' },
+  flipsSides: (o) => o === 'v',
+  point: ([u, v]) => [1 - u, v],
+  bend: -1,
+};
+const MIRROR_Y: LayoutMap = {
+  wall: (w) => (w.orient === 'h' ? swapSides(w) : swapEnds(w)),
+  edges: { '^F': '^B', '^B': '^F' },
+  flipsSides: (o) => o === 'h',
+  point: ([u, v]) => [u, 1 - v],
+  bend: -1,
+};
+/** A quarter turn clockwise seen from above: (u, v) → (v, 1 − u). */
+const ROTATE_CW: LayoutMap = {
+  wall: (w) => (w.orient === 'v' ? { ...swapSides(w), orient: 'h' } : { ...swapEnds(w), orient: 'v' }),
+  edges: { '^L': '^B', '^B': '^R', '^R': '^F', '^F': '^L' },
+  flipsSides: (o) => o === 'v',
+  point: ([u, v]) => [v, 1 - u],
+  bend: 1,
+};
+
+const NOMINAL: InnerSize = { w: 100, d: 100 };
+
+/**
+ * Per-compartment options of `prev` for the compartments of `next` (its image
+ * under `m`). Keys are mapped tag by tag (exact, since the transform keeps the
+ * topology); a compartment whose mapped key doesn't exist (a duplicate key, or
+ * fixed-size walls that ended up elsewhere) is found by its mapped center point.
+ */
+function mapComps(prev: DividerLayout, next: DividerLayout, size: InnerSize, m: LayoutMap): Record<string, CompartmentOptions> | undefined {
+  const comps = prev.comps;
+  if (!comps || !Object.keys(comps).length) return undefined;
+  const orient = new Map(prev.walls.map((w) => [w.id, w.orient]));
+  const mapTag = (tag: string) => {
+    if (tag.startsWith('^')) return m.edges[tag] ?? tag;
+    const side = tag.slice(-1);
+    const id = tag.slice(0, -1);
+    const o = orient.get(id);
+    if (!o || side === '.' || !m.flipsSides(o)) return tag;
+    return `${id}${side === '<' ? '>' : '<'}`;
+  };
+  const r0 = resolveIn(prev, size);
+  const r1 = resolveIn(next, size);
+  const live = new Set(r1.compartments.map((c) => c.key));
+  const out: Record<string, CompartmentOptions> = {};
+  const pending: Compartment[] = [];
+  for (const c of r0.compartments) {
+    const o = comps[c.key];
+    if (!o) continue;
+    const k = c.key.includes('#') ? null : c.key.split(',').map(mapTag).sort().join(',');
+    if (k && live.has(k) && !out[k]) out[k] = o;
+    else pending.push(c);
+  }
+  for (const c of pending) {
+    const [u, v] = m.point([c.point[0] / size.w, c.point[1] / size.d]);
+    const nc = compartmentAt(r1, u * size.w, v * size.d);
+    if (nc && !out[nc.key]) out[nc.key] = comps[c.key];
+  }
+  return out;
+}
+
+function transformLayout(l: DividerLayout, size: InnerSize, m: LayoutMap): DividerLayout {
+  const walls = l.walls.map((w) => m.wall(w));
+  const free = (l.free ?? []).map((f) => {
+    const out: FreeWall = { ...f, a: m.point(f.a), b: m.point(f.b) };
+    if (f.bend) out.bend = f.bend * m.bend;
+    return out;
+  });
+  const next: DividerLayout = { ...l, walls };
+  delete next.free;
+  delete next.comps;
+  if (free.length) next.free = free;
+  const comps = mapComps(l, next, size, m);
+  if (comps && Object.keys(comps).length) next.comps = comps;
+  return next;
+}
+
+/**
+ * Mirror a layout left ↔ right ('x') or front ↔ back ('y'). Ratios stay ratios
+ * and fixed sizes stay fixed (measured from the other side); compartment
+ * options and diagonal / curved walls come along. `size` (the cavity) is only
+ * needed to place options of compartments whose keys can't be mapped directly.
+ */
+export function mirrorLayout(l: DividerLayout, axis: 'x' | 'y', size: InnerSize = NOMINAL): DividerLayout {
+  return transformLayout(l, size, axis === 'x' ? MIRROR_X : MIRROR_Y);
+}
+
+/**
+ * Turn a layout a quarter turn clockwise (seen from above) inside the same
+ * innerW × innerD cavity: walls swap direction, ratios stay ratios, fixed sizes
+ * keep their mm (a fixed wall that no longer fits is clamped by the resolver).
+ */
+export function rotateLayout(l: DividerLayout, innerW: number, innerD: number): DividerLayout {
+  return transformLayout(l, { w: innerW, d: innerD }, ROTATE_CW);
+}
+
+// ---------------------------------------------------------------------------
+// Copying a layout to another bin
+// ---------------------------------------------------------------------------
+
+/**
+ * A layout made to fit a cavity: walls that can't be placed there are removed
+ * (walls too short to keep, and fixed-size walls whose gap doesn't fit, which
+ * the resolver would otherwise squeeze). Ratio walls just scale. Returns the
+ * ids removed.
+ */
+export function fitLayout(l: DividerLayout, size: InnerSize): { layout: DividerLayout; dropped: string[] } {
+  let cur = l;
+  const dropped: string[] = [];
+  for (let k = 0; k < MAX_WALLS; k++) {
+    const r = resolveIn(cur, size);
+    const bad = cur.walls.find((w) => {
+      const R = r.byId.get(w.id);
+      if (!R) return true;
+      if (w.pos.kind !== 'exact') return false;
+      const want = w.pos.from === 'lo' ? R.loPos + T + w.pos.mm : R.hiPos - T - w.pos.mm;
+      return Math.abs(want - R.pos) > 0.01;
+    });
+    if (!bad) break;
+    dropped.push(bad.id);
+    cur = removeWall(cur, size, bad.id);
+  }
+  return { layout: cur, dropped };
 }

@@ -44,6 +44,14 @@ export interface DividerWall {
   lower?: number;
   /** Printed as a separate slide-in plate; the bin gets slots instead of a fixed wall. */
   removable?: boolean;
+  /**
+   * U-shaped finger notch down from the top, one centered in each segment of
+   * the wall between the walls crossing or meeting it. On a removable wall it
+   * goes on the printed plate.
+   */
+  notch?: WallNotch;
+  /** Shape of the top edges (undefined = 'flat'). */
+  top?: WallTop;
 }
 
 /** Per-compartment overrides. Undefined fields use the bin-level setting. */
@@ -59,6 +67,8 @@ export interface CompartmentOptions {
 
 export interface DividerLayout {
   walls: DividerWall[];
+  /** Diagonal and curved walls (solid only, see FreeWall). */
+  free?: FreeWall[];
   /**
    * Per-compartment options keyed by compartment key (see `compartmentKey` in
    * resolve.ts: the sorted list of walls/edges bounding it, with the side of each
@@ -129,4 +139,56 @@ export interface ResolvedLayout {
   compartments: Compartment[];
   /** Ids of walls that could not be resolved (degenerate) and were left out. */
   dropped: string[];
+  /** Diagonal / curved walls in cavity mm (degenerate ones left out). */
+  free: ResolvedFreeWall[];
+}
+
+// ---------------------------------------------------------------------------
+// Wall extras: finger notches, shaped tops, diagonal / curved walls
+// ---------------------------------------------------------------------------
+
+export interface WallNotch {
+  /** Width at the top (mm). */
+  width: number;
+  /** Depth down from the wall's top (mm). The bottom is rounded. */
+  depth: number;
+}
+
+export type WallTop = 'flat' | 'chamfer' | 'round';
+
+/**
+ * A diagonal or curved wall. Its ends are fractions (0..1) of the cavity, so it
+ * keeps its place when the bin is resized. It is solid only: it doesn't split
+ * compartments, so scoops, label tabs and per-compartment options ignore it.
+ */
+export interface FreeWall {
+  id: string;
+  /** Ends as [u, v] fractions of the cavity (x / innerW, y / innerD). */
+  a: [number, number];
+  b: [number, number];
+  /** Sagitta of a circular arc through both ends (mm); positive bulges to the left of a → b. 0 / undefined = straight. */
+  bend?: number;
+  /** Top this many mm below the top of the infill (0 / undefined = full height). */
+  lower?: number;
+}
+
+export const MAX_FREE_WALLS = 32;
+/** Shortest diagonal / curved wall kept (mm). */
+export const MIN_FREE_WALL = 3;
+
+export interface ResolvedFreeWall {
+  id: string;
+  /** Ends in cavity mm. */
+  a: [number, number];
+  b: [number, number];
+  /** Sagitta (mm), clamped to at most a half circle; 0 = straight. */
+  bend: number;
+  lower: number;
+  /** Centerline as a polyline from a to b (two points when straight). */
+  path: [number, number][];
+  /** Length along the centerline. */
+  length: number;
+  /** Arc center and radius (bent walls only). */
+  arc?: { cx: number; cy: number; r: number; a0: number; a1: number };
+  wall: FreeWall;
 }
