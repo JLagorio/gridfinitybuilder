@@ -126,9 +126,15 @@ export const useMyBins = create<MyBinsState>(() => ({ ...loadLibrary(storage()),
 
 const state = () => useMyBins.getState();
 
+/** What's stored, or what this tab has when reading fails now (storage blocked since). */
+function readOrKeep(s: KeyValueStore | null): { entries: LibraryEntry[]; status: LibraryStatus } {
+  const r = loadLibrary(s);
+  return r.status === 'memory' ? { entries: state().entries, status: 'memory' } : r;
+}
+
 /** Read the library again (another tab changed it). */
 export function reloadMyBins() {
-  useMyBins.setState(loadLibrary(storage()));
+  useMyBins.setState(readOrKeep(storage()));
 }
 
 /** Use another storage (tests; null = none) and read the library from it. */
@@ -149,7 +155,7 @@ function latest(): { entries: LibraryEntry[]; status: LibraryStatus } {
   const cur = state();
   const s = storage();
   if (!s || cur.status === 'memory' || cur.status === 'full') return { entries: cur.entries, status: s ? cur.status : 'memory' };
-  return loadLibrary(s);
+  return readOrKeep(s);
 }
 
 type Change = 'done' | 'unchanged' | 'refused';

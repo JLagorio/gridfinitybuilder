@@ -119,6 +119,22 @@ describe('My bins storage', () => {
     expect(lib().status).toBe('memory');
   });
 
+  it('keeps what this tab has when storage gets blocked later', () => {
+    const id = addRich();
+    saveToMyBins([id], { name: 'Kept' });
+    let blocked = false;
+    setLibraryStorage(() => {
+      if (blocked) throw new DOMException('The operation is insecure.', 'SecurityError');
+      return store;
+    });
+    blocked = true;
+    reloadMyBins();
+    expect(lib().entries.map((e) => e.name)).toEqual(['Kept']);
+    saveToMyBins([id], { name: 'Also' });
+    expect(lib().entries.map((e) => e.name)).toEqual(['Kept', 'Also']);
+    expect(lib().status).toBe('memory');
+  });
+
   it('keeps changes in memory when storage is full', () => {
     setLibraryStorage(new FullStorage());
     const id = addRich();
