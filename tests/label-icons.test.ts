@@ -454,9 +454,14 @@ describe('front labels', () => {
   it('planning warns when a raised front label would touch the bin in front', () => {
     const a: PlacedBin = { id: 'a', x: 0, y: 1, opts: front() };
     const b: PlacedBin = { id: 'b', x: 0, y: 0, opts: bin() };
-    expect(frontLabelClashes([a, b], () => true).map((x) => x.id)).toEqual(['a']);
-    expect(frontLabelClashes([a, { ...b, x: 2 }], () => true)).toEqual([]);
-    expect(frontLabelClashes([{ ...a, opts: front({ frontLabel: 'inlaid' }) }, b], () => true)).toEqual([]);
+    const at = () => 10;
+    const tall = () => 25;
+    expect(frontLabelClashes([a, b], at, tall).map((x) => x.id)).toEqual(['a']);
+    expect(frontLabelClashes([a, { ...b, x: 2 }], at, tall)).toEqual([]);
+    expect(frontLabelClashes([{ ...a, opts: front({ frontLabel: 'inlaid' }) }, b], at, tall)).toEqual([]);
+    // A bin in front that's lower than the label doesn't reach it.
+    expect(frontLabelClashes([a, b], at, (x) => (x.id === 'b' ? 8 : 25))).toEqual([]);
+    expect(frontLabelClashes([a, b], () => null, tall)).toEqual([]);
     const project = { ...DEFAULT_PROJECT, drawer: { ...DEFAULT_DRAWER, mode: 'grid' as const, gridX: 4, gridY: 3 }, bins: [a, b] };
     expect(planJob(project).warnings.some((m) => m.includes('front label'))).toBe(true);
     expect(planJob({ ...project, bins: [a] }).warnings.some((m) => m.includes('front label'))).toBe(false);

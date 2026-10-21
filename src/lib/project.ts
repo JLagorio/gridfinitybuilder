@@ -32,7 +32,7 @@ import { activeContainer, containerDef, type ContainerType } from './geometry/co
 import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } from './geometry/labels';
 import { resolveContentLabels } from './geometry/labelContents';
 import { labelPlainText } from './geometry/labelIcons';
-import { frontLabelClashes } from './geometry/frontLabel';
+import { frontLabelBottom, frontLabelClashes } from './geometry/frontLabel';
 import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
 import { accessoryParts, planAccessories, type AccessoryPart } from './geometry/accessories';
 import { buildAccessoryPart } from './geometry/accessoryGeometry';
@@ -339,7 +339,12 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
 
     const room = d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) : Infinity;
     // Raised front labels stand proud of the 0.5 mm gap to the bin in front.
-    for (const b of frontLabelClashes(d.bins, (x) => !!binFrontLabel(resolveContentLabels(x.opts, x), binCellsAt(layout, x)))) {
+    const clashes = frontLabelClashes(
+      d.bins,
+      (x) => frontLabelBottom(binFrontLabel(resolveContentLabels(x.opts, x), binCellsAt(layout, x))),
+      (x) => binTotalHeight(x.opts),
+    );
+    for (const b of clashes) {
       warn(`Bin ${binLabel(b.opts)}: its raised front label touches the bin in front of it (make it inlaid or engraved).`);
     }
     for (const b of d.bins) {

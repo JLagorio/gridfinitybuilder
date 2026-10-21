@@ -253,19 +253,25 @@ export function frontLabelInlay(o: FrontOpts, W: number, D: number, zBottom: num
 export const frontLabelRaised = (o: Pick<FrontOpts, 'frontLabel'>) => o.frontLabel === 'raised' || o.frontLabel === 'two-tone';
 
 /**
- * Bins whose raised front label would touch the bin right in front of them
- * (bins sit 0.5 mm apart; raised text stands FRONT_LABEL.raise proud).
- * `hasLabel` tells whether a bin really gets a front label.
+ * Bins whose raised front label would touch a bin right in front of them
+ * (bins sit 0.5 mm apart; raised text stands FRONT_LABEL.raise proud), unless
+ * that bin is lower than the label. `labelBottom` gives the lowest the bin's
+ * label text goes (null: no front label); `height` a bin's overall height.
  */
 export function frontLabelClashes<B extends { id: string; x: number; y: number; opts: Pick<FrontOpts, 'unitsX' | 'unitsY' | 'frontLabel'> }>(
   bins: B[],
-  hasLabel: (b: B) => boolean,
+  labelBottom: (b: B) => number | null,
+  height: (b: B) => number,
 ): B[] {
-  return bins.filter(
-    (b) =>
-      frontLabelRaised(b.opts) &&
-      bins.some((n) => n !== b && n.y + n.opts.unitsY === b.y && n.x < b.x + b.opts.unitsX && n.x + n.opts.unitsX > b.x) &&
-      hasLabel(b),
-  );
+  return bins.filter((b) => {
+    if (!frontLabelRaised(b.opts)) return false;
+    const inFront = bins.filter((n) => n !== b && n.y + n.opts.unitsY === b.y && n.x < b.x + b.opts.unitsX && n.x + n.opts.unitsX > b.x);
+    if (!inFront.length) return false;
+    const z = labelBottom(b);
+    return z !== null && inFront.some((n) => height(n) > z);
+  });
 }
+
+/** The lowest the plan's text boxes go (planning: the text itself may sit higher). */
+export const frontLabelBottom = (plan: FrontLabelPlan | null) => (plan ? Math.min(...plan.segments.map((s) => s.box.y0)) : null);
 
