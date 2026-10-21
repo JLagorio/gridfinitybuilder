@@ -69,6 +69,7 @@ import { selectFreeWall } from './interiorState';
 import { LayoutActions, copyLayoutOf, dividerHeight, pasteLayoutInto } from './WallTools';
 import { isMod } from './shortcuts';
 import { CompartmentInsidePreview, useInsideBadge } from './CompartmentInsidePreview';
+import { stretchOf } from '../lib/geometry/placement';
 
 const T = DIVIDER;
 /** Pointer distances, in screen pixels. */
@@ -178,8 +179,9 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     updateBin(binId, { opts: { layout: next } });
   };
   const step = snapStep(units, precision || 16);
-  const cellsX = useMemo(() => (info ? cellLines(info.cells.x) : []), [info]);
-  const cellsY = useMemo(() => (info ? cellLines(info.cells.y) : []), [info]);
+  // A stretched body reaches past the feet on the left / front, so the seams sit that much further in.
+  const cellsX = useMemo(() => (info ? cellLines(info.cells.x, stretchOf(info.cells.stretch).left) : []), [info]);
+  const cellsY = useMemo(() => (info ? cellLines(info.cells.y, stretchOf(info.cells.stretch).front) : []), [info]);
   const snapOpts = (alt: boolean) => ({ tolerance: SNAP_PX / pxPerMm, step, free: alt, cellsX, cellsY });
   const pointOpts = (alt: boolean) => ({ tolerance: SNAP_PX / pxPerMm, step, free: alt });
 

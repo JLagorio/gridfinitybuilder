@@ -120,10 +120,14 @@ export function snapAcross(s: SnapInput): SnapResult {
   return { kind: s.free ? 'free' : 'step', pos, label: '', matches: [], ...refs };
 }
 
-/** Grid-cell seams in cavity coordinates, from the bin's cell pitches along one axis. */
-export function cellLines(cells: number[]): number[] {
+/**
+ * Grid-cell seams in cavity coordinates, from the bin's cell pitches along one
+ * axis. `offset`: how far the body reaches past the feet on the low side (a
+ * stretched bin's left / front stretch).
+ */
+export function cellLines(cells: number[], offset = 0): number[] {
   const out: number[] = [];
-  let acc = 0;
+  let acc = offset;
   for (let k = 0; k < cells.length - 1; k++) {
     acc += cells[k];
     out.push(acc - (GRID - BASE_TOP) / 2 - WALL);
