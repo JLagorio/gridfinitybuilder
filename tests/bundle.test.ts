@@ -14,8 +14,10 @@ const root = resolve(__dirname, '..');
 /**
  * The app's own JS on the first screen (the entry and what it imports, minus the React and three.js
  * chunks), bytes. It was ~460 kB when the split was made; everything in one chunk was 1.5 MB.
+ * Multi-colour planning and the 3D view's filament colours run on the first screen (~19 kB, with
+ * the Colours section, the palette and the presets loaded with the print tab): 520 → 540 kB.
  */
-const FIRST_SCREEN_BUDGET = 520_000;
+const FIRST_SCREEN_BUDGET = 540_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
@@ -72,6 +74,12 @@ describe('bundle', () => {
       'src/lib/autofill/index.ts',
       'src/lib/bom.ts',
       'src/lib/export/step.ts',
+      // Multi-colour: the Colours section, its presets and texts, the checks, the bin/plate colour fields.
+      'src/components/ColourSection.tsx',
+      'src/components/ColourFields.tsx',
+      'src/lib/colourPresets.ts',
+      'src/lib/colourText.ts',
+      'src/lib/colourChecks.ts',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).

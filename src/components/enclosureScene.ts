@@ -1,4 +1,4 @@
-import type { SceneItem } from './Viewer';
+import type { ScenePaint, SceneItem } from './Viewer';
 import type { EnclosureScene, EnclosureSceneItem } from '../lib/enclosures';
 
 /** How the drawer view shows a carry case's lid. */
@@ -14,7 +14,7 @@ const COLORS: Record<EnclosureSceneItem['role'], string> = {
 };
 
 /** The enclosure's extra parts for the drawer view (plate coordinates; spread with the pieces). */
-export function enclosureSceneItems(enc: EnclosureScene, lid: LidView, gap: number): SceneItem[] {
+export function enclosureSceneItems(enc: EnclosureScene, lid: LidView, gap: number, paint?: (role: EnclosureSceneItem['role']) => ScenePaint | undefined): SceneItem[] {
   const out: SceneItem[] = [];
   for (const it of enc.items) {
     if (it.when === 'closed' && lid !== 'closed') continue;
@@ -30,6 +30,7 @@ export function enclosureSceneItems(enc: EnclosureScene, lid: LidView, gap: numb
       d: it.d,
       h: it.h,
       color: COLORS[it.role],
+      ...(paint?.(it.role) ? { paint: paint(it.role) } : {}),
     });
   }
   return out;

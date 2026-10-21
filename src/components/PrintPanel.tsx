@@ -20,6 +20,12 @@ import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { PRINT_INDEX } from './panelIndex';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
+import { LazyPart, lazyNamed, once } from './lazy';
+import { colourChecks } from '../lib/colourChecks';
+
+// The Colours section (palette, roles, strategies) loads with the print tab's first render, beside it.
+const loadColours = once(() => import('./ColourSection'));
+const ColourSection = lazyNamed(loadColours, 'ColourSection');
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -125,6 +131,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
 
   const twoColour = usesSecondFilament(job);
   const estimate = useJobEstimate(job);
+  // Multi-colour checks (colourChecks.ts) go with the others.
+  const extraChecks = useMemo(() => colourChecks(job, setup, estimate.plates), [job, setup, estimate.plates]);
   const currency = estimate.bom.estimate?.currency ?? '$';
   const nBasePlates = job.plates.filter((p) => p.group === 'baseplate').length;
   const nBinPlates = job.plates.length - nBasePlates;
@@ -232,8 +240,12 @@ export function PrintPanel({ job }: { job: PrintJob }) {
         <MoreInAll ids={[['bed-margin', marginSet || !!setup.printers], ['part-spacing', spacingSet]]} />
       </Section>
 
+      <LazyPart scope="The Colours section">
+        <ColourSection twoColour={twoColour} />
+      </LazyPart>
+
       <Find id="checks">
-        <PrintChecksSection job={job} />
+        <PrintChecksSection job={job} extra={extraChecks} />
       </Find>
 
       <Section title="Export" find="export">
@@ -254,24 +266,6 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             {w}
           </div>
         ))}
-        {twoColour && (
-          <Find id="label-colour">
-            <div className="field label-colour">
-              <label className="field-label" htmlFor="label-colour">
-                Label filament (slot 2)
-              </label>
-              <div className="field-control colour-row">
-                <input
-                  id="label-colour"
-                  type="color"
-                  value={setup.labelColour ?? '#161616'}
-                  onChange={(e) => store.setSetup({ labelColour: e.target.value })}
-                />
-                <span className="muted small">Inlaid label text and two-colour tool pocket floors print in this filament; the Bambu project gets a second filament set to it.</span>
-              </div>
-            </div>
-          </Find>
-        )}
         <Find id="export-files">
           <button className="primary wide" disabled={!!progress || !platesFor(0)} onClick={() => exportBambu(job.printers ? 0 : undefined)}>
             {printer.bambu ? 'Bambu Studio project' : 'Slicer project'}{job.printers ? ` · ${shortName(names[0])}` : ''} (.3mf)

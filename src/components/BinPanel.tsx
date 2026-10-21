@@ -32,6 +32,7 @@ import { FillFromListButton } from './FillFromList';
 import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { BIN_INDEX } from './panelIndex';
+import { BinColourField } from './ColourFields';
 
 type FieldProps = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -394,6 +395,9 @@ export function BinPanel({ job }: { job: PrintJob }) {
         )}
         <Find id="height">{container ? <ContainerHeight opts={opts} onChange={onChange} /> : <HeightField opts={opts} onChange={onChange} cells={cells} />}</Find>
         {!container && <MoreInAll ids={[['height-mode', opts.heightMode !== 'units']]} />}
+        <Find id="bin-colour" set={opts.colour !== undefined}>
+          <BinColourField opts={opts} onChange={onChange} />
+        </Find>
         {sizeError && <div className="field-error">{sizeError}</div>}
       </Section>
 

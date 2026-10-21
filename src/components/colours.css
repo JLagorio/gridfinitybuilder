@@ -1,0 +1,151 @@
+/* ---------- multi-colour: slot swatches, the palette, colour roles ---------- */
+
+.slot-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.slot-swatch {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.slot-swatch.unset {
+  background: var(--panel-3);
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0 8px;
+}
+.slot-swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.slot-swatch.unset.active {
+  color: var(--text);
+}
+
+.slot-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.slot-row {
+  display: grid;
+  grid-template-columns: 26px 40px minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.9fr);
+  gap: 6px;
+  align-items: end;
+}
+.slot-row .field {
+  margin: 0;
+  min-width: 0;
+}
+.slot-row .field-label {
+  font-size: 11px;
+}
+.slot-row input[type='color'] {
+  width: 40px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.slot-num {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.colour-presets button {
+  flex: 1 1 auto;
+}
+.colour-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.colour-role-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.colour-role-title {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.colour-costs tr.active td {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The 3D view's legend: the slots on screen. */
+.viewer-legend {
+  position: absolute;
+  top: 44px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 46%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  pointer-events: none;
+}
+.viewer-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.viewer-legend i {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* Phones: the palette rows wrap under their colour. */
+@media (max-width: 600px) {
+  .slot-row {
+    grid-template-columns: 26px 40px minmax(0, 1fr);
+  }
+  .slot-row .field:nth-of-type(n + 2) {
+    grid-column: 2 / -1;
+  }
+  .viewer-legend {
+    top: auto;
+    bottom: 64px;
+    max-width: 60%;
+  }
+}
+
+/* The BOM's filament-by-slot table. */
+.bom-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  vertical-align: -1px;
+}

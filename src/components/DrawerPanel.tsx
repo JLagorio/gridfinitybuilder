@@ -9,8 +9,18 @@ import { unitsAcross } from '../lib/layout/halfgrid';
 import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
 import { PadFields } from './PadFields';
+import { LazyPart, lazyNamed, once } from './lazy';
+
+// Only with multi-colour on: its code stays off the first screen.
+const loadColourFields = once(() => import('./ColourFields'));
+const PlateColourField = lazyNamed(loadColourFields, 'PlateColourField');
+
+/** While a search shows the baseplate colour with multi-colour off: where to turn it on. */
+function ColourOffNote() {
+  return useFindState()?.result ? <p className="muted small">Baseplate colour: turn on several colours under Print plates › Colours first.</p> : null;
+}
 import { EnclosureSection } from './EnclosureFields';
-import { Find } from './findContext';
+import { Find, useFindState } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { DRAWER_INDEX } from './panelIndex';
 
@@ -92,6 +102,7 @@ function Samples({
 export function DrawerPanel({ job }: { job: PrintJob }) {
   const drawer = useStore((s) => s.drawer);
   const bp = useStore((s) => s.baseplate);
+  const coloursOn = useStore((s) => !!s.setup.colours?.on);
   const precision = useStore((s) => s.ui.inchPrecision);
   const active = useStore((s) => s.drawers.find((d) => d.id === s.activeDrawerId));
   const renameDrawer = useStore((s) => s.renameDrawer);
@@ -545,6 +556,15 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
         </Find>
         <Find id="bp-pads" set={!!bp.pads}>
           <PadFields bp={bp} setBp={setBp} job={job} />
+        </Find>
+        <Find id="bp-colour" set={bp.colour !== undefined}>
+          {coloursOn ? (
+            <LazyPart scope="The baseplate colour">
+              <PlateColourField />
+            </LazyPart>
+          ) : (
+            <ColourOffNote />
+          )}
         </Find>
         <Group find="bp-edges" title="Edges and fit" status={edges.length ? edges.map((k) => EDGE_NAMES[k]).join(' · ') : 'standard'} active={edges.length > 0}>
           <NumberInput label="Outer corner radius" value={bp.outerRadius} min={0} max={30} step={0.5} onChange={(outerRadius) => setBp({ outerRadius })} />

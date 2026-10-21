@@ -12,6 +12,7 @@ import { bambuSettings } from './bambuSettings';
 import { NumberInput, Section, TextInput } from './fields';
 import { jobPrinters, printerNames } from '../lib/layout/fleet';
 import { setPrinterAt } from '../state/printers';
+import { paletteOf } from '../lib/colours';
 
 const subscribe = (cb: () => void) => geometry.subscribe(cb);
 const version = () => geometry.getVersion();
@@ -119,7 +120,8 @@ export function useJobEstimate(job: PrintJob): JobEstimate {
   const printer = findPrinter(setup.printerId);
   // Several printers (fleet.ts): each plate is timed on its own printer, and the BOM has each one's share.
   const ids = useMemo(() => (job.printers ? jobPrinters(setup).map((p) => p.printerId) : setup.printerId), [job.printers, setup]);
-  const plates = useMemo(() => estimateJob(job, stats.lookup, ids), [job, stats.lookup, ids]);
+  // Multi-colour: each part's colours, the purge by colour, and the printer's slots (colours.ts).
+  const plates = useMemo(() => estimateJob(job, stats.lookup, ids, setup), [job, stats.lookup, ids, setup]);
   const bom = useMemo(
     () =>
       billOfMaterials(job, volumes.lookup, {
@@ -263,7 +265,33 @@ export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: str
         {estimateNote(bom.estimate?.printer ?? 'printer')}.
         {bom.total.swaps ? ` Includes ${bom.total.swaps} filament swaps (${Math.round(bom.total.wasteGrams ?? 0)} g purged).` : ''}
       </div>
-      <CostFields twoColour={bom.plates.some((p) => (p.swaps ?? 0) > 0)} />
+      {bom.filaments && bom.filaments.length > 0 && (
+        <table className="bom-table bom-filaments">
+          <thead>
+            <tr>
+              <th>Filament</th>
+              <th>Parts</th>
+              <th>Purge</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bom.filaments.map((x) => (
+              <tr key={x.slot}>
+                <td>
+                  <i className="bom-swatch" style={{ background: paletteOf(job.colours ?? {}, x.slot)[x.slot - 1].colour }} />
+                  {x.name}
+                </td>
+                <td>{Math.round(x.grams)} g</td>
+                <td>{x.waste ? `${Math.round(x.waste * 10) / 10} g` : '–'}</td>
+                <td>{formatMoney(x.cost, symbol)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {bom.plates.some((p) => p.manual) && <div className="field-hint">Colour changes on some plates are pauses to swap the spool by hand: the time leaves out waiting for you.</div>}
+      <CostFields twoColour={bom.plates.some((p) => (p.swaps ?? 0) > 0) && !job.colours} />
       <div className="button-row">
         <button onClick={() => download('csv')}>BOM (.csv)</button>
         <button onClick={() => download('txt')}>BOM (.txt)</button>
@@ -289,12 +317,13 @@ function CostFields({ twoColour }: { twoColour: boolean }) {
       {twoColour && (
         <NumberInput
           label="Filament 2 price (label text)"
-          value={setup.filamentPrice2 ?? price}
+          value={paletteOf(setup, 2)[1].price ?? price}
           min={0}
           max={100000}
           step={1}
           suffix={`${symbol}/kg`}
-          onChange={(filamentPrice2) => setSetup({ filamentPrice2 })}
+          // Slot 2 of the palette (colours.ts), which the label filament is.
+          onChange={(p2) => setSetup({ filaments: paletteOf(setup, 2).map((f, i) => (i === 1 ? { ...f, price: p2 } : f)) })}
         />
       )}
       <div className="row2">
