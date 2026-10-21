@@ -760,6 +760,7 @@ function layoutCuts(
     s.t(w.Manifold.union(c.rects.map((rc) => s.t(prism(w, box(rc, grow), z0, z1)))));
   // The bin's tool cutouts, built once for every 'tools' compartment.
   let tools: Manifold | null | undefined;
+  const openRects: CutterSpec[] = [];
 
   for (const p of planLayout(o, r, ix0, iy0, zFloor, topInfill)) {
     const { c } = p;
@@ -778,6 +779,8 @@ function layoutCuts(
       }
       continue;
     }
+    // Open rectangular compartments: their rounded bottoms are trimmed where they meet a removable wall's slot.
+    if (c.isRect && !p.shape) openRects.push(...p.specs);
     // Material left inside the compartment: rounded bottom of L-shaped ones, ramps and steps.
     const minus: Manifold[] = [];
     if (!c.isRect && o.fillet && own.length) {
@@ -832,6 +835,7 @@ function layoutCuts(
     const a = seg.aEdge ? seg.a - eps : seg.a;
     const b = seg.bEdge ? seg.b + eps : seg.b;
     cut.push(s.t(prism(w, place(seg.orient, seg.pos - half, a, seg.pos + half, b, ix0, iy0), zFloor - SLOT_DEPTH, zTop)));
+    for (const c of openRects) cut.push(...slotHornTrims(w, s, c, seg, ix0, iy0));
     for (const [face, dir, gap] of [
       [seg.a, 1, seg.gapA],
       [seg.b, -1, seg.gapB],
@@ -1057,6 +1061,42 @@ function place(orient: 'v' | 'h', c0: number, r0: number, c1: number, r1: number
   return orient === 'v'
     ? { x0: ix0 + c0, y0: iy0 + r0, x1: ix0 + c1, y1: iy0 + r1 }
     : { x0: ix0 + r0, y0: iy0 + c0, x1: ix0 + r1, y1: iy0 + c1 };
+}
+
+/** Two extrusion lines: the thinnest edge a rounded compartment bottom may end in against a slot. */
+const SLOT_LEDGE = 0.8;
+
+/**
+ * A compartment's rounded bottom edge runs into a removable wall's slot and
+ * would end there in a knife-edge horn up the slot's side. Where it is
+ * thinner than SLOT_LEDGE it is cut back, leaving a flat ledge that wide:
+ * boxes beside the slot along the cutter's straight side (its rounded
+ * corners are left alone), from where the horn gets that thin to the top of
+ * the rounding. None for cutters with square bottoms or not beside the slot.
+ */
+function slotHornTrims(w: Wasm, s: Scope, c: CutterSpec, seg: { orient: 'v' | 'h'; pos: number; a: number; b: number }, ix0: number, iy0: number): Manifold[] {
+  if (!c.fillet || typeof c.radius !== 'number') return [];
+  const rf = Math.min(c.radius, (c.topInfill - c.zFloor) / 2 - 0.05);
+  if (rf <= 0.3) return [];
+  // Distance of the rounded surface from the wall face at height h is rf − √(rf² − (rf − h)²); the ledge's edge is `d` out.
+  const d = SLOT_CLEARANCE + SLOT_LEDGE;
+  const h0 = rf > d ? rf - Math.sqrt(rf * rf - (rf - d) ** 2) : 0;
+  const v = seg.orient === 'v';
+  // The cutter in (across, along) cavity mm.
+  const [c0, c1] = v ? [c.x0 - ix0, c.x1 - ix0] : [c.y0 - iy0, c.y1 - iy0];
+  const [r0, r1] = v ? [c.y0 - iy0, c.y1 - iy0] : [c.x0 - ix0, c.x1 - ix0];
+  const lo = Math.max(r0 + c.radius, seg.a);
+  const hi = Math.min(r1 - c.radius, seg.b);
+  if (hi - lo < 0.1) return [];
+  const out: Manifold[] = [];
+  for (const side of [-1, 1]) {
+    const face = seg.pos + (side * DIVIDER) / 2;
+    // The cutter starts at this face (grown a hair into the wall) on the slot's side.
+    if (Math.abs((side > 0 ? c0 : c1) - face) > 0.05) continue;
+    const [a, b] = side > 0 ? [face + SLOT_CLEARANCE - 0.01, face + d] : [face - d, face - SLOT_CLEARANCE + 0.01];
+    out.push(s.t(prism(w, place(seg.orient, a, lo, b, hi, ix0, iy0), c.zFloor + h0, c.zFloor + rf + 0.01)));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

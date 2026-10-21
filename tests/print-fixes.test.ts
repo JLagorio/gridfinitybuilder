@@ -78,4 +78,9 @@ describe('print fixes', () => {
       expect(thin.filter((t) => t.z0 < 3), file).toEqual([]);
     }
   });
+
+  it('a removable wall’s slot has no knife-edge horns where the rounded compartment bottoms meet it', () => {
+    expect(sliceReport(w, sample('compartments/removable.stl')).thin).toEqual([]);
+    expect(sliceReport(w, sample('compartments/removable-notch.stl')).thin).toEqual([]);
+  });
 });

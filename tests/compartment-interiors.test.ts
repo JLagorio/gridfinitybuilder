@@ -254,7 +254,8 @@ describe('old layouts build the same bins', () => {
       'removable',
       { unitsX: 2, unitsY: 1, heightUnits: 4, label: 'center' },
       () => setWallProps(uniformLayout(2, 1), 'x1', { removable: true }),
-      { key: '2-1-4-L-none-1-1-0-center-F-D{x1:v:edge:edge:r0.5:edge:edge:0:R|}', volume: 37933.153, tabs: 2 },
+      // 25.5 mm³ less since the rounded bottoms are trimmed back where they met the slot in knife edges (printcheck.test.ts).
+      { key: '2-1-4-L-none-1-1-0-center-F-D{x1:v:edge:edge:r0.5:edge:edge:0:R|}', volume: 37907.6653, tabs: 2 },
     ],
     [
       'efficient',
