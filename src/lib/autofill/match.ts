@@ -1,19 +1,33 @@
 /**
  * "Fill from a list": what each item needs. In order: a tool from the user's
  * library, a graduated set (drill index, hex keys, sockets), a dispenser
- * (coin cells, zip ties, a roll of tape), a pocket-grid preset, loose parts
- * by volume, something that lies flat, and otherwise a general bin.
+ * (coin cells, zip ties, a roll of tape), a pocket-grid preset (cartridges
+ * first), loose parts by volume, something that lies flat, and otherwise a
+ * general bin.
  */
 import { findPocketPreset, type PocketPreset } from '../geometry/pocketPresets';
 import { MM_PER_IN } from '../units';
 import { findTapeRoll } from '../geometry/containers/dispenser';
 import type { Tool } from '../tools';
-import { MAX_SCREW_POCKETS, SCREW_POCKETS, knownObject, looseKind, pocketRule, screwLength, type LooseKind } from './catalog';
+import { MAX_SCREW_POCKETS, SCREW_POCKETS, ammoRule, knownObject, looseKind, pocketRule, screwLength, type AmmoMatch, type LooseKind } from './catalog';
 import { wordsOf, type ListItem } from './parse';
 
 export type Holder =
-  /** A pocket grid from a preset: `count` items, `per` to a pocket (coin stacks). */
-  | { kind: 'pockets'; preset: PocketPreset; count: number; given: boolean; per: number; itemH: number; lay?: [number, number] }
+  /**
+   * A pocket grid from a preset: `count` items, `per` to a pocket (coin stacks).
+   * Cartridges: `label` is the caliber as written, `counted` where the count came from.
+   */
+  | {
+      kind: 'pockets';
+      preset: PocketPreset;
+      count: number;
+      given: boolean;
+      per: number;
+      itemH: number;
+      lay?: [number, number];
+      label?: string;
+      counted?: AmmoMatch['counted'];
+    }
   /** A graduated set: one pocket per size (mm, before clearance). */
   | { kind: 'set'; preset: PocketPreset; sizes: number[]; names: string[] }
   /** Tool cutouts for tools from the library. */
@@ -107,6 +121,12 @@ function dispenser(item: ListItem): Holder | null {
 }
 
 function pockets(item: ListItem): Holder | null {
+  // Cartridges, a pocket each: "100 rounds 9mm", "box of 5.56".
+  const ammo = ammoRule(item);
+  const round = ammo && findPocketPreset(ammo.preset);
+  if (ammo && round?.itemH) {
+    return { kind: 'pockets', preset: round, count: ammo.count, given: true, per: 1, itemH: round.itemH, label: ammo.caliber, counted: ammo.counted };
+  }
   // A few screws stand in pockets; more go loose in a compartment.
   const screwPreset = item.thread ? SCREW_POCKETS[item.thread] : undefined;
   if (screwPreset && item.qty !== null && item.qty <= MAX_SCREW_POCKETS && has(item, /\b(screw|bolt)\b/)) {

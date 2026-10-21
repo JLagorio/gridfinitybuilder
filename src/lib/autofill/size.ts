@@ -9,7 +9,9 @@
  */
 import { MIN_HEIGHT_UNITS, binInnerSize, binSize, binTotalHeight, sanitizeBin, type BinCells, type BinOptions } from '../geometry/bin';
 import { pocketLayout } from '../geometry/pockets';
-import { CUSTOM_SET, presetFields, sizeLabelText, type PocketPreset } from '../geometry/pocketPresets';
+import { CUSTOM_SET, itemNoun, presetFields, sizeLabelText, type PocketPreset } from '../geometry/pocketPresets';
+import { freshTop, unitsToCover, unitsUnderRim } from '../geometry/itemHeight';
+import { maxBinUnits } from '../bins';
 import { DEFAULT_VARIANTS, POCKET_KEYS, binBodyHeight, binFloorZ } from '../geometry/variants';
 import { DEFAULT_ACCESSORIES } from '../geometry/accessories';
 import { DEFAULT_INSERTS } from '../geometry/insertOptions';
@@ -344,6 +346,21 @@ function footprints(ctx: SizeContext): [number, number][] {
   return out.sort((a, b) => a[0] * a[1] - b[0] * b[1] || odd(a) - odd(b) || Math.abs(a[0] - a[1]) - Math.abs(b[0] - b[1]) || b[0] - a[0]);
 }
 
+/**
+ * How tall a bin for items that stand taller than their pockets (cartridges)
+ * is: high enough for a lid or a stacked bin to clear their tips ('lid'), or
+ * when the drawer or the printer won't take that, the rim ('rim'), or as tall
+ * as they allow ('short': they stick out).
+ */
+export function standingUnits(preset: PocketPreset, ctx: Pick<SizeContext, 'base' | 'maxH'>): { h: number; fit: 'lid' | 'rim' | 'short' } {
+  const top = freshTop(ctx.base, preset.itemH ?? 0);
+  const max = Math.max(MIN_HEIGHT_UNITS, ctx.maxH);
+  const lid = unitsToCover(top, ctx.base.lip);
+  if (lid <= max) return { h: lid, fit: 'lid' };
+  const rim = unitsUnderRim(top, ctx.base.lip);
+  return rim <= max ? { h: rim, fit: 'rim' } : { h: max, fit: 'short' };
+}
+
 /** Heights to try, lowest first. */
 function heights(p: Proposal, ctx: SizeContext, tall = false): number[] {
   const max = Math.max(MIN_HEIGHT_UNITS, ctx.maxH);
@@ -355,7 +372,8 @@ function heights(p: Proposal, ctx: SizeContext, tall = false): number[] {
   switch (s.kind) {
     case 'pockets':
     case 'set':
-      return [Math.min(max, need(s.preset.depth))];
+      // Cartridges: as tall as the rounds standing in them.
+      return [Math.min(max, Math.max(need(s.preset.depth), s.preset.itemH ? standingUnits(s.preset, ctx).h : 0))];
     case 'tools':
       return [Math.min(max, toolFit(s.tools, ctx).heightUnits)];
     case 'dispenser':
@@ -485,6 +503,19 @@ function specFor(item: ListItem, h: Holder, ctx: SizeContext): { spec: Spec; rea
       }
       if (reach > ctx.room + EPS) warnings.push(`They stand about ${ctx.fmt(h.itemH)} tall, more than the drawer has room for.`);
       const need = h.given ? Math.max(1, Math.ceil(h.count / h.per)) : 1;
+      if (h.label) {
+        // Cartridges: a pocket each, as tall as the rounds.
+        const fit = standingUnits(h.preset, ctx).fit;
+        const n = itemNoun(h.preset);
+        const tall = fit === 'lid' ? ', tall enough for a lid over them' : fit === 'rim' ? ', under the rim: the drawer is too low for a lid over them' : '';
+        const counted = h.counted === 'default' ? ' No count given: a box.' : '';
+        if (fit === 'short' && reach <= ctx.room + EPS) {
+          const drawer = Number.isFinite(ctx.room) && maxBinUnits(ctx.room, ctx.base.lip) < unitsUnderRim(freshTop(ctx.base, h.itemH), ctx.base.lip);
+          warnings.push(`They stick out above the rim: ${drawer ? 'the drawer is too low for' : 'the printer can’t print'} a bin tall enough.`);
+        }
+        const reason = `Cartridge block for ${h.count} ${n} of ${h.preset.label}${tall}.${counted}`;
+        return { spec: { kind: 'pockets', preset: h.preset, need, per: 1, given: true }, reason, cluster: h.preset.group, warnings };
+      }
       // "Batteries" without a size get AA pockets: say so.
       const what = h.preset.group === 'Batteries' && !item.cell ? `${name} (${h.preset.label} size)` : name;
       const reason = h.given ? `Pocket grid for ${h.count} ${what}.` : `Pocket grid for ${what}. No count given: the smallest bin.`;
@@ -649,7 +680,8 @@ export function sizeItem(key: string, item: ListItem, holder: Holder, ctx: SizeC
     size: { ux: 1, uy: 1, h: 3 },
     alts: [],
     warnings: s.warnings,
-    label: labelFor(item),
+    // Cartridges by their caliber as written ("9mm", ".22LR").
+    label: holder.kind === 'pockets' && holder.label ? holder.label : labelFor(item),
     ...(s.spec.kind === 'compartments' && s.spec.needs.length > 1 ? { compLabels: s.spec.needs.map(() => '') } : {}),
   };
   // A general bin: 2 × 1 (or what the drawer has room for), as tall as new bins.

@@ -33,6 +33,9 @@ export interface ListItem {
 /** Battery sizes Gridfit knows by name. C and D only count next to "battery" or "cell". */
 const CELLS = ['aaa', 'aa', '9v', '14500', '18650', '21700', 'cr123a', 'cr2032', 'cr2025', 'cr2016', 'cr2450', 'lr44', 'ag13'];
 const CELL_NUMBERS = new Set(['14500', '18650', '21700']);
+/** A number up front that names a cartridge ("308 Win", "12 gauge", "22 LR", "223 ammo"), not how many. */
+const CALIBER_FIRST =
+  /^\s(?:10|12|16|17|20|22|28|30|38|40|44|45|223|243|270|300|308|357|380|410)\s+(?:lr|wmr|hmr|mag|magnum|win|winchester|rem|remington|acp|auto|spl|special|sig|s&w|sw|colt|lc|govt|blk|blackout|aac|nato|ga|gauge|bore|cal|caliber|calibre|ammo|ammunition)(?=[\s.,;:]|$)/i;
 
 const NUMBER_WORDS: Record<string, number> = {
   one: 1,
@@ -179,8 +182,10 @@ export function parseLine(raw: string): ListItem | null {
     if (len) out.length = r2(toMm(num(len[1]), len[2]));
   }
 
-  // A number up front is how many ("200 M3 screws"), unless it's a battery size ("18650 cells").
-  take(/^\s(\d+)(?=\s)(?!\s*(?:x\s*\d|-\s*\d|to\s+\d|mm|cm|in\b|inch|"))/i, (m) => (CELL_NUMBERS.has(m[1]) && !/^\s\d+\s+\d/.test(s) ? null : Number(m[1])));
+  // A number up front is how many ("200 M3 screws"), unless it's a battery size ("18650 cells") or a cartridge ("308 Win").
+  take(/^\s(\d+)(?=\s)(?!\s*(?:x\s*\d|-\s*\d|to\s+\d|mm|cm|in\b|inch|"))/i, (m) =>
+    (CELL_NUMBERS.has(m[1]) && !/^\s\d+\s+\d/.test(s)) || CALIBER_FIRST.test(s) ? null : Number(m[1]),
+  );
   // "a calipers" is one; "a box of screws" says nothing about how many.
   take(/^\s(an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred)(?=\s)/i, (m) =>
     /^an?$/i.test(m[1]) ? (/^\s\S+\s+(box|bag|bunch|handful|lot|pile|pack|tub|tube|jar|tin|bucket|load)/i.test(s) ? null : 1) : NUMBER_WORDS[m[1].toLowerCase()],

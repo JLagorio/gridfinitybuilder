@@ -8,10 +8,13 @@
  * - Things that lie flat (calipers, pliers, scissors…): a typical size.
  * - Items with a pocket-grid preset (pocketPresets.ts): the words that name
  *   them and how tall they stand.
+ * - Ammunition: cartridges by the names people write ("9mm", ".22LR",
+ *   "5.56", "12ga"), and how many a box holds.
  *
  * Patterns run on the item's singular words joined by spaces (parse.ts).
  */
-import type { ListItem } from './parse';
+import { findCartridge, type CartridgeKind } from '../geometry/pocketPresets';
+import { wordsOf, type ListItem } from './parse';
 
 const PI4 = Math.PI / 4;
 
@@ -256,3 +259,153 @@ export function pocketRule(item: ListItem): PocketRule | null {
 
 /** Usual length of a screw by thread, for pockets that hold one each. */
 export { screwLength };
+
+// ---------------------------------------------------------------------------
+// Ammunition (the Ammunition presets in pocketPresets.ts)
+// ---------------------------------------------------------------------------
+
+/** Rounds in a box, by kind: what "a box of 9mm" holds. */
+export const AMMO_BOX: Record<CartridgeKind, number> = { rimfire: 50, pistol: 50, rifle: 20, shotgun: 25 };
+/** Rounds in a brick (of .22). */
+export const AMMO_BRICK = 500;
+
+/** A cartridge name on its own: not inside a longer number or word. */
+const caliber = (src: string) => new RegExp(String.raw`(?<![a-z0-9.])(?:${src})(?![a-z0-9])`);
+
+/**
+ * Cartridges by how people write them, most specific first ("22-250" before
+ * ".22", ".357 SIG" before ".357"), matched on the item's lower-case name.
+ * Shotshells are matched by gauge, then length (SHELLS).
+ */
+export const AMMO_RULES: [string, RegExp][] = (
+  [
+    ['22-250', String.raw`\.?22[- ]?250`],
+    ['22wmr', String.raw`\.?22 ?(?:wmr|win(?:chester)? ?mag(?:num)?|mag(?:num)?)|\.?17 ?hmr|wmr|hmr`],
+    ['22lr', String.raw`\.?22 ?(?:lr|long ?rifle)|\.22`],
+    ['57x28', String.raw`5[.,]7 ?(?:x ?28(?: ?mm)?|mm)?|fn ?5[.,]7|five[- ]?seven`],
+    ['380', String.raw`\.?380(?: ?(?:acp|auto))?|9 ?mm ?(?:kurz|short)|9 ?x ?17`],
+    ['357sig', String.raw`\.?357 ?sig`],
+    ['357mag', String.raw`\.?357(?: ?mag(?:num)?)?`],
+    ['38spl', String.raw`\.?38 ?(?:spl|special|spec)|\.38`],
+    ['40sw', String.raw`\.?40 ?(?:s ?& ?w|s ?w|cal(?:iber)?)|\.40`],
+    ['10mm', String.raw`10 ?mm(?: ?auto)?`],
+    ['45colt', String.raw`\.?45 ?(?:colt|lc|long ?colt)`],
+    ['4570', String.raw`\.?45[- ]70(?: ?gov(?:ernmen)?t)?|4570`],
+    ['45acp', String.raw`\.?45 ?(?:acp|auto|cal(?:iber)?)|\.45`],
+    ['44mag', String.raw`\.?44 ?(?:rem(?:ington)? ?)?mag(?:num)?|\.44`],
+    ['9mm', String.raw`9 ?mm(?: ?(?:luger|para(?:bellum)?|nato))?|9 ?x ?19(?: ?mm)?|9 ?luger|parabellum`],
+    ['300wm', String.raw`\.?300 ?(?:win(?:chester)? ?mag(?:num)?|wm|winmag)`],
+    ['300blk', String.raw`\.?300 ?(?:aac ?)?(?:blk|blackout|bo)|blackout|7[.,]62 ?x ?35`],
+    ['223', String.raw`\.?223(?: ?(?:rem(?:ington)?|wylde))?|5[.,]?56(?: ?x ?45)?(?: ?(?:mm|nato))?`],
+    ['762x39', String.raw`7[.,]?62 ?x ?39`],
+    ['762x54r', String.raw`7[.,]?62 ?x ?54 ?r?|54r|mosin(?: ?nagant)?`],
+    ['545x39', String.raw`5[.,]45(?: ?x ?39)?|545 ?x ?39`],
+    ['308', String.raw`\.?308(?: ?win(?:chester)?)?|7[.,]?62 ?(?:x ?51|nato)`],
+    ['65grendel', String.raw`6[.,]5 ?grendel|grendel`],
+    ['65cm', String.raw`6[.,]5 ?(?:creedmoor|creed|cm)|creedmoor`],
+    ['243', String.raw`\.?243(?: ?win(?:chester)?)?`],
+    ['3030', String.raw`\.?30[- ]30(?: ?win(?:chester)?)?|3030`],
+    ['3006', String.raw`\.?30[- ]?06(?: ?(?:springfield|sprg|spr))?`],
+    ['270', String.raw`\.?270(?: ?win(?:chester)?)?`],
+    ['7mmrm', String.raw`7 ?mm ?(?:rem(?:ington)? ?)?mag(?:num)?|7 ?mm ?rm|7 ?mag`],
+  ] as const
+).map(([id, src]) => [`ammo-${id}`, caliber(src)]);
+
+/** Shotshells: the gauge, then a length that picks the longer shell (2¾″ and 2½″ when none is given). */
+const SHELLS: { re: RegExp; plain: string; long: [RegExp, string][] }[] = [
+  { re: caliber(String.raw`12 ?(?:ga|gauge|gage)\.?`), plain: 'ammo-12ga', long: [[/3[.,]5|3 ?1\/2|3½|89 ?mm/, 'ammo-12ga-35'], [/(?<![\d.\/])3 ?(?:"|in\b|inch)|76 ?mm/, 'ammo-12ga-3']] },
+  { re: caliber(String.raw`20 ?(?:ga|gauge|gage)\.?`), plain: 'ammo-20ga', long: [[/(?<![\d.\/])3 ?(?:"|in\b|inch)|76 ?mm/, 'ammo-20ga-3']] },
+  { re: caliber(String.raw`\.?410(?: ?(?:ga|gauge|bore))?`), plain: 'ammo-410', long: [[/(?<![\d.\/])3 ?(?:"|in\b|inch)|76 ?mm/, 'ammo-410-3']] },
+];
+
+/** Words that say it is ammunition, whatever else the line says. */
+const AMMO_NOUNS = new Set(['ammo', 'ammunition', 'round', 'rd', 'rnd', 'cartridge', 'bullet', 'shell', 'shotshell']);
+/** Other words a line about ammunition uses: makes, loads, boxes. A line with any other word needs a noun to count as ammunition. */
+const AMMO_WORDS = new Set(
+  (
+    'box brick case can of x and a the rimfire centerfire centrefire pistol rifle handgun shotgun luger para parabellum nato acp auto ' +
+    'magnum mag special spl win winchester rem remington springfield govt government colt long lr sig blk blackout aac fmj jhp hp hollow ' +
+    'point hollowpoint sp soft psp ballistic tip ball tracer target match practice training range hunting defense defence self subsonic ' +
+    'supersonic plinking bulk brass steel aluminum aluminium nickel plated reload reloaded remanufactured factory new loaded buckshot buck ' +
+    'birdshot bird slug shot lead copper solid frangible grain gr gn fps ct count pack pk high low velocity trap skeet clay game load ' +
+    'standard premium plus p federal hornady cci pmc blazer aguila wolf tula tulammo fiocchi sellier bellot s b speer norma nosler ' +
+    'magtech ppu prvi partizan barnes lapua american eagle eley armscor geco browning kent estate fmjbt otm bthp tmj rn lrn wc swc jsp ' +
+    'sjhp xtp gold dot hst critical duty gauge ga bore inch in mm dram oz dr spare mixed assorted'
+  ).split(' '),
+);
+/** Numbers that are a load, not a count: "115 gr", "00 buck", "7.5 shot". */
+const NOT_COUNT = new Set(['gr', 'grain', 'gn', 'fps', 'oz', 'dr', 'dram', 'mm', 'in', 'inch', 'ga', 'gauge', 'buck', 'buckshot', 'shot', 'birdshot']);
+const COUNT_AFTER = new Set(['round', 'rd', 'rnd', 'ct', 'count', 'pc', 'pcs', 'piece', 'pk', 'cartridge', 'shell']);
+
+const isAmmoWord = (w: string) => AMMO_WORDS.has(w) || AMMO_NOUNS.has(w) || /^\d+(?:\.\d+)?(?:gr|grain|gn|rd|rnd|ct|pc|pk|fps|oz|mm|in)?$/.test(w);
+
+/** How many rounds the rest of a line names: "x 50", "50 rounds", "50rds", "of 50", a trailing "50". */
+function countIn(words: string[]): number | null {
+  let trailing: number | null = null;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const glued = /^(\d+)(?:rd|rnd|ct|pc|pk)$/.exec(w);
+    if (glued) return Number(glued[1]);
+    if (!/^\d+$/.test(w)) continue;
+    const [prev, next] = [words[i - 1], words[i + 1]];
+    if (next && NOT_COUNT.has(next)) continue;
+    if (prev === 'x' || prev === 'of' || (next && COUNT_AFTER.has(next))) return Number(w);
+    if (i === words.length - 1 && Number(w) >= 10) trailing = Number(w);
+  }
+  return trailing;
+}
+
+export interface AmmoMatch {
+  /** Pocket preset id. */
+  preset: string;
+  /** The cartridge as written ("9mm", ".22LR"), for the label; shotshells by their preset's name. */
+  caliber: string;
+  /** How many rounds, and where that came from: the line, a box (or brick), or nothing (a box assumed). */
+  count: number;
+  counted: 'given' | 'box' | 'default';
+}
+
+/**
+ * The cartridge a line names and how many: "100 rounds 9mm", "9mm x 50",
+ * "200 .22LR", "box of 5.56", "2 boxes of 12ga". A bare caliber counts only
+ * when the rest of the line is about ammunition ("9mm socket" isn't).
+ */
+export function ammoRule(item: ListItem): AmmoMatch | null {
+  const name = ` ${item.name.toLowerCase()} `;
+  let hit: { preset: string; at: number; len: number; extra?: RegExp } | null = null;
+  for (const [preset, re] of AMMO_RULES) {
+    const m = re.exec(name);
+    if (m) {
+      hit = { preset, at: m.index, len: m[0].length };
+      break;
+    }
+  }
+  if (!hit) {
+    for (const sh of SHELLS) {
+      const m = sh.re.exec(name);
+      if (!m) continue;
+      const rest = name.slice(0, m.index) + ' ' + name.slice(m.index + m[0].length);
+      const long = sh.long.find(([re]) => re.test(rest));
+      hit = { preset: long ? long[1] : sh.plain, at: m.index, len: m[0].length, ...(long ? { extra: long[0] } : {}) };
+      break;
+    }
+  }
+  if (!hit) return null;
+  const c = findCartridge(hit.preset);
+  if (!c) return null;
+  let rest = name.slice(0, hit.at) + ' ' + name.slice(hit.at + hit.len);
+  if (hit.extra) rest = rest.replace(hit.extra, ' ');
+  const words = wordsOf(rest);
+  if (!words.some((w) => AMMO_NOUNS.has(w)) && !words.every(isAmmoWord)) return null;
+  const typed = item.name.slice(Math.max(0, hit.at - 1), hit.at - 1 + hit.len).trim();
+  const per = words.includes('brick') ? AMMO_BRICK : words.includes('box') ? AMMO_BOX[c.kind] : 0;
+  const inRest = countIn(words);
+  // "2 boxes of 9mm": the count is boxes; "box of 50 9mm": the box says.
+  const count = per ? (item.qty ?? 1) * (inRest ?? per) : (item.qty ?? inRest);
+  return {
+    preset: hit.preset,
+    caliber: c.kind === 'shotgun' || !typed ? c.label : typed,
+    count: count && count > 0 ? count : AMMO_BOX[c.kind],
+    counted: count && count > 0 ? (per && inRest === null ? 'box' : 'given') : 'default',
+  };
+}
