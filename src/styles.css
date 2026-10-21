@@ -3006,8 +3006,8 @@ details.option-group[open] summary > span::before {
 }
 
 /* ==========================================================================
-   Phone and tablet: touch editing and the phone tab bar
-   (touch.tsx, PhoneNav.tsx)
+   Phone and tablet: touch editing, the phone tab bar, the update banner
+   (touch.tsx, PhoneNav.tsx, UpdateBanner.tsx)
    ========================================================================== */
 
 /* Drawing surfaces: no long-press callouts or tap flashes. */
@@ -3055,6 +3055,32 @@ details.option-group[open] summary > span::before {
 
 .phone-nav {
   display: none;
+}
+
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 24px);
+  padding: 7px 7px 7px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+}
+.update-banner button {
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+.update-banner .link {
+  padding: 5px 6px;
+  color: var(--muted);
 }
 
 /* Fingers: bigger buttons where they're small, and no zoom when a field takes focus (iOS zooms below 16 px). */
@@ -3264,6 +3290,9 @@ details.option-group[open] summary > span::before {
   .modal-head {
     flex-wrap: wrap;
     row-gap: 8px;
+  }
+  .update-banner {
+    bottom: calc(64px + env(safe-area-inset-bottom));
   }
 }
 /* No keyboard on a phone: no shortcut list. */

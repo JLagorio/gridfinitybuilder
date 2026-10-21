@@ -1,8 +1,10 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { gridfitServiceWorker } from './scripts/pwa.ts';
 
 export default defineConfig({
-  plugins: [react()],
+  // The service worker for offline use is written from the build output (production builds only).
+  plugins: [react(), gridfitServiceWorker()],
   // manifold-3d ships its own WASM loader; let Vite serve it untouched.
   optimizeDeps: { exclude: ['manifold-3d'] },
   worker: { format: 'es' },
