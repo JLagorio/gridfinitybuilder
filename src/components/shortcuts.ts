@@ -85,7 +85,8 @@ export const SHORTCUTS: ShortcutGroup[] = [
   {
     title: '3D view',
     items: [
-      { keys: [['Drag']], label: 'Orbit' },
+      { keys: [['Drag']], label: 'Orbit, including below the floor to see the undersides' },
+      { keys: [['Iso / Top / Front / Side / Under']], label: 'Preset views (bottom right of the 3D view)' },
       { keys: [['Right-drag']], label: 'Pan' },
       { keys: [['Scroll']], label: 'Zoom' },
       { keys: [['Click a bin']], label: 'Select it (Bins tab)' },

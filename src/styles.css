@@ -358,10 +358,42 @@ button.wide {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* Preset views (Iso / Top / Front / Side / Under), bottom right of the 3D view */
+.viewer-views {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(27, 31, 38, 0.85);
+  backdrop-filter: blur(4px);
+}
+.viewer-views button {
+  border: none;
+  border-radius: 0;
+  background: none;
+  font-size: 12px;
+  padding: 5px 10px;
+  color: var(--muted);
+}
+.viewer-views button + button {
+  border-left: 1px solid var(--border);
+}
+.viewer-views button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 .viewer-hint {
   position: absolute;
   left: 12px;
   bottom: 10px;
+  /* Leave room for the view buttons on the right. */
+  max-width: calc(100% - 290px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11.5px;
   color: var(--faint);
   pointer-events: none;

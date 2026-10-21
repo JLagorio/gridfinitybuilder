@@ -45,6 +45,24 @@ export interface ViewerProps {
 }
 
 const SELECT_COLOR = '#f5a524';
+
+export type ViewName = 'iso' | 'top' | 'front' | 'side' | 'under';
+/** Camera direction (from the target) for each preset view; z is up. */
+const VIEW_DIRS: Record<ViewName, [number, number, number]> = {
+  iso: [0.18, -0.78, 0.82],
+  // A hair off vertical, so "up" on screen stays the back of the drawer.
+  top: [0, -0.02, 1],
+  front: [0, -1, 0.14],
+  side: [1, -0.05, 0.14],
+  under: [0.22, -0.72, -0.78],
+};
+const VIEWS: { id: ViewName; label: string; title: string }[] = [
+  { id: 'iso', label: 'Iso', title: 'Three-quarter view from above' },
+  { id: 'top', label: 'Top', title: 'Straight down (back of the drawer at the top)' },
+  { id: 'front', label: 'Front', title: 'From the front of the drawer' },
+  { id: 'side', label: 'Side', title: 'From the right' },
+  { id: 'under', label: 'Under', title: 'From below: bin feet, magnet holes, baseplate underside' },
+];
 /** Preview colours for bodies printed in filament 2, 3, … (label text etc.). */
 const OVERLAY_COLORS = ['#22262d', '#f2f2f2', '#c12e1f'];
 
@@ -65,6 +83,9 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, children 
   const [gl, setGl] = useState<{ state: 'ok' | 'lost' | 'failed'; detail?: string }>({ state: 'ok' });
   // Bumped by "Restart 3D view" to build a fresh renderer.
   const [generation, setGeneration] = useState(0);
+  const [view, setView] = useState<ViewName>('iso');
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   useEffect(() => {
     let c: ReturnType<typeof createContext>;
@@ -77,6 +98,7 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, children 
     }
     ctx.current = c;
     setGl({ state: 'ok' });
+    c.setView(viewRef.current);
     return () => {
       c.dispose();
       ctx.current = null;
@@ -98,6 +120,21 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, children 
     <div className="viewer">
       <div ref={host} className="viewer-canvas" />
       {children}
+      <div className="viewer-views" role="group" aria-label="View">
+        {VIEWS.map((v) => (
+          <button
+            key={v.id}
+            title={v.title}
+            className={view === v.id ? 'active' : ''}
+            onClick={() => {
+              setView(v.id);
+              ctx.current?.setView(v.id);
+            }}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
       {gl.state !== 'ok' && (
         <div className="viewer-failure" role="alert">
           {gl.state === 'lost' ? (
@@ -139,7 +176,9 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void, on
   controls.enableDamping = true;
   controls.dampingFactor = 0.12;
   controls.screenSpacePanning = true;
-  controls.maxPolarAngle = Math.PI * 0.495;
+  // Orbit all the way round, so the undersides of bins and baseplates can be seen.
+  controls.minPolarAngle = 0;
+  controls.maxPolarAngle = Math.PI;
   controls.zoomToCursor = true;
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f4a, 1.6));
@@ -149,6 +188,10 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void, on
   const rim = new THREE.DirectionalLight(0xffffff, 0.5);
   rim.position.set(1, 0.8, 0.6);
   scene.add(rim);
+  // Fill from below for the underside view.
+  const under = new THREE.DirectionalLight(0xffffff, 0.7);
+  under.position.set(0.3, 0.5, -1);
+  scene.add(under);
 
   const world = new THREE.Group();
   const bedGroup = new THREE.Group();
@@ -288,6 +331,7 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void, on
   // Re-frame on resize until the user moves the camera themselves.
   let lastFit: { items: SceneItem[]; beds: SceneBed[] } | null = null;
   let userMoved = false;
+  let view: ViewName = 'iso';
   controls.addEventListener('start', () => (userMoved = true));
 
   function fit(items: SceneItem[], beds: SceneBed[]) {
@@ -307,7 +351,7 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void, on
     if (box.isEmpty()) return;
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
-    const dir = new THREE.Vector3(0.18, -0.78, 0.82).normalize();
+    const dir = new THREE.Vector3(...VIEW_DIRS[view]).normalize();
     const corners: THREE.Vector3[] = [];
     for (const x of [box.min.x, box.max.x])
       for (const y of [box.min.y, box.max.y])
@@ -395,6 +439,8 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void, on
     controls.update();
     if (needsRender) {
       needsRender = false;
+      // Print beds are solid slabs at z ≤ 0: from below they'd hide everything.
+      bedGroup.visible = camera.position.z > 0;
       renderer.render(scene, camera);
     }
   };
@@ -403,6 +449,11 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void, on
   return {
     setScene,
     fit,
+    /** Look from a preset direction and frame the current scene. */
+    setView(v: ViewName) {
+      view = v;
+      if (lastFit) fit(lastFit.items, lastFit.beds);
+    },
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();

@@ -227,7 +227,7 @@ export default function App() {
             </button>
           </div>
         )}
-        <div className="viewer-hint">Drag to orbit · right-drag to pan · scroll to zoom{ui.tab === 'bins' ? ' · click a bin to select' : ''}</div>
+        <div className="viewer-hint">Drag to orbit (all the way under) · right-drag to pan · scroll to zoom{ui.tab === 'bins' ? ' · click a bin to select' : ''}</div>
       </Viewer>
     </ErrorBoundary>
   );
