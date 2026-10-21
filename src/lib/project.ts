@@ -55,7 +55,7 @@ import { pieceIsVoid } from './geometry/mask';
 import { hasStretch, stretchOf, type BinStretch } from './geometry/placement';
 import { BASE_TOP, GRID } from './geometry/spec';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
-import { DEFAULT_DRAWER, cellEdge, cellSizes, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
+import { DEFAULT_DRAWER, cellEdge, cellSizes, computeLayout, insideHeight, type DrawerInput, type GridLayout } from './layout/drawer';
 import { effectiveStretch } from './layout/stretch';
 import { fitsOnBed, packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
 import {
@@ -215,6 +215,12 @@ export interface DrawerJob {
   room?: number;
   /** The assembly map's name for each of `plan.plates` when they aren't together from `plateOffset` (several printers). */
   plateNames?: string[];
+  /**
+   * The grid is there already ("Just bins", DrawerInput.haveBaseplate): `plan`
+   * is it in one piece, for the drawer view only. None of it is on the plates,
+   * and it has no assembly map or steps.
+   */
+  haveBaseplate?: true;
 }
 
 export interface PrintJob {
@@ -247,6 +253,18 @@ export interface PlanPrintOptions {
   /** A part's print seconds on printer `i` (start sequence left out) once it's sliced, for sharing parts out between printers. */
   seconds?: (part: JobPart, printer: number) => number | undefined;
 }
+
+/**
+ * True when the job prints the drawer's baseplate (and the rest of its grid:
+ * keys, pads, spacer strips, a case or wall grid): it isn't there already
+ * (DrawerInput.haveBaseplate) and the export takes baseplates (`include`).
+ */
+export function printsBaseplate(d: { drawer: Pick<DrawerInput, 'haveBaseplate'> }, include: ProjectState['include']): boolean {
+  return include.baseplate && !d.drawer.haveBaseplate;
+}
+
+/** A bed nothing is too big for: a baseplate that's there already is planned in one piece, just to be drawn. */
+const ANY_BED = 100_000;
 
 export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, connectors: ConnectorSite[] = []) {
   const id = o.pieceNumbers ? piece.id : 0; // numbered pieces are all different
@@ -368,13 +386,17 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     const label = multi ? `${d.name} · ` : '';
     const warn = (msg: string) => warnings.add(multi ? `${d.name}: ${msg}` : msg);
     const layout = computeLayout(d.drawer);
+    // "Just bins": the grid is there already, so it's planned whole (on a bed nothing is too big for) to be drawn, and nothing of it prints.
+    const have = !!d.drawer.haveBaseplate;
+    const gridSetup = have ? { ...base, bedW: ANY_BED, bedD: ANY_BED, maxH: ANY_BED } : base;
+    const printBase = include.baseplate && !have;
     // A carry case, wall grid or spacer strips plan their own floor pieces and extra parts (enclosures.ts).
-    const enc = planEnclosure(d, layout, base);
+    const enc = planEnclosure(d, layout, gridSetup);
     const pieceLayout = enc?.pieceLayout ?? layout;
     const bpo = enc?.baseplate ?? d.baseplate;
     const protrude = pieceProtrusion(bpo);
-    let plan = enc?.plan ?? planBaseplate(layout, base, { protrude, skip: (p) => pieceIsVoid(layout, p) });
-    if (plan.error && !enc) warn(plan.error);
+    let plan = enc?.plan ?? planBaseplate(layout, gridSetup, { protrude, skip: (p) => pieceIsVoid(layout, p) });
+    if (plan.error && !enc && !have) warn(plan.error);
 
     const bpH = baseplateHeight(bpo);
     const sites = connectorSites(pieceLayout, plan.pieces, bpo);
@@ -388,7 +410,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       meshes[meshKey] = { kind: 'piece', key: meshKey, layout: pieceLayout, piece, opts: bpo, connectors: mine, ...(ep ? { enclosure: ep.enclosure } : {}) };
       parts[key] = {
         key,
-        name: `${label}${ep?.name ?? `Baseplate piece ${piece.id}`}`,
+        name: `${label}${have ? `${ep?.name ?? 'Baseplate'} (not printed: you have it)` : (ep?.name ?? `Baseplate piece ${piece.id}`)}`,
         kind: 'piece',
         meshKey,
         ...(ep ? { w: ep.w, d: ep.d } : pieceFootprint(piece, protrude)),
@@ -398,7 +420,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       };
     }
     const plateOffset = plates.length;
-    if (include.baseplate) {
+    if (printBase) {
       // Keys print in the free space next to the pieces; any that don't fit get their own plate.
       const keys: PackItem[] = [];
       if (connectors.length) {
@@ -449,7 +471,8 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     }
     // ---- Enclosure parts: case lid, hinge pins, handle, feet, spacer strips, wall cleat (enclosures.ts) ----
     if (enc) {
-      for (const msg of enc.warnings) warn(msg);
+      // One that's there already only warns about the bins in it.
+      for (const msg of have ? enc.binNotes : enc.warnings) warn(msg);
       for (const v of enc.views) meshes[v.meshKey] = { kind: 'enclosure', key: v.meshKey, part: v.part, view: v.view };
       const items: PackItem[] = [];
       for (const p of enc.parts) {
@@ -460,7 +483,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         if (p.part) parts[k].enclosure = p.part.kind;
         items.push({ key: k, w: p.w, d: p.d });
       }
-      if (include.baseplate && items.some(keep)) {
+      if (printBase && items.some(keep)) {
         const packed = packPlates(items.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
         const count = new Map<string, number>();
         const group = (pl: PlateLayout) => enc.parts.find((p) => prefix + p.key === pl.placements[0].key)?.group ?? 'Parts';
@@ -475,7 +498,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         for (const o of packed.oversize) warn(`${parts[o.key].name} is larger than the print bed and was left out.`);
       }
     }
-    const steps = [...jointSteps(bpo, bpo.connector === 'bowtie' ? 0 : sites.length), ...(enc?.steps ?? [])];
+    const steps = have ? [] : [...jointSteps(bpo, bpo.connector === 'bowtie' ? 0 : sites.length), ...(enc?.steps ?? [])];
     drawerJobs.push({
       id: d.id,
       name: d.name,
@@ -487,11 +510,13 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       plateOffset,
       plateCount: plates.length - plateOffset,
       ...(enc ? { enclosure: enc.scene } : {}),
+      ...(have ? { haveBaseplate: true as const } : {}),
     });
 
     // TPU pads (pads.ts) lift the whole plate a little.
     const lift = padStyle(bpo) ? PAD.proud : 0;
-    const room = enc ? enc.room - lift : d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) - lift : Infinity;
+    const inside = insideHeight(d.drawer);
+    const room = enc ? enc.room - lift : inside > 0 ? inside - binSeatHeight(d.baseplate) - lift : Infinity;
     drawerJobs[drawerJobs.length - 1].room = room;
     // Stacked bins (stacking.ts): each stands on a bin that can hold it, and every stack fits the drawer.
     const stacked = stackPlaces(layout, d.bins);
@@ -779,10 +804,11 @@ export function usesSecondFilament(job: PrintJob): boolean {
 
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'drawer';
 
-/** Assembly maps for every drawer in the job, keyed by file name. */
+/** Assembly maps for every drawer in the job, keyed by file name (none for a baseplate that's there already). */
 export function assemblyMaps(job: PrintJob): Record<string, string> {
   const out: Record<string, string> = {};
   for (const d of job.drawers) {
+    if (d.haveBaseplate) continue;
     const name = job.drawers.length > 1 ? `assembly-map-${slug(d.name)}.txt` : 'assembly-map.txt';
     const head = job.drawers.length > 1 ? `${d.name}\n` : '';
     out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset, d.steps, d.plateNames);

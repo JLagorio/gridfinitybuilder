@@ -235,6 +235,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const fillEmpty = useStore((s) => s.fillEmpty);
   const clearBins = useStore((s) => s.clearBins);
   const setUI = useStore((s) => s.setUI);
+  const setPrintScope = useStore((s) => s.setPrintScope);
   const templates = useStore((s) => s.templates.length);
   const tools = useStore((s) => s.tools.length);
   const [sizeError, setSizeError] = useState<string | null>(null);
@@ -479,6 +480,16 @@ export function BinPanel({ job }: { job: PrintJob }) {
               </button>
               <button className="danger" onClick={() => removeSelection()}>
                 Delete
+              </button>
+              {/* Print plates with just these bins (and their lids, inserts), no baseplate. */}
+              <button
+                onClick={() => {
+                  setPrintScope('selected');
+                  setUI({ tab: 'print' });
+                }}
+                title="Open Print plates with just the selected bins, without the baseplate"
+              >
+                {many ? `Print these ${selIds.length}` : 'Print just this'}
               </button>
             </div>
             {one && (

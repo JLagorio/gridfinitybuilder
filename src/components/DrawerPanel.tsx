@@ -13,6 +13,7 @@ import { EnclosureSection } from './EnclosureFields';
 import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { DRAWER_INDEX } from './panelIndex';
+import { HaveBaseplateFold, justBinsHint } from './HaveBaseplate';
 
 /** What a style becomes on a half grid, where its per-cell features don't fit 21 mm cells. */
 const HALF_STYLE_HINT: Partial<Record<BaseplateStyle, string>> = {
@@ -96,6 +97,7 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   const active = useStore((s) => s.drawers.find((d) => d.id === s.activeDrawerId));
   const renameDrawer = useStore((s) => s.renameDrawer);
   const setDrawer = useStore((s) => s.setDrawer);
+  const setHaveBaseplate = useStore((s) => s.setHaveBaseplate);
   const setHalfGrid = useStore((s) => s.setHalfGrid);
   const binCount = useStore((s) => s.bins.length);
   // What the last half-grid switch did, shown while that drawer stays that way.
@@ -116,6 +118,8 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   const maxFlat = maxBinUnits(room, false);
   const nBlocked = L.mask?.length ?? 0;
   const half = !!drawer.halfGrid;
+  // "Just bins": the baseplate is there already; only what places and fits the bins matters.
+  const binsOnly = !!drawer.haveBaseplate;
   // On a half grid the cells already are half cells, so 'half' leaves the margin solid.
   const fill: EdgeFill = half && drawer.fill === 'half' ? 'solid' : drawer.fill;
   const across = unitsAcross(L);
@@ -161,6 +165,18 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   return (
     <FindPanel index={DRAWER_INDEX} placeholder="Find a setting…">
       <Section title="Drawer" find="drawer">
+        <Find id="print-what" set={binsOnly}>
+          <Segmented
+            label="Print for this drawer"
+            value={binsOnly ? 'bins' : 'all'}
+            options={[
+              { value: 'all', label: 'Baseplate and bins', title: 'Print the baseplate and the bins for it' },
+              { value: 'bins', label: 'Just bins', title: 'You have the baseplate already: print only bins for it' },
+            ]}
+            onChange={(v) => setHaveBaseplate(v === 'bins')}
+            hint={binsOnly ? justBinsHint(drawer) : 'Already have the baseplate? Pick Just bins to print only bins for it.'}
+          />
+        </Find>
         {active && (
           <Find id="drawer-name">
             <TextInput label="Name" value={active.name} onChange={(name) => renameDrawer(active.id, name)} placeholder="Workbench, top drawer" />
@@ -168,13 +184,20 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
         )}
         <Find id="drawer-size">
           <Segmented
-            label="Size from"
+            label={binsOnly ? 'Size of your baseplate' : 'Size from'}
             value={drawer.mode}
             options={[
               { value: 'drawer', label: 'Drawer size' },
               { value: 'grid', label: 'Grid units' },
             ]}
             onChange={(mode) => setDrawer({ mode })}
+            hint={
+              binsOnly
+                ? drawer.mode === 'grid'
+                  ? 'Count its cells. A 21 mm half grid: turn on Half grid below.'
+                  : 'Made by Gridfit for a drawer? Give that drawer’s size, so the cells (and any partial edge cells) match.'
+                : undefined
+            }
           />
           {drawer.mode === 'drawer' ? (
             <>
@@ -214,7 +237,8 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             </div>
           )}
         </Find>
-        {drawer.mode === 'drawer' && (
+        {/* A bins-only drawer given in grid units still has a height to fit (layout/drawer.ts insideHeight). */}
+        {(drawer.mode === 'drawer' || (binsOnly && !drawer.enclosure)) && (
           <Find id="drawer-height">
             <LengthInput
               label="Inside height (optional)"
@@ -377,7 +401,8 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             </Find>
           </>
         )}
-        <Find id="half-grid" set={half}>
+        {/* A baseplate you have may well be a half grid: in Basic view too. */}
+        <Find id="half-grid" set={half || binsOnly}>
           <Toggle
             label="Half grid (21 mm)"
             checked={half}
@@ -398,14 +423,15 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
                   ['clearance', drawer.clearance !== DEFAULT_DRAWER.clearance],
                 ] as [string, boolean][])
               : []),
-            ['half-grid', half],
+            ['half-grid', half || binsOnly],
           ]}
         />
       </Section>
 
       <EnclosureSection job={job} />
 
-      <Section title="Baseplate" find="baseplate">
+      <Section title={binsOnly ? 'Baseplate · not printed' : 'Baseplate'} find="baseplate">
+        <HaveBaseplateFold on={binsOnly} floor={fmt(binSeatHeight(bp))}>
         <Find id="bp-style">
           <Segmented
             label="Style"
@@ -585,6 +611,7 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             ['bp-edges', edges.length > 0],
           ]}
         />
+        </HaveBaseplateFold>
       </Section>
     </FindPanel>
   );

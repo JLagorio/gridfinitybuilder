@@ -1,0 +1,21 @@
+/* ---------- "Just bins" notes (HaveBaseplate.tsx) ---------- */
+
+.have-note {
+  font-size: 12.5px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel-2);
+  padding: 7px 9px;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.have-note ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.have-note.empty {
+  color: var(--text);
+  font-weight: 600;
+}

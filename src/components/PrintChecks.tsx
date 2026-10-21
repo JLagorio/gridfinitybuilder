@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
-import { history, printDrawers, useStore, useUnits } from '../state/store';
+import { history, printDrawers, selectedIds, useStore, useUnits } from '../state/store';
 import { Section, Segmented } from './fields';
 import { useLabelFont } from './labelFont';
 import { geometry } from '../worker/client';
@@ -143,10 +143,12 @@ export function PrintChecksSection({ job }: { job: PrintJob }) {
   const store = useStore();
   const [all, setAll] = useState(false);
   const { setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick } = store;
+  // Printing the selected bins: the checks follow the selection.
+  const selection = printScope === 'selected' ? selectedIds(store.ui).join() : '';
   const checks = useMemo(
     () => projectChecks(printDrawers(store), setup, include, { fmt }),
     // `store` changes on every edit; these are what the checks read (and `font`: text checks wait for it).
-    [setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick, fmt, font],
+    [setup, include, drawers, bins, drawer, baseplate, activeDrawerId, printScope, printPick, selection, fmt, font],
   );
   const multi = job.drawers.length > 1;
   const names = new Map(printDrawers(store).map((d) => [d.id, d.name]));

@@ -15,7 +15,7 @@ Then open http://localhost:5199.
 
 ## Workflow
 
-A project holds **all your drawers**. Switch between them, add, duplicate, rename or delete them from the drawer menu in the top bar. Each drawer has its own size, baseplate settings and bins; print one, all, or a chosen set at once.
+A project holds **all your drawers**. Switch between them, add, duplicate, rename or delete them from the drawer menu in the top bar. Each drawer has its own size, baseplate settings and bins; print one, all, or a chosen set at once. Already have the baseplate? A drawer can print **just bins** (below); **New: just bins** in the drawer menu starts one in one click.
 
 Lengths are stored in mm. The **mm / in** switch in the top bar changes what every length field shows and accepts. Inches show as fractions (1/8 to 1/32, or decimals), and you can type `20 1/8`, `20-1/8"`, `1' 8 1/8"`, `44.5mm` or `51cm` in either mode.
 
@@ -27,6 +27,10 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
 Folding groups say what's set in them, start open when anything in them isn't the default, and carry a dot while folded.
 
 1. **Drawer & baseplate.**
+   - **Print for this drawer:** *Baseplate and bins*, or **Just bins** when you already have the baseplate (printed before, or bought):
+     - Nothing of the drawer's grid prints: no baseplate pieces, connector keys, TPU pads or spacer strips. For a carry case, none of the case either (body, lid, lid keys, hinge pins, handle, feet), and for a wall grid neither its pieces nor its French cleat: you have them. Only the bins print, with their lids, dividers, label plates, trays and cups. The *Baseplate* and *Bins* switches under Export still apply on top.
+     - Give the size of the baseplate you have in grid units (an empty drawer switches to them; a 21 mm half grid is under Grid), or, if Gridfit fitted it to a drawer, that drawer's size. The inside height can be given either way, for the "too tall" checks and stacking.
+     - Bins are planned exactly as on a printed baseplate: same seat, sizes, fits and checks. The baseplate's own settings fold away (they only set the floor the bins stand on), the 3D view draws the grid see-through as *not printed*, and the Print panel says which drawers print no baseplate. Saved with the drawer in the project, project files and share links (drawers saved before stay as they were).
    - **Drawer:**
      - **Size:** enter the inside width and depth. Drawers are rarely square, so add width or depth measurements taken at other spots; the smallest is used.
      - **Inside height** (optional): shows the tallest bin that fits and warns about bins that don't.
@@ -187,6 +191,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
      - Everything else is shared out so the whole job is done soonest: Gridfit balances each printer's estimated print time (the sliced estimate once the parts are sliced, a quick guess from their size before). A part that only one printer takes goes to that printer.
      - Plates are listed printer by printer, and each plate says which printer it's for.
    - **Split and pack:** Gridfit splits each baseplate on cell boundaries, so every receptacle stays whole. Each drawer's baseplate gets its own plates (named after the drawer). Bins, lids, removable dividers and label plates from every printed drawer share plates.
+   - **What to print:** this drawer, all of them, a chosen set, or **Selected bins**: just the bins selected on the Bins tab (*Print these* in their panel), with their lids and inserts and no baseplate, for "print just these three new bins". Drawers that print *just bins* say so over the export switches, and a job with nothing on its plates says why.
    - **Reprint only what changed:** for a big project printed over weeks, then tweaked.
      - **Mark as printed** on a plate (or **Mark all as printed**) records what came off the printer. Printed plates get a tick, and so do printed bins in the bin layout; a bin changed since it was printed gets a dot.
      - Parts are known by their geometry, counted per print: three identical bins are three prints of the same part, so any of them stands in for another. Moving a bin to another cell (of the same size) isn't a change; resizing it or changing its options is. Each drawer keeps its own prints: printing a drawer on its own never leaves out a bin because another drawer has an identical one.
@@ -198,7 +203,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
      - **Plates as STL (.zip):** one binary STL per plate, parts already arranged, in a folder per printer when there are several.
      - **STEP** for CAD (Fusion 360, FreeCAD, Onshape): the selected bin, one plate, all plates (.zip), or each drawer assembled. Flat areas become single faces.
      - Any single plate or bin, as 3MF or STL.
-     - **Test-fit kit:** a small baseplate sample with your joints and magnets, plus one 1 × 1 bin, on one plate. Use it to check the fit before printing everything.
+     - **Test-fit kit:** a small baseplate sample with your joints and magnets, plus one 1 × 1 bin, on one plate. Use it to check the fit before printing everything. For a drawer that prints just bins it's the bin alone, to try in the baseplate you have.
      - **Save / Open project** as a `.gridfit.json` file; it also autosaves in the browser. **Copy share link** puts the whole project, compressed, in the link itself (nothing is uploaded).
    - **Bill of materials:**
      - Counts magnets, screws, nuts or inserts, filament pins, connector keys, parts and plates. Partial and blocked cells get no holes.

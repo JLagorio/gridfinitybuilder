@@ -52,6 +52,9 @@ export function EnclosureSection({ job }: { job: PrintJob }) {
                 : undefined
         }
       />
+      {drawer.haveBaseplate && kind !== 'drawer' && (
+        <div className="field-hint">Not printed (Just bins, top of this panel): you have it. Its settings still say where the bins sit and how much room they have.</div>
+      )}
       {kind === 'case' && <CaseFields opts={sanitizeCase(drawer.carryCase)} onChange={(p) => setDrawer({ carryCase: { ...sanitizeCase(drawer.carryCase), ...p } })} info={enc?.info} box={enc?.box} />}
       {kind === 'wall' && <WallFields opts={sanitizeWall(drawer.wallMount)} onChange={(p) => setDrawer({ wallMount: { ...sanitizeWall(drawer.wallMount), ...p } })} info={enc?.info} />}
       {kind === 'drawer' && drawer.mode === 'drawer' && drawer.fill === 'spacers' && (

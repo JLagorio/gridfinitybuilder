@@ -73,6 +73,8 @@ function drawerScene(
   const gap = explode ? 14 : 0;
   // A carry case, wall grid or spacer strips (enclosures.ts): pieces start where their meshes do, plus the extra parts.
   const enc = job.drawers[0]?.enclosure;
+  // "Just bins": the baseplate (case, wall grid) is there already. It's drawn not printed, with the bins seated on it on both tabs.
+  const have = !!job.drawers[0]?.haveBaseplate;
   const items: SceneItem[] = job.plan.pieces.map((p) => {
     const part = job.parts[`piece:${p.id}`];
     const at = enc?.pieceAt[p.id] ?? [p.x0, p.y0, 0];
@@ -86,9 +88,10 @@ function drawerScene(
       d: part.d,
       h: part.h,
       color: withBins ? BASEPLATE_COLOR : pieceColor(p.id),
+      ...(have ? { ghost: true } : {}),
     };
   });
-  if (withBins || enc?.showBins) {
+  if (withBins || enc?.showBins || have) {
     const seat = enc?.seat ?? binSeatHeight(state.baseplate);
     // Container parts that sit in their container (drawers in a drawer unit, …), by bin.
     const placedParts = new Map<string, JobPart[]>();
@@ -182,7 +185,7 @@ function drawerScene(
       }
     }
   }
-  if (enc) items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap));
+  if (enc) items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap).map((it) => (have ? { ...it, ghost: true } : it)));
   return {
     items: shiftItems(items, enc?.shift),
     outline: state.drawer.mode === 'drawer' && enc?.outline !== false ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
@@ -297,6 +300,13 @@ export default function App() {
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
   const coarse = useCoarsePointer();
   const phone3d = usePhoneView((s) => s.view3d);
+  // "Just bins": the grid in the view is the baseplate you have, drawn see-through.
+  const have = !!viewJob.drawers[0]?.haveBaseplate;
+  const haveNote = have && (
+    <span className="viewer-note" title="Just bins: you have this baseplate, so it isn’t printed (Drawer tab)">
+      {viewJob.drawers[0]?.enclosure?.kind === 'case' ? 'Case' : viewJob.drawers[0]?.enclosure?.kind === 'wall' ? 'Wall grid' : 'Baseplate'} not printed
+    </span>
+  );
 
   // Its own boundary, so a 3D problem never blanks the panels and editors.
   const viewer = (
@@ -316,6 +326,7 @@ export default function App() {
       >
         {ui.tab === 'bins' && (
           <div className="viewer-tools">
+            {haveNote}
             <button className={!focusing ? 'active' : ''} onClick={() => setFocusSel(false)}>
               Whole drawer
             </button>
@@ -326,9 +337,12 @@ export default function App() {
         )}
         {ui.tab === 'drawer' && (
           <div className="viewer-tools">
-            <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
-              Spread pieces
-            </button>
+            {/* A baseplate you have is one piece, not printed: nothing to spread. */}
+            {haveNote || (
+              <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
+                Spread pieces
+              </button>
+            )}
             {viewJob.drawers[0]?.enclosure?.kind === 'case' &&
               (['closed', 'open', 'off'] as const).map((v) => (
                 <button key={v} className={lidView === v ? 'active' : ''} onClick={() => setLidView(v)}>
@@ -384,7 +398,8 @@ export default function App() {
             {state.setup.printers ? printerNames(state.setup).map(shortName).join(' + ') : `${printer.name} · ${state.setup.bedW}×${state.setup.bedD}`}
           </span>
           <span className="chip">
-            {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} · {job.plan.pieces.length} pieces ·{' '}
+            {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} ·{' '}
+            {job.drawers[0]?.haveBaseplate ? 'just bins' : `${job.plan.pieces.length} pieces`} ·{' '}
             {printJob.plates.length} plates
           </span>
           <ShortcutsHelp />
