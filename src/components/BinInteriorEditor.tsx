@@ -55,6 +55,7 @@ import {
   freeWallMid,
   freeWallOutline,
   freeWallShape,
+  removableSegments,
   removeFreeWall,
   snapPoint,
   updateFreeWall,
@@ -362,7 +363,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     if (!alt) s = Math.abs(s) < SNAP_PX / pxPerMm ? 0 : Math.round(s / step) * step;
     return s;
   };
-  const hoverSnap = !drag && hover && !hover.onBadge && sel.tool === 'free' ? snapPoint(info.resolved, hover.x, hover.y, pointOpts(mods.alt)) : null;
+  const hoverSnap = !drag && hover && sel.tool === 'free' ? snapPoint(info.resolved, hover.x, hover.y, pointOpts(mods.alt)) : null;
 
   // ------------------------------------------------------------------ pointer
 
@@ -684,7 +685,9 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   const wallH = dividerHeight(info.opts);
   const notchMarks = (W: ResolvedWall) => {
     if (!W.wall.notch) return null;
-    return wallSpans(view, W.id).map((sp, k) => {
+    // A removable wall's notch is on its plates: one per plate.
+    const spans = W.removable ? removableSegments(view, info.opts.lip).filter((sg) => sg.wallId === W.id) : wallSpans(view, W.id);
+    return spans.map((sp, k) => {
       const n = fitNotch(W.wall.notch, sp.b - sp.a, Math.max(1, wallH - W.lower));
       if (!n) return null;
       const c = (sp.a + sp.b) / 2;
@@ -756,7 +759,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   };
 
   return (
-    <div className={`interior-editor ${drag || ghost || selWall ? 'measuring' : ''}`}>
+    <div className={`interior-editor ${drag || ghost || selWall || selFree ? 'measuring' : ''}`}>
       <InteriorToolbar info={info} onLayout={(l) => commit(l)} />
       <div className="ie-canvas" ref={wrapRef}>
         <svg
@@ -958,12 +961,12 @@ function InteriorToolbar({ info, onLayout }: { info: BinInterior & { binId: stri
         ]}
         onChange={(o) => set({ orient: o })}
       />}
+      <LayoutActions info={info} onLayout={onLayout} />
       <span className="ie-status">
         {n} compartment{n === 1 ? '' : 's'}
         {!info.custom && info.opts.divX * info.opts.divY > 1 ? ` · ${info.opts.divX} × ${info.opts.divY} grid` : ''}
         {info.resolved.free.length ? ` · ${info.resolved.free.length} diagonal` : ''}
       </span>
-      <LayoutActions info={info} onLayout={onLayout} />
     </div>
   );
 }

@@ -711,6 +711,8 @@ button.wide {
   gap: 3px;
 }
 .toggle {
+  /* Holds the hidden checkbox: otherwise it sits outside the scrolled sidebar and focusing it scrolls the whole page. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
