@@ -88,13 +88,14 @@ function SaveForm({ selIds, onDone }: { selIds: string[]; onDone: (d: Done) => v
       setError(status === 'newer' ? 'My bins was saved by a newer version of Gridfit: reload the page to update, then save it.' : 'There’s nothing selected to save.');
       return;
     }
-    const what = made.length === 1 ? `“${made[0].name}”` : `${made.length} bins`;
+    const one = made.length === 1;
+    const what = one ? `“${made[0].name}”` : `${made.length} bins`;
     const kept =
       status === 'memory'
         ? ' This browser isn’t keeping My bins, though (a private window, or site data is blocked): export them to keep them.'
         : status === 'full'
-          ? ' The browser’s storage is full, so it’s only kept until this tab closes: export My bins, or delete some.'
-          : ' Place it in any drawer, in any project, from My bins.';
+          ? ` The browser’s storage is full, so ${one ? 'it’s' : 'they’re'} only kept until this tab closes: export My bins, or delete some.`
+          : ` Place ${one ? 'it' : 'them'} in any drawer, in any project, from My bins.`;
     onDone({ sel, text: `Saved ${what} to My bins.${kept}`, error: status !== 'saved' });
     useSaveForm.getState().open(null);
   };
