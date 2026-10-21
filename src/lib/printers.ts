@@ -36,9 +36,35 @@ export interface PrinterProfile {
   bambu?: { printerModel: string; printerPreset: string; processPreset: string; filamentPreset: string };
   /** Speeds and limits for the print-time estimate (DEFAULT_MOTION when missing). */
   motion?: PrinterMotion;
+  /**
+   * Gantry clearance for printing parts one after another ("by object"), from
+   * Bambu Studio's machine profile: how far apart parts must stand
+   * (`extruder_clearance_max_radius`) and how tall all but the last may be when
+   * they share a row (`extruder_clearance_height_to_rod`). Vase-mode bins share
+   * a plate only on printers that have it (layout/spiral.ts).
+   */
+  sequential?: SequentialClearance;
 }
 
-const bambu = (model: string, w = 256, d = 256, h = 256, id?: string, motion: Partial<PrinterMotion> = {}): PrinterProfile => ({
+export interface SequentialClearance {
+  /** Least distance between two parts, mm. */
+  radius: number;
+  /** Tallest part that may be printed before another, mm. */
+  rod: number;
+}
+
+/** X1 / P1 class "by object" clearance. */
+const X1_CLEARANCE: SequentialClearance = { radius: 68, rod: 34 };
+
+const bambu = (
+  model: string,
+  w = 256,
+  d = 256,
+  h = 256,
+  id?: string,
+  motion: Partial<PrinterMotion> = {},
+  sequential: SequentialClearance = X1_CLEARANCE,
+): PrinterProfile => ({
   id: id ?? model.toLowerCase().replace(/\s+/g, '-'),
   name: `Bambu Lab ${model}`,
   brand: 'Bambu Lab',
@@ -52,6 +78,7 @@ const bambu = (model: string, w = 256, d = 256, h = 256, id?: string, motion: Pa
     filamentPreset: `Bambu PLA Basic @BBL ${model.replace(' Carbon', '')}`,
   },
   motion: { ...BAMBU_MOTION, ...motion },
+  sequential,
 });
 
 const generic = (id: string, name: string, brand: string, w: number, d: number, h: number, motion: PrinterMotion): PrinterProfile => ({
@@ -64,20 +91,20 @@ const generic = (id: string, name: string, brand: string, w: number, d: number, 
   motion,
 });
 
-/** Bed sizes for Bambu models come from Bambu Studio's own machine profiles. */
+/** Bed sizes and "by object" clearances for Bambu models come from Bambu Studio's own machine profiles (public/bambu/*.json). */
 export const PRINTERS: PrinterProfile[] = [
   // Newer hotend and motion system; PLA Basic runs a little faster.
-  bambu('P2S', 256, 256, 256, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 300, swap: 60, watts: 110 }),
+  bambu('P2S', 256, 256, 256, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 300, swap: 60, watts: 110 }, { radius: 72, rod: 32.5 }),
   bambu('P1S', 256, 256, 256, undefined, { prepare: 300, watts: 100 }),
   bambu('P1P', 256, 256, 256, undefined, { prepare: 300, watts: 90 }),
   bambu('X1 Carbon', 256, 256, 256, 'x1c', { prepare: 360 }),
   bambu('X1E', 256, 256, 256, undefined, { prepare: 360, watts: 130 }),
   // Bed slingers: same process, lower acceleration limits; AMS lite swaps are a little slower.
-  bambu('A1', 256, 256, 256, undefined, { accel: 10000, prepare: 300, swap: 85, watts: 95 }),
-  bambu('A1 mini', 180, 180, 180, undefined, { accel: 10000, prepare: 240, swap: 85, watts: 70 }),
+  bambu('A1', 256, 256, 256, undefined, { accel: 10000, prepare: 300, swap: 85, watts: 95 }, { radius: 73, rod: 25 }),
+  bambu('A1 mini', 180, 180, 180, undefined, { accel: 10000, prepare: 240, swap: 85, watts: 70 }, { radius: 73, rod: 25 }),
   // Two nozzles: a colour change is mostly a nozzle switch.
-  bambu('H2D', 350, 320, 325, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 420, swap: 35, watts: 170 }),
-  bambu('H2S', 340, 320, 340, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 360, swap: 70, watts: 160 }),
+  bambu('H2D', 350, 320, 325, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 420, swap: 35, watts: 170 }, { radius: 96, rod: 47.4 }),
+  bambu('H2S', 340, 320, 340, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 360, swap: 70, watts: 160 }, { radius: 81, rod: 33 }),
   generic('prusa-mk4s', 'Prusa MK4S', 'Prusa', 250, 210, 220, { speed: 300, accel: 4000, flow: 20, prepare: 240, swap: 120, watts: 85 }),
   generic('prusa-core-one', 'Prusa CORE One', 'Prusa', 250, 220, 270, { speed: 400, accel: 6000, flow: 20, prepare: 240, swap: 120, watts: 95 }),
   generic('prusa-mini', 'Prusa MINI+', 'Prusa', 180, 180, 180, { speed: 180, accel: 2000, flow: 10, prepare: 180, swap: 120, watts: 50 }),

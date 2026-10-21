@@ -2,6 +2,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { collectObjects, escapeXml, matToString, meshXml, placeTransform, type ExportObject, type Mat12 } from './threemf';
 import type { MeshLookup, PrintJob } from '../project';
 import type { PrintSetup } from '../layout/plan';
+import { vaseBottomLayers, type SpiralPrint } from '../geometry/containers/vase';
 
 /**
  * Bambu Studio project 3MF with one plate per print plate.
@@ -14,6 +15,11 @@ import type { PrintSetup } from '../layout/plan';
  *    (col · 1.2 · bedW, −row · 1.2 · bedD) with cols = ceil-ish(√n), exactly
  *    like PartPlateList::compute_origin.
  *  - Metadata/project_settings.config (optional) selects printer/process/filament.
+ *  - Vase-mode plates (layout/spiral.ts) turn on spiral vase for the plate
+ *    (`spiral_mode` in its metadata, print sequence "by object" when it holds
+ *    several bins) and give each object the settings Bambu Studio itself sets
+ *    when spiral vase is turned on for a plate (PartPlate::
+ *    set_vase_mode_related_object_config), plus its bottom layers and wall line.
  */
 
 export const BAMBU_VERSION = '02.08.04.61';
@@ -24,11 +30,15 @@ export interface BambuPart {
   /** Transform on the plate (bed coordinates, bed front-left = 0,0). */
   transform: Mat12;
   name: string;
+  /** Process settings of this object only, Bambu Studio's keys and value strings. */
+  settings?: Record<string, string>;
 }
 
 export interface BambuPlate {
   name: string;
   parts: BambuPart[];
+  /** Print the plate in spiral vase mode. */
+  spiral?: boolean;
 }
 
 export interface BambuProjectInput {
@@ -98,6 +108,73 @@ export function withFilaments(settingsJson: string, count: number, colours: stri
     }
   }
   return JSON.stringify(cfg, null, 4);
+}
+
+/**
+ * Set process settings in project settings JSON. Keys whose value changes are
+ * listed in the process's `different_settings_to_system`, as Bambu Studio
+ * does for an edited preset.
+ */
+export function withProcessSettings(settingsJson: string, patch: Record<string, string>): string {
+  let cfg: Record<string, unknown>;
+  try {
+    cfg = JSON.parse(settingsJson) as Record<string, unknown>;
+  } catch {
+    return settingsJson;
+  }
+  const changed = Object.keys(patch).filter((k) => cfg[k] !== patch[k]);
+  if (!changed.length) return settingsJson;
+  for (const k of changed) cfg[k] = patch[k];
+  const diff = cfg.different_settings_to_system;
+  if (Array.isArray(diff) && typeof diff[0] === 'string') {
+    const keys = new Set((diff[0] as string).split(';').filter(Boolean));
+    for (const k of changed) keys.add(k);
+    cfg.different_settings_to_system = [[...keys].sort().join(';'), ...diff.slice(1)];
+  }
+  return JSON.stringify(cfg, null, 4);
+}
+
+/** A number from project settings JSON ("0.2" or ["0.2"]), if it's there. */
+export function settingNumber(settingsJson: string | undefined, key: string): number | undefined {
+  if (!settingsJson) return undefined;
+  try {
+    const v = (JSON.parse(settingsJson) as Record<string, unknown>)[key];
+    const n = Number(Array.isArray(v) ? v[0] : v);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The settings a plate in spiral vase mode needs from the whole project
+ * (Bambu Studio sets these globally when spiral vase is turned on for a plate).
+ */
+export const SPIRAL_PROJECT_SETTINGS: Record<string, string> = {
+  timelapse_type: '0',
+  z_direction_outwall_speed_continuous: '0',
+  enable_wrapping_detection: '0',
+};
+
+/**
+ * One vase bin's own process settings: Bambu Studio's spiral-vase object
+ * settings, its bottom layers up to the spiral's start at these layer heights,
+ * and the wall line the part is drawn for.
+ */
+export function spiralObjectSettings(s: SpiralPrint, layerHeight = 0.2, firstLayer = layerHeight): Record<string, string> {
+  const r3 = (v: number) => String(Math.round(v * 1000) / 1000);
+  return {
+    wall_loops: '1',
+    top_shell_layers: '0',
+    sparse_infill_density: '0%',
+    enable_support: '0',
+    enforce_support_layers: '0',
+    ensure_vertical_shell_thickness: 'enabled',
+    detect_thin_wall: '0',
+    bottom_shell_layers: String(vaseBottomLayers(s.start, layerHeight, firstLayer)),
+    bottom_shell_thickness: '0',
+    outer_wall_line_width: r3(s.line),
+  };
 }
 
 const PLATE_GAP = 1 / 5;
@@ -238,6 +315,7 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
   for (const f of placed) {
     const name = escapeXml(f.part.name);
     cfg.push(`  <object id="${f.wrapId}">`, `    <metadata key="name" value="${name}"/>`, `    <metadata key="extruder" value="1"/>`);
+    for (const [k, v] of Object.entries(f.part.settings ?? {})) cfg.push(`    <metadata key="${escapeXml(k)}" value="${escapeXml(v)}"/>`);
     for (const b of f.bodies) {
       cfg.push(
         `    <part id="${b.id}" subtype="normal_part">`,
@@ -256,6 +334,11 @@ export function writeBambuProject(input: BambuProjectInput): Uint8Array {
       `    <metadata key="plater_name" value="${escapeXml(pl.name)}"/>`,
       '    <metadata key="locked" value="false"/>',
     );
+    if (pl.spiral) {
+      // Several bins in spiral vase mode print one after another.
+      if (pl.parts.length > 1) cfg.push('    <metadata key="print_sequence" value="by object"/>');
+      cfg.push('    <metadata key="spiral_mode" value="true"/>');
+    }
     for (const f of placed.filter((x) => x.plate === pi)) {
       cfg.push(
         '    <model_instance>',
@@ -325,23 +408,29 @@ export function exportBambuProject(
   projectSettings?: string,
 ): Uint8Array {
   const { objects, objectFor } = collectObjects(getMesh);
+  // Vase bins' bottom layers follow the process's layer heights.
+  const layer = settingNumber(projectSettings, 'layer_height') ?? 0.2;
+  const first = settingNumber(projectSettings, 'initial_layer_print_height') ?? layer;
   const plates: BambuPlate[] = job.plates.map((pl) => ({
     name: pl.name,
+    ...(pl.spiral ? { spiral: true } : {}),
     parts: pl.placements.map((p) => {
       const part = job.parts[p.key];
       return {
         object: objectFor(part.meshKey, part.name),
         name: part.name,
         transform: placeTransform(p.x, p.y, p.rotated, part.d),
+        ...(pl.spiral && part.spiral ? { settings: spiralObjectSettings(part.spiral, layer, first) } : {}),
       };
     }),
   }));
+  const spiral = plates.some((pl) => pl.spiral);
   return writeBambuProject({
     objects,
     plates,
     bedW: setup.bedW,
     bedD: setup.bedD,
-    projectSettings,
+    projectSettings: projectSettings && spiral ? withProcessSettings(projectSettings, SPIRAL_PROJECT_SETTINGS) : projectSettings,
     title: 'Gridfinity drawer',
     // Filament 2 prints inlaid label text.
     filamentColours: setup.labelColour ? [setup.labelColour.toUpperCase()] : undefined,
