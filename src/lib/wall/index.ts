@@ -13,3 +13,4 @@ import './kinds/rod';
 import './kinds/toolRack';
 import './kinds/cradle';
 import './kinds/plate';
+import './kinds/rail';

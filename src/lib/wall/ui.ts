@@ -12,3 +12,4 @@ import './kinds/rod.ui';
 import './kinds/toolRack.ui';
 import './kinds/cradle.ui';
 import './kinds/plate.ui';
+import './kinds/rail.ui';

@@ -16,6 +16,7 @@ import { rodBuilder } from './kinds/rod.geom';
 import { toolRackBuilder } from './kinds/toolRack.geom';
 import { cradleBuilder } from './kinds/cradle.geom';
 import { plateBuilder } from './kinds/plate.geom';
+import { railBuilder } from './kinds/rail.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -38,6 +39,7 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   toolRack: toolRackBuilder as AttachmentBuilder<never>,
   cradle: cradleBuilder as AttachmentBuilder<never>,
   plate: plateBuilder as AttachmentBuilder<never>,
+  rail: railBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
