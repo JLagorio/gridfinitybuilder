@@ -74,6 +74,7 @@ import { writeBambuProject, type BambuPlate } from './export/bambu';
 import { placeTransform, write3MF, type ExportObject } from './export/threemf';
 import { DEFAULT_MOTION, findPrinter } from './printers';
 import { baseplatePicked, baseplatePrinter, jobPrinters, printerNames, printerSetup, roughSeconds, shareOut, usableArea, type ShareItem } from './layout/fleet';
+import { coveredParts, hasPrints, type PrintedRecord } from './printed';
 import {
   buildEnclosurePart,
   buildEnclosurePiece,
@@ -227,10 +228,18 @@ export interface PrintJob {
   warnings: string[];
   /** Printer names, by `JobPlate.printer`, when the job is for several printers. */
   printers?: string[];
+  /** Parts on the plates that are printed already (printed.ts); set when planned with a print record. */
+  printed?: string[];
+  /** Parts left out because they're printed already ("only what's changed"). */
+  leftOut?: string[];
 }
 
 /** What else planPrint can take into account. */
 export interface PlanPrintOptions {
+  /** What has been printed (printed.ts): the job's `printed` says which parts it covers. */
+  printed?: PrintedRecord;
+  /** Leave out the parts `printed` covers and pack only the rest. */
+  onlyChanged?: boolean;
   /** A part's print seconds on printer `i` (start sequence left out) once it's sliced, for sharing parts out between printers. */
   seconds?: (part: JobPart, printer: number) => number | undefined;
 }
@@ -309,9 +318,26 @@ export function planJob(state: ProjectState): PrintJob {
  * (`piece:3`, `bin:<id>`); with several they're prefixed with the drawer id.
  *
  * With several printers (fleet.ts) the baseplate is split for one of them and
- * every plate is for one printer.
+ * every plate is for one printer. With a print record, the job says which
+ * parts it covers; with `onlyChanged` those are left out and the rest packed
+ * on their own.
  */
 export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include'], opts: PlanPrintOptions = {}): PrintJob {
+  if (opts.onlyChanged && hasPrints(opts.printed)) {
+    // Plan everything to see what the record covers, then again without it.
+    const leftOut = planPrint(drawers, setup, include, { ...opts, onlyChanged: false }).printed ?? [];
+    if (leftOut.length) return { ...planParts(drawers, setup, include, opts, new Set(leftOut)), printed: [], leftOut };
+  }
+  const job = planParts(drawers, setup, include, opts);
+  return opts.printed ? withPrinted(job, opts.printed) : job;
+}
+
+/** The job with the parts the record covers (printed.ts). */
+export function withPrinted(job: PrintJob, rec: PrintedRecord): PrintJob {
+  return { ...job, printed: [...coveredParts(job, rec)] };
+}
+
+function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include'], opts: PlanPrintOptions, skip?: Set<string>): PrintJob {
   const multi = drawers.length > 1;
   const parts: Record<string, JobPart> = {};
   const meshes: Record<string, MeshSpec> = {};
@@ -324,6 +350,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
   const baseAt = baseplatePrinter(setup);
   const base = printerSetup(setup, baseAt);
   const bed = { bedW: base.bedW, bedD: base.bedD, margin: base.plateMargin };
+  // Parts printed already ("only what's changed").
+  const keep = (it: PackItem) => !skip?.has(it.key);
 
   for (const d of drawers) {
     const prefix = multi ? `${d.id}/` : '';
@@ -335,7 +363,7 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     const pieceLayout = enc?.pieceLayout ?? layout;
     const bpo = enc?.baseplate ?? d.baseplate;
     const protrude = pieceProtrusion(bpo);
-    const plan = enc?.plan ?? planBaseplate(layout, base, { protrude, skip: (p) => pieceIsVoid(layout, p) });
+    let plan = enc?.plan ?? planBaseplate(layout, base, { protrude, skip: (p) => pieceIsVoid(layout, p) });
     if (plan.error && !enc) warn(plan.error);
 
     const bpH = baseplateHeight(bpo);
@@ -373,10 +401,16 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
           keys.push({ key, w: size.w, d: size.d });
         }
       }
+      // Without the pieces printed already, the rest packed again.
+      if (skip && plan.pieces.some((p) => skip.has(`${prefix}piece:${p.id}`))) {
+        const left = plan.pieces.map((p) => `piece:${p.id}`).filter((k) => !skip.has(prefix + k));
+        const items = left.map((k) => ({ key: k, w: parts[prefix + k].w, d: parts[prefix + k].d }));
+        plan = { ...plan, plates: packPlates(items, { ...bed, spacing: base.spacing, nest: base.nest }).plates };
+      }
       const piecePlates: PlateLayout[] = plan.plates.map((pl) => ({
         placements: pl.placements.map((p) => ({ ...p, key: prefix + p.key })),
       }));
-      const packed = packIntoPlates(piecePlates, keys, { ...bed, spacing: setup.spacing, nest: true });
+      const packed = packIntoPlates(piecePlates, keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
       packed.plates.forEach((pl, i) => {
         plates.push({ name: `${label}${enc?.kind === 'case' ? 'Case body' : 'Baseplate'} ${i + 1}`, group: 'baseplate', placements: pl.placements });
       });
@@ -395,8 +429,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         parts[key] = { key, name: `${label}${padPartName(p.part)}`, kind: 'pad', meshKey, w: p.part.length, d: p.part.width, h: padThickness(), drawer: d.id };
         pads.push({ key, w: p.part.length, d: p.part.width });
       });
-      if (pads.length) {
-        const packedPads = packPlates(pads, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
+      if (pads.some(keep)) {
+        const packedPads = packPlates(pads.filter(keep), { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
         packedPads.plates.forEach((pl, i) => {
           plates.push({ name: `${label}TPU pads${packedPads.plates.length > 1 ? ` ${i + 1}` : ''}`, group: 'baseplate', placements: pl.placements });
         });
@@ -416,8 +450,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         if (p.part) parts[k].enclosure = p.part.kind;
         items.push({ key: k, w: p.w, d: p.d });
       }
-      if (include.baseplate && items.length) {
-        const packed = packPlates(items, { ...bed, spacing: setup.spacing, nest: true });
+      if (include.baseplate && items.some(keep)) {
+        const packed = packPlates(items.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
         const count = new Map<string, number>();
         const group = (pl: PlateLayout) => enc.parts.find((p) => prefix + p.key === pl.placements[0].key)?.group ?? 'Parts';
         const totals = new Map<string, number>();
@@ -547,7 +581,7 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
 
   const several = printers.length > 1;
   // Parts taller than the printer prints are left out, like ones bigger than the bed (the editors keep new ones within both: bedfit.ts).
-  const printable = binItems.filter((it) => {
+  const printable = binItems.filter(keep).filter((it) => {
     const p = parts[it.key];
     if (several || p.h <= setup.maxH + 1e-6) return true;
     warnings.add(`${p.name} is ${round(p.h)} mm tall, taller than the printer prints (${setup.maxH} mm), and was left out.`);

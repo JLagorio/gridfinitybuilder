@@ -17,6 +17,7 @@ import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
+import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -65,6 +66,10 @@ export interface Store extends ProjectState {
   templates: BinTemplate[];
   /** Tool library (traced / imported outlines), shared by every drawer. */
   tools: Tool[];
+  /** What has been printed, by part fingerprint (lib/printed.ts; marked through state/printed.ts). */
+  printed: PrintedRecord;
+  /** Print only what isn't printed yet. */
+  onlyChanged: boolean;
   /** Add a tool (outline in mm, any winding/origin; it's normalized). Returns its id. */
   addTool(t: Partial<Tool> & Pick<Tool, 'outline'>): string;
   /** Change a tool; its copies in placed bins follow. */
@@ -260,6 +265,8 @@ function persisted(s: Store) {
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,
+    printed: s.printed,
+    onlyChanged: s.onlyChanged,
     // View-only state (selection, spread pieces, shown plate) starts fresh on every load.
     ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1 },
   };
@@ -270,6 +277,8 @@ const DEFAULT_WORKSPACE = {
   activeDrawerId: FIRST_DRAWER_ID,
   printScope: 'active' as PrintScope,
   printPick: [] as string[],
+  printed: NO_PRINTS,
+  onlyChanged: false,
 };
 
 export const useStore = create<Store>()(
@@ -584,6 +593,8 @@ export const useStore = create<Store>()(
           templates: mergeTemplates(s.templates, cleanTemplates(p.templates)),
           // Like templates: the file's tools join the library (same id = the file's version).
           tools: mergeTools(s.tools, cleanTools(p.tools)),
+          printed: cleanPrinted(p.printed),
+          onlyChanged: p.onlyChanged === true,
           ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
@@ -619,6 +630,8 @@ export const useStore = create<Store>()(
           printPick: p.printPick ?? current.printPick,
           templates: cleanTemplates(p.templates ?? current.templates),
           tools: cleanTools(p.tools ?? current.tools),
+          printed: cleanPrinted(p.printed ?? current.printed),
+          onlyChanged: (p.onlyChanged ?? current.onlyChanged) === true,
           // Saved before view state stopped being persisted: never come back with pieces spread apart.
           ui: { ...current.ui, ...p.ui, explode: false, plate: -1 },
         };
@@ -640,6 +653,8 @@ export function projectFile(s: Store) {
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,
+    printed: s.printed,
+    onlyChanged: s.onlyChanged,
   };
 }
 

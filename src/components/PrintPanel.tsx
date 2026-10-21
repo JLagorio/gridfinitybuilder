@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { allDrawers, printDrawers, projectFile, useStore } from '../state/store';
 import { NumberInput, Section, Segmented, Select, Toggle } from './fields';
 import { PRINTERS, findPrinter } from '../lib/printers';
@@ -11,8 +11,10 @@ import { drawerAssemblies } from '../lib/export/step';
 import { CopyShareLink } from './ShareLink';
 import { ContentsSection } from './InventoryList';
 import { baseplatePrinter, jobPrinters, printerNames, printerSetup, shortName } from '../lib/layout/fleet';
+import { printedOn } from '../lib/printed';
 import { formatDuration } from '../lib/estimate';
 import { MorePrinters } from './PrinterFields';
+import { OnlyChangedField, PlatePrintedMark } from './PrintedMarks';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -119,6 +121,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const currency = estimate.bom.estimate?.currency ?? '$';
   const nBasePlates = job.plates.filter((p) => p.group === 'baseplate').length;
   const nBinPlates = job.plates.length - nBasePlates;
+  // Parts on the plates that are printed already (printed.ts).
+  const printedNow = useMemo(() => printedOn(job, store.printed), [job, store.printed]);
   const baseAt = baseplatePrinter(setup);
 
   return (
@@ -251,6 +255,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           onChange={(v) => store.setInclude({ bins: v })}
           hint={nBinPlates ? `${nBinPlates} plate${nBinPlates > 1 ? 's' : ''} of bins` : undefined}
         />
+        <OnlyChangedField job={job} printed={printedNow} />
         {job.warnings.map((w) => (
           <div key={w} className="field-error">
             {w}
@@ -379,6 +384,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                       .step
                     </button>
                   </span>
+                  <PlatePrintedMark job={job} plate={i} printed={printedNow} />
                 </div>
               </div>
             </Fragment>

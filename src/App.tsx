@@ -27,6 +27,7 @@ import { assembledParts } from './lib/geometry/accessories';
 import { usableBeds } from './lib/bedfit';
 import { jobPrinters, printerNames, shortName } from './lib/layout/fleet';
 import type { PrintSetup } from './lib/layout/plan';
+import { binPrintMarks } from './lib/printed';
 import { usePrintJob } from './components/usePrintJob';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
 import './components/workflow.css';
@@ -217,8 +218,10 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [job, state.include.bins],
   );
-  // The print tab can cover several drawers and printers.
+  // The print tab can cover several drawers, printers, and only what's changed.
   const printJob = usePrintJob(state, job);
+  // Printed (or changed since) bins, for the grid editor.
+  const printMarks = useMemo(() => binPrintMarks(viewJob, state.printed), [viewJob, state.printed]);
 
   // Carry case: lid closed, open or off in the drawer view.
   const [lidView, setLidView] = useState<LidView>('open');
@@ -385,6 +388,7 @@ export default function App() {
                     onResize={resizeBin}
                     bed={usableBeds(state.setup)}
                     newBin={state.newBin}
+                    printed={printMarks}
                   />
                 )}
               </div>

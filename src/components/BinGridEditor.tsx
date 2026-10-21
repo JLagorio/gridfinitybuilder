@@ -28,6 +28,8 @@ interface Props {
   bed?: Beds;
   /** Settings new bins are drawn with (their height and type count against the bed too). */
   newBin?: BinOptions;
+  /** Bins marked as printed, or printed before and changed since (printed.ts), by id. */
+  printed?: Record<string, 'printed' | 'changed'>;
 }
 
 type Pt = [number, number];
@@ -64,7 +66,7 @@ function heightCaption(o: PlacedBin['opts']): string {
  * or drag from outside the grid to box-select, drag a selected bin to move the
  * whole selection, drag a handle to resize. Keyboard: see useLayoutShortcuts.
  */
-export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize, bed, newBin }: Props) {
+export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize, bed, newBin, printed }: Props) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<[number, number] | null>(null);
@@ -320,6 +322,13 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
               <text x={r.x + r.width / 2} y={r.y + r.height / 2} fontSize={fs} dominantBaseline="middle" textAnchor="middle">
                 {heightCaption(b.opts)}
               </text>
+              {printed?.[b.id] && (
+                // Printed already, or printed and changed since (printed.ts).
+                <text className={`ge-printed ${printed[b.id]}`} x={r.x + r.width - 3} y={r.y + 3} fontSize={fs * 0.8} dominantBaseline="hanging" textAnchor="end">
+                  {printed[b.id] === 'printed' ? '✓' : '●'}
+                  <title>{printed[b.id] === 'printed' ? 'Printed' : 'Changed since it was printed'}</title>
+                </text>
+              )}
               {(() => {
                 // What's in the bin, from its label text (first line as printed, cut to fit).
                 const t = labelCaption(b);
