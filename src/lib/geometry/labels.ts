@@ -256,11 +256,8 @@ export function sanitizeLabelOptions(o: Partial<BinLabelOptions>): BinLabelOptio
     frontLabelSize:
       Number.isFinite(size) && size > 0 ? Math.round(Math.min(FRONT_LABEL_MAX_SIZE, Math.max(LABEL_TEXT.minCap, size)) * 10) / 10 : 0,
   };
-  // Only planning sets this, on a copy of the options: keep it (cleaned) only when it's there.
-  if (o.labelTabTexts !== undefined) {
-    const t = cleanTabTexts(o.labelTabTexts);
-    if (t) out.labelTabTexts = t;
-  }
+  // Only planning sets this, on a copy of the options: clean it when it's there (and override whatever was).
+  if (o.labelTabTexts !== undefined) out.labelTabTexts = cleanTabTexts(o.labelTabTexts);
   return out;
 }
 
@@ -546,7 +543,7 @@ export function fitText(text: string, box: Box, maxCap: number): FittedText | nu
   let maxWidth = bw;
   let t = textOutline(t0, { size: maxCap, maxWidth, maxHeight: bh });
   let ink = inkBounds(t.contours);
-  for (let i = 0; i < 4 && ink; i++) {
+  for (let i = 0; i < 3 && ink; i++) {
     const k = Math.min(bw / (ink.x1 - ink.x0), bh / (ink.y1 - ink.y0));
     if (k >= 1) break;
     if (t.spread) {

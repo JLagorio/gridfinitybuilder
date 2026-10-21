@@ -244,14 +244,16 @@ export function LabelFields({ opts, onChange }: { opts: BinOptions; onChange: (p
         />
       )}
       {tabs && any && (
+        <Segmented
+          label="Text"
+          value={opts.labelStyle}
+          options={STYLES}
+          onChange={(labelStyle) => onChange({ labelStyle })}
+          hint={opts.labelStyle === 'inlaid' ? 'Prints the letters in filament 2: needs an AMS or a filament change. Pick the colour in Print plates.' : undefined}
+        />
+      )}
+      {tabs && (
         <>
-          <Segmented
-            label="Text"
-            value={opts.labelStyle}
-            options={STYLES}
-            onChange={(labelStyle) => onChange({ labelStyle })}
-            hint={opts.labelStyle === 'inlaid' ? 'Prints the letters in filament 2: needs an AMS or a filament change. Pick the colour in Print plates.' : undefined}
-          />
           <Toggle
             label="Swappable label plates"
             checked={opts.labelPlates}
