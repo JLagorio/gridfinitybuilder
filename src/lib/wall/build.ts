@@ -11,6 +11,11 @@ import { hookBuilder } from './kinds/hook.geom';
 import { binBuilder } from './kinds/bin.geom';
 import { cupBuilder } from './kinds/cup.geom';
 import { fitTestBuilder } from './kinds/fitTest.geom';
+import { shelfBuilder } from './kinds/shelf.geom';
+import { rodBuilder } from './kinds/rod.geom';
+import { toolRackBuilder } from './kinds/toolRack.geom';
+import { cradleBuilder } from './kinds/cradle.geom';
+import { plateBuilder } from './kinds/plate.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -28,6 +33,11 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   bin: binBuilder as AttachmentBuilder<never>,
   cup: cupBuilder as AttachmentBuilder<never>,
   fitTest: fitTestBuilder as AttachmentBuilder<never>,
+  shelf: shelfBuilder as AttachmentBuilder<never>,
+  rod: rodBuilder as AttachmentBuilder<never>,
+  toolRack: toolRackBuilder as AttachmentBuilder<never>,
+  cradle: cradleBuilder as AttachmentBuilder<never>,
+  plate: plateBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
