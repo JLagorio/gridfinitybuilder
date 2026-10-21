@@ -56,6 +56,7 @@ import { activeContainer } from './geometry/containers';
 import { DRAWER_UNIT, type DrawerUnitOptions } from './geometry/containers/drawers';
 import { magazineLayout, type DispenserOptions } from './geometry/containers/dispenser';
 import { BOX } from './geometry/containers/box';
+import { VASE, vaseLineFor, type VaseOptions } from './geometry/containers/vase';
 import { caseFrame, sanitizeCase } from './geometry/case';
 import { SPACER } from './geometry/spacers';
 import { DEFAULT_BASEPLATE, type BaseplateOptions } from './geometry/baseplate';
@@ -90,7 +91,8 @@ export type CheckRule =
   | 'ridge-trim'
   | 'joint-fit'
   | 'nozzle-walls'
-  | 'bambu-nozzle';
+  | 'bambu-nozzle'
+  | 'vase-line';
 
 /** A one-click change that fixes a check: options of the bin it is about, its drawer's baseplate, or the drawer. */
 export interface CheckFix {
@@ -602,6 +604,25 @@ function containerChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
           message: `The flat roof of the slot under the stack bridges ${x.fmt(Math.round(L.colW))} and may sag.`,
         });
       }
+    }
+  }
+  if (c.def.kind === 'vase') {
+    // The wall is one line: narrower than the nozzle it breaks up, much wider the nozzle can't spread it evenly.
+    const v = c.opts as VaseOptions;
+    const lo = VASE.lineShare.min * x.nozzle;
+    const hi = VASE.lineShare.max * x.nozzle;
+    if (v.line < lo - 1e-6 || v.line > hi + 1e-6) {
+      const best = vaseLineFor(x.nozzle);
+      out.push({
+        rule: 'vase-line',
+        severity: 'warn',
+        part: 'Vase wall',
+        message:
+          v.line < lo
+            ? `The wall line is ${r2(v.line)} mm, narrower than the ${x.nz}: the one-line wall comes out thin and full of gaps.`
+            : `The wall line is ${r2(v.line)} mm, over twice the ${x.nz}: it can't lay a line that wide evenly.`,
+        fix: { label: `Use ${r2(best)} mm`, bin: own({ line: best }) },
+      });
     }
   }
   if (c.def.kind === 'box' && BOX.hinge.play < CHECK.snug * x.nozzle) {
