@@ -43,7 +43,10 @@ import { BASE_PROFILE_DEPTH, BASE_TOP, BOWTIE_CLEARANCE, GRID, LIP_SUPPORT_HEIGH
 import { LABEL_TEXT, capFor, fitText, labelLines, planTabLabels, plateTextBox, type Box, type LabelTextStyle } from './geometry/labels';
 import { labelPlainText } from './geometry/labelIcons';
 import { hasFont, textOutline } from './geometry/text';
-import { RAIL, SLIDE, TRAY, accessoryInfillTop, planAccessories, slideLidBox } from './geometry/accessories';
+import { RAIL, SLIDE, TRAY, accessoryInfillTop, planAccessories, planSlideLidQr, slideLidTextBox } from './geometry/accessories';
+import { binQrPlan, type BinQrPlan } from './geometry/binQr';
+import { QR } from './geometry/qrCode';
+import { QR_ECCS, QR_QUIET, qrByteLength, qrCapacity, type QrEcc } from './qr';
 import { planInserts } from './geometry/cups';
 import { CUP, compartmentWantsCup } from './geometry/insertOptions';
 import { compartmentInside, compartmentPocketOpts } from './geometry/compartments';
@@ -90,7 +93,11 @@ export type CheckRule =
   | 'ridge-trim'
   | 'joint-fit'
   | 'nozzle-walls'
-  | 'bambu-nozzle';
+  | 'bambu-nozzle'
+  | 'qr-fit'
+  | 'qr-module'
+  | 'qr-contrast'
+  | 'qr-swaps';
 
 /** A one-click change that fixes a check: options of the bin it is about, its drawer's baseplate, or the drawer. */
 export interface CheckFix {
@@ -142,6 +149,10 @@ export const CHECK = {
   /** Snug fits (slots, keys, tabs, hinges) want this share of the nozzle a side, sliding drawers `slide`. */
   snug: 0.3,
   slide: 0.6,
+  /** QR code modules want this many nozzle widths across, or they blur together and the code won't scan. */
+  qrLines: 2,
+  /** Layer height the layer count of a vertical two-colour code is worked out with. */
+  layer: 0.2,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -318,10 +329,8 @@ function labelChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
   if (lidText) {
     const { w: W, d: D } = binSize(o, cells);
     if (planAccessories(o, W, D).slide) {
-      // As slidingLid.ts lays it out: behind the grip ridges, inside the edge chamfer.
-      const b = slideLidBox(W, D);
-      const c = b.chamfer;
-      const box = { x0: b.x0 + c + 2, x1: b.x1 - c - 2, y0: b.y0 + 3 + (SLIDE.ridges - 1) * SLIDE.ridgePitch + 3, y1: b.y1 - c - 2 };
+      // As slidingLid.ts lays it out: behind the grip ridges, inside the edge chamfer, left of a QR code.
+      const box = slideLidTextBox(W, D, planSlideLidQr(o, W, D)?.spot);
       const cap = fittedCap(lidText, box, Math.min(LABEL_TEXT.maxCap, 0.6 * (box.y1 - box.y0)));
       out.push(...textChecks([{ text: lidText, cap, style: 'engraved' }], { part: 'Sliding lid', noun: 'label', on: ['on the sliding lid', 'on the sliding lid'] }, x));
     }
@@ -356,6 +365,128 @@ function labelChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
       p.label ? [{ text: p.label.text, cap: textOutline(p.label.text, { size: POCKET_LABEL_SIZE, maxWidth: p.label.w + 0.01 }).size, style: 'engraved' }] : [],
     );
     out.push(...textChecks(spots, { part: 'Size labels', noun: 'size', on: ['in front of its pocket', 'in front of their pockets'] }, x));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// QR codes
+// ---------------------------------------------------------------------------
+
+/** Most bytes (or characters, in the text's mode) a code on a square `room` mm across holds with modules `module` mm. */
+function qrMostFits(room: number, module: number, ecc: QrEcc, mode: NonNullable<BinQrPlan['fit']>['mode'] | undefined): number {
+  const v = Math.min(40, Math.floor((room / module - 2 * QR_QUIET - 17) / 4 + 1e-9));
+  return v >= 1 ? qrCapacity(v, ecc, mode ?? 'byte') : 0;
+}
+
+/**
+ * QR codes (binQr.ts): left off (nothing to say, too long, no room, no lid),
+ * modules under two lines of the nozzle (with the change that clears it, or
+ * what to do when none does: the text is too long for the surface), one-colour
+ * codes that only shadows make readable, and two-colour codes on the front
+ * wall that change filament on every layer.
+ */
+function qrChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
+  const plan = binQrPlan(o, cells);
+  if (!plan) return [];
+  const out: PrintCheck[] = [];
+  const part = 'QR code';
+  const min = CHECK.qrLines * x.nozzle;
+  const len = plan.fit ? plan.fit.length : qrByteLength(plan.text);
+  const what = plan.fit?.mode === 'byte' || !plan.fit ? `${len} byte${len === 1 ? '' : 's'}` : `${len} characters`;
+  const where = `the ${plan.where}`;
+  // A change of these options that gets modules of at least `min`.
+  const clears = (patch: Partial<BinOptions>) => {
+    const p = binQrPlan({ ...o, ...patch }, cells);
+    return !!p?.spot && p.spot.module >= min - 1e-6;
+  };
+  const lowerEcc = () => {
+    const i = QR_ECCS.indexOf(o.qrEcc);
+    for (let k = i - 1; k >= 0; k--) if (clears({ qrEcc: QR_ECCS[k] })) return QR_ECCS[k];
+    return null;
+  };
+  const elsewhere = (): { label: string; bin: Partial<BinOptions> } | null => {
+    if (o.qr !== 'plate' && clears({ qr: 'plate', qrSize: 0 })) return { label: 'Print it on a plate', bin: { qr: 'plate', qrSize: 0 } };
+    if (o.qr !== 'lid' && clears({ qr: 'lid', qrSize: 0 })) return { label: 'Put it on the lid', bin: { qr: 'lid', qrSize: 0 } };
+    return null;
+  };
+  const fixFor = (): CheckFix | undefined => {
+    const e = lowerEcc();
+    if (e) return { label: `Use error correction ${e}`, bin: { qrEcc: e } };
+    if (o.qrSize > 0 && clears({ qrSize: 0 })) return { label: o.qr === 'plate' ? 'Make the plate as large as reads well' : 'Make it as large as fits', bin: { qrSize: 0 } };
+    if (o.qr === 'plate' && plan.fit) {
+      const side = Math.ceil((plan.fit.size + 2 * QR_QUIET) * min);
+      if (side <= QR.maxPlate && clears({ qrSize: side })) return { label: `Make the plate ${x.fmt(side)}`, bin: { qrSize: side } };
+    }
+    return elsewhere() ?? undefined;
+  };
+  const advice = (room: number) => {
+    const most = qrMostFits(room, min, o.qrEcc, plan.fit?.mode);
+    return `${most ? `At most ${most} ${plan.fit?.mode === 'byte' || !plan.fit ? 'bytes' : 'characters'} fit ${where} at ${x.fmt(min)} modules (two lines of the ${x.nz}). ` : ''}Shorten the text, pick a bigger surface (a plate) or lower error correction, or print with a finer nozzle.`;
+  };
+
+  if (!plan.spot) {
+    if (plan.error === 'empty') {
+      out.push({
+        rule: 'qr-fit',
+        severity: 'info',
+        part,
+        message:
+          o.qrContent === 'custom'
+            ? 'The QR code has no text yet, so it’s left off.'
+            : 'The QR code has nothing to say yet: the bin has no label and nothing in What’s in it, so it’s left off.',
+      });
+      return out;
+    }
+    if (plan.error === 'no-surface') {
+      const fix: CheckFix = o.lip ? { label: 'Add a stacking lid', bin: { lid: true } } : { label: 'Print it on a plate', bin: { qr: 'plate' } };
+      out.push({ rule: 'qr-fit', severity: 'warn', part, message: 'The bin has no lid to put the QR code on, so it’s left off.', fix });
+      return out;
+    }
+    const fix = fixFor();
+    out.push({
+      rule: 'qr-fit',
+      severity: 'warn',
+      part,
+      message:
+        plan.error === 'no-room'
+          ? `${where[0].toUpperCase()}${where.slice(1)} has no room for a QR code (${x.fmt(Math.max(0, plan.room))} across; the smallest needs ${x.fmt((21 + 2 * QR_QUIET) * QR.minModule)}), so it’s left off.`
+          : `The QR code’s text (${what}) is too long for ${where}, so it’s left off: ${plan.fit ? `it needs ${plan.fit.size} × ${plan.fit.size} modules (version ${plan.fit.version}, error correction ${o.qrEcc})` : 'no QR code holds that much'} and ${where} has ${x.fmt(plan.room)}. ${advice(plan.room)}`,
+      ...(fix ? { fix } : {}),
+    });
+    return out;
+  }
+
+  const spot = plan.spot;
+  if (spot.module < min - 1e-6) {
+    const fix = fixFor();
+    const size = `${spot.modules} × ${spot.modules} modules (version ${spot.version}) of ${x.fmt(spot.module)}`;
+    out.push(
+      fix
+        ? { rule: 'qr-module', severity: 'warn', part, message: `The QR code comes out ${size}, under two lines of the ${x.nz}: they blur together and it may not scan.`, fix }
+        : { rule: 'qr-fit', severity: 'warn', part, message: `The QR code’s text (${what}) is too long for ${where}: it comes out ${size}, under two lines of the ${x.nz}, and won’t scan reliably. ${advice(plan.room)}` },
+    );
+  }
+  if (spot.style !== 'inlaid') {
+    const lidFallback = o.qrStyle === 'raised' && spot.style === 'engraved';
+    out.push({
+      rule: 'qr-contrast',
+      severity: 'info',
+      part,
+      message: `A one-colour QR code (${spot.style}${lidFallback ? ': raised codes are engraved on a stacking lid' : ''}) scans poorly: only shadows show its modules, so light it from the side. Inlaid in a second filament it reads at a glance.`,
+      fix: { label: 'Make it inlaid (2 colours)', bin: { qrStyle: 'inlaid' } },
+    });
+  }
+  if (spot.style === 'inlaid' && plan.surface === 'front') {
+    const layers = Math.round((spot.modules * spot.module) / CHECK.layer);
+    const move = elsewhere();
+    out.push({
+      rule: 'qr-swaps',
+      severity: 'info',
+      part,
+      message: `An inlaid QR code on the front wall changes filament on every layer it spans (about ${layers} layers), which is slow and purges a lot. On a plate or a lid only its top ${Math.round(QR.depth / CHECK.layer)} layers do.`,
+      ...(move ? { fix: move } : {}),
+    });
   }
   return out;
 }
@@ -529,7 +660,7 @@ function holeCheck(o: BinOptions): PrintCheck | null {
 }
 
 function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
-  const out: (PrintCheck | null)[] = [...labelChecks(o, cells, x), pocketWallCheck(o, cells, x)];
+  const out: (PrintCheck | null)[] = [...labelChecks(o, cells, x), ...qrChecks(o, cells, x), pocketWallCheck(o, cells, x)];
   if (o.patternWalls) {
     out.push(wallCheck('hex-struts', 'Hex pattern', 'The struts between hex holes are', o.patternWeb, x, (v) => ({ label: `Make them ${x.fmt(v)}`, bin: { patternWeb: v } })));
     if (o.patternSize / 2 > CHECK.hexReach) {
