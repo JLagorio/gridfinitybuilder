@@ -15,6 +15,7 @@ import { dividerLines } from './dividerLines';
 import { LevelSwitcher, StackBadge, useStackLevels } from './StackLevels';
 import { isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
 import { LayoutTouchBar } from './LayoutTouchBar';
+import { useGridLayers } from './gridLayers';
 
 interface Props {
   layout: GridLayout;
@@ -88,6 +89,8 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
   const occ = useMemo(() => occupancy(bins, nx, ny), [bins, nx, ny]);
   // Placement checks treat blocked cells (layout.mask) as taken.
   const blocked = useMemo(() => withBlocked(bins, layout.mask), [bins, layout.mask]);
+  // Drawn by parts that load later (gridLayers.ts): My bins' drop preview.
+  const layers = useGridLayers();
   const hatch = `ge-hatch-${useId().replace(/[^\w-]/g, '')}`;
   const pad = 8;
   // Bins are at most 12 u: 24 cells on a half grid.
@@ -388,6 +391,9 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
             </g>
           );
         })}
+        {layers.map((L, i) => (
+          <L key={i} svg={svg} layout={layout} taken={blocked} />
+        ))}
         {marquee && (
           <rect
             className="ge-marquee"

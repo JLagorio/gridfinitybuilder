@@ -218,7 +218,20 @@ export const BIN_INDEX: FindEntry[] = [
     id: 'actions',
     title: 'This bin',
     when: 'when a bin is selected',
-    words: ['duplicate', 'copy', 'delete', 'remove', 'use for new bins', 'download', 'export', '3mf', 'stl', 'step', 'cad', 'lid'],
+    words: ['duplicate', 'copy', 'delete', 'remove', 'use for new bins', 'save to my bins', 'download', 'export', '3mf', 'stl', 'step', 'cad', 'lid'],
+  },
+  // MyBinsSection.tsx: whole bins kept in the browser, for every project.
+  {
+    id: 'my-bins',
+    title: 'My bins',
+    words: ['library', 'my bins', 'saved bins', 'save bin', 'favourite', 'favorite', 'reuse', 'every project', 'whole bin', 'place', 'drag', 'collection', 'keep'],
+    children: [
+      {
+        id: 'my-bins-transfer',
+        title: 'Export and import My bins',
+        words: ['export', 'import', 'json', 'file', 'backup', 'another computer', 'other device', 'browser', 'move', 'transfer', 'share'],
+      },
+    ],
   },
   // TemplatesSection.tsx
   { id: 'templates', title: 'Templates', basic: false, words: ['template', 'save', 'reuse', 'apply', 'preset', 'saved settings', 'favourite', 'favorite'] },
