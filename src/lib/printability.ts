@@ -39,7 +39,7 @@ import {
   type BinOptions,
 } from './geometry/bin';
 import { binBodyHeight } from './geometry/variants';
-import { BASE_PROFILE_DEPTH, BASE_TOP, BOWTIE_CLEARANCE, GRID, LIP_SUPPORT_HEIGHT, PUZZLE, TAB_WIDTH_NOMINAL, WALL } from './geometry/spec';
+import { BASE_PROFILE_DEPTH, BASE_TOP, BOWTIE_CLEARANCE, GRID, LIP_SUPPORT_HEIGHT, PUZZLE, WALL } from './geometry/spec';
 import { LABEL_TEXT, capFor, fitText, labelLines, planTabLabels, plateTextBox, type Box, type LabelTextStyle } from './geometry/labels';
 import { labelPlainText } from './geometry/labelIcons';
 import { hasFont, textOutline } from './geometry/text';
@@ -403,52 +403,47 @@ function fixedPartsCheck(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck | n
   return { rule: 'thin-parts', severity: 'info', part: 'Thin parts', message: `With a ${x.nz} these print as one line and come out weak: ${list}.` };
 }
 
-/** Label tabs whose back is a removable divider: the divider prints separately, so nothing is behind the tab. */
-function floatingTabCheck(o: BinOptions, cells: BinCells): PrintCheck | null {
+/**
+ * Label tabs whose back is a removable divider: the divider prints separately,
+ * so nothing is behind the tab. The geometry runs such a tab side wall to side
+ * wall as a bridge, or leaves it off when a side isn't a plain fixed wall
+ * (compartments.ts tabShape).
+ */
+function floatingTabCheck(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck | null {
   if (!o.layout?.walls.some((w) => w.removable) || o.interior !== 'compartments') return null;
   const r = binLayout(o, cells);
-  const { w: W } = binSize(o, cells);
-  const ix0 = -W / 2 + WALL;
   const walls = new Set<string>();
-  let floating = false;
-  let span = 0;
-  for (const tab of binLabelTabs(o, cells)) {
-    const c = r.compartments.find((k) => k.key === tab.key);
-    if (!c) continue;
+  const keys = new Set<string>();
+  for (const c of r.compartments) {
     const rc = c.isRect ? c.rects[0] : c.rects.filter((k) => k.open.back).sort((a, b) => b.x1 - b.x0 - (a.x1 - a.x0))[0];
     if (!rc || rc.y1 >= r.innerD - 1e-6) continue;
-    const t0 = tab.x0 - ix0;
-    const t1 = tab.x1 - ix0;
-    const behind = r.walls.filter((w) => w.orient === 'h' && w.removable && Math.abs(w.pos - DIVIDER_T / 2 - rc.y1) < 1e-3 && w.start < t1 && w.end > t0);
+    const behind = r.walls.filter((w) => w.orient === 'h' && w.removable && Math.abs(w.pos - DIVIDER_T / 2 - rc.y1) < 1e-3 && w.start < rc.x1 && w.end > rc.x0);
     if (!behind.length) continue;
     behind.forEach((w) => walls.add(w.id));
-    // A tab that runs wall to wall (full, or any tab in a compartment no wider than one) is held at its ends,
-    // unless an end is a removable divider too; any other tab floats.
-    const cw = rc.x1 - rc.x0;
-    const spans = (o.layout.comps?.[tab.key]?.label ?? o.label) === 'full' || cw <= TAB_WIDTH_NOMINAL + 1e-6;
-    const ends = r.walls.filter(
-      (w) =>
-        w.orient === 'v' &&
-        w.removable &&
-        w.start < rc.y1 &&
-        w.end > rc.y0 &&
-        (Math.abs(w.pos + DIVIDER_T / 2 - rc.x0) < 1e-3 || Math.abs(w.pos - DIVIDER_T / 2 - rc.x1) < 1e-3),
-    );
-    if (!spans || ends.length) floating = true;
-    else span = Math.max(span, cw);
+    keys.add(c.key);
   }
   if (!walls.size) return null;
   let layout = o.layout;
   for (const id of walls) layout = setWallProps(layout, id, { removable: false });
   const fix = { label: walls.size > 1 ? 'Make those dividers fixed' : 'Make the divider fixed', bin: { layout } };
-  if (floating) {
-    return { rule: 'tab-floating', severity: 'warn', part: 'Label tab', message: 'A label tab sits against a removable divider, which prints on its own, so the tab prints in mid-air.', fix };
+  const tabs = binLabelTabs(o, cells).filter((t) => keys.has(t.key));
+  const lost = binLabelTabs({ ...o, layout }, cells).filter((t) => keys.has(t.key) && !tabs.some((k) => k.key === t.key)).length;
+  if (lost) {
+    return {
+      rule: 'tab-floating',
+      severity: 'warn',
+      part: 'Label tab',
+      message: `${lost > 1 ? `${lost} label tabs` : 'A label tab'} against a removable divider ${lost > 1 ? 'are' : 'is'} left off: a side wall is removable or lowered too, so nothing would hold ${lost > 1 ? 'them' : 'it'} while printing.`,
+      fix,
+    };
   }
+  const span = Math.max(0, ...tabs.map((t) => t.x1 - t.x0));
+  if (span <= CHECK.bridge) return null;
   return {
     rule: 'tab-floating',
     severity: 'info',
     part: 'Label tab',
-    message: `A label tab against a removable divider has nothing behind it while it prints: it bridges ${Math.round(span)} mm and may sag.`,
+    message: `A label tab against a removable divider has nothing behind it while it prints: it bridges ${x.fmt(span)} wall to wall and may sag.`,
     fix,
   };
 }
@@ -551,7 +546,7 @@ function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
   if (planInserts(o, cells).crates.length) {
     out.push(wallCheck('crate-walls', 'Grid inserts', 'The grid insert walls are', o.crateWall, x, (v) => ({ label: `Make them ${x.fmt(v)}`, bin: { crateWall: v } })));
   }
-  out.push(fixedPartsCheck(o, cells, x), floatingTabCheck(o, cells), fingerCheck(o, cells, x));
+  out.push(fixedPartsCheck(o, cells, x), floatingTabCheck(o, cells, x), fingerCheck(o, cells, x));
   const { w: W, d: D } = binSize(o, cells);
   const acc = planAccessories(o, W, D);
   if ((acc.rails || removableInserts(o, cells).length) && SLOT_CLEARANCE < CHECK.snug * x.nozzle) {

@@ -236,16 +236,23 @@ describe('overhangs, holes and tipping', () => {
   });
 
   it('a label tab against a removable divider', () => {
-    const floating = bin({ unitsX: 2, unitsY: 2, heightUnits: 6, label: 'center', layout: removableSplit() });
-    const c = expectFixed(floating, 'tab-floating');
-    expect(c.severity).toBe('warn');
-    // Wall to wall it is held at its ends: a long bridge, not a failure.
-    expect(find(binChecks({ ...floating, label: 'full' }), 'tab-floating')?.severity).toBe('info');
-    expect(find(binChecks({ ...floating, unitsX: 1, label: 'center' }), 'tab-floating')?.severity).toBe('info');
-    expect(binChecks({ ...floating, layout: uniformLayout(1, 2) })).toEqual([]);
+    // Nothing behind it: the tab bridges side wall to side wall, which sags across a 2-unit compartment.
+    const bridging = bin({ unitsX: 2, unitsY: 2, heightUnits: 6, label: 'center', layout: removableSplit() });
+    const c = expectFixed(bridging, 'tab-floating');
+    expect(c.severity).toBe('info');
+    expect(find(binChecks({ ...bridging, label: 'full' }), 'tab-floating')?.severity).toBe('info');
+    // A short bridge is fine.
+    expect(rules(binChecks({ ...bridging, unitsX: 1 }))).not.toContain('tab-floating');
+    expect(binChecks({ ...bridging, layout: uniformLayout(1, 2) })).toEqual([]);
+    // With a removable side wall too there is nothing to hold it, so the geometry leaves it off.
+    let both = setWallProps(uniformLayout(2, 2), 'y1', { removable: true });
+    both = setWallProps(both, 'x1', { removable: true });
+    const lost = expectFixed(bin({ unitsX: 2, unitsY: 2, heightUnits: 6, label: 'center', layout: both }), 'tab-floating');
+    expect(lost.severity).toBe('warn');
+    expect(lost.message).toMatch(/2 label tabs .* are left off/);
   });
 
-  it('…which really is a separate island in the mesh (if the geometry stops doing that, drop the rule)', () => {
+  it('…which is one piece in the mesh either way (no tab floats)', () => {
     const islands = (o: BinOptions) => {
       const m = buildBin(w, o);
       const solid = w.Manifold.ofMesh(new w.Mesh({ numProp: 3, vertProperties: m.positions, triVerts: m.indices }));
@@ -256,7 +263,7 @@ describe('overhangs, holes and tipping', () => {
       return n;
     };
     const o = bin({ unitsX: 2, unitsY: 2, heightUnits: 6, label: 'center', layout: removableSplit() });
-    expect(islands(o)).toBe(2);
+    expect(islands(o)).toBe(1);
     expect(islands({ ...o, label: 'full' })).toBe(1);
   });
 
