@@ -8,3 +8,8 @@ import './kinds/hook';
 import './kinds/bin';
 import './kinds/cup';
 import './kinds/fitTest';
+import './kinds/shelf';
+import './kinds/rod';
+import './kinds/toolRack';
+import './kinds/cradle';
+import './kinds/plate';
