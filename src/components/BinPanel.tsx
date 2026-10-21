@@ -28,6 +28,7 @@ import { findPrinter } from '../lib/printers';
 import { sanitizeBin } from '../lib/geometry/bin';
 import { BinChecksNotice } from './PrintChecks';
 import { StackSection } from './StackSection';
+import { FillFromListButton } from './FillFromList';
 
 function BinFields({
   opts,
@@ -465,6 +466,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <button onClick={() => fillEmpty()} disabled={!nx || !ny}>
             Fill empty with 1×1
           </button>
+          <FillFromListButton layout={job.layout} />
           <button className="danger" onClick={() => confirm('Remove all bins?') && clearBins()} disabled={!bins.length}>
             Clear all
           </button>
