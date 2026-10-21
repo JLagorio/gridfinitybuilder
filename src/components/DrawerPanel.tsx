@@ -4,11 +4,12 @@ import { LengthInput, NumberInput, Section, Segmented, Select, Stepper, TextInpu
 import { baseplateFloor, baseplateHeight, binSeatHeight, screwPlacement, type BaseplateStyle } from '../lib/geometry/baseplate';
 import { PIN, SCREW_JOIN, WEIGHTED } from '../lib/geometry/spec';
 import { CellMaskEditor } from './CellMaskEditor';
-import { effectiveSize, type EdgeFill } from '../lib/layout/drawer';
+import { effectiveSize, spacerMargins, type EdgeFill } from '../lib/layout/drawer';
 import { unitsAcross } from '../lib/layout/halfgrid';
 import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
 import { DrawerMapButton } from './DrawerMap';
+import { EnclosureSection } from './EnclosureFields';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
@@ -104,6 +105,8 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   const m = L.margins;
   const usedW = effectiveSize(drawer.width, drawer.widthSamples);
   const usedD = effectiveSize(drawer.depth, drawer.depthSamples);
+  // Spacer-strip drawers: the plate is just the grid; the margins print as strips.
+  const strips = spacerMargins(drawer);
   const partialX = L.xs.slice(1).map((v, i) => v - L.xs[i]).filter((v) => Math.abs(v - L.pitchX) > 1e-6);
   const partialY = L.ys.slice(1).map((v, i) => v - L.ys[i]).filter((v) => Math.abs(v - L.pitchY) > 1e-6);
   const room = drawer.height > 0 ? drawer.height - binSeatHeight(bp) : 0;
@@ -247,10 +250,14 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
                 // On a half grid every cell is a half cell already.
                 ...(half ? [] : [{ value: 'half' as const, label: 'Half cells', title: 'Add a row of 21 mm half cells where the gap allows' }]),
                 { value: 'fit', label: 'Partial cells', title: 'Turn each gap into a row of narrower cells, so bins can use the space' },
+                // A case or wall grid has no drawer walls to wedge strips against.
+                ...(drawer.enclosure ? [] : [{ value: 'spacers' as const, label: 'Spacer strips', title: 'The baseplate is just the grid; the gaps print as separate strips' }]),
               ]}
               onChange={(fill) => setDrawer({ fill })}
               hint={
-                fill === 'solid'
+                fill === 'spacers'
+                  ? 'The baseplate is just the grid, and each gap prints as a strip that wedges in beside it (settings below).'
+                  : fill === 'solid'
                   ? 'Partial cells use the gap for bins with narrower feet, or stretch a bin over it (Bins tab). Push the grid to one side to get one wide row instead of two thin ones.'
                   : partialX.length + partialY.length
                     ? `Partial cells: ${[...new Set([...partialX, ...partialY].map((v) => fmt(v)))].join(', ')}. Bins drawn on them get matching feet.`
@@ -298,9 +305,9 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             </dd>
             {drawer.mode === 'drawer' && (
               <>
-                <dt>Solid margin</dt>
+                <dt>{strips ? 'Spacer strips' : 'Solid margin'}</dt>
                 <dd>
-                  L {fmt(m.left)} · R {fmt(m.right)} · F {fmt(m.front)} · B {fmt(m.back)}
+                  L {fmt((strips ?? m).left)} · R {fmt((strips ?? m).right)} · F {fmt((strips ?? m).front)} · B {fmt((strips ?? m).back)}
                 </dd>
               </>
             )}
@@ -322,6 +329,8 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
           />
         )}
       </Section>
+
+      <EnclosureSection job={job} />
 
       <Section title="Blocked cells">
         <CellMaskEditor layout={L} mask={drawer.mask ?? []} onChange={(mask) => setDrawer({ mask })} />

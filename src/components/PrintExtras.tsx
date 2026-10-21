@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useStore } from '../state/store';
-import { billOfMaterials, bomCsv, bomText, filamentNote, type PlateBom } from '../lib/bom';
+import { billOfMaterials, bomCsv, bomText, enclosureCounts, enclosurePartsText, filamentNote, type PlateBom } from '../lib/bom';
 import { planTestFit } from '../lib/testfit';
 import { binLabel, sanitizeBin } from '../lib/geometry/bin';
 import { findPrinter } from '../lib/printers';
@@ -84,7 +84,8 @@ export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
         {lids > 0 && ` · ${lids} lid${lids === 1 ? '' : 's'}`}
         {trays > 0 && ` · ${trays} tray${trays === 1 ? '' : 's'}`}
         {dividers > 0 && ` · ${dividers} divider plate${dividers === 1 ? '' : 's'}`}
-        {keys > 0 && ` · ${keys} connector key${keys === 1 ? '' : 's'}`} · {job.plates.length} plate{job.plates.length === 1 ? '' : 's'}
+        {keys > 0 && ` · ${keys} connector key${keys === 1 ? '' : 's'}`}
+        {enclosureCounts(bom).map(([k, n]) => ` · ${enclosurePartsText(k, n)}`)} · {job.plates.length} plate{job.plates.length === 1 ? '' : 's'}
       </p>
       {job.plates.length > 0 && (
         <table className="bom-table">

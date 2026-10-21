@@ -1,7 +1,21 @@
 import { GRID } from '../geometry/spec';
+import type { CaseOptions } from '../geometry/case';
+import type { WallOptions } from '../geometry/wallmount';
+import type { SpacerOptions } from '../geometry/spacers';
 
-/** What fills the space left over between the grid and the drawer walls. */
-export type EdgeFill = 'solid' | 'half' | 'fit';
+/**
+ * What fills the space left over between the grid and the drawer walls.
+ * 'spacers': the baseplate is just the grid and the margins print as separate
+ * spacer strips (geometry/spacers.ts).
+ */
+export type EdgeFill = 'solid' | 'half' | 'fit' | 'spacers';
+
+/**
+ * What the grid goes in: a drawer (missing), a printed carry 'case' whose floor
+ * is the baseplate (geometry/case.ts), or a 'wall' grid screwed to a wall
+ * (geometry/wallmount.ts).
+ */
+export type Enclosure = 'case' | 'wall';
 
 export interface DrawerInput {
   /** 'drawer': fit a grid into a drawer size; 'grid': give the grid size in units. */
@@ -45,6 +59,14 @@ export interface DrawerInput {
    * `gridY` stay in full units (half steps allowed). Missing = off.
    */
   halfGrid?: boolean;
+  /** Carry case or wall grid (see Enclosure). Missing = a plain drawer. */
+  enclosure?: Enclosure;
+  /** Carry-case settings, kept while another enclosure is picked. Missing = defaults. */
+  carryCase?: Partial<CaseOptions>;
+  /** Wall-grid settings. Missing = defaults. */
+  wallMount?: Partial<WallOptions>;
+  /** Spacer-strip settings (fill 'spacers'). Missing = defaults. */
+  spacers?: Partial<SpacerOptions>;
 }
 
 export type MaskStyle = 'solid' | 'void';
@@ -166,16 +188,23 @@ function computeGrid(d: DrawerInput): GridLayout {
       margins: { left: 0, right: 0, front: 0, back: 0 },
     };
   }
-  const plateW = Math.max(0, effectiveSize(d.width, d.widthSamples) - d.clearance);
-  const plateD = Math.max(0, effectiveSize(d.depth, d.depthSamples) - d.clearance);
-  const fx = Math.max(0, Math.floor(plateW / pitchX + EPS));
-  const fy = Math.max(0, Math.floor(plateD / pitchY + EPS));
-  const mx = clean(plateW - fx * pitchX);
-  const my = clean(plateD - fy * pitchY);
-  const left0 = clean(mx * clamp01(d.alignX));
-  const front0 = clean(my * clamp01(d.alignY));
-  const right0 = clean(mx - left0);
-  const back0 = clean(my - front0);
+  const { plateW, plateD, fx, fy, left0, right0, front0, back0 } = drawerFit(d, pitchX, pitchY);
+  if (d.fill === 'spacers') {
+    // Just the grid: the margins print as spacer strips (spacerMargins).
+    return {
+      plateW: clean(fx * pitchX),
+      plateD: clean(fy * pitchY),
+      nx: fx,
+      ny: fy,
+      pitchX,
+      pitchY,
+      originX: 0,
+      originY: 0,
+      xs: axisBounds(0, fx, pitchX, 0, 0),
+      ys: axisBounds(0, fy, pitchY, 0, 0),
+      margins: { left: 0, right: 0, front: 0, back: 0 },
+    };
+  }
   const fl = fillCell(left0, d, pitchX);
   const fr = fillCell(right0, d, pitchX);
   const ff = fillCell(front0, d, pitchY);
@@ -195,6 +224,31 @@ function computeGrid(d: DrawerInput): GridLayout {
     ys,
     margins: { left: clean(left0 - fl), right: clean(right0 - fr), front: clean(front0 - ff), back: clean(back0 - fb) },
   };
+}
+
+/** Whole cells that fit the drawer, and the margin left on each side (before any edge fill). */
+function drawerFit(d: DrawerInput, pitchX: number, pitchY: number) {
+  const plateW = Math.max(0, effectiveSize(d.width, d.widthSamples) - d.clearance);
+  const plateD = Math.max(0, effectiveSize(d.depth, d.depthSamples) - d.clearance);
+  const fx = Math.max(0, Math.floor(plateW / pitchX + EPS));
+  const fy = Math.max(0, Math.floor(plateD / pitchY + EPS));
+  const mx = clean(plateW - fx * pitchX);
+  const my = clean(plateD - fy * pitchY);
+  const left0 = clean(mx * clamp01(d.alignX));
+  const front0 = clean(my * clamp01(d.alignY));
+  return { plateW, plateD, fx, fy, left0, front0, right0: clean(mx - left0), back0: clean(my - front0) };
+}
+
+/**
+ * The margins a 'spacers' drawer leaves around its grid, which the spacer
+ * strips fill: the drawer's inside size less the fit clearance, less the grid.
+ * Null for any other drawer (and for a carry case or wall grid, which have none).
+ */
+export function spacerMargins(d: DrawerInput): { left: number; right: number; front: number; back: number } | null {
+  if (d.mode !== 'drawer' || d.fill !== 'spacers' || d.enclosure) return null;
+  const per = cellsPerUnit(d);
+  const f = drawerFit(d, (d.pitchX > 0 ? d.pitchX : GRID) / per, (d.pitchY > 0 ? d.pitchY : GRID) / per);
+  return { left: f.left0, right: f.right0, front: f.front0, back: f.back0 };
 }
 
 /** Position of cell boundary k, extrapolating a full pitch per cell outside the grid. */

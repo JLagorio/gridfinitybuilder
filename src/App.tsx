@@ -24,6 +24,7 @@ import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LABEL_PLATE_COLOR, LID_COLOR, pi
 import { binBodyHeight } from './lib/geometry/variants';
 import { LID_SEAT_DROP } from './lib/geometry/lid';
 import { assembledParts } from './lib/geometry/accessories';
+import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
 import './components/workflow.css';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -39,24 +40,33 @@ interface Scene {
   fitKey: string;
 }
 
-function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: ReturnType<typeof useStore.getState>): Scene {
+function drawerScene(
+  job: PrintJob,
+  explode: boolean,
+  withBins: boolean,
+  state: ReturnType<typeof useStore.getState>,
+  lidView: LidView = 'open',
+): Scene {
   const gap = explode ? 14 : 0;
+  // A carry case, wall grid or spacer strips (enclosures.ts): pieces start where their meshes do, plus the extra parts.
+  const enc = job.drawers[0]?.enclosure;
   const items: SceneItem[] = job.plan.pieces.map((p) => {
     const part = job.parts[`piece:${p.id}`];
+    const at = enc?.pieceAt[p.id] ?? [p.x0, p.y0, 0];
     return {
       id: part.key,
       meshKey: part.meshKey,
-      x: p.x0 + p.col * gap,
-      y: p.y0 + p.row * gap,
-      z: 0,
+      x: at[0] + p.col * gap,
+      y: at[1] + p.row * gap,
+      z: at[2],
       w: part.w,
       d: part.d,
       h: part.h,
       color: withBins ? BASEPLATE_COLOR : pieceColor(p.id),
     };
   });
-  if (withBins) {
-    const seat = binSeatHeight(state.baseplate);
+  if (withBins || enc?.showBins) {
+    const seat = enc?.seat ?? binSeatHeight(state.baseplate);
     // Container parts that sit in their container (drawers in a drawer unit, …), by bin.
     const placedParts = new Map<string, JobPart[]>();
     for (const p of Object.values(job.parts)) if (p.bin && p.assembled) placedParts.set(p.bin, [...(placedParts.get(p.bin) ?? []), p]);
@@ -145,10 +155,11 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
       }
     }
   }
+  if (enc) items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap));
   return {
-    items,
-    outline: state.drawer.mode === 'drawer' ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
-    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}`,
+    items: shiftItems(items, enc?.shift),
+    outline: state.drawer.mode === 'drawer' && enc?.outline !== false ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
+    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}-${withBins ? 'off' : lidView}` : ''}`,
   };
 }
 
@@ -205,11 +216,13 @@ export default function App() {
     [job, state.drawers, state.activeDrawerId, state.printScope, state.printPick, state.setup, state.include],
   );
 
+  // Carry case: lid closed, open or off in the drawer view.
+  const [lidView, setLidView] = useState<LidView>('open');
   const scene = useMemo<Scene>(() => {
     if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup.bedW, state.setup.bedD);
-    return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state);
+    return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup.bedW, state.setup.bedD]);
+  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup.bedW, state.setup.bedD, lidView]);
 
   // Ask the worker for exactly the meshes on screen (selected bin first).
   useEffect(() => {
@@ -280,6 +293,12 @@ export default function App() {
             <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
               Spread pieces
             </button>
+            {viewJob.drawers[0]?.enclosure?.kind === 'case' &&
+              (['closed', 'open', 'off'] as const).map((v) => (
+                <button key={v} className={lidView === v ? 'active' : ''} onClick={() => setLidView(v)}>
+                  {v === 'closed' ? 'Lid closed' : v === 'open' ? 'Lid open' : 'No lid'}
+                </button>
+              ))}
           </div>
         )}
       </Viewer>
