@@ -758,7 +758,8 @@ export interface FoundCheck extends PrintCheck {
 /** Every check for what is being printed: the setup, then each drawer's baseplate and bins. */
 export function projectChecks(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include'], o?: CheckOptions): FoundCheck[] {
   const opts = { ...o, nozzle: o?.nozzle ?? nozzleOf(setup) };
-  const out: FoundCheck[] = [...setupChecks(setup, { bins: include.bins && drawers.some((d) => d.bins.length) }, opts)];
+  // Gridfit's own bins: bins from elsewhere (external.ts) aren't its walls.
+  const out: FoundCheck[] = [...setupChecks(setup, { bins: include.bins && drawers.some((d) => d.bins.some((b) => !b.external)) }, opts)];
   for (const d of drawers) {
     if (include.baseplate) out.push(...drawerChecks(d.drawer, d.baseplate, opts).map((c) => ({ ...c, drawerId: d.id })));
     if (!include.bins) continue;

@@ -25,6 +25,7 @@ import { allDrawers, history, projectFile, useStore } from '../src/state/store';
 import { addExternal, externalBin, setExternal, turnMesh } from '../src/state/externalBins';
 import { copySelection, pasteClipboard, selectBins } from '../src/state/selection';
 import { stackBin } from '../src/state/stacks';
+import { applyPresetToBins, applyTemplateToBins, saveTemplate } from '../src/state/templates';
 
 let w: Wasm;
 /** A Gridfit 2×1×3u bin, exported as STL and imported again. */
@@ -241,6 +242,16 @@ describe('in the store', () => {
     expect(binTotalHeight(s().bins.find((b) => b.id === m.id)!.opts)).toBeCloseTo(imported.size[2], 2);
     setExternal(m.id, { print: true });
     expect(s().bins.find((b) => b.id === m.id)!.external?.print).toBe(true);
+  });
+
+  it('templates, presets and copied layouts leave them alone', () => {
+    const { id } = addExternal({ name: 'Box', unitsX: 2, unitsY: 2, heightUnits: 4 }) as { id: string };
+    const before = s().bins[0].opts;
+    const t = saveTemplate('Deep', { ...DEFAULT_BIN, heightUnits: 9, divX: 3, holes: 'magnets' });
+    applyTemplateToBins(t, [id]);
+    applyPresetToBins('deep', [id]);
+    s().copyLayout({ layout: null, divX: 4, divY: 2 }, [{ drawerId: s().activeDrawerId, binId: id }]);
+    expect(s().bins[0].opts).toBe(before);
   });
 
   it('copies, pastes and turns them like any bin', () => {

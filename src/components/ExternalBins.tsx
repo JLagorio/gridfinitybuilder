@@ -28,8 +28,8 @@ export function ExternalBinHeaderButton() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className="ext-add small" onClick={() => setOpen(true)} onPointerEnter={() => void loadDialog()} title="Add a bin you already have, or import an STL / 3MF bin">
-        + Bin from elsewhere
+      <button className="ext-add small" onClick={() => setOpen(true)} onPointerEnter={() => void loadDialog()} title="Add a bin you already have, or import an STL / 3MF / OBJ bin">
+        + Existing bin
       </button>
       {open && <ExternalBinDialogPortal mode="placeholder" onClose={() => setOpen(false)} />}
     </>

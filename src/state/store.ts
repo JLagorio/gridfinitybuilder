@@ -618,7 +618,8 @@ export const useStore = create<Store>()(
           if (!ids) return doc.bins;
           const grid = computeLayout(doc.drawer);
           return doc.bins.map((b) => {
-            if (!ids.has(b.id)) return b;
+            // Bins from elsewhere (lib/external.ts) have no walls of Gridfit's.
+            if (!ids.has(b.id) || b.external) return b;
             let patch: Partial<BinOptions> = { divX: src.divX, divY: src.divY, layout: null };
             if (src.layout) {
               const fit = fitLayout(src.layout, binInnerSize(b.opts, binCellsAt(grid, b)));

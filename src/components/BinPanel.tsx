@@ -33,6 +33,7 @@ import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { BIN_INDEX } from './panelIndex';
 import { ExternalBinButtons, ExternalBinPanel } from './ExternalBinPanel';
+import { externalKind, externalSize } from '../lib/external';
 
 type FieldProps = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -311,7 +312,8 @@ export function BinPanel({ job }: { job: PrintJob }) {
 
   const counts = new Map<string, number>();
   for (const b of bins) {
-    const label = binLabel(b.opts, binCellsAt(job.layout, b));
+    // Bins from elsewhere by name (lib/external.ts).
+    const label = b.external ? `${b.external.name || externalSize(b, half)} (${externalKind(b)})` : binLabel(b.opts, binCellsAt(job.layout, b));
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
 
