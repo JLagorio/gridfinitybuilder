@@ -210,7 +210,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
      - Downloads as CSV or text.
    - **Drawer map & contents:** a printable top view of a drawer (or all of them) with each bin's label and contents, fit to a page or at actual size across several pages, or as an SVG; stacked bins get a map per level. Also a contents list of every bin, and a CSV of it.
 
-Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl+Y). Press **?** for all keyboard shortcuts.
+Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl+Y). Press **?** for all keyboard shortcuts. Drop-down lists work from the keyboard too: arrows and Page Up / Down move, typing jumps to an option, Enter picks, Esc closes. The long ones (a pocket grid's *Holds*, the printer *Model*) filter as you type, by name or group, ignoring spaces and punctuation (`cr2032`, `m3`, `k1`).
 
 ### Phone, tablet and offline
 
@@ -219,6 +219,7 @@ Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl
   - Tap to add a compartment wall, then drag it into place.
   - Drag tools in the bin, and the trace dialog's paper corners.
   - Double-tap where a mouse double-clicks (finger notches).
+  - Drop-down lists have finger-sized rows and open above the field when there's no room below. The arrow beside *Holds* or *Model* shows the whole list without bringing up the keyboard.
 - **No keyboard:** buttons stand in for the keys.
   - The drawer layout has **Select several** (Shift), **Duplicate** and **Delete**.
   - The compartment editor has **Flip** (Shift) and **No snap** (Alt).
@@ -302,7 +303,8 @@ src/lib/templates.ts     bin templates and the built-in presets ("Start from")
 src/lib/stacking.ts bins stacked on bins: columns, rules, heights
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates and presets, the panels' Basic / All view
 src/worker/         geometry Web Worker (a tiny entry, meshes.ts, writers.ts on first export) + client with a mesh queue/cache
-src/components/     React UI (three.js viewer, 2D bin layout editor, panels; touch.tsx: touch helpers; lazy.tsx: code splitting)
+src/components/     React UI (three.js viewer, 2D bin layout editor, panels; touch.tsx: touch helpers; lazy.tsx: code splitting;
+                    select.tsx, combobox.tsx: the drop-down lists, with lib/pickList.ts)
 src/pwa/            offline use: the service worker and its registration; chunks.ts: files that fail to load
 scripts/            CLI sample generator, Bambu settings baker, pwa.ts (writes dist/sw.js with every built file),
                     preload.ts (preloads the saved tab's code-split panel)
