@@ -67,19 +67,27 @@ export const layerFor = (el: Element | null) => (el?.closest('[aria-modal="true"
 
 /**
  * The open list's placement and dismissal: placed against `anchor` on open and
- * on every render (filtering changes its height), again on scroll and resize;
- * closed by a press outside `anchor` and the list, or when the field goes out of sight.
+ * on every render (filtering changes its height), and again whenever the field
+ * moves (a panel scrolls, something above it grows) or the screen changes;
+ * closed by a press outside `anchor` and the list, or when the field goes out
+ * of sight (scrolled away, or hidden by a search or the Basic view).
  */
 export function usePopup(open: boolean, id: string, anchor: RefObject<HTMLElement | null>, pop: RefObject<HTMLElement | null>, close: () => void) {
   const side = useRef<'below' | 'above'>('below');
   const was = useRef(false);
   const closeRef = useRef(close);
   closeRef.current = close;
-  const place = useRef((rethink: boolean) => {
+  /** `rethink`: choose the side again (on opening, and when the screen changes). */
+  const place = useRef((rethink: boolean, opening = false) => {
     const a = anchor.current;
     const p = pop.current;
     if (!a || !p) return;
-    const r = a.getBoundingClientRect();
+    let r = a.getBoundingClientRect();
+    // Opened from the keyboard while scrolled away: bring the field into view first.
+    if (opening && !inSight(a, r)) {
+      a.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      r = a.getBoundingClientRect();
+    }
     if (!inSight(a, r)) {
       closeRef.current();
       return;
@@ -101,41 +109,50 @@ export function usePopup(open: boolean, id: string, anchor: RefObject<HTMLElemen
   }).current;
 
   useLayoutEffect(() => {
-    if (open) place(!was.current);
+    if (open) place(!was.current, !was.current);
     was.current = open;
   });
 
   useEffect(() => {
     if (!open) return;
-    const scrolled = (e: Event) => {
-      // The list's own scrolling (and the text box's) moves nothing.
-      if (e.target instanceof Node && (pop.current?.contains(e.target) || anchor.current?.contains(e.target))) return;
-      place(false);
+    // Where the field is, checked every frame while open: scrolling anything, or a layout shift, moves it.
+    let at = '';
+    let frame = 0;
+    const watch = () => {
+      const r = anchor.current?.getBoundingClientRect();
+      const now = r ? `${r.top} ${r.left} ${r.width} ${r.height}` : '';
+      if (at && now !== at) place(false);
+      at = now;
+      frame = requestAnimationFrame(watch);
     };
+    frame = requestAnimationFrame(watch);
+    // Scrolling moves it at once, without waiting for the frame; the list's own scrolling doesn't.
+    const scrolled = (e: Event) => !(e.target instanceof Node && pop.current?.contains(e.target)) && place(false);
     const resized = () => place(true);
     const pressed = (e: PointerEvent) => {
       const t = e.target as Node;
       if (pop.current?.contains(t) || anchor.current?.contains(t)) return;
-      // The field's own label opens it again with its click.
-      if (t instanceof Element && (t.closest('label') as HTMLLabelElement | null)?.htmlFor === id) return;
+      // The field's own label toggles it with its click; it mustn't take the focus first (which would close it).
+      if (t instanceof Element && (t.closest('label') as HTMLLabelElement | null)?.htmlFor === id) {
+        e.preventDefault();
+        return;
+      }
       closeRef.current();
     };
     const vv = window.visualViewport;
-    document.addEventListener('scroll', scrolled, true);
     document.addEventListener('pointerdown', pressed, true);
+    document.addEventListener('scroll', scrolled, true);
     window.addEventListener('resize', resized);
+    // The part of the page on screen changed (a phone's keyboard, zoom).
     vv?.addEventListener('resize', resized);
     vv?.addEventListener('scroll', scrolled);
-    // Hidden by a search or the Basic view, or moved by what's above it growing.
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => place(false));
-    if (anchor.current) ro?.observe(anchor.current);
     return () => {
-      document.removeEventListener('scroll', scrolled, true);
+      cancelAnimationFrame(frame);
       document.removeEventListener('pointerdown', pressed, true);
+      document.removeEventListener('scroll', scrolled, true);
       window.removeEventListener('resize', resized);
       vv?.removeEventListener('resize', resized);
       vv?.removeEventListener('scroll', scrolled);
-      ro?.disconnect();
     };
   }, [open, id, anchor, pop, place]);
 }

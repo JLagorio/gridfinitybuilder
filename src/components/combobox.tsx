@@ -84,6 +84,8 @@ export function ComboboxInput<T extends string>({ id, labelId, value, options, o
     if (!o || o.disabled) return;
     revert();
     if (o.value !== value) onChange(o.value);
+    // Still in the field: its new text selected, so typing searches again.
+    requestAnimationFrame(() => document.activeElement === input.current && input.current?.select());
   };
   usePopup(open, id, wrap, pop, revert);
   const activeId = open && active >= 0 && active < flat.length ? optionId(listId, active) : undefined;

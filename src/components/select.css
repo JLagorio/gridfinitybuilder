@@ -1,5 +1,9 @@
 /* Pick lists (select.tsx): the Select's button, the Combobox's chevron, and the list they open in a layer on top. */
 
+.pick-trigger,
+.pick-combo-toggle {
+  -webkit-tap-highlight-color: transparent;
+}
 .pick-trigger {
   display: flex;
   align-items: center;
