@@ -37,7 +37,9 @@ import type { SpiralPrint } from './geometry/containers/vase';
  * layer, at outer-wall speed, with no travel and no layer change. A plate of
  * them prints one bin after another ("by object"), so each bin's layers wait
  * for the minimum layer time on their own: a small bin's spiral is mostly
- * that wait.
+ * that wait. Against PrusaSlicer set up the same way in spiral vase mode
+ * (30 bottom layers, a 0.6 mm wall line), model / slicer: 1x1x3u 0.96
+ * (9.4 min), 2x2x6u 1.01; filament 1.03 and 1.03 (4.4 g and 19.4 g).
  *
  * The volume those lines lay down (`PlateEstimate.extruded`) is the BOM's
  * filament once a plate is sliced. Grams of PLA, model ÷ slicer:

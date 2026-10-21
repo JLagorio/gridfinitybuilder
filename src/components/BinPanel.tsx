@@ -288,7 +288,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     setBusy(true);
     try {
       const spec = binSpec(job.layout, sel);
-      const name = `gridfinity-bin-${binUnitsText(job.layout, sel.opts).replace('×', 'x')}x${sel.opts.heightUnits}u`;
+      const name = `gridfinity-${isVaseBin(sel.opts) ? 'vase-' : ''}bin-${binUnitsText(job.layout, sel.opts).replace('×', 'x')}x${sel.opts.heightUnits}u`;
       const label = binLabel(sel.opts, spec.cells);
       if (format === 'stl') downloadBytes(await geometry.exportStlSingle(spec, label), `${name}.stl`, 'model/stl');
       else if (format === 'step') downloadBytes(await geometry.exportStepSingle(spec, `Bin ${label}`), `${name}.step`, 'model/step');

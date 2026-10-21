@@ -169,7 +169,7 @@ export function roughSeconds(part: { kind: string; w: number; d: number; h: numb
   if (part.spiral) {
     // Vase-mode bin (estimate.ts): solid bottom layers, then one line a layer, at least 4 s each.
     const layers = Math.max(0, part.h - part.spiral.start) / 0.2;
-    return (0.0006 * area * part.spiral.start * 60 + layers * Math.max(4, (2 * (part.w + part.d)) / 150)) * speedFactor(motion);
+    return (0.024 * area * part.spiral.start + layers * Math.max(4, (2 * (part.w + part.d)) / 150)) * speedFactor(motion);
   }
   if (part.kind === 'piece') minutes = 0.0018 * area + 7.4;
   // Thin walls on a floor: bins, lids, trays, case parts.

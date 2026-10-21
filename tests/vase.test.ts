@@ -28,11 +28,18 @@ import { exportPlatesZip } from '../src/lib/export/threemf';
 import { exportPlatesStlZip } from '../src/lib/export/stl';
 import { binChecks } from '../src/lib/printability';
 import { estimatePlate, sliceStats } from '../src/lib/estimate';
+import { roughSeconds } from '../src/lib/layout/fleet';
+import { DEFAULT_MOTION } from '../src/lib/printers';
 import { stretchRoom } from '../src/lib/layout/stretch';
 import { computeLayout } from '../src/lib/layout/drawer';
 import { stackProblem } from '../src/lib/stacking';
 import { searchIndex } from '../src/lib/panelSearch';
 import { BIN_INDEX } from '../src/components/panelIndex';
+import { spiralReport } from '../scripts/gcode-spiral';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { VaseFields } from '../src/components/containers/VaseFields';
+import { BaseField } from '../src/components/BinVariantFields';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -434,9 +441,70 @@ describe('vase-mode bin checks and estimates', () => {
     ]);
     expect(two.printSeconds).toBeGreaterThan(1.9 * one.printSeconds);
     expect(two.extruded).toBeCloseTo(2 * one.extruded, 0);
+    // The quick guess before slicing (sharing parts out between printers) is near it.
+    const rough = roughSeconds({ kind: 'bin', w: 83.5, d: 41.5, h: L.H, spiral }, DEFAULT_MOTION);
+    expect(rough / one.printSeconds).toBeGreaterThan(0.7);
+    expect(rough / one.printSeconds).toBeLessThan(1.4);
   });
 
   it('are found by vase, spiral, single wall and fast', () => {
     for (const q of ['vase', 'spiral', 'single wall', 'fast']) expect(searchIndex(BIN_INDEX, q)?.hits.has('type'), q).toBe(true);
+  });
+});
+
+describe('reading spiral vase G-code back (scripts/gcode-spiral.ts)', () => {
+  // Two bottom layers (with a travel between islands), then two spiral turns of a 10 mm square.
+  const turn = (z0: number, e0: number) => {
+    const pts = [
+      [10, 0],
+      [10, 10],
+      [0, 10],
+      [0, 0],
+    ];
+    return pts.map(([x, y], i) => `G1 X${x} Y${y} Z${(z0 + ((i + 1) * 0.2) / 4).toFixed(3)} E${(e0 + i + 1).toFixed(3)}`);
+  };
+  const bottom = (z: number, e: number) => [';LAYER_CHANGE', `;Z:${z}`, `G1 Z${z}`, 'G1 X0 Y0', `G1 X10 Y0 E${e + 1}`, 'G1 X20 Y20', `G1 X30 Y20 E${e + 2}`];
+  const good = ['M82', 'G92 E0', ...bottom(0.2, 0), ...bottom(0.4, 2), ';LAYER_CHANGE', ';Z:0.6', ...turn(0.4, 4), ';LAYER_CHANGE', ';Z:0.8', ...turn(0.6, 8), 'G1 E10 F2100'];
+
+  it('passes one rising, continuous line per layer, and ignores the retraction at the end', () => {
+    const r = spiralReport(good.join('\n'), 2);
+    expect(r).toMatchObject({ layers: 4, bottom: 2, spiral: 2, continuous: 2, turn: 40, bottomTravels: 2 });
+    expect(r.firstBreak).toBeUndefined();
+  });
+
+  it('flags travel, Z going back down, and a layer that doesn’t rise', () => {
+    const travel = [...good];
+    travel.splice(travel.indexOf(';Z:0.8') + 2, 0, 'G1 X5 Y5');
+    expect(spiralReport(travel.join('\n'), 2).firstBreak?.why).toContain('travel');
+    const flat = good.map((l) => (l.startsWith('G1 X') && / Z0\.[5-8]/.test(l) ? l.replace(/ Z[\d.]+/, ' Z0.8') : l));
+    expect(spiralReport(flat.join('\n'), 2).firstBreak?.why).toMatch(/does not rise/);
+    const drop = good.map((l) => l.replace('Z0.650', 'Z0.500'));
+    expect(spiralReport(drop.join('\n'), 2).firstBreak?.why).toMatch(/Z goes down/);
+  });
+});
+
+describe('vase-mode bin panel', () => {
+  const fields = (o: BinOptions) => renderToStaticMarkup(createElement(VaseFields, { bin: o, value: sanitizeVase(o.containers?.vase), onChange: () => {}, onBinChange: () => {} }));
+
+  it('shows the dividers, the wall line for the nozzle, the slicer settings and what a vase bin leaves out', () => {
+    const html = fields(vase({ unitsX: 2 }, { dividers: 2 }));
+    expect(html).toContain('3 sections');
+    expect(html).toContain('Front to back');
+    expect(html).toContain('0.6 mm suits the 0.4 mm nozzle');
+    expect(html).not.toContain('use it');
+    expect(html).toContain('bottom layers up to 6 mm (30 at 0.2 mm');
+    expect(html).toContain('no scoop, label tab');
+    // Another line width offers the nozzle's.
+    expect(fields(vase({}, { line: 0.45 }))).toContain('use it');
+    // A flat bin's spiral starts on its floor.
+    expect(fields(vase({ base: 'flat' }))).toContain('bottom layers up to 1 mm (5 at 0.2 mm)');
+  });
+
+  it('offers feet or a flat bottom, not the hollow base styles', () => {
+    const html = renderToStaticMarkup(createElement(BaseField, { opts: vase({ base: 'lite' }), onChange: () => {} }));
+    expect(html).toContain('Feet');
+    expect(html).toContain('Flat');
+    expect(html).not.toContain('Lite');
+    expect(html).not.toContain('Efficient');
   });
 });
