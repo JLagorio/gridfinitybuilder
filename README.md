@@ -194,6 +194,7 @@ npm test             # vitest: layout, splitting, packing, every geometry varian
 npm run typecheck
 npm run build
 npm run sample -- out   # build a whole drawer kit from the CLI (default: the 510.5 × 376.5 drawer)
+npm run sampler -- out/sampler --slice   # every kind of part as STL, print-checked and sliced (docs/print-check.md)
 ```
 
 To check an export against Bambu Studio itself, use the CLI that ships with the app. It loads the project, slices every plate, and writes a G-code file for each:

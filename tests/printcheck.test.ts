@@ -6,8 +6,10 @@ import { toMeshData } from '../src/lib/geometry/kernel';
 import { registerFont } from '../src/lib/geometry/text';
 import { checkPart, meshTopology, type PrintIssueKind } from '../src/lib/geometry/printcheck';
 import { DEFAULT_BIN, buildBin } from '../src/lib/geometry/bin';
+import { buildMesh, type PrintJob } from '../src/lib/project';
 import { usableBed } from '../src/lib/bedfit';
 import { DEFAULT_SETUP } from '../src/lib/layout/plan';
+import { SAMPLE_GROUPS, printedParts } from '../scripts/sampler-cases';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -127,5 +129,66 @@ describe('print checks', () => {
     const c = checkPart(w, { positions: m.positions, indices: m.indices.slice(3) });
     expect(kinds(c.issues)).toEqual(['manifold']);
     expect(c.slices).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sampler parts (scripts/sampler-cases.ts): built and checked like `npm run sampler`
+// ---------------------------------------------------------------------------
+
+const jobs = new Map<string, PrintJob>();
+/** One part of the sampler, by its file name ("bases/magnets.stl"). */
+function sample(file: string): MeshData {
+  const group = SAMPLE_GROUPS.find((g) => file.startsWith(`${g.name}/`));
+  if (!group) throw new Error(`no sample group for ${file}`);
+  let job = jobs.get(group.name);
+  if (!job) jobs.set(group.name, (job = group.job()));
+  const p = printedParts(group, job).find((x) => x.file === file);
+  if (!p) throw new Error(`no sample part ${file}`);
+  return buildMesh(w, job.meshes[p.part.meshKey]);
+}
+
+/**
+ * A representative part of each family, checked like `npm run sampler` does
+ * (the full run is in docs/print-check.md): what each may still be flagged for, by design.
+ */
+const SUBSET: [string, PrintIssueKind[]][] = [
+  ['bases/lite-magnets-printable.stl', []],
+  ['bases/efficient-magnets.stl', []],
+  ['bases/refined.stl', []],
+  ['lips/lip-notches.stl', []],
+  ['lips/lid-stack.lid.stl', []],
+  ['accessories/slide-lid.slidelid-0.stl', []],
+  ['accessories/tray-1.tray-0.stl', []],
+  ['accessories/cups-notch-scoop.cup-0.stl', []],
+  ['accessories/crate.crate-0.stl', []],
+  ['walls/pattern-small-web.stl', []],
+  ['compartments/floor-steps.stl', []],
+  ['compartments/wall-round-notch.stl', []],
+  ['pockets/lean-45-notch.stl', []],
+  ['pockets/nozzle-stepped.stl', []],
+  ['tools/shadow-label.stl', []],
+  ['labels/icons.stl', []],
+  ['labels/plate-inlaid.label-0.stl', []],
+  ['labels/pred.label-0.stl', []],
+  ['labels/front-two-tone.stl', []],
+  ['containers/box-default.lid-0.stl', []],
+  ['containers/drawers-grip-1x1.drawer-0.stl', []],
+  ['containers/hopper-steep-slot.stl', []],
+  ['containers/rack-hexkeys-labels.stl', []],
+  ['placement/half-1x1.stl', []],
+  ['enclosures/case-default.pin-1.stl', []],
+  ['testfit/puzzle/test-fit.piece-1.stl', []],
+  // A stretched bin's overhang over the margin needs supports (README: "starts just above the baseplate").
+  ['placement/stretched.stl', ['overhang']],
+  // The walls beside bowtie pockets are 0.65 mm (README, CONNECTOR_MIN_WALL), one line.
+  ['baseplates/bowtie.piece-4.stl', ['thin']],
+];
+
+describe('sampler parts', () => {
+  it.each(SUBSET)('%s', (file, allowed) => {
+    const c = checkPart(w, sample(file), { bed: usableBed(DEFAULT_SETUP) });
+    expect(c.ok, c.issues.map((i) => i.message).join('\n')).toBe(true);
+    expect(kinds(c.issues)).toEqual([...allowed].sort());
   });
 });
