@@ -17,6 +17,7 @@ export const GROUP_LABELS: Record<AttachmentGroup, string> = {
   devices: 'Devices',
   board: 'On the board',
   other: 'Other',
+  power: 'Lighting and cables',
 };
 
 export interface AttachmentUi {

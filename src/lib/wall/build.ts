@@ -11,6 +11,11 @@ import { hookBuilder } from './kinds/hook.geom';
 import { binBuilder } from './kinds/bin.geom';
 import { cupBuilder } from './kinds/cup.geom';
 import { fitTestBuilder } from './kinds/fitTest.geom';
+import { ledBarBuilder } from './kinds/ledBar.geom';
+import { cableClipBuilder } from './kinds/cableClip.geom';
+import { cableChannelBuilder } from './kinds/cableChannel.geom';
+import { powerStripBuilder } from './kinds/powerStrip.geom';
+import { cableCombBuilder } from './kinds/cableComb.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -28,6 +33,11 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   bin: binBuilder as AttachmentBuilder<never>,
   cup: cupBuilder as AttachmentBuilder<never>,
   fitTest: fitTestBuilder as AttachmentBuilder<never>,
+  ledBar: ledBarBuilder as AttachmentBuilder<never>,
+  cableClip: cableClipBuilder as AttachmentBuilder<never>,
+  cableChannel: cableChannelBuilder as AttachmentBuilder<never>,
+  powerStrip: powerStripBuilder as AttachmentBuilder<never>,
+  cableComb: cableCombBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {

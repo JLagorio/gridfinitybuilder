@@ -7,3 +7,8 @@ import './kinds/hook.ui';
 import './kinds/bin.ui';
 import './kinds/cup.ui';
 import './kinds/fitTest.ui';
+import './kinds/ledBar.ui';
+import './kinds/cableClip.ui';
+import './kinds/cableChannel.ui';
+import './kinds/powerStrip.ui';
+import './kinds/cableComb.ui';

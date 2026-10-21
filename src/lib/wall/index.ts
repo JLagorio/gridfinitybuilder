@@ -8,3 +8,8 @@ import './kinds/hook';
 import './kinds/bin';
 import './kinds/cup';
 import './kinds/fitTest';
+import './kinds/ledBar';
+import './kinds/cableClip';
+import './kinds/cableChannel';
+import './kinds/powerStrip';
+import './kinds/cableComb';
