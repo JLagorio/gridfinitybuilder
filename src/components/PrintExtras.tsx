@@ -91,7 +91,7 @@ export interface JobEstimate {
   busy: { label: string; done: number; total: number } | null;
 }
 
-/** "Walls 45 % · skin 30 % · …, plus 5 min start" for a time cell's tooltip. */
+/** "33 min printing (walls 33 %, top/bottom skin 51 %, …) + 5 min start sequence" for a time cell's tooltip. */
 function timeBreakdown(e: PlateEstimate | null | undefined): string | undefined {
   if (!e?.printSeconds) return undefined;
   const b = e.breakdown;
