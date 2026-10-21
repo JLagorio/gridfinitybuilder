@@ -217,7 +217,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
         <Find id="nozzle">
           <NozzleField />
         </Find>
-        <Find id="bed-margin" set={spacingSet}>
+        <Find id="part-spacing" set={spacingSet}>
           <LengthInput
             label="Part spacing"
             value={setup.spacing}
@@ -227,7 +227,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             hint={setup.printers ? 'Between parts on a plate, on every printer.' : 'Between parts on a plate.'}
           />
         </Find>
-        <MoreInAll ids={[['bed-margin', marginSet || spacingSet]]} />
+        <MoreInAll ids={[['bed-margin', marginSet || !!setup.printers], ['part-spacing', spacingSet]]} />
       </Section>
 
       <Find id="checks">

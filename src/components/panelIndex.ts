@@ -305,7 +305,8 @@ export const PRINT_INDEX: FindEntry[] = [
     children: [
       { id: 'printer-model', title: 'Model', words: ['printer', 'model', 'bambu', 'prusa', 'creality', 'voron', 'bed', 'bed size', 'custom', 'build volume'] },
       { id: 'nozzle', title: 'Nozzle', words: ['nozzle', '0.2', '0.4', '0.6', '0.8', 'line width', 'print checks'] },
-      { id: 'bed-margin', title: 'Edge margin and part spacing', words: ['margin', 'edge', 'spacing', 'gap', 'between parts', 'brim', 'usable bed'], basic: false },
+      { id: 'bed-margin', title: 'Edge margin', words: ['margin', 'edge', 'brim', 'usable bed'], basic: false },
+      { id: 'part-spacing', title: 'Part spacing', words: ['spacing', 'gap', 'between parts', 'distance'], basic: false },
       {
         id: 'more-printers',
         title: 'More printers',
