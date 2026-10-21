@@ -3,6 +3,14 @@ import { DEFAULT_BIN, type BinOptions } from '../src/lib/geometry/bin';
 import { binChecks, placedBinChecks, type PrintCheck } from '../src/lib/printability';
 import { computeLayout, DEFAULT_DRAWER } from '../src/lib/layout/drawer';
 import { binQrPlan } from '../src/lib/geometry/binQr';
+import jsQR from 'jsqr';
+import { drawerMap } from '../src/lib/inventory';
+import { encodeQr, qrRects } from '../src/lib/qrEncode';
+import type { QrEcc } from '../src/lib/qr';
+import type { NamedDrawer, PlacedBin } from '../src/lib/project';
+import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
+import { BIN_INDEX } from '../src/components/panelIndex';
+import { searchIndex } from '../src/lib/panelSearch';
 
 const URL = 'https://example.com/inventory/bin/42';
 const bin = (o: Partial<BinOptions>): BinOptions => ({ ...DEFAULT_BIN, qrContent: 'custom', qrText: URL, ...o });
@@ -94,5 +102,55 @@ describe('QR code print checks', () => {
     const b = { id: 'b', x: 0, y: 0, opts: bin({ qr: 'plate', qrContent: 'contents' }) };
     expect(rules(placedBinChecks(layout, b).filter((c) => c.rule.startsWith('qr')))).toEqual(['info:qr-fit']);
     expect(rules(placedBinChecks(layout, { ...b, contents: 'M3 screws' }).filter((c) => c.rule.startsWith('qr')))).toEqual([]);
+  });
+});
+
+describe('QR code settings', () => {
+  it('are found by what people call them', () => {
+    for (const q of ['qr', 'QR code', 'barcode', 'scan', 'code', 'phone camera']) expect([...(searchIndex(BIN_INDEX, q)?.hits ?? [])], q).toContain('qr');
+    expect([...(searchIndex(BIN_INDEX, 'error correction')?.hits ?? [])]).toContain('qr-ecc');
+    expect([...(searchIndex(BIN_INDEX, 'qr url')?.hits ?? [])]).toContain('qr-content');
+  });
+});
+
+describe('QR codes on the drawer map', () => {
+  const drawer = (bins: PlacedBin[]): NamedDrawer => ({ id: 'd', name: 'Drawer', drawer: { ...DEFAULT_DRAWER, mode: 'grid', gridX: 3, gridY: 2 }, baseplate: DEFAULT_BASEPLATE, bins });
+  const mapQr = (text: string, ecc: QrEcc) => {
+    const code = encodeQr(text, ecc);
+    return code && { size: code.size, rects: qrRects(code) };
+  };
+
+  /** Each QR drawn in a map (its white square and black module path), rasterised and decoded with jsQR. */
+  function readMap(body: string): string[] {
+    const out: string[] = [];
+    const re = /<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" fill="#ffffff"\/><path d="([^"]+)" fill="#000000"/g;
+    for (const m of body.matchAll(re)) {
+      const [x0, y0, side] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      const ppmm = 12;
+      const pad = 40;
+      const n = Math.round(side * ppmm) + 2 * pad;
+      const img = new Uint8ClampedArray(n * n * 4).fill(255);
+      for (const r of m[5].matchAll(/M([\d.]+) ([\d.]+)h([\d.]+)v([\d.]+)h-[\d.]+z/g)) {
+        const [rx, ry, rw, rh] = [Number(r[1]) - x0, Number(r[2]) - y0, Number(r[3]), Number(r[4])];
+        for (let j = Math.round(ry * ppmm); j < Math.round((ry + rh) * ppmm); j++) {
+          for (let i = Math.round(rx * ppmm); i < Math.round((rx + rw) * ppmm); i++) {
+            const k = ((j + pad) * n + i + pad) * 4;
+            img[k] = img[k + 1] = img[k + 2] = 0;
+          }
+        }
+      }
+      out.push(jsQR(img, n, n)?.data ?? '');
+    }
+    return out;
+  }
+
+  it('draws each bin’s code in its corner when asked, and it reads back as what the bin says', () => {
+    const d = drawer([
+      { id: 'a', x: 0, y: 0, opts: bin({ unitsX: 2, unitsY: 2, qr: 'plate', qrContent: 'contents', labelText: 'M3' }), contents: 'M3 screws\nM3 nuts' },
+      { id: 'b', x: 2, y: 0, opts: bin({ unitsX: 1, unitsY: 1, qr: 'front', qrText: 'https://example.com/b' }) },
+      { id: 'c', x: 2, y: 1, opts: bin({ unitsX: 1, unitsY: 1 }) },
+    ]);
+    expect(readMap(drawerMap(d).body)).toEqual([]);
+    expect(readMap(drawerMap(d, { qr: mapQr }).body).sort()).toEqual(['M3\nM3 screws\nM3 nuts', 'https://example.com/b'].sort());
   });
 });
