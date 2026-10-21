@@ -4,6 +4,7 @@ import { useStore } from './store';
 import { computeLayout } from '../lib/layout/drawer';
 import { placedOvershoot, shrinkToBed, usableBed } from '../lib/bedfit';
 import type { PlacedBin } from '../lib/project';
+import { alignStacks } from '../lib/stacking';
 
 /** Bin template library actions. Templates live in the store, so they're saved, shared in files and undoable. */
 
@@ -45,5 +46,6 @@ export function applyTemplateToBins(id: string, binIds: string[]) {
     const next = { ...b, opts: applyTemplate(t, b.opts) };
     return placedOvershoot(layout, next, bed) > placedOvershoot(layout, b, bed) + 1e-6 ? shrinkToBed(layout, next, bed) : next;
   };
-  useStore.setState({ bins: s.bins.map((b) => (set.has(b.id) ? apply(b) : b)) });
+  // Stacked bins keep the footprint of the bin they stand on (stacking.ts).
+  useStore.setState({ bins: alignStacks(s.bins.map((b) => (set.has(b.id) ? apply(b) : b))) });
 }

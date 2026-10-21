@@ -4,11 +4,12 @@
  * cells, so they are converted: each bin stays where it is in the drawer,
  * snapped to the new grid (×2 going to the half grid, ÷2 coming back). Odd
  * half-unit bins shrink to whole units; bins that no longer fit move to the
- * nearest free spot.
+ * nearest free spot. Stacked bins follow the floor bin they stand on.
  */
 import { MAX_CELLS } from '../geometry/placement';
 import { canPlace, withBlocked, type CellRect } from '../bins';
 import type { PlacedBin } from '../project';
+import { alignStacks, stacksOf } from '../stacking';
 import { cellEdge, cellsPerUnit, computeLayout, type DrawerInput, type GridLayout } from './drawer';
 
 export interface GridSwitch {
@@ -120,7 +121,9 @@ export function switchHalfGrid(drawer: DrawerInput, bins: PlacedBin[], on: boole
   let adjusted = 0;
   const order = [...bins].sort((a, b) => a.y - b.y || a.x - b.x);
   const placed = new Map<string, PlacedBin>();
+  const stacks = stacksOf(bins);
   for (const b of order) {
+    if (stacks.level.get(b.id)) continue;
     const [x, w] = snapSpan(from.xs, from.pitchX, to.xs, to.pitchX, b.x, b.opts.unitsX, max);
     const [y, d] = snapSpan(from.ys, from.pitchY, to.ys, to.pitchY, b.y, b.opts.unitsY, max);
     // Same size in mm (to the nearest cell)? Then only the grid moved under it.
@@ -154,7 +157,7 @@ export function switchHalfGrid(drawer: DrawerInput, bins: PlacedBin[], on: boole
     placed.set(b.id, nb);
     taken = [...taken, nb];
   }
-  return { drawer: next, bins: bins.map((b) => placed.get(b.id)!), adjusted };
+  return { drawer: next, bins: alignStacks(bins.map((b) => placed.get(b.id) ?? b)), adjusted };
 }
 
 /** Grid size in full units for the summary ("12 × 8", or "12.5 × 8" on a half grid). */

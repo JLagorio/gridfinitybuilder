@@ -6,6 +6,7 @@ import { LID_SEAT_DROP } from '../geometry/lid';
 import { assembledParts } from '../geometry/accessories';
 import { assemblyMaps, binOrigin, type MeshLookup, type PlacedBin, type PrintJob } from '../project';
 import { placeTransform, type Mat12 } from './threemf';
+import { stackPlaces } from '../stacking';
 
 /**
  * STEP (ISO 10303-21, AP214 "automotive_design") export.
@@ -882,20 +883,23 @@ export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): Step
     for (const p of dj.plan.pieces) add(`${prefix}piece:${p.id}`, p.x0, p.y0, 0);
     if (doc) {
       const seat = binSeatHeight(doc.baseplate);
+      // Stacked bins stand on the bin below (stacking.ts).
+      const stacked = stackPlaces(dj.layout, doc.bins);
       for (const b of doc.bins) {
         if (!job.parts[`${prefix}bin:${b.id}`]) continue;
         const at = binOrigin(dj.layout, b);
-        add(`${prefix}bin:${b.id}`, at.x, at.y, seat);
-        add(`${prefix}lid:${b.id}`, at.x, at.y, seat + binBodyHeight(b.opts) - LID_SEAT_DROP);
-        for (const a of assembledParts(job, b.id, prefix)) add(a.key, at.x + a.assembled.x, at.y + a.assembled.y, seat + a.assembled.z);
+        const z = seat + (stacked.get(b.id)?.z ?? 0);
+        add(`${prefix}bin:${b.id}`, at.x, at.y, z);
+        add(`${prefix}lid:${b.id}`, at.x, at.y, z + binBodyHeight(b.opts) - LID_SEAT_DROP);
+        for (const a of assembledParts(job, b.id, prefix)) add(a.key, at.x + a.assembled.x, at.y + a.assembled.y, z + a.assembled.z);
         for (const p of Object.values(job.parts)) {
           if (p.bin === b.id && p.assembled && p.key.startsWith(prefix) && (!multi || p.drawer === dj.id)) {
-            add(p.key, at.x + p.assembled.x, at.y + p.assembled.y, seat + p.assembled.z);
+            add(p.key, at.x + p.assembled.x, at.y + p.assembled.y, z + p.assembled.z);
           }
         }
         for (let i = 0; job.parts[`${prefix}label:${b.id}:${i}`]; i++) {
           const pl = job.parts[`${prefix}label:${b.id}:${i}`];
-          if (pl.assembled) add(pl.key, at.x + pl.assembled.x, at.y + pl.assembled.y, seat + pl.assembled.z);
+          if (pl.assembled) add(pl.key, at.x + pl.assembled.x, at.y + pl.assembled.y, z + pl.assembled.z);
         }
       }
     }
