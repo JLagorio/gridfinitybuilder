@@ -4,3 +4,4 @@
  */
 export * from './registry';
 export { containerBase, containerRing } from './base';
+import './drawers';
