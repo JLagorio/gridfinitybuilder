@@ -25,7 +25,8 @@ import {
   type Preset,
   type SplitResult,
 } from '../lib/dividers';
-import { LengthInput, Section, Segmented, Slider, Stepper, Toggle } from './fields';
+import { LengthInput, Segmented, Slider, Stepper, Toggle } from './fields';
+import { Find } from './findContext';
 import { clearInteriorSelection, compartmentOptions, interiorOf, useBinInterior, useInteriorSelection, type BinInterior } from './interiorState';
 import { binCompartmentPockets } from '../lib/geometry/bin';
 import { binBodyHeight, binFloorZ, sanitizePocketFields } from '../lib/geometry/variants';
@@ -42,13 +43,24 @@ import {
 import { FreeWallFields, WallFinishFields } from './WallTools';
 import { CompartmentInsertField } from './InsertFields';
 
+/** Switches the left pane between the drawer and this bin's compartment editor (the Inside section's link). */
+export function EditWallsLink() {
+  const pane = useStore((s) => s.ui.binPane);
+  const setUI = useStore((s) => s.setUI);
+  return (
+    <button className="link" onClick={() => setUI({ binPane: pane === 'compartments' ? 'drawer' : 'compartments' })}>
+      {pane === 'compartments' ? 'Show drawer' : 'Edit walls'}
+    </button>
+  );
+}
+
 /**
- * Sidebar section for a bin's compartments: the quick columns × rows split,
+ * A bin's compartments, in the Inside section: the quick columns × rows split,
  * presets, auto-divide, and the options of the wall or compartment selected in
  * the compartment editor. Without `binId` it edits the settings for new bins
  * (no size yet, so only ratio-based tools).
  */
-export function CompartmentsSection({
+export function CompartmentTools({
   opts,
   onChange,
   binId,
@@ -63,64 +75,53 @@ export function CompartmentsSection({
   const info = placed ?? interiorOf(opts);
   const sel = useInteriorSelection(binId ?? null, info.resolved);
   const pane = useStore((s) => s.ui.binPane);
-  const setUI = useStore((s) => s.setUI);
   const updateBin = useStore((s) => s.updateBin);
   const n = info.resolved.compartments.length;
   // Whole-layout changes (columns × rows, presets) go through onChange, which may cover several selected bins.
   const setLayout = (layout: DividerLayout | null, extra: Partial<BinOptions> = {}) => onChange({ layout, ...extra });
   // Edits that refer to this bin's own walls and compartments only apply to it.
   const setOwn = (layout: DividerLayout) => (binId ? updateBin(binId, { opts: { layout } }) : onChange({ layout }));
+  const picked = !!(sel.wallId || sel.compKey || sel.freeId);
 
   return (
-    <Section
-      title="Compartments"
-      aside={
-        binId ? (
-          <button className="link" onClick={() => setUI({ binPane: pane === 'compartments' ? 'drawer' : 'compartments' })}>
-            {pane === 'compartments' ? 'Show drawer' : 'Edit walls'}
-          </button>
-        ) : undefined
-      }
-    >
-      <div className="row2">
-        <Stepper label="Columns" value={opts.divX} min={1} max={12} onChange={(divX) => onChange({ divX, layout: null })} />
-        <Stepper label="Rows" value={opts.divY} min={1} max={12} onChange={(divY) => onChange({ divY, layout: null })} />
-      </div>
-      {info.custom ? (
-        <div className="field-hint">
-          Custom layout · {n} compartment{n === 1 ? '' : 's'}. Columns and rows replace it.{' '}
-          <button className="link" onClick={() => setLayout(null)}>
-            Back to {opts.divX} × {opts.divY}
-          </button>
+    <>
+      <Find id="comp-split">
+        <div className="row2">
+          <Stepper label="Columns" value={opts.divX} min={1} max={12} onChange={(divX) => onChange({ divX, layout: null })} />
+          <Stepper label="Rows" value={opts.divY} min={1} max={12} onChange={(divY) => onChange({ divY, layout: null })} />
         </div>
-      ) : (
-        binId &&
-        pane !== 'compartments' && (
+        {info.custom ? (
           <div className="field-hint">
-            For any other layout,{' '}
-            <button className="link" onClick={() => setUI({ binPane: 'compartments' })}>
-              draw walls
-            </button>{' '}
-            or start from a preset.
+            Custom layout · {n} compartment{n === 1 ? '' : 's'}. Columns and rows replace it.{' '}
+            <button className="link" onClick={() => setLayout(null)}>
+              Back to {opts.divX} × {opts.divY}
+            </button>
           </div>
-        )
-      )}
-      <PresetPicker
-        opts={opts}
-        info={info}
-        onPick={(p) =>
-          setLayout(p.layout, p.defaults ? { scoop: p.defaults.scoop ?? opts.scoop, label: p.defaults.label ?? opts.label } : {})
-        }
-      />
-      <AutoDivide info={info} compKey={sel.compKey} sized={!!binId} onLayout={(l, whole) => (whole ? setLayout(l) : setOwn(l))} />
-      {binId && sel.freeId && <FreeWallFields info={info} freeId={sel.freeId} onLayout={setOwn} />}
-      {binId && sel.wallId && <WallFields info={info} wallId={sel.wallId} onLayout={setOwn} />}
-      {binId && sel.compKey && <CompartmentFields info={info} compKey={sel.compKey} onLayout={setOwn} />}
-      {binId && !sel.wallId && !sel.compKey && !sel.freeId && pane === 'compartments' && (
-        <p className="muted small">Click a wall or a compartment’s size label to edit it here.</p>
-      )}
+        ) : (
+          binId && pane !== 'compartments' && <div className="field-hint">For any other layout, pick a preset or draw the walls (Edit walls).</div>
+        )}
+      </Find>
+      <Find id="comp-presets">
+        <PresetPicker
+          opts={opts}
+          info={info}
+          onPick={(p) =>
+            setLayout(p.layout, p.defaults ? { scoop: p.defaults.scoop ?? opts.scoop, label: p.defaults.label ?? opts.label } : {})
+          }
+        />
+      </Find>
+      {/* Splitting a picked compartment is part of editing it, so it shows whenever one is picked. */}
+      <Find id="comp-divide" set={!!sel.compKey}>
+        <AutoDivide info={info} compKey={sel.compKey} sized={!!binId} onLayout={(l, whole) => (whole ? setLayout(l) : setOwn(l))} />
+      </Find>
+      <Find id="comp-edit" set={picked}>
+        {binId && sel.freeId && <FreeWallFields info={info} freeId={sel.freeId} onLayout={setOwn} />}
+        {binId && sel.wallId && <WallFields info={info} wallId={sel.wallId} onLayout={setOwn} />}
+        {binId && sel.compKey && <CompartmentFields info={info} compKey={sel.compKey} onLayout={setOwn} />}
+        {binId && !picked && pane === 'compartments' && <p className="muted small">Click a wall or a compartment’s size label to edit it here.</p>}
+      </Find>
       {binId && <InsertSummary opts={opts} grid={grid} binId={binId} />}
-    </Section>
+    </>
   );
 }
 

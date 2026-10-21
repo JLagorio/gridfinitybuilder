@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useUnits } from '../state/store';
-import { Field, LengthInput, Segmented, Select, Slider, Toggle } from './fields';
+import { Field, Group, LengthInput, Segmented, Select, Slider, Toggle } from './fields';
 import {
   CUSTOM_SET,
   FIT_DEFAULTS,
@@ -15,6 +15,7 @@ import {
   type PocketLayout,
 } from '../lib/geometry/pockets';
 import { MAX_POCKET_TILT, type PocketFields } from '../lib/geometry/variants';
+import { Find } from './findContext';
 
 /** A starting list for "Custom set of sizes". */
 const CUSTOM_SET_START = [3, 4, 5, 6, 8, 10];
@@ -30,11 +31,14 @@ export function PocketSettings({
   onChange,
   layout,
   note,
+  find = false,
 }: {
   value: PocketFields;
   onChange: (patch: Partial<PocketFields>) => void;
   layout?: PocketLayout | null;
   note?: ReactNode;
+  /** The bin's own pocket grid: its fields are in the panel's search (panelIndex.ts). */
+  find?: boolean;
 }) {
   const { fmt } = useUnits();
   const set = o.pocketSizes.length > 0;
@@ -46,130 +50,143 @@ export function PocketSettings({
   const summary = layout ? pocketSummary(o, layout, (v) => fmt(v)) : null;
   return (
     <>
-      <Select
-        label="Holds"
-        value={presetId}
-        options={[
-          ...POCKET_PRESETS.map((p) => ({ value: p.id, label: p.label, group: p.group })),
-          { value: 'custom', label: 'Custom size', group: 'Custom' },
-          { value: CUSTOM_SET, label: 'Custom set of sizes', group: 'Custom' },
-        ]}
-        onChange={(id) => {
-          const p = findPocketPreset(id);
-          if (p) onChange(presetFields(p));
-          else if (id === CUSTOM_SET) onChange({ pocketPreset: CUSTOM_SET, ...(set ? {} : { pocketSizes: CUSTOM_SET_START, pocketSizeNames: [] }) });
-          else onChange({ pocketPreset: 'custom', pocketSizes: [], pocketSizeNames: [] });
-        }}
-        hint={preset?.note ?? (set ? 'One pocket per size, smallest first from the front.' : undefined)}
-      />
-      <FitItem onFit={onChange} />
-      <Segmented
-        label="Pocket shape"
-        value={o.pocketShape}
-        options={[
-          { value: 'round', label: 'Round' },
-          { value: 'square', label: 'Square' },
-          { value: 'hex', label: 'Hex' },
-        ]}
-        onChange={(pocketShape) => custom({ pocketShape })}
-      />
-      {set ? (
-        <>
-          <SizeList sizes={o.pocketSizes} names={o.pocketSizeNames} onChange={(p) => custom({ pocketSizes: p.sizes, pocketSizeNames: p.names })} />
+      {/* Search ids only for the bin's own grid: a lid's or a compartment's grid shows whole, with what it's in. */}
+      <Find id={find ? 'pocket-holds' : undefined}>
+        <Select
+          label="Holds"
+          value={presetId}
+          options={[
+            ...POCKET_PRESETS.map((p) => ({ value: p.id, label: p.label, group: p.group })),
+            { value: 'custom', label: 'Custom size', group: 'Custom' },
+            { value: CUSTOM_SET, label: 'Custom set of sizes', group: 'Custom' },
+          ]}
+          onChange={(id) => {
+            const p = findPocketPreset(id);
+            if (p) onChange(presetFields(p));
+            else if (id === CUSTOM_SET) onChange({ pocketPreset: CUSTOM_SET, ...(set ? {} : { pocketSizes: CUSTOM_SET_START, pocketSizeNames: [] }) });
+            else onChange({ pocketPreset: 'custom', pocketSizes: [], pocketSizeNames: [] });
+          }}
+          hint={preset?.note ?? (set ? 'One pocket per size, smallest first from the front.' : undefined)}
+        />
+        <FitItem onFit={onChange} />
+      </Find>
+      <Find id={find ? 'pocket-shape' : undefined}>
+        <Segmented
+          label="Pocket shape"
+          value={o.pocketShape}
+          options={[
+            { value: 'round', label: 'Round' },
+            { value: 'square', label: 'Square' },
+            { value: 'hex', label: 'Hex' },
+          ]}
+          onChange={(pocketShape) => custom({ pocketShape })}
+        />
+        {set ? (
+          <>
+            <SizeList sizes={o.pocketSizes} names={o.pocketSizeNames} onChange={(p) => custom({ pocketSizes: p.sizes, pocketSizeNames: p.names })} />
+            <div className="row2">
+              <LengthInput
+                label="Clearance"
+                value={o.pocketClearance}
+                min={0}
+                max={5}
+                onChange={(pocketClearance) => custom({ pocketClearance })}
+                hint="Added to each size."
+              />
+              <Segmented
+                label="Labels"
+                value={o.pocketSizeLabels}
+                options={[
+                  { value: 'none', label: 'None' },
+                  { value: 'mm', label: 'mm' },
+                  { value: 'inch', label: 'Inch', title: 'Fractions to 1/64″' },
+                ]}
+                onChange={(pocketSizeLabels) => onChange({ pocketSizeLabels })}
+              />
+            </div>
+          </>
+        ) : (
           <div className="row2">
+            <LengthInput label={sizeLabel} value={o.pocketW} min={1} max={200} onChange={(pocketW) => custom({ pocketW })} />
+            {o.pocketShape === 'square' && <LengthInput label="Size Y" value={o.pocketD} min={1} max={200} onChange={(pocketD) => custom({ pocketD })} />}
+          </div>
+        )}
+        <div className="row3">
+          <LengthInput label="Depth" value={o.pocketDepth} min={1} max={200} onChange={(pocketDepth) => custom({ pocketDepth })} />
+          <LengthInput label="Spacing" value={o.pocketSpacing} min={0.8} max={20} onChange={(pocketSpacing) => custom({ pocketSpacing })} />
+          <LengthInput label="Chamfer" value={o.pocketChamfer} min={0} max={5} onChange={(pocketChamfer) => custom({ pocketChamfer })} />
+        </div>
+      </Find>
+      <Find id={find ? 'pocket-bottom' : undefined}>
+        <Segmented
+          label="Bottom"
+          value={o.pocketFloor}
+          options={[
+            { value: 'flat', label: 'Flat' },
+            { value: 'round', label: 'Round', title: 'Rounded bottom so small parts slide out' },
+            { value: 'cone', label: 'Cone', title: '118° point, like a drill tip, for bits and screws' },
+            { value: 'stepped', label: 'Stepped', title: 'A narrower bore below a ledge, for items with a collar' },
+          ]}
+          onChange={(pocketFloor) =>
+            custom(
+              pocketFloor === 'stepped' && o.pocketStepW > o.pocketW - 0.8
+                ? { pocketFloor, pocketStepW: Math.max(0.5, Math.round(o.pocketW * 6) / 10) }
+                : { pocketFloor },
+            )
+          }
+        />
+        {o.pocketFloor === 'stepped' && (
+          <div className="indent row2">
+            <LengthInput label="Bore width" value={o.pocketStepW} min={0.5} max={200} onChange={(pocketStepW) => custom({ pocketStepW })} />
             <LengthInput
-              label="Clearance"
-              value={o.pocketClearance}
-              min={0}
-              max={5}
-              onChange={(pocketClearance) => custom({ pocketClearance })}
-              hint="Added to each size."
-            />
-            <Segmented
-              label="Labels"
-              value={o.pocketSizeLabels}
-              options={[
-                { value: 'none', label: 'None' },
-                { value: 'mm', label: 'mm' },
-                { value: 'inch', label: 'Inch', title: 'Fractions to 1/64″' },
-              ]}
-              onChange={(pocketSizeLabels) => onChange({ pocketSizeLabels })}
+              label="Bore depth"
+              value={o.pocketStepDepth}
+              min={0.5}
+              max={200}
+              onChange={(pocketStepDepth) => custom({ pocketStepDepth })}
+              hint="Part of the depth."
             />
           </div>
-        </>
-      ) : (
-        <div className="row2">
-          <LengthInput label={sizeLabel} value={o.pocketW} min={1} max={200} onChange={(pocketW) => custom({ pocketW })} />
-          {o.pocketShape === 'square' && <LengthInput label="Size Y" value={o.pocketD} min={1} max={200} onChange={(pocketD) => custom({ pocketD })} />}
-        </div>
-      )}
-      <div className="row3">
-        <LengthInput label="Depth" value={o.pocketDepth} min={1} max={200} onChange={(pocketDepth) => custom({ pocketDepth })} />
-        <LengthInput label="Spacing" value={o.pocketSpacing} min={0.8} max={20} onChange={(pocketSpacing) => custom({ pocketSpacing })} />
-        <LengthInput label="Chamfer" value={o.pocketChamfer} min={0} max={5} onChange={(pocketChamfer) => custom({ pocketChamfer })} />
-      </div>
-      <Segmented
-        label="Bottom"
-        value={o.pocketFloor}
-        options={[
-          { value: 'flat', label: 'Flat' },
-          { value: 'round', label: 'Round', title: 'Rounded bottom so small parts slide out' },
-          { value: 'cone', label: 'Cone', title: '118° point, like a drill tip, for bits and screws' },
-          { value: 'stepped', label: 'Stepped', title: 'A narrower bore below a ledge, for items with a collar' },
-        ]}
-        onChange={(pocketFloor) =>
-          custom(
-            pocketFloor === 'stepped' && o.pocketStepW > o.pocketW - 0.8
-              ? { pocketFloor, pocketStepW: Math.max(0.5, Math.round(o.pocketW * 6) / 10) }
-              : { pocketFloor },
-          )
-        }
-      />
-      {o.pocketFloor === 'stepped' && (
-        <div className="indent row2">
-          <LengthInput label="Bore width" value={o.pocketStepW} min={0.5} max={200} onChange={(pocketStepW) => custom({ pocketStepW })} />
-          <LengthInput
-            label="Bore depth"
-            value={o.pocketStepDepth}
-            min={0.5}
-            max={200}
-            onChange={(pocketStepDepth) => custom({ pocketStepDepth })}
-            hint="Part of the depth."
-          />
-        </div>
-      )}
-      <Slider
-        label="Lean"
-        value={o.pocketTilt}
-        min={0}
-        max={MAX_POCKET_TILT}
-        step={1}
-        format={(v) => (v === 0 ? 'Off' : `${v}°`)}
-        onChange={(pocketTilt) => onChange({ pocketTilt })}
-        hint={o.pocketTilt > 0 ? 'Items tip toward the front. Depth is measured along the lean; leaning pockets take more room.' : undefined}
-      />
-      <Segmented
-        label="Finger access"
-        value={o.pocketGrip}
-        options={[
-          { value: 'none', label: 'None' },
-          { value: 'groove', label: 'Groove', title: 'A rounded channel along each row of pockets' },
-          { value: 'notch', label: 'Notch', title: 'A thumb notch in front of each pocket' },
-        ]}
-        onChange={(pocketGrip) => onChange({ pocketGrip })}
-      />
-      <Toggle
-        label="Magnet under each pocket"
-        checked={o.pocketMagnet}
-        onChange={(pocketMagnet) => onChange({ pocketMagnet })}
-        hint={o.pocketMagnet ? 'Press-fit recesses; the floor rises so 0.6 mm of plastic stays under each magnet.' : 'Holds steel items (bits, screws) in place.'}
-      />
-      {o.pocketMagnet && (
-        <div className="indent row2">
-          <LengthInput label="Magnet diameter" value={o.pocketMagnetD} min={1} max={30} onChange={(pocketMagnetD) => onChange({ pocketMagnetD })} />
-          <LengthInput label="Thickness" value={o.pocketMagnetH} min={0.5} max={20} onChange={(pocketMagnetH) => onChange({ pocketMagnetH })} />
-        </div>
-      )}
+        )}
+      </Find>
+      <Find id={find ? 'pocket-lean' : undefined}>
+        <Slider
+          label="Lean"
+          value={o.pocketTilt}
+          min={0}
+          max={MAX_POCKET_TILT}
+          step={1}
+          format={(v) => (v === 0 ? 'Off' : `${v}°`)}
+          onChange={(pocketTilt) => onChange({ pocketTilt })}
+          hint={o.pocketTilt > 0 ? 'Items tip toward the front. Depth is measured along the lean; leaning pockets take more room.' : undefined}
+        />
+      </Find>
+      <Find id={find ? 'pocket-access' : undefined}>
+        <Segmented
+          label="Finger access"
+          value={o.pocketGrip}
+          options={[
+            { value: 'none', label: 'None' },
+            { value: 'groove', label: 'Groove', title: 'A rounded channel along each row of pockets' },
+            { value: 'notch', label: 'Notch', title: 'A thumb notch in front of each pocket' },
+          ]}
+          onChange={(pocketGrip) => onChange({ pocketGrip })}
+        />
+      </Find>
+      <Find id={find ? 'pocket-magnet' : undefined}>
+        <Toggle
+          label="Magnet under each pocket"
+          checked={o.pocketMagnet}
+          onChange={(pocketMagnet) => onChange({ pocketMagnet })}
+          hint={o.pocketMagnet ? 'Press-fit recesses; the floor rises so 0.6 mm of plastic stays under each magnet.' : 'Holds steel items (bits, screws) in place.'}
+        />
+        {o.pocketMagnet && (
+          <div className="indent row2">
+            <LengthInput label="Magnet diameter" value={o.pocketMagnetD} min={1} max={30} onChange={(pocketMagnetD) => onChange({ pocketMagnetD })} />
+            <LengthInput label="Thickness" value={o.pocketMagnetH} min={0.5} max={20} onChange={(pocketMagnetH) => onChange({ pocketMagnetH })} />
+          </div>
+        )}
+      </Find>
       {(summary || note) && (
         <div className="field-hint">
           {summary && `${summary.text}. `}
@@ -195,8 +212,7 @@ function FitItem({ onFit }: { onFit: (p: Partial<PocketFields>) => void }) {
   const fit = fitItem(item, clearance, share);
   const size = item.shape === 'square' ? `${fmt(fit.pocketW!)} × ${fmt(fit.pocketD!)}` : fmt(fit.pocketW!);
   return (
-    <details className="advanced">
-      <summary>Fit an item</summary>
+    <Group title="Fit an item" status="pockets sized from what you measure">
       <Segmented
         label="Item"
         value={item.shape}
@@ -243,7 +259,7 @@ function FitItem({ onFit }: { onFit: (p: Partial<PocketFields>) => void }) {
           {size} pockets, {fmt(fit.pocketDepth!)} deep.
         </div>
       </div>
-    </details>
+    </Group>
   );
 }
 

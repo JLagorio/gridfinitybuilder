@@ -21,6 +21,8 @@ import { FRONT_LABEL } from '../lib/geometry/frontLabel';
 import { useStore, useUnits } from '../state/store';
 import { Field, Segmented, Select, Slider, Toggle } from './fields';
 import { FacePreview, IconPicker, LabelPreview, previewText } from './LabelIconPicker';
+import { Find } from './findContext';
+import { MoreInAll } from './find';
 
 /** How many lines of "What's in it" the text asks for (0: none). */
 function contentsLines(text: string): number {
@@ -230,93 +232,117 @@ export function LabelFields({ opts, onChange }: { opts: BinOptions; onChange: (p
         ? 'No label text yet, so the tab prints blank. Type text here, or give compartments their own in Compartments.'
         : 'Type the text for the front of the bin.';
 
-  return (
-    <div className={`label-fields ${tabs ? 'indent' : ''}`}>
-      {(tabs || front) && (
-        <LabelTextField
-          label="Label text"
-          value={opts.labelText}
-          onChange={(labelText) => onChange({ labelText })}
-          placeholder="Type the label (e.g. M3 screws)"
-          hint={textHint}
-          preview={shape}
-          contents={bin ? (bin.contents ?? '') : undefined}
-        />
-      )}
-      {tabs && any && (
-        <Segmented
-          label="Text"
-          value={opts.labelStyle}
-          options={STYLES}
-          onChange={(labelStyle) => onChange({ labelStyle })}
-          hint={opts.labelStyle === 'inlaid' ? 'Prints the letters in filament 2: needs an AMS or a filament change. Pick the colour in Print plates.' : undefined}
-        />
-      )}
-      {tabs && (
-        <>
-          <Toggle
-            label="Swappable label plates"
-            checked={opts.labelPlates}
-            onChange={(labelPlates) => onChange({ labelPlates })}
-            hint={opts.labelPlates ? undefined : 'Put the text on small plates that press into the tab, so you can relabel later.'}
-          />
-          {opts.labelPlates && (
-            <div className="indent">
-              <Segmented
-                label="Label format"
-                value={opts.labelFormat}
-                options={FORMATS}
-                onChange={(labelFormat) => onChange({ labelFormat })}
-                hint={
-                  platesFit === 0
-                    ? 'The tabs are too small for these labels, so the text goes on the tabs.'
-                    : FORMAT_HINTS[opts.labelFormat]
-                }
-              />
-              {opts.labelFormat !== 'gridfit' && (
-                <Toggle
-                  label="Print the labels too"
-                  checked={opts.labelPrint}
-                  onChange={(labelPrint) => onChange({ labelPrint })}
-                  hint={opts.labelPrint ? 'One label per tab, with this text, prints with the bins.' : 'Only the sockets: bring your own labels.'}
-                />
-              )}
-            </div>
-          )}
-        </>
-      )}
-      <Select<FrontLabelStyle>
-        label="Front label"
-        value={opts.frontLabel}
-        options={FRONT_STYLES}
-        onChange={(frontLabel) => onChange({ frontLabel })}
-        hint={
-          front
-            ? plan
-              ? FRONT_HINTS[opts.frontLabel as Exclude<FrontLabelStyle, 'none'>]
-              : !any
-                ? 'Type label text for the front.'
-                : contentsLines(opts.labelText) && !labelLines(resolved.labelText)
-                  ? 'Nothing to print yet: the label takes its text from What’s in it, which is empty.'
-                  : 'No room on the front wall for text (the bin is too short, or the wall is cut away).'
-            : 'Text on the outside of the front wall, for bins on the front row or a shelf.'
-        }
+  const text = (
+    <Find id="label-text">
+      <LabelTextField
+        label="Label text"
+        value={opts.labelText}
+        onChange={(labelText) => onChange({ labelText })}
+        placeholder="Type the label (e.g. M3 screws)"
+        hint={textHint}
+        preview={shape}
+        contents={bin ? (bin.contents ?? '') : undefined}
       />
-      {front && plan && (
-        <div className="indent">
-          <Slider
-            label="Letter height"
-            value={opts.frontLabelSize}
-            min={0}
-            max={Math.min(FRONT_LABEL_MAX_SIZE, Math.floor(plan.segments[0].box.y1 - plan.segments[0].box.y0))}
-            step={0.5}
-            format={(v) => (v === 0 ? 'Auto' : fmt(v))}
-            onChange={(frontLabelSize) => onChange({ frontLabelSize: frontLabelSize > 0 && frontLabelSize < 2 ? 2 : frontLabelSize })}
-          />
-          <FrontPreview opts={resolved} />
+    </Find>
+  );
+
+  return (
+    <>
+      {/* The tab's text and how it prints, under the Label tab field. */}
+      {tabs && (
+        <div className="label-fields indent">
+          {text}
+          {any && (
+            <Find id="label-style" set={opts.labelStyle !== 'raised'}>
+              <Segmented
+                label="Letters"
+                value={opts.labelStyle}
+                options={STYLES}
+                onChange={(labelStyle) => onChange({ labelStyle })}
+                hint={opts.labelStyle === 'inlaid' ? 'Prints the letters in filament 2: needs an AMS or a filament change. Pick the colour in Print plates.' : undefined}
+              />
+            </Find>
+          )}
+          <Find id="label-plates" set={opts.labelPlates}>
+            <Toggle
+              label="Swappable label plates"
+              checked={opts.labelPlates}
+              onChange={(labelPlates) => onChange({ labelPlates })}
+              hint={opts.labelPlates ? undefined : 'Put the text on small plates that press into the tab, so you can relabel later.'}
+            />
+            {opts.labelPlates && (
+              <div className="indent">
+                <Segmented
+                  label="Label format"
+                  value={opts.labelFormat}
+                  options={FORMATS}
+                  onChange={(labelFormat) => onChange({ labelFormat })}
+                  hint={
+                    platesFit === 0
+                      ? 'The tabs are too small for these labels, so the text goes on the tabs.'
+                      : FORMAT_HINTS[opts.labelFormat]
+                  }
+                />
+                {opts.labelFormat !== 'gridfit' && (
+                  <Toggle
+                    label="Print the labels too"
+                    checked={opts.labelPrint}
+                    onChange={(labelPrint) => onChange({ labelPrint })}
+                    hint={opts.labelPrint ? 'One label per tab, with this text, prints with the bins.' : 'Only the sockets: bring your own labels.'}
+                  />
+                )}
+              </div>
+            )}
+          </Find>
         </div>
       )}
-    </div>
+      <Find id="front-label" set={front}>
+        <Select<FrontLabelStyle>
+          label="Front label"
+          value={opts.frontLabel}
+          options={FRONT_STYLES}
+          onChange={(frontLabel) => onChange({ frontLabel })}
+          hint={
+            front
+              ? plan
+                ? FRONT_HINTS[opts.frontLabel as Exclude<FrontLabelStyle, 'none'>]
+                : !any
+                  ? 'Type label text for the front.'
+                  : contentsLines(opts.labelText) && !labelLines(resolved.labelText)
+                    ? 'Nothing to print yet: the label takes its text from What’s in it, which is empty.'
+                    : 'No room on the front wall for text (the bin is too short, or the wall is cut away).'
+              : 'Text on the outside of the front wall, for bins on the front row or a shelf.'
+          }
+        />
+        {front && (plan || !tabs) && (
+          <div className="indent">
+            {/* Without a tab, the text is the front label's. */}
+            {!tabs && text}
+            {plan && (
+              <>
+                <Slider
+                  label="Letter height"
+                  value={opts.frontLabelSize}
+                  min={0}
+                  max={Math.min(FRONT_LABEL_MAX_SIZE, Math.floor(plan.segments[0].box.y1 - plan.segments[0].box.y0))}
+                  step={0.5}
+                  format={(v) => (v === 0 ? 'Auto' : fmt(v))}
+                  onChange={(frontLabelSize) => onChange({ frontLabelSize: frontLabelSize > 0 && frontLabelSize < 2 ? 2 : frontLabelSize })}
+                />
+                <FrontPreview opts={resolved} />
+              </>
+            )}
+          </div>
+        )}
+      </Find>
+      <MoreInAll
+        ids={[
+          ...(tabs && any ? ([['label-style', opts.labelStyle !== 'raised']] as [string, boolean][]) : []),
+          ...(tabs ? ([['label-plates', opts.labelPlates]] as [string, boolean][]) : []),
+          ['front-label', front],
+        ]}
+      />
+    </>
   );
 }
 

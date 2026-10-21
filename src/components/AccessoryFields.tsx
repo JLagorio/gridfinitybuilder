@@ -1,6 +1,7 @@
 import { useUnits } from '../state/store';
 import { LengthInput, Segmented, Stepper, Toggle } from './fields';
 import { LabelTextField } from './LabelFields';
+import { Find } from './findContext';
 import { binSize, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { RAIL, SLIDE, TRAY, accessoryParts, planAccessories, slideLidBox, type RailMode, type RailPlatePart } from '../lib/geometry/accessories';
 
@@ -88,78 +89,84 @@ export function AccessoryFields({ opts, onChange, cells }: Props) {
 
   return (
     <>
-      <Toggle label="Lift-out tray" checked={opts.tray} onChange={(tray) => onChange({ tray })} hint={compartments ? trayHint : undefined} />
-      {opts.tray && compartments && (
-        <div className="indent">
-          <div className="row2">
-            <LengthInput
-              label="Tray height"
-              value={opts.trayHeight}
-              min={TRAY.minHeight}
-              max={TRAY.maxHeight}
-              onChange={(trayHeight) => onChange({ trayHeight })}
+      <Find id="tray">
+        <Toggle label="Lift-out tray" checked={opts.tray} onChange={(tray) => onChange({ tray })} hint={compartments ? trayHint : undefined} />
+        {opts.tray && compartments && (
+          <div className="indent">
+            <div className="row2">
+              <LengthInput
+                label="Tray height"
+                value={opts.trayHeight}
+                min={TRAY.minHeight}
+                max={TRAY.maxHeight}
+                onChange={(trayHeight) => onChange({ trayHeight })}
+              />
+              <Stepper label="Trays" value={opts.trayCount} min={1} max={TRAY.maxCount} onChange={(trayCount) => onChange({ trayCount })} />
+            </div>
+            <div className="row2">
+              <Stepper label="Tray columns" value={opts.trayDivX} min={1} max={TRAY.maxDiv} onChange={(trayDivX) => onChange({ trayDivX })} />
+              <Stepper label="Tray rows" value={opts.trayDivY} min={1} max={TRAY.maxDiv} onChange={(trayDivY) => onChange({ trayDivY })} />
+            </div>
+            {opts.trayCount > 1 && <div className="field-hint">Each tray rests on its own ledge; the lower ones are a little smaller so they pass the ledges above.</div>}
+          </div>
+        )}
+        {trayWarn.map((n) => (
+          <div key={n} className="field-error">
+            {n}
+          </div>
+        ))}
+      </Find>
+
+      <Find id="slide-lid">
+        <Toggle
+          label="Sliding lid"
+          checked={opts.slideLid}
+          onChange={(slideLid) => onChange(slideLid ? { slideLid, lip: false, lid: false } : { slideLid })}
+          hint={lidHint}
+        />
+        {opts.slideLid && (
+          <div className="indent">
+            {opts.lip && (
+              <button type="button" onClick={() => onChange({ lip: false, lid: false })}>
+                Turn the stacking lip off
+              </button>
+            )}
+            <LabelTextField
+              label="Lid text"
+              value={opts.slideLidText}
+              onChange={(slideLidText) => onChange({ slideLidText })}
+              placeholder="Engraved on the lid"
+              hint="Engraved into the top of the lid, behind the grip ridges."
             />
-            <Stepper label="Trays" value={opts.trayCount} min={1} max={TRAY.maxCount} onChange={(trayCount) => onChange({ trayCount })} />
           </div>
-          <div className="row2">
-            <Stepper label="Tray columns" value={opts.trayDivX} min={1} max={TRAY.maxDiv} onChange={(trayDivX) => onChange({ trayDivX })} />
-            <Stepper label="Tray rows" value={opts.trayDivY} min={1} max={TRAY.maxDiv} onChange={(trayDivY) => onChange({ trayDivY })} />
+        )}
+        {lidWarn.map((n) => (
+          <div key={n} className="field-error">
+            {n}
           </div>
-          {opts.trayCount > 1 && <div className="field-hint">Each tray rests on its own ledge; the lower ones are a little smaller so they pass the ledges above.</div>}
-        </div>
-      )}
-      {trayWarn.map((n) => (
-        <div key={n} className="field-error">
-          {n}
-        </div>
-      ))}
+        ))}
+      </Find>
 
-      <Toggle
-        label="Sliding lid"
-        checked={opts.slideLid}
-        onChange={(slideLid) => onChange(slideLid ? { slideLid, lip: false, lid: false } : { slideLid })}
-        hint={lidHint}
-      />
-      {opts.slideLid && (
-        <div className="indent">
-          {opts.lip && (
-            <button type="button" onClick={() => onChange({ lip: false, lid: false })}>
-              Turn the stacking lip off
-            </button>
-          )}
-          <LabelTextField
-            label="Lid text"
-            value={opts.slideLidText}
-            onChange={(slideLidText) => onChange({ slideLidText })}
-            placeholder="Engraved on the lid"
-            hint="Engraved into the top of the lid, behind the grip ridges."
-          />
-        </div>
-      )}
-      {lidWarn.map((n) => (
-        <div key={n} className="field-error">
-          {n}
-        </div>
-      ))}
-
-      <Segmented label="Divider rails" value={opts.rails} options={RAIL_OPTIONS} onChange={(r) => onChange({ rails: r })} hint={compartments ? railHint : undefined} />
-      {opts.rails && compartments && (
-        <div className="indent row2">
-          <LengthInput label="Rail pitch" value={opts.railPitch} min={RAIL.minPitch} max={RAIL.maxPitch} onChange={(railPitch) => onChange({ railPitch })} />
-          <Stepper
-            label={opts.rails === 'xy' ? 'Plates each way' : 'Plates'}
-            value={opts.railPlates}
-            min={0}
-            max={RAIL.maxPlates}
-            onChange={(railPlates) => onChange({ railPlates })}
-          />
-        </div>
-      )}
-      {railWarn.map((n) => (
-        <div key={n} className="field-error">
-          {n}
-        </div>
-      ))}
+      <Find id="rails">
+        <Segmented label="Divider rails" value={opts.rails} options={RAIL_OPTIONS} onChange={(r) => onChange({ rails: r })} hint={compartments ? railHint : undefined} />
+        {opts.rails && compartments && (
+          <div className="indent row2">
+            <LengthInput label="Rail pitch" value={opts.railPitch} min={RAIL.minPitch} max={RAIL.maxPitch} onChange={(railPitch) => onChange({ railPitch })} />
+            <Stepper
+              label={opts.rails === 'xy' ? 'Plates each way' : 'Plates'}
+              value={opts.railPlates}
+              min={0}
+              max={RAIL.maxPlates}
+              onChange={(railPlates) => onChange({ railPlates })}
+            />
+          </div>
+        )}
+        {railWarn.map((n) => (
+          <div key={n} className="field-error">
+            {n}
+          </div>
+        ))}
+      </Find>
     </>
   );
 }

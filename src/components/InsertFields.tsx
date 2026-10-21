@@ -10,6 +10,7 @@ import { LID_HEIGHT } from '../lib/geometry/lid';
 import { usesToolCompartments } from '../lib/geometry/compartments';
 import type { Compartment, CompartmentOptions } from '../lib/dividers';
 import { WALL } from '../lib/geometry/spec';
+import { Find } from './findContext';
 
 type Props = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void; cells?: BinCells };
 type Fmt = (mm: number) => string;
@@ -59,52 +60,56 @@ export function InsertFields({ opts, onChange, cells }: Props) {
     : 'A printed egg-crate lattice that drops into each compartment (or the whole bin when it has one), splitting it into small cells you can lift out at once.';
   return (
     <>
-      <Toggle label="A cup in every compartment" checked={opts.cups} onChange={(c) => onChange({ cups: c })} hint={cupHint} />
-      {opts.cups && (
-        <div className="indent">
-          <Segmented
-            label="Lift with"
-            value={opts.cupGrip}
-            options={GRIPS}
-            onChange={(cupGrip) => onChange({ cupGrip })}
-            hint={
-              opts.cupGrip === 'tab'
-                ? 'A tab rises from the back rim (the front, under a label tab); the rest of the rim is a little lower.'
-                : opts.cupGrip === 'notch'
-                  ? 'A round groove down the outside of the back wall (the front, under a label tab): pinch the wall there.'
-                  : undefined
-            }
-          />
-          <Toggle
-            label="Scoop inside"
-            checked={opts.cupScoop}
-            onChange={(cupScoop) => onChange({ cupScoop })}
-            hint="A curved inside front, so screws pour out when you tip the cup."
-          />
-        </div>
-      )}
-      <Toggle label="A grid insert in every compartment" checked={opts.crate} onChange={(crate) => onChange({ crate })} hint={gridHint} />
-      {(opts.crate || Object.values(opts.layout?.comps ?? {}).some((c) => c?.crate)) && (
-        <div className="indent">
-          <div className="row2">
-            <Stepper label="Grid columns" value={opts.crateDivX} min={CRATE.minDiv} max={CRATE.maxDiv} onChange={(crateDivX) => onChange({ crateDivX })} />
-            <Stepper label="Grid rows" value={opts.crateDivY} min={CRATE.minDiv} max={CRATE.maxDiv} onChange={(crateDivY) => onChange({ crateDivY })} />
-          </div>
-          <div className="row2">
-            <LengthInput
-              label="Grid height"
-              value={opts.crateHeight}
-              min={0}
-              max={CRATE.maxHeight}
-              allowEmpty
-              placeholder="full"
-              onChange={(crateHeight) => onChange({ crateHeight })}
-              hint="Empty: as deep as the compartment."
+      <Find id="cups">
+        <Toggle label="A cup in every compartment" checked={opts.cups} onChange={(c) => onChange({ cups: c })} hint={cupHint} />
+        {opts.cups && (
+          <div className="indent">
+            <Segmented
+              label="Lift with"
+              value={opts.cupGrip}
+              options={GRIPS}
+              onChange={(cupGrip) => onChange({ cupGrip })}
+              hint={
+                opts.cupGrip === 'tab'
+                  ? 'A tab rises from the back rim (the front, under a label tab); the rest of the rim is a little lower.'
+                  : opts.cupGrip === 'notch'
+                    ? 'A round groove down the outside of the back wall (the front, under a label tab): pinch the wall there.'
+                    : undefined
+              }
             />
-            <LengthInput label="Grid walls" value={opts.crateWall} min={CRATE.minWall} max={CRATE.maxWall} onChange={(crateWall) => onChange({ crateWall })} />
+            <Toggle
+              label="Scoop inside"
+              checked={opts.cupScoop}
+              onChange={(cupScoop) => onChange({ cupScoop })}
+              hint="A curved inside front, so screws pour out when you tip the cup."
+            />
           </div>
-        </div>
-      )}
+        )}
+      </Find>
+      <Find id="crate">
+        <Toggle label="A grid insert in every compartment" checked={opts.crate} onChange={(crate) => onChange({ crate })} hint={gridHint} />
+        {(opts.crate || Object.values(opts.layout?.comps ?? {}).some((c) => c?.crate)) && (
+          <div className="indent">
+            <div className="row2">
+              <Stepper label="Grid columns" value={opts.crateDivX} min={CRATE.minDiv} max={CRATE.maxDiv} onChange={(crateDivX) => onChange({ crateDivX })} />
+              <Stepper label="Grid rows" value={opts.crateDivY} min={CRATE.minDiv} max={CRATE.maxDiv} onChange={(crateDivY) => onChange({ crateDivY })} />
+            </div>
+            <div className="row2">
+              <LengthInput
+                label="Grid height"
+                value={opts.crateHeight}
+                min={0}
+                max={CRATE.maxHeight}
+                allowEmpty
+                placeholder="full"
+                onChange={(crateHeight) => onChange({ crateHeight })}
+                hint="Empty: as deep as the compartment."
+              />
+              <LengthInput label="Grid walls" value={opts.crateWall} min={CRATE.minWall} max={CRATE.maxWall} onChange={(crateWall) => onChange({ crateWall })} />
+            </div>
+          </div>
+        )}
+      </Find>
       {plan.notes.map((n) => (
         <div key={n} className="field-error">
           {n}

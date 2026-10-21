@@ -1,0 +1,113 @@
+/* Find a setting and Basic / All settings, at the top of each side panel (find.tsx) */
+.panel-find {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.panel-find-input {
+  flex: 1;
+  padding-left: 9px;
+  color: var(--faint);
+}
+.panel-find-input svg {
+  flex-shrink: 0;
+}
+.panel-find-input input {
+  padding-left: 7px;
+}
+.panel-find-input input::-webkit-search-cancel-button {
+  display: none;
+}
+.panel-find-clear {
+  border: none;
+  background: none;
+  padding: 0 10px;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--muted);
+}
+.panel-find-clear:hover:not(:disabled) {
+  background: none;
+  color: var(--text);
+}
+.panel-find > .segmented {
+  flex-shrink: 0;
+}
+.panel-find > .segmented button {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.panel-find-empty {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.panel-find-empty p {
+  margin: 0 0 6px;
+}
+
+/* A field the search or the Basic view can hide (findContext.tsx Find): no box of its own. */
+.find-wrap {
+  display: contents;
+}
+.find-wrap[hidden] {
+  display: none;
+}
+
+/* Inside a folding group (fields.tsx Group): spaced like a section. */
+.option-group .group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding-top: 4px;
+}
+
+/* What the Basic view leaves out, at the end of a section (MoreInAll) */
+.more-in-all {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* "Start from" presets (TemplatesSection.tsx BinPresets) */
+.quick-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.quick-presets button {
+  padding: 4px 11px;
+  font-size: 12.5px;
+  border-radius: 999px;
+}
+
+/* A folded group with something set away from the default: a dot after its title. */
+details.option-group.set > summary > span::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+details.option-group.set > summary small {
+  color: var(--muted);
+}
+
+/* With several printers the first one is a card too, at the top of the section (PrintPanel). */
+.printer-card.first {
+  padding-top: 0;
+  border-top: none;
+}
+
+/* The selected bin's own downloads (BinPanel), smaller than the main exports in Print plates. */
+.download-row button {
+  padding: 6px 8px;
+}

@@ -78,10 +78,17 @@ export function ContentsText({
       />
     </div>
   );
-  return label ? (
-    <Field label={label} hint={hint} id={id}>
+  if (label)
+    return (
+      <Field label={label} hint={hint} id={id}>
+        {area}
+      </Field>
+    );
+  return hint ? (
+    <div className="field">
       {area}
-    </Field>
+      <div className="field-hint">{hint}</div>
+    </div>
   ) : (
     area
   );
@@ -120,7 +127,18 @@ function CompRow({ binId, c, active }: { binId: string; c: CompEntry; active: bo
  * compartment when it has several. Not geometry: nothing is rebuilt, and it's
  * what search, the drawer map and the contents list use.
  */
-export function BinContentsFields({ bin, grid, onLabel }: { bin: PlacedBin; grid: GridLayout; onLabel?: (labelText: string) => void }) {
+export function BinContentsFields({
+  bin,
+  grid,
+  onLabel,
+  label = 'What’s in it',
+}: {
+  bin: PlacedBin;
+  grid: GridLayout;
+  onLabel?: (labelText: string) => void;
+  /** The field's label; none under a heading that says it already. */
+  label?: string | null;
+}) {
   const setBinContents = useStore((s) => s.setBinContents);
   const entry = useMemo(() => binEntry({ id: '', name: '' }, bin, binCellsAt(grid, bin)), [bin, grid]);
   const sel = useInterior();
@@ -137,10 +155,13 @@ export function BinContentsFields({ bin, grid, onLabel }: { bin: PlacedBin; grid
   return (
     <div className="contents-fields">
       <ContentsText
-        label="What's in it"
+        label={label ?? undefined}
+        ariaLabel="What’s in it"
         value={bin.contents ?? ''}
         onChange={(t) => setBinContents(bin.id, t)}
         placeholder={'One thing per line, e.g.\nM3 × 8 screws\nM3 nuts'}
+        // Room for the whole example.
+        minRows={3}
         hint={
           <>
             For finding things (<kbd>/</kbd>) and the drawer map. It doesn't change the print.

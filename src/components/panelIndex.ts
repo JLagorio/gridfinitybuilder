@@ -71,9 +71,18 @@ export const BIN_INDEX: FindEntry[] = [
         id: 'pockets',
         title: 'Pocket grid',
         when: 'when Inside is Pocket grid',
-        words: [
-          'pocket', 'holds', 'battery', 'bits', 'sd card', 'drill', 'socket', 'hex key', 'marker', 'paint', 'nozzle', 'coin', 'round', 'square',
-          'hex', 'spacing', 'chamfer', 'bottom', 'cone', 'stepped', 'lean', 'tilt', 'finger access', 'groove', 'notch', 'magnet', 'fit an item', 'sizes',
+        words: ['pocket', 'pockets', 'holder', 'grid of holes'],
+        children: [
+          {
+            id: 'pocket-holds',
+            title: 'Holds',
+            words: ['battery', 'bits', 'sd card', 'card', 'drill', 'socket', 'hex key', 'marker', 'pen', 'paint', 'nozzle', 'coin', 'test tube', 'sizes', 'set', 'fit an item', 'measure'],
+          },
+          { id: 'pocket-shape', title: 'Pocket shape and size', words: ['round', 'square', 'hex', 'diameter', 'size', 'depth', 'spacing', 'chamfer', 'clearance'] },
+          { id: 'pocket-bottom', title: 'Pocket bottom', words: ['flat', 'round', 'cone', 'point', 'stepped', 'bore', 'collar'] },
+          { id: 'pocket-lean', title: 'Lean', words: ['lean', 'tilt', 'angle', 'tip'] },
+          { id: 'pocket-access', title: 'Finger access', words: ['finger', 'groove', 'notch', 'thumb', 'grab'] },
+          { id: 'pocket-magnet', title: 'Magnet under each pocket', words: ['magnet', 'magnets', 'steel', 'hold'] },
         ],
       },
       { id: 'shadow', title: 'Two-colour pocket floors', when: 'for tool cutouts', words: ['shadow board', 'two colour', 'color', 'filament', 'ams', 'tool pocket', 'missing tool'] },

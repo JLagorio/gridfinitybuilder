@@ -1,16 +1,50 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { lengthFieldText, parseLength, type Units } from '../lib/units';
 import { useUnits } from '../state/store';
+import { useFind } from './findContext';
 
-export function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
+/**
+ * A sidebar section. `find` is its id in the panel's search index
+ * (panelIndex.ts): it hides while a search doesn't match it, and in the Basic
+ * view unless it's a basic section or `set` (something in it isn't the default).
+ */
+export function Section({ title, children, aside, find, set }: { title: string; children: ReactNode; aside?: ReactNode; find?: string; set?: boolean }) {
+  const { show } = useFind(find, set);
   return (
-    <section className="section">
+    <section className="section" hidden={!show}>
       <header className="section-head">
         <h3>{title}</h3>
         {aside}
       </header>
       <div className="section-body">{children}</div>
     </section>
+  );
+}
+
+/**
+ * A folding group of options with a summary of what's set. It starts open when
+ * anything in it isn't the default (`active`), and says so with a dot while
+ * folded. A search that matches something in it opens it; clearing the search
+ * folds it back the way it was. `find`: as for Section.
+ */
+export function Group({ title, status, active = false, find, children }: { title: string; status: string; active?: boolean; find?: string; children: ReactNode }) {
+  const f = useFind(find, active);
+  // Decided once (the panel is keyed by bin), so turning an option off doesn't snap the group shut.
+  const [open, setOpen] = useState(active);
+  return (
+    <details
+      className={`advanced option-group${active ? ' set' : ''}`}
+      hidden={!f.show}
+      open={(f.searching && f.show) || open || undefined}
+      // Only the user's own folding counts, not a search opening it.
+      onToggle={(e) => !f.searching && setOpen(e.currentTarget.open)}
+    >
+      <summary>
+        <span>{title}</span>
+        <small>{status}</small>
+      </summary>
+      <div className="group-body">{children}</div>
+    </details>
   );
 }
 
@@ -265,15 +299,18 @@ export function Segmented<T extends string | number>({
   options,
   onChange,
   hint,
+  ariaLabel,
 }: {
   label?: string;
   value: T;
   options: { value: T; label: string; title?: string }[];
   onChange: (v: T) => void;
   hint?: ReactNode;
+  /** Its name for screen readers when it has no label (under a heading that says what it is). */
+  ariaLabel?: string;
 }) {
   const body = (
-    <div className="segmented" role="radiogroup" aria-label={label}>
+    <div className="segmented" role="radiogroup" aria-label={label ?? ariaLabel}>
       {options.map((o) => (
         <button
           key={String(o.value)}
@@ -289,10 +326,17 @@ export function Segmented<T extends string | number>({
       ))}
     </div>
   );
-  return label ? (
-    <Field label={label} hint={hint}>
+  if (label)
+    return (
+      <Field label={label} hint={hint}>
+        {body}
+      </Field>
+    );
+  return hint ? (
+    <div className="field">
       {body}
-    </Field>
+      <div className="field-hint">{hint}</div>
+    </div>
   ) : (
     body
   );
