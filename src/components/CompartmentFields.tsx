@@ -40,6 +40,7 @@ import {
   type FloorHigh,
 } from '../lib/dividers';
 import { FreeWallFields, WallFinishFields } from './WallTools';
+import { CompartmentInsertField } from './InsertFields';
 
 /**
  * Sidebar section for a bin's compartments: the quick columns × rows split,
@@ -407,6 +408,7 @@ function CompartmentFields({ info, compKey, onLayout }: { info: BinInterior; com
         />
       )}
       {open && <FloorShapeFields info={info} own={own} set={set} />}
+      {open && info.opts.interior === 'compartments' && <CompartmentInsertField opts={info.opts} cells={info.cells} comp={c} own={own} set={set} />}
       {Object.keys(own).length > 0 && (
         <button className="link" onClick={() => set(Object.fromEntries(Object.keys(own).map((k) => [k, undefined])))}>
           Use the bin’s settings

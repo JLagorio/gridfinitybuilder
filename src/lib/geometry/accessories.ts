@@ -625,6 +625,12 @@ export function assembledParts(job: PrintJob, binId: string, prefix = ''): (JobP
     const part = job.parts[prefix + key];
     if (part?.assembled) out.push(part as JobPart & { assembled: { x: number; y: number; z: number } });
   }
+  // Lift-out cups and grid inserts (cups.ts), numbered from 0.
+  for (const slot of ['cup', 'crate']) {
+    for (let k = 0, part = job.parts[`${prefix}${slot}:${binId}:0`]; part; part = job.parts[`${prefix}${slot}:${binId}:${++k}`]) {
+      if (part.assembled) out.push(part as JobPart & { assembled: { x: number; y: number; z: number } });
+    }
+  }
   return out;
 }
 

@@ -42,8 +42,11 @@ export interface PlateBom {
 
 export interface Bom {
   hardware: HardwareLine[];
-  /** `trays` is only set when there are lift-out trays. Sliding lids count as lids, rail plates as dividers. */
-  parts: { pieces: number; bins: number; lids: number; keys: number; dividers: number; labels: number; trays?: number };
+  /**
+   * `trays` is only set when there are lift-out trays (cups count as trays), `pads` when there are TPU pads.
+   * Sliding lids count as lids, rail plates and grid inserts as dividers.
+   */
+  parts: { pieces: number; bins: number; lids: number; keys: number; dividers: number; labels: number; trays?: number; pads?: number };
   plates: PlateBom[];
   total: PlateBom;
 }
@@ -137,6 +140,7 @@ export function billOfMaterials(job: PrintJob, volumes: (meshKey: string) => num
       else if (part.kind === 'divider') parts.dividers++;
       else if (part.kind === 'label') parts.labels++;
       else if (part.kind === 'tray') parts.trays = (parts.trays ?? 0) + 1;
+      else if (part.kind === 'pad') parts.pads = (parts.pads ?? 0) + 1;
       else parts.keys++;
       for (const h of holesIn(job.meshes[part.meshKey])) {
         const line = hardware.get(h.item) ?? { item: h.item, count: 0, note: h.note };
@@ -180,6 +184,7 @@ export function bomCsv(b: Bom): string {
   if (b.parts.keys) rows.push(['Parts', 'Connector keys', b.parts.keys, '', '', '', '']);
   if (b.parts.dividers) rows.push(['Parts', 'Removable dividers', b.parts.dividers, '', '', '', '']);
   if (b.parts.labels) rows.push(['Parts', 'Label plates', b.parts.labels, '', '', '', '']);
+  if (b.parts.pads) rows.push(['Parts', 'Non-slip pads (TPU)', b.parts.pads, '', '', '', 'print in TPU on their own plate; press into the recesses under the baseplate']);
   b.plates.forEach((p, i) => {
     rows.push(['Plate', `${i + 1}. ${p.name}`, p.parts, r1(p.volume === null ? null : p.volume / 1000), r1(p.grams), r1(p.meters), '']);
   });
@@ -200,6 +205,7 @@ export function bomText(b: Bom): string {
       `${b.parts.keys ? `, ${b.parts.keys} connector keys` : ''}` +
       `${b.parts.dividers ? `, ${b.parts.dividers} removable dividers` : ''}${b.parts.labels ? `, ${b.parts.labels} label plates` : ''}`,
   );
+  if (b.parts.pads) lines.push(`  ${b.parts.pads} non-slip pads in TPU (their own plate; press into the recesses under the baseplate)`);
   lines.push('', `Plates (${b.plates.length})`);
   const fil = (p: PlateBom) => (p.grams === null ? 'not measured' : `${Math.round(p.grams)} g, ${r1(p.meters)} m`);
   b.plates.forEach((p, i) => lines.push(`  ${i + 1}. ${p.name}: ${p.parts} parts, ${fil(p)}`));

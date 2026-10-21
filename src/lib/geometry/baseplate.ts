@@ -23,6 +23,7 @@ import { textRects, textSize } from './digits';
 import { growRect, maskSet, rectsOverlap, voidRects, type Rect } from './mask';
 import type { PieceDef } from '../layout/split';
 import type { GridLayout } from '../layout/drawer';
+import { padRecesses, type PadStyle } from './pads';
 
 /**
  * 'frame': open bottom (a floor only when magnets or screws need one);
@@ -72,6 +73,8 @@ export interface BaseplateOptions {
   screwFastener: 'nut' | 'insert';
   /** Piece number debossed on the underside (mirrored, so it reads with the piece flipped over). */
   pieceNumbers: boolean;
+  /** TPU non-slip pads in recesses underneath (pads.ts). Unset = none, so it isn't in DEFAULT_BASEPLATE or old keys. */
+  pads?: PadStyle;
 }
 
 export const DEFAULT_BASEPLATE: BaseplateOptions = {
@@ -476,6 +479,8 @@ export function buildBaseplatePiece(
       if (j.add) positives.push(j.add);
       if (j.cut) features.push(j.cut);
     }
+    // Recesses for TPU non-slip pads (pads.ts); piece numbers keep clear of them.
+    features.push(...padRecesses(w, s, layout, piece, o, connectors));
 
     const negatives = [...cutouts, ...features];
     if (o.pieceNumbers) {

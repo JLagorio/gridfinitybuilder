@@ -93,6 +93,10 @@ export interface CompartmentOptions {
   floorHigh?: FloorHigh;
   /** Number of steps (2–6), for 'tiers'. */
   tiers?: number;
+  /** A lift-out cup in this compartment (undefined = the bin's `cups`; false = none). Parts only: the bin is unchanged. */
+  cup?: boolean;
+  /** An egg-crate grid insert in this compartment (undefined = the bin's `crate`). A cup wins. */
+  crate?: boolean;
 }
 
 export interface DividerLayout {

@@ -14,6 +14,7 @@ import {
   binLabelPlates,
   binCells,
   binLabelTexts,
+  binLayout,
   binSize,
   binTotalHeight,
   buildBin,
@@ -31,6 +32,12 @@ import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } fro
 import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
 import { accessoryParts, planAccessories, type AccessoryPart } from './geometry/accessories';
 import { buildAccessoryPart } from './geometry/accessoryGeometry';
+import { insertParts, planInserts } from './geometry/cups';
+import { buildInsertPart, type InsertPart } from './geometry/insertGeometry';
+import { PAD, baseplatePads, padPartKey, padPartName, padStyle, padThickness } from './geometry/pads';
+import { isPocketLid } from './geometry/pocketLid';
+import { wantsShadow } from './geometry/insertOptions';
+import { compartmentInside } from './geometry/compartments';
 import {
   buildConnectorKey,
   connectorKeySize,
@@ -131,13 +138,15 @@ export type MeshSpec =
   | { kind: 'label'; key: string; plate: LabelPlate }
   /** Lift-out tray, sliding lid or rail plate (accessories.ts). */
   | { kind: 'accessory'; key: string; part: AccessoryPart }
+  /** Lift-out cup or grid insert (cups.ts), or a baseplate's TPU pad (pads.ts). */
+  | { kind: 'insertPart'; key: string; part: InsertPart }
   /** An extra part of a drawer unit, parts box, … (containers/). */
   | { kind: 'container'; key: string; type: ContainerType; spec: unknown };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray';
+  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray' | 'pad';
   meshKey: string;
   w: number;
   d: number;
@@ -323,11 +332,29 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         plates.push({ name: label + name, group: 'baseplate', placements: pl.placements });
       });
       if (packed.oversize.length) warn('Connector keys are larger than the print bed and were left out.');
+      // TPU non-slip pads (pads.ts) on plates of their own, so they print in another material.
+      const pads: PackItem[] = [];
+      baseplatePads(layout, plan.pieces, d.baseplate, sites).forEach((p, i) => {
+        const meshKey = padPartKey(p.part);
+        meshes[meshKey] = { kind: 'insertPart', key: meshKey, part: p.part };
+        const key = `${prefix}pad:${i}`;
+        parts[key] = { key, name: `${label}${padPartName(p.part)}`, kind: 'pad', meshKey, w: p.part.length, d: p.part.width, h: padThickness(), drawer: d.id };
+        pads.push({ key, w: p.part.length, d: p.part.width });
+      });
+      if (pads.length) {
+        const packedPads = packPlates(pads, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
+        packedPads.plates.forEach((pl, i) => {
+          plates.push({ name: `${label}TPU pads${packedPads.plates.length > 1 ? ` ${i + 1}` : ''}`, group: 'baseplate', placements: pl.placements });
+        });
+        if (packedPads.oversize.length) warn('Some non-slip strips are longer than the print bed and were left out.');
+      }
     }
     const steps = jointSteps(d.baseplate, d.baseplate.connector === 'bowtie' ? 0 : sites.length);
     drawerJobs.push({ id: d.id, name: d.name, layout, plan, connectors, sites, steps, plateOffset, plateCount: plates.length - plateOffset });
 
-    const room = d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) : Infinity;
+    // TPU pads (pads.ts) lift the whole plate a little.
+    const lift = padStyle(d.baseplate) ? PAD.proud : 0;
+    const room = d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) - lift : Infinity;
     for (const b of d.bins) {
       const key = `${prefix}bin:${b.id}`;
       const spec = binSpec(layout, b);
@@ -364,7 +391,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         const lidPart = `${prefix}lid:${b.id}`;
         const size = lidSize(b.opts, lid.cells);
         meshes[lid.key] = lid;
-        parts[lidPart] = { key: lidPart, name: `${label}Lid for bin ${binName}`, kind: 'lid', meshKey: lid.key, ...size, drawer: d.id };
+        const lidName = isPocketLid(b.opts) ? 'Pocket-grid lid' : 'Lid';
+        parts[lidPart] = { key: lidPart, name: `${label}${lidName} for bin ${binName}`, kind: 'lid', meshKey: lid.key, ...size, drawer: d.id };
         const stack = lidStackHeight(b.opts);
         if (h <= room + 1e-6 && stack > room + 1e-6) warn(`Bin ${binName} with its lid is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
         if (include.bins) binItems.push({ key: lidPart, w: size.w, d: size.d });
@@ -401,6 +429,14 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         if (a.assembled) parts[k].assembled = a.assembled;
         if (include.bins) binItems.push({ key: k, w: a.w, d: a.d });
       }
+      // Lift-out cups and grid inserts (cups.ts), shown sitting in their compartments.
+      for (const msg of planInserts(acc, spec.cells).notes) warn(`Bin ${binLabel(b.opts)}: ${msg}`);
+      for (const a of insertParts(acc, spec.cells)) {
+        meshes[a.meshKey] = { kind: 'insertPart', key: a.meshKey, part: a.part };
+        const k = `${prefix}${a.slot}:${b.id}:${a.index}`;
+        parts[k] = { key: k, name: `${label}${a.name} (${owner})`, kind: a.kind, meshKey: a.meshKey, w: a.w, d: a.d, h: a.h, drawer: d.id, assembled: a.assembled };
+        if (include.bins) binItems.push({ key: k, w: a.w, d: a.d });
+      }
     }
   }
 
@@ -433,6 +469,7 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'divider') return buildDividerInsert(w, spec.insert);
   if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
+  if (spec.kind === 'insertPart') return buildInsertPart(w, spec.part);
   if (spec.kind === 'container') {
     const def = containerDef(spec.type);
     if (!def?.buildPart) throw new Error(`No part builder for container type “${spec.type}”.`);
@@ -494,15 +531,25 @@ export function exportBambuProject(
   });
 }
 
+/** A bin with tool pockets whose shadow-board floors print in filament 2 (shadowBoard.ts). */
+function binHasShadow(spec: Extract<MeshSpec, { kind: 'bin' }>): boolean {
+  const o = sanitizeBin(spec.opts);
+  if (!wantsShadow(o) || activeContainer(o)) return false;
+  if (o.interior === 'cutouts') return true;
+  // Tool compartments that exist in this bin.
+  return binLayout(o, spec.cells).compartments.some((c) => compartmentInside(o.layout?.comps?.[c.key]) === 'tools');
+}
+
 /**
  * True when a part on the job's plates may print in a second filament (inlaid
- * label text on a bin or a label plate). Planning can't lay out text, so a
- * label too small to print still counts.
+ * label text on a bin or a label plate, or shadow-board pocket floors). Planning
+ * can't lay out text, so a label too small to print still counts.
  */
 export function usesSecondFilament(job: PrintJob): boolean {
   for (const pl of job.plates) {
     for (const p of pl.placements) {
       const spec = job.meshes[job.parts[p.key].meshKey];
+      if (spec?.kind === 'bin' && binHasShadow(spec)) return true;
       if (spec?.kind === 'label' && spec.plate.style === 'inlaid' && spec.plate.text.trim()) return true;
       if (spec?.kind === 'bin' && spec.opts.labelStyle === 'inlaid' && binLabelTexts(spec.opts, spec.cells).length) {
         // With label plates the text is on the plates (unless a tab is too small for one).
@@ -582,16 +629,19 @@ export function plateContents(job: PrintJob, pl: JobPlate): string[] {
   let keys = 0;
   let dividers = 0;
   let labels = 0;
+  let pads = 0;
   for (const p of pl.placements) {
     const part = job.parts[p.key];
     if (part.kind === 'key') keys++;
     else if (part.kind === 'divider') dividers++;
     else if (part.kind === 'label') labels++;
+    else if (part.kind === 'pad') pads++;
     else names.push(part.name);
   }
   if (keys) names.push(`${keys} connector key${keys === 1 ? '' : 's'}`);
   if (dividers) names.push(`${dividers} divider${dividers === 1 ? '' : 's'}`);
   if (labels) names.push(`${labels} label plate${labels === 1 ? '' : 's'}`);
+  if (pads) names.push(`${pads} TPU non-slip pad${pads === 1 ? '' : 's'}`);
   return names;
 }
 

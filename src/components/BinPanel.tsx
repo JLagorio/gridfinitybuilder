@@ -18,6 +18,7 @@ import { LabelFields } from './LabelFields';
 import { ToolLibrary } from './ToolLibrary';
 import { BinContentsFields } from './ContentsField';
 import { AccessoryFields, accessoriesActive, accessoryStatus } from './AccessoryFields';
+import { InsertFields, insertStatus, insertsActive } from './InsertFields';
 import { binTotalHeight, binCells } from '../lib/geometry/bin';
 import { activeContainer, containerDefs, type ContainerKind } from '../lib/geometry/containers';
 import { containerFields } from './containers';
@@ -160,10 +161,13 @@ function PlainBinFields({ opts, onChange, cells, contents, half }: BodyProps) {
         )}
       </OptionGroup>
       <OptionGroup title="Lip & lid" status={lipStatus(opts)} active={!opts.lip || opts.lipStyle !== 'normal' || opts.lipNotches || opts.lid}>
-        <LipFields opts={opts} onChange={onChange} />
+        <LipFields opts={opts} onChange={onChange} cells={cells} />
       </OptionGroup>
       <OptionGroup title="Trays, lids & rails" status={accessoryStatus(opts, fmt, cells)} active={accessoriesActive(opts)}>
         <AccessoryFields opts={opts} onChange={onChange} cells={cells} />
+      </OptionGroup>
+      <OptionGroup title="Cups & grid inserts" status={insertStatus(opts, cells)} active={insertsActive(opts)}>
+        <InsertFields opts={opts} onChange={onChange} cells={cells} />
       </OptionGroup>
       <OptionGroup title="Walls" status={wallStatus(opts)} active={!!(opts.cutoutWalls || opts.slideWalls || opts.patternWalls) || !opts.fillet}>
         <WallFields opts={opts} onChange={onChange} />
@@ -201,7 +205,7 @@ function baseStatus(o: BinOptions) {
 
 function lipStatus(o: BinOptions) {
   if (!o.lip) return 'no lip';
-  return [o.lipStyle === 'reduced' ? 'reduced lip' : 'stacking lip', o.lipNotches && 'notches', o.lid && 'lid'].filter(Boolean).join(' · ');
+  return [o.lipStyle === 'reduced' ? 'reduced lip' : 'stacking lip', o.lipNotches && 'notches', o.lid && (o.lidStyle === 'pockets' ? 'pocket lid' : 'lid')].filter(Boolean).join(' · ');
 }
 
 function wallStatus(o: BinOptions) {

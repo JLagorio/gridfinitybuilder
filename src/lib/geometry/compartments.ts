@@ -105,7 +105,7 @@ export interface LabelTab {
   z: number;
 }
 
-interface TabShape {
+export interface TabShape {
   tx0: number;
   tx1: number;
   /** Back (in the wall) and front edge. */
@@ -119,7 +119,7 @@ interface TabShape {
 }
 
 /** Where a cutter's label tab goes, or null when it has none (or no room for one). */
-function tabShape(c: CutterSpec): TabShape | null {
+export function tabShape(c: CutterSpec): TabShape | null {
   if (c.label === 'none') return null;
   const eps = 0.01;
   const { x0, x1, y1, cw, cd, zFloor, topInfill, zTop } = c;
@@ -150,13 +150,19 @@ function tabOf(c: CutterSpec): LabelTab | null {
   return { key: c.key ?? '', x0: Math.max(t.tx0, c.x0 + eps), x1: Math.min(t.tx1, c.x1 - eps), y0: t.yf, y1, z: t.tabTop };
 }
 
+/** Radius of a cutter's front scoop (0 = none). */
+export function scoopRadius(c: Pick<CutterSpec, 'scoop' | 'cd' | 'zFloor' | 'topInfill'>): number {
+  if (!(c.scoop > 0)) return 0;
+  return Math.max(2, c.scoop * Math.min((c.topInfill - c.zFloor) * 0.85, c.cd * 0.6));
+}
+
 /**
  * One compartment cutter. With a numeric radius and no tabTop this is exactly
  * the cutter the uniform grid has always used.
  * Solids that later cuts must not remove (tab, scoop ramp) are pushed to `keep`.
  */
 export function compartmentCutter(w: Wasm, s: Scope, c: CutterSpec, keep?: Manifold[]): Manifold {
-  const { x0, y0, x1, y1, cd, zFloor, topInfill, zTop } = c;
+  const { x0, y0, x1, y1, zFloor, topInfill, zTop } = c;
   const innerH = topInfill - zFloor;
   let cutter: Manifold;
   const r = typeof c.radius === 'number' ? c.radius : Math.max(...c.radius);
@@ -180,7 +186,7 @@ export function compartmentCutter(w: Wasm, s: Scope, c: CutterSpec, keep?: Manif
 
   // Scoop: a concave ramp on the front (-Y) wall for scooping out small parts.
   if (c.scoop > 0) {
-    const R = Math.max(2, c.scoop * Math.min(innerH * 0.85, cd * 0.6));
+    const R = scoopRadius(c);
     const fill = s.t(boxAt(w, x0 - 1, y0 - 1, zFloor - 1, x1 + 1, y0 + R, zFloor + R));
     const cyl = s.t(
       w.Manifold.cylinder(x1 - x0 + 4, R, R, 64)
@@ -384,6 +390,95 @@ export function compartmentPocketLayouts(
 ): PocketLayout[] {
   if ((o.interior && o.interior !== 'compartments') || compartmentInside(o.layout?.comps?.[c.key]) !== 'pockets') return [];
   return planLayout(o, { innerW, innerD, compartments: [c] }, -innerW / 2, -innerD / 2, zFloor, topInfill)[0]?.pockets ?? [];
+}
+
+/** One rect of a compartment as `interiorCuts` cuts it: what drops into it must clear these (cups.ts). */
+export interface CompartmentSpace {
+  key: string;
+  /** False: this is one strip of an L/T/U-shaped compartment. */
+  isRect: boolean;
+  /** Clear rect between the wall faces, bin-centered mm. */
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  /** Floor of the compartment (raised floors included). */
+  zFloor: number;
+  topInfill: number;
+  /** Plan radius of the cutter's corners (the largest). */
+  radius: number;
+  /** Radius of the rounded bottom edges, 0 for none. */
+  fillet: number;
+  /** Radius of the front scoop, 0 for none. */
+  scoop: number;
+  tab: TabShape | null;
+  /** Filled, or a ramp / steps floor: nothing can drop in. */
+  blocked: boolean;
+}
+
+/** Every compartment rect of a bin (same arguments as `interiorCuts`). No geometry is built. */
+export function compartmentSpaces(o: BinOptions, W: number, D: number, zFloor: number, topInfill: number): CompartmentSpace[] {
+  if (o.interior && o.interior !== 'compartments') return [];
+  const eps = 0.01;
+  const of = (c: CutterSpec, key: string, isRect: boolean, fillet: number, blocked: boolean): CompartmentSpace => ({
+    key,
+    isRect,
+    x0: c.x0 + eps,
+    y0: c.y0 + eps,
+    x1: c.x1 - eps,
+    y1: c.y1 - eps,
+    zFloor: c.zFloor,
+    topInfill: c.topInfill,
+    radius: typeof c.radius === 'number' ? c.radius : Math.max(...c.radius),
+    fillet,
+    scoop: scoopRadius(c),
+    tab: tabShape(c),
+    blocked,
+  });
+  // As compartmentCutter rounds a rectangular compartment's bottom.
+  const rectFillet = (c: CutterSpec) => {
+    const r = typeof c.radius === 'number' ? c.radius : Math.max(...c.radius);
+    const rf = Math.min(r, (c.topInfill - c.zFloor) / 2 - 0.05);
+    return c.fillet && typeof c.radius === 'number' && rf > 0.3 ? rf : 0;
+  };
+  if (!o.layout) {
+    try {
+      return uniformSpecs(o, W, D, zFloor, topInfill).map((c) => of(c, c.key ?? '', true, rectFillet(c), false));
+    } catch {
+      return [];
+    }
+  }
+  const ix0 = -W / 2 + WALL;
+  const iy0 = -D / 2 + WALL;
+  const r = resolveLayout(o.layout, W - 2 * WALL, D - 2 * WALL);
+  return planLayout(o, r, ix0, iy0, zFloor, topInfill).flatMap((p): CompartmentSpace[] => {
+    const blocked = p.inside !== 'open' || !!p.shape;
+    if (blocked || !p.specs.length) {
+      return p.c.rects.map((rc) => ({
+        key: p.c.key,
+        isRect: p.c.isRect,
+        x0: ix0 + rc.x0,
+        y0: iy0 + rc.y0,
+        x1: ix0 + rc.x1,
+        y1: iy0 + rc.y1,
+        zFloor: p.fillTop,
+        topInfill,
+        radius: rectRadius(rc),
+        fillet: 0,
+        scoop: 0,
+        tab: null,
+        blocked: true,
+      }));
+    }
+    // L/T/U shapes: the outline fillet (layoutCuts), as round as the corners allow.
+    let lFillet = 0;
+    if (!p.c.isRect && o.fillet) {
+      const radii = p.c.rects.flatMap((rc) => (rc.convex.some(Boolean) ? [rectRadius(rc) + eps] : []));
+      const rf = Math.min(INNER_RADIUS + eps, (topInfill - p.zf) / 2 - 0.05, ...radii);
+      lFillet = rf > 0.3 ? rf : 0;
+    }
+    return p.specs.map((c) => of(c, p.c.key, p.c.isRect, p.c.isRect ? rectFillet(c) : lFillet, false));
+  });
 }
 
 /** The classic divX × divY grid (geometry identical to before layouts existed). */

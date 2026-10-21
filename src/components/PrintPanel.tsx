@@ -237,7 +237,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                 value={setup.labelColour ?? '#161616'}
                 onChange={(e) => store.setSetup({ labelColour: e.target.value })}
               />
-              <span className="muted small">Inlaid label text prints in this filament; the Bambu project gets a second filament set to it.</span>
+              <span className="muted small">Inlaid label text and two-colour tool pocket floors print in this filament; the Bambu project gets a second filament set to it.</span>
             </div>
           </div>
         )}
