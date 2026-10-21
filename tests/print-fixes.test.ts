@@ -109,4 +109,12 @@ describe('print fixes', () => {
   it('a coin dispenser’s window leaves no slivers along its sides', () => {
     expect(sliceReport(w, sample('containers/dispenser-coin-window.stl')).thin).toEqual([]);
   });
+
+  it('a shadow-board floor doesn’t float over the finger notch of a deeper pocket beside it', () => {
+    // The round tool's notch reaches into the spanner's pocket, deeper than the spanner's filament-2 floor.
+    const m = sample('tools/shadow-label.stl');
+    expect(m.overlays).toHaveLength(1);
+    const c = checkPart(w, m);
+    expect(c.issues).toEqual([]);
+  });
 });
