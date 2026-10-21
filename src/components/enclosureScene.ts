@@ -11,6 +11,8 @@ const COLORS: Record<EnclosureSceneItem['role'], string> = {
   foot: '#3b3f46',
   strip: '#c8a86e',
   cleat: '#8d6e63',
+  joint: '#3b3f46',
+  standoff: '#3b3f46',
 };
 
 /** The enclosure's extra parts for the drawer view (plate coordinates; spread with the pieces). */

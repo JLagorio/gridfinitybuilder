@@ -40,9 +40,12 @@ function fontReady() {
     .catch((e) => console.warn('Label font unavailable:', e)));
 }
 
-/** Baseplate pieces (without case walls) and connector keys never have text: they don't wait for the font. */
+/** Baseplate pieces (without case walls), Skådis tiles and connector keys never have text: they don't wait for the font. */
 const textFree = (spec: MeshSpec): boolean =>
-  (spec.kind === 'piece' && !spec.enclosure) || spec.kind === 'key' || spec.kind === 'imported' || (spec.kind === 'split' && textFree(spec.base));
+  (spec.kind === 'piece' && (!spec.enclosure || spec.enclosure.kind === 'skadis')) ||
+  spec.kind === 'key' ||
+  spec.kind === 'imported' ||
+  (spec.kind === 'split' && textFree(spec.base));
 
 /** The file writers (3MF, Bambu, STL, STEP, zips) and the slicer, loaded on the first request that needs them. */
 let writers: Promise<typeof import('./writers')> | null = null;

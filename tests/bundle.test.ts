@@ -25,8 +25,11 @@ const root = resolve(__dirname, '..');
  * Multi-colour planning (colours.ts, colourPlan.ts, plates by colour) and the 3D view's filament
  * colours and bands are on it too, ~27 kB (594 kB in all); the Colours section, its palette,
  * presets, texts and checks load with the print tab.
+ * Skådis boards' planning (the slot pattern, the split into tiles, joints, mounting points, the
+ * assembly map and the drawer view) is too, being part of planning a print: ~20 kB (613 kB in
+ * all). Their panel and its search index load with a board, their geometry with the mesh builders.
  */
-const FIRST_SCREEN_BUDGET = 600_000;
+const FIRST_SCREEN_BUDGET = 620_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
@@ -100,6 +103,9 @@ describe('bundle', () => {
       'src/lib/share.ts',
       'src/lib/qrEncode.ts',
       'src/components/QrFields.tsx',
+      // Skådis boards: their panel and its search index.
+      'src/components/SkadisPanel.tsx',
+      'src/components/skadisIndex.ts',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).

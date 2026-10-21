@@ -15,7 +15,7 @@ Then open http://localhost:5199.
 
 ## Workflow
 
-A project holds **all your drawers**. Switch between them, add, duplicate, rename or delete them from the drawer menu in the top bar. Each drawer has its own size, baseplate settings and bins; print one, all, or a chosen set at once. Already have the baseplate? A drawer can print **just bins** (below); **New: just bins** in the drawer menu starts one in one click.
+A project holds **all your drawers**. Switch between them, add, duplicate, rename or delete them from the drawer menu in the top bar. Each drawer has its own size, baseplate settings and bins; print one, all, or a chosen set at once. Already have the baseplate? A drawer can print **just bins** (below); **New: just bins** in the drawer menu starts one in one click. **New: Skådis board** starts an IKEA SKÅDIS-compatible pegboard for a space on the wall instead (see [Skådis boards](#skådis-boards)).
 
 Lengths are stored in mm. The **mm / in** switch in the top bar changes what every length field shows and accepts. Inches show as fractions (1/8 to 1/32, or decimals), and you can type `20 1/8`, `20-1/8"`, `1' 8 1/8"`, `44.5mm` or `51cm` in either mode.
 
@@ -323,6 +323,23 @@ A vase-mode bin (*Type: Vase-mode bin*) prints in the slicer's spiral vase mode 
 
 **Checked** with PrusaSlicer 2.7.2 (`npm run sampler -- out --slice --only vase/`): each sample slices in spiral vase mode with its bottom layers and line width, and its G-code is read back: after the bottom layers every layer is one line with Z rising along it, no travel or retraction, starting where the one before ended, and one turn is as long as the outline and both sides of every slit (so the slits fold the wall rather than being closed). See docs/print-check.md.
 
+### Skådis boards
+
+**New: Skådis board** in the drawer menu adds a pegboard to the project, beside the drawers: IKEA SKÅDIS hooks, shelves and containers hang in it. Its first tab (*Skådis board*) takes the place of *Drawer & baseplate*; it has no bins (the Bins tab says where they go instead), and it prints, exports and shares like any drawer: on its own plates, in the Bambu project, the 3MF / STL / STEP files and the assembly map.
+
+- **The pattern is IKEA's:** upright 5 × 15 mm slots, columns 20 mm apart, the slots in a column 40 mm apart and every other column 20 mm higher, in a 5 mm board, chamfered on both faces. Slot size, chamfer and thickness can change (*All* settings), say for a looser fit.
+- **The space:** give the width and height of the space on the wall. A rectangle board fills it, the slots centred with at least the border (10 mm) around them; hexagons fit in it.
+- **Rectangle tiles:** the board is split into the fewest, most even tiles that fit the bed (its edge margin, either way round, clear of an X1 / P1's front-left corner), as MOSS 3D's Skadis Pegboard Generator does it:
+  - An **upright seam** takes the place of a column of slots, so there is 17.5 mm of plastic on each side of it. A **level seam** runs through a row of slots: every other slot along it is cut in half, and whole again once the tiles are together; the slots beside it are 12.5 mm clear.
+  - **Joints:** dovetail tabs (in the plane of the board: the tile to the left or below carries them), joint plates (a 20 mm square with four pins, pressed into pockets on the back across a seam, flush; always where seams cross), both (the default: they take turns along each seam), or nothing. A board under 3.8 mm is too thin for the plates' pockets and pins; it gets tabs.
+  - Joints and mounting points only go where the pattern has plastic, never into a slot.
+- **Hexagon tiles** (like [Azntek's hexagonal Skadis board](https://makerworld.com/models/1592040-10-hexagonal-skadis-board-v1)): a honeycomb of hexagon boards with the gap you give between them, each as large as the bed and the space take (or the width you give, corner to corner). Every hexagon is the same part (no number on it: they go up in any order), so it builds once; the slots are centred on it inside the border.
+- **Hanging it:**
+  - **Posts** (default) print on the back of each tile, standing up as it prints face down: no supports and nothing to lose. Or separate **spacers** (tubes behind each screw, printed with the joint plates), or **nothing**, for a frame. The gap behind the board is 20 mm by default: room for the hooks' tails.
+  - **Screws:** countersunk on the front (⌀4 by default, head ⌀8.5). A rectangle tile gets one near each corner and more about every 200 mm (*Screws about every*); a hexagon two, in its left and right corners, with posts in the other four (spacers need a screw each). The parts list counts them and says how long they need to be.
+- **Printing:** every tile prints face down, so the front is the side on the bed, and the slots and countersinks open toward the bed with a chamfer; a rectangle tile's number is debossed on the back. The 3D view shows the board that way, from the back as you put it together (its left on the right); *Spread pieces* pulls the tiles apart. The assembly map shows the tiles as seen from the front, with the steps: tabs into sockets, plates into pockets (a drop of glue makes it one board), screws into the wall.
+- **Colours:** tiles print in the *Wall grid* role's colour, joint plates and spacers in *Connector keys & spacer strips*.
+
 ## Dimensions
 
 The dimensions follow the community spec (gridfinity.xyz) as implemented by [gridfinity-rebuilt-openscad](https://github.com/kennetek/gridfinity-rebuilt-openscad):
@@ -336,6 +353,8 @@ The dimensions follow the community spec (gridfinity.xyz) as implemented by [gri
 - **Bowtie connectors:** 10 mm long, 3 mm wide at the ends and 1.6 mm at the neck, 2 mm deep, with a 0.4 mm flare at the mouth. Keys are 0.15 mm smaller per side and 1.8 mm thick. A 3 mm pocket fits the 4.3 mm wall with 0.65 mm to spare on each side.
 
 All constants live in `src/lib/geometry/spec.ts`.
+
+**Skådis boards** (`src/lib/geometry/skadis.ts`): IKEA's 5 × 15 mm slots on a 20 mm lattice (every lattice point whose column and row add up to an even number), a 5 mm board, 0.6 mm chamfers. Joint plates 20 × 20 × 1.4 mm with ⌀5 pins 2.3 mm long, in 1.5 mm pockets (0.2 mm clear round) with ⌀5.3 holes 2.5 mm deep. Dovetail tabs 8 mm long, 8 mm wide at the seam and 12 at the end, 0.15 mm clear in their sockets. Posts ⌀13 at the board, ⌀10 at the wall.
 
 ## Development
 
@@ -358,8 +377,8 @@ To check an export against Bambu Studio itself, use the CLI that ships with the 
 The first screen downloads only what it shows; the rest is code-split and loads on first use (`src/components/lazy.tsx`). `tests/bundle.test.ts` builds the app and keeps it that way.
 
 - **First screen:** the entry chunk (`index-*.js`: the app shell, the drawer panel, the bin grid, the 3D view) with the store and planning code it shares with the lazy parts (a few chunks rolldown splits off), React (`react-*.js`, with zustand) and three.js (`three-*.js`). Both libraries have chunks of their own, so a deploy that only changes the app doesn't download them again.
-- **On first use:** the Bins and Print plates panels (My bins comes with the Bins panel; the bin grid only has a slot for its drop preview, `gridLayers.ts`), the compartment and tool-cutout editors, the trace dialog (the SVG / DXF readers load with the first file), *Fill from a list* (with `src/lib/autofill`), the drawer map and the STEP assembly layout, the import dialog with the STL / 3MF / OBJ readers, the mesh store (IndexedDB), and the share-link codec (when a link is opened or copied). The tabs and editors also load in the background once the first mesh is on screen, so switching is instant. A returning visitor's saved tab (Bins or Print plates) gets its panel preloaded from `index.html` (`scripts/preload.ts`).
-- **Geometry worker:** its entry (`geometry.worker.ts`) is tiny. It starts downloading and compiling the Manifold WASM at once, while the mesh code (`meshes.ts`) loads beside it. The file writers, zips and the slicer (`writers.ts`) load on the first export or print-time estimate. The label font loads with the first mesh that may have text (baseplate pieces never do), or once the WASM is ready; the page loads its own copy when a label preview or a print check needs it, and for the bin grid's check marks only after the first view.
+- **On first use:** the Bins and Print plates panels (My bins comes with the Bins panel; the bin grid only has a slot for its drop preview, `gridLayers.ts`), the compartment and tool-cutout editors, the trace dialog (the SVG / DXF readers load with the first file), *Fill from a list* (with `src/lib/autofill`), the drawer map and the STEP assembly layout, a Skådis board's panel, the import dialog with the STL / 3MF / OBJ readers, the mesh store (IndexedDB), and the share-link codec (when a link is opened or copied). The tabs and editors also load in the background once the first mesh is on screen, so switching is instant. A returning visitor's saved tab (Bins or Print plates) gets its panel preloaded from `index.html` (`scripts/preload.ts`).
+- **Geometry worker:** its entry (`geometry.worker.ts`) is tiny. It starts downloading and compiling the Manifold WASM at once, while the mesh code (`meshes.ts`) loads beside it. The file writers, zips and the slicer (`writers.ts`) load on the first export or print-time estimate. The label font loads with the first mesh that may have text (baseplate pieces and Skådis tiles never do), or once the WASM is ready; the page loads its own copy when a label preview or a print check needs it, and for the bin grid's check marks only after the first view.
 - **Offline copy:** the service worker registers once the first mesh is in and the other tabs have loaded, so saving every file doesn't compete with the first view. It checks each file with the server (`cache: 'no-cache'`), so what the page just downloaded comes from the HTTP cache instead of being downloaded again. Every lazy chunk is in its list.
 - **A chunk that fails to load** (usually a deploy replaced it while the page was open) shows *Reload to update* in its place (`src/pwa/chunks.ts`, `ErrorBoundary.tsx`); exports say the same.
 
@@ -381,6 +400,8 @@ src/lib/dividers/   bin interior layouts: walls → compartments, edits, snappin
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
 src/lib/autofill/   "Fill from a list": list parser, item matching, bin sizing, grouping, packing (pure TS)
 src/lib/geometry/containers/  vase-mode bins, drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
+src/lib/geometry/skadis.ts    Skådis pegboards: the slot pattern, tiles split to the bed, hexagons, joints, mounting, the tiles' solids
+src/lib/enclosures.ts         carry cases, wall grids, spacer strips and Skådis boards: their pieces, extra parts and drawer view
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers (a plate, every plate, one part); estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + buildMesh()
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search;
@@ -407,4 +428,4 @@ tests/              vitest suites
 
 ## Credits
 
-Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT). Several options follow other community projects: Gridfinity Extended (lip styles, efficient floor, wall cutouts, pocket grids, half-pitch grids), Gridfinity Refined (side-loaded magnets), GridFlock (pin and puzzle joints), cq-gridfinity, and Tracefinity (tool tracing). The QR encoder follows Project Nayuki's QR Code generator (MIT). The label font is Roboto Condensed (SIL Open Font License, `public/fonts/RobotoCondensed-OFL.txt`).
+Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT). Several options follow other community projects: Gridfinity Extended (lip styles, efficient floor, wall cutouts, pocket grids, half-pitch grids), Gridfinity Refined (side-loaded magnets), GridFlock (pin and puzzle joints), cq-gridfinity, and Tracefinity (tool tracing). Skådis boards follow MOSS 3D's Fully Customisable Skadis Pegboard Generator (seams through the pattern, plates on the back) and Azntek's Hexagonal Skadis board; IKEA and SKÅDIS are IKEA's trademarks, and the boards here are only made to fit its hooks. The QR encoder follows Project Nayuki's QR Code generator (MIT). The label font is Roboto Condensed (SIL Open Font License, `public/fonts/RobotoCondensed-OFL.txt`).

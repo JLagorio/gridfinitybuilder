@@ -149,6 +149,8 @@ function holesIn(split: MeshSpec | undefined): { item: string; count: number; no
   if (spec.kind === 'piece') {
     const o = spec.opts;
     const out: HardwareLine[] = [...(spec.enclosure?.hardware ?? [])];
+    // A Skådis tile is no baseplate: its screws are all in its hardware.
+    if (spec.enclosure?.kind === 'skadis') return out;
     // Joints are shared by two pieces: count each on one side (pins: left / front; screws: the head side).
     const low = spec.connectors.filter((s) => lowSideOf(s, spec.piece));
     if (o.connector === 'pin' && low.length) {
@@ -487,6 +489,8 @@ export const ENCLOSURE_PARTS: Record<EnclosurePartKind, [string, string]> = {
   foot: ['Printed foot', 'Printed feet'],
   spacer: ['Spacer strip', 'Spacer strips'],
   cleat: ['Wall cleat', 'Wall cleats'],
+  skadisPlate: ['Joint plate', 'Joint plates'],
+  skadisSpacer: ['Standoff spacer', 'Standoff spacers'],
 };
 
 /** "2 hinge pins". */

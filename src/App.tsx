@@ -44,14 +44,18 @@ const loadBinPanel = once(() => import('./components/BinPanel'));
 const loadPrintPanel = once(() => import('./components/PrintPanel'));
 const loadInterior = once(() => import('./components/BinInteriorEditor'));
 const loadCutouts = once(() => import('./components/CutoutEditor'));
+// Only a Skådis board's tabs (geometry/skadis.ts) need it.
+const loadSkadis = once(() => import('./components/SkadisPanel'));
 const BinPanel = lazyNamed(loadBinPanel, 'BinPanel');
 const PrintPanel = lazyNamed(loadPrintPanel, 'PrintPanel');
 const BinInteriorEditor = lazyNamed(loadInterior, 'BinInteriorEditor');
 const CutoutEditor = lazyNamed(loadCutouts, 'CutoutEditor');
+const SkadisPanel = lazyNamed(loadSkadis, 'SkadisPanel');
+const SkadisBinsNote = lazyNamed(loadSkadis, 'SkadisBinsNote');
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
-  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts);
+  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts, loadSkadis);
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -74,7 +78,16 @@ const paintOf = (job: PrintJob, key: string) => {
 };
 
 /** Enclosure parts in the drawer view (case lid, handle, feet, strips, cleat) by their colour role. */
-const ENCLOSURE_ROLES: Record<string, ColourRole> = { lid: 'caseLid', hardware: 'caseHardware', handle: 'caseHandle', foot: 'caseHardware', strip: 'plateAccent', cleat: 'wallGrid' };
+const ENCLOSURE_ROLES: Record<string, ColourRole> = {
+  lid: 'caseLid',
+  hardware: 'caseHardware',
+  handle: 'caseHandle',
+  foot: 'caseHardware',
+  strip: 'plateAccent',
+  cleat: 'wallGrid',
+  joint: 'plateAccent',
+  standoff: 'plateAccent',
+};
 
 function drawerScene(
   job: PrintJob,
@@ -237,8 +250,8 @@ function drawerScene(
   return {
     items: shiftItems(items, enc?.shift),
     outline: state.drawer.mode === 'drawer' && enc?.outline !== false ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
-    // The camera stays put when the lid opens or closes.
-    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}` : ''}`,
+    // The camera stays put when the lid opens or closes (a Skådis board's size is its space, not the grid's).
+    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}` : ''}${enc?.kind === 'skadis' && enc.box ? `-${enc.box.x1}x${enc.box.y1}` : ''}`,
   };
 }
 
@@ -356,6 +369,9 @@ export default function App() {
     () => geometry.queueLength,
   );
   const printer = findPrinter(state.setup.printerId);
+  // A Skådis board (geometry/skadis.ts): its own Drawer tab, no bins.
+  const board = state.drawer.enclosure === 'skadis';
+  const boardInfo = board ? job.drawers[0]?.enclosure?.info.skadis : undefined;
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
   const coarse = useCoarsePointer();
@@ -387,7 +403,7 @@ export default function App() {
             : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? ' · click a bin to select' : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
         }
       >
-        {ui.tab === 'bins' && (
+        {ui.tab === 'bins' && !board && (
           <div className="viewer-tools">
             {haveNote}
             <button className={!focusing ? 'active' : ''} onClick={() => setFocusSel(false)}>
@@ -400,6 +416,11 @@ export default function App() {
         )}
         {ui.tab === 'drawer' && (
           <div className="viewer-tools">
+            {board && (
+              <span className="viewer-note" title="Tiles print face down: the posts and the pockets for the joint plates are on the back">
+                Seen from the back, as it prints
+              </span>
+            )}
             {/* A baseplate you have is one piece, not printed: nothing to spread. */}
             {haveNote || (
               <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
@@ -437,7 +458,7 @@ export default function App() {
           {TABS.map((t, i) => (
             <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => state.setUI({ tab: t.id })}>
               <span className="tab-num">{i + 1}</span>
-              {t.label}
+              {board && t.id === 'drawer' ? 'Skådis board' : t.label}
             </button>
           ))}
         </nav>
@@ -461,8 +482,16 @@ export default function App() {
             {state.setup.printers ? printerNames(state.setup).map(shortName).join(' + ') : `${printer.name} · ${state.setup.bedW}×${state.setup.bedD}`}
           </span>
           <span className="chip">
-            {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} ·{' '}
-            {job.drawers[0]?.haveBaseplate ? 'just bins' : `${job.plan.pieces.length} pieces`} ·{' '}
+            {board ? (
+              <>
+                Skådis · {boardInfo?.tiles ?? 0} {boardInfo?.shape === 'hex' ? 'hexagons' : 'tiles'} ·{' '}
+              </>
+            ) : (
+              <>
+                {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} ·{' '}
+                {job.drawers[0]?.haveBaseplate ? 'just bins' : `${job.plan.pieces.length} pieces`} ·{' '}
+              </>
+            )}
             {printJob.plates.length} plates
           </span>
           <ShortcutsHelp />
@@ -471,12 +500,24 @@ export default function App() {
 
       <div className="body">
         <aside className="sidebar">
-          {ui.tab === 'drawer' && <DrawerPanel job={job} />}
-          {ui.tab === 'bins' && (
-            <LazyPart scope="The Bins panel">
-              <BinPanel job={viewJob} />
-            </LazyPart>
-          )}
+          {ui.tab === 'drawer' &&
+            (board ? (
+              <LazyPart scope="The Skådis board panel">
+                <SkadisPanel job={job} />
+              </LazyPart>
+            ) : (
+              <DrawerPanel job={job} />
+            ))}
+          {ui.tab === 'bins' &&
+            (board ? (
+              <LazyPart scope="The Skådis board panel">
+                <SkadisBinsNote />
+              </LazyPart>
+            ) : (
+              <LazyPart scope="The Bins panel">
+                <BinPanel job={viewJob} />
+              </LazyPart>
+            ))}
           {ui.tab === 'print' && (
             <LazyPart scope="The Print panel">
               <PrintPanel job={printJob} />
@@ -484,7 +525,7 @@ export default function App() {
           )}
         </aside>
         <main className={`main main-${ui.tab}`}>
-          {ui.tab === 'bins' ? (
+          {ui.tab === 'bins' && !board ? (
             <div className="split">
               <div className="pane pane-2d">
                 <BinPaneHeader />

@@ -13,6 +13,7 @@ export function DrawerSwitcher() {
   const setUI = useStore((s) => s.setUI);
   // The active drawer's live settings are at the top level of the store.
   const activeHave = useStore((s) => !!s.drawer.haveBaseplate);
+  const activeBoard = useStore((s) => s.drawer.enclosure === 'skadis');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const active = drawers.find((d) => d.id === activeId) ?? drawers[0];
@@ -54,8 +55,14 @@ export function DrawerSwitcher() {
                 >
                   <span>{d.name}</span>
                   <small>
-                    {binCount(d.id)} bins
-                    {(d.id === activeId ? activeHave : d.drawer.haveBaseplate) ? ' · just bins' : ''}
+                    {(d.id === activeId ? activeBoard : d.drawer.enclosure === 'skadis') ? (
+                      'Skådis board'
+                    ) : (
+                      <>
+                        {binCount(d.id)} bins
+                        {(d.id === activeId ? activeHave : d.drawer.haveBaseplate) ? ' · just bins' : ''}
+                      </>
+                    )}
                   </small>
                 </button>
               </li>
@@ -81,6 +88,17 @@ export function DrawerSwitcher() {
               }}
             >
               New: just bins
+            </button>
+            {/* A pegboard for a space on the wall: IKEA SKÅDIS slots, split to the bed (geometry/skadis.ts). */}
+            <button
+              title="A Skådis pegboard for a space on the wall, split into tiles that fit your printer"
+              onClick={() => {
+                addDrawer(undefined, { skadis: true });
+                setUI({ tab: 'drawer' });
+                setOpen(false);
+              }}
+            >
+              New: Skådis board
             </button>
             <button
               onClick={() => {

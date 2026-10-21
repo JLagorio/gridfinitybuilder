@@ -17,6 +17,7 @@ import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
+import { DEFAULT_SKADIS } from '../lib/geometry/skadis';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
@@ -124,8 +125,12 @@ export interface Store extends ProjectState {
   /** Remember the list typed in "Fill from a list" for the active drawer (not an undo step of its own). */
   setFillList(text: string): void;
   // Drawers
-  /** A new drawer after the others; `haveBaseplate`: for a baseplate you have ("Just bins", sized in grid units). */
-  addDrawer(name?: string, o?: { haveBaseplate?: boolean }): string;
+  /**
+   * A new drawer after the others; `haveBaseplate`: for a baseplate you have
+   * ("Just bins", sized in grid units); `skadis`: a Skådis pegboard instead of
+   * a grid (geometry/skadis.ts).
+   */
+  addDrawer(name?: string, o?: { haveBaseplate?: boolean; skadis?: boolean }): string;
   duplicateDrawer(id: string): string;
   removeDrawer(id: string): void;
   renameDrawer(id: string, name: string): void;
@@ -514,7 +519,7 @@ export const useStore = create<Store>()(
         // New drawers start with the current baseplate settings: magnets, connectors etc. are usually shared.
         const doc: DrawerDoc = {
           id,
-          name: uniqueName(name?.trim() || `Drawer ${docs.length + 1}`, docs.map((d) => d.name)),
+          name: uniqueName(name?.trim() || (o.skadis ? 'Skådis board' : `Drawer ${docs.length + 1}`), docs.map((d) => d.name)),
           drawer: {
             ...DEFAULT_DRAWER,
             mode: s.drawer.mode,
@@ -522,7 +527,9 @@ export const useStore = create<Store>()(
             fill: s.drawer.fill,
             ...(s.drawer.halfGrid ? { halfGrid: true } : {}),
             // For a baseplate you have: given by its cells, and nothing of it prints.
-            ...(o.haveBaseplate ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
+            ...(o.haveBaseplate && !o.skadis ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
+            // A pegboard for a space on the wall, IKEA's square board to start.
+            ...(o.skadis ? { enclosure: 'skadis' as const, skadis: { ...DEFAULT_SKADIS } } : {}),
           },
           baseplate: { ...s.baseplate },
           bins: [],
