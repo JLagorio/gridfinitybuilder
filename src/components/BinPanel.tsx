@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useStore } from '../state/store';
+import { useStore, useUnits } from '../state/store';
 import { Section, Segmented, Slider, Stepper, Toggle } from './fields';
 import { binLabel, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { hasLid } from '../lib/geometry/lid';
@@ -12,6 +12,7 @@ import { TemplatesSection } from './TemplatesSection';
 import { CompartmentsSection } from './CompartmentFields';
 import { LabelFields } from './LabelFields';
 import { ToolLibrary } from './ToolLibrary';
+import { AccessoryFields, accessoriesActive, accessoryStatus } from './AccessoryFields';
 
 function BinFields({
   opts,
@@ -27,6 +28,7 @@ function BinFields({
   /** Cell sizes under the selected bin (partial edge cells). */
   cells?: BinCells;
 }) {
+  const { fmt } = useUnits();
   return (
     <>
       {sizeEditable && (
@@ -69,6 +71,9 @@ function BinFields({
       </OptionGroup>
       <OptionGroup title="Lip & lid" status={lipStatus(opts)} active={!opts.lip || opts.lipStyle !== 'normal' || opts.lipNotches || opts.lid}>
         <LipFields opts={opts} onChange={onChange} />
+      </OptionGroup>
+      <OptionGroup title="Trays, lids & rails" status={accessoryStatus(opts, fmt, cells)} active={accessoriesActive(opts)}>
+        <AccessoryFields opts={opts} onChange={onChange} cells={cells} />
       </OptionGroup>
       <OptionGroup title="Walls" status={wallStatus(opts)} active={!!(opts.cutoutWalls || opts.slideWalls || opts.patternWalls) || !opts.fillet}>
         <WallFields opts={opts} onChange={onChange} />

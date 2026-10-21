@@ -24,6 +24,7 @@ import { Segmented } from './components/fields';
 import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LID_COLOR, pieceColor } from './components/colors';
 import { binBodyHeight } from './lib/geometry/variants';
 import { LID_SEAT_DROP } from './lib/geometry/lid';
+import { assembledParts } from './lib/geometry/accessories';
 import './components/workflow.css';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -88,6 +89,22 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
           h: lid.h,
           color: LID_COLOR,
         });
+      }
+      // Lift-out trays and a sliding lid sit in the bin the same way.
+      if (!selectedIds(state.ui).includes(b.id)) {
+        for (const a of assembledParts(job, b.id)) {
+          items.push({
+            id: `${b.id}:${a.key}`,
+            meshKey: a.meshKey,
+            x: cellEdge(job.layout.xs, b.x, job.layout.pitchX) + inset + a.assembled.x,
+            y: cellEdge(job.layout.ys, b.y, job.layout.pitchY) + inset + a.assembled.y,
+            z: seat + a.assembled.z,
+            w: a.w,
+            d: a.d,
+            h: a.h,
+            color: LID_COLOR,
+          });
+        }
       }
     }
   }

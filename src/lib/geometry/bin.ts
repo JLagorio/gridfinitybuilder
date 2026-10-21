@@ -39,12 +39,21 @@ import {
   type LabelPlate,
 } from './labels';
 import { cutoutCutters, cutoutKeyPart, sanitizeCutouts, sanitizeCutoutStyle, type BinCutout, type CutoutStyle } from './cutouts';
+import {
+  DEFAULT_ACCESSORIES,
+  accessoryInfillTop,
+  accessoryKeyParts,
+  accessoryNeedsFloor,
+  sanitizeAccessoryOptions,
+  type BinAccessoryOptions,
+} from './accessories';
+import { binAccessoryGeometry } from './accessoryGeometry';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
 
-/** Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts; label text in labels.ts. */
-export interface BinOptions extends BinVariantOptions, BinLabelOptions {
+/** Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts; label text in labels.ts; trays, sliding lid and rails in accessories.ts. */
+export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAccessoryOptions {
   /** Footprint in grid units. */
   unitsX: number;
   unitsY: number;
@@ -83,6 +92,7 @@ export const DEFAULT_BIN: BinOptions = {
   layout: null,
   ...DEFAULT_VARIANTS,
   ...DEFAULT_LABELS,
+  ...DEFAULT_ACCESSORIES,
 };
 
 export const MIN_HEIGHT_UNITS = 2;
@@ -138,6 +148,7 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     ...variantKeyParts(o),
     ...labelKeyParts(o),
     ...cutoutKeyPart(o),
+    ...accessoryKeyParts(o, binSize(o, cells)),
   ].join('-');
 }
 
@@ -164,7 +175,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
   try {
     const { w: W, d: D } = binSize(o, cells);
     const H = binBodyHeight(o);
-    const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
+    // Trays and sliding lids take the top of the bin: the compartments stop under them.
+    const topInfill = accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H);
     const zFloor = binFloorZ(o);
     const outerRing = roundedRectRing(-W / 2, -D / 2, W / 2, D / 2, BASE_TOP_RADIUS);
     const flat = o.base === 'flat';
@@ -205,7 +217,7 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const block = s.t(extrudePolygon(w, outerRing, flat ? 0 : BASE_PROFILE_HEIGHT, topInfill));
     // Lite / efficient bases: compartments go down into the feet (clipped to the foot pockets below).
     // Removable-divider slots need solid floor under them, so those bins keep the full floor.
-    const hollowCut = hollow && !o.layout?.walls.some((wall) => wall.removable);
+    const hollowCut = hollow && !o.layout?.walls.some((wall) => wall.removable) && !accessoryNeedsFloor(o);
     const cutFloor = hollowCut ? hollowFloor(o.base) : zFloor;
     const interior = toolCuts
       ? { cut: cutoutCutters(w, s, o, W, D, topInfill), add: [] as Manifold[] }
@@ -231,6 +243,9 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const notches = o.lip && o.lipNotches ? lipNotches(w, s, o, cells, W, D, H, top) : null;
     if (notches) cavity = s.t(cavity.subtract(notches));
     solids.push(s.t(shell.subtract(cavity)));
+    // Tray ledges, sliding-lid band, rail ribs (accessories.ts); their grooves and cuts go with the wall cutouts.
+    const acc = binAccessoryGeometry(w, s, o, W, D);
+    solids.push(...acc.add);
 
     let bin = s.t(w.Manifold.union(solids));
     // Label text / label-plate recesses on the tabs (labels.ts).
@@ -243,11 +258,13 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     // Hex pattern: from above the floor to below the lip's support.
     const patternTop = !o.lip ? H - 1 : o.lipStyle === 'reduced' ? H : H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL) - 0.5;
     cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop));
+    cutouts.push(...acc.cut);
     if (cutouts.length) {
       const cu = s.t(w.Manifold.union(cutouts));
       bin = s.t(bin.subtract(cu));
       labels.clip(cu);
     }
+    bin = acc.finish(bin);
 
     // 4. Magnet / screw holes in the bottom.
     const holes = holeCutters(w, s, o, sites);
@@ -279,6 +296,7 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     layout: sanitizeLayout(o.layout),
     ...sanitizeVariants({ ...o, heightUnits, lip }),
     ...sanitizeLabelOptions(o),
+    ...sanitizeAccessoryOptions(o),
     cutouts: sanitizeCutouts(o.cutouts),
     cutoutStyle: sanitizeCutoutStyle(o.cutoutStyle),
   };
@@ -312,7 +330,8 @@ export function removableInserts(opts: BinOptions, cells?: Partial<BinCells> | n
   const o = sanitizeBin(opts);
   if (!o.layout || o.interior !== 'compartments') return [];
   const H = binBodyHeight(o);
-  const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
+  const { w: W, d: D } = binSize(o, cells);
+  const topInfill = accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H);
   return insertsFor(binLayout(o, cells), o.lip, binFloorZ(o), topInfill);
 }
 
@@ -327,9 +346,9 @@ export function binLabelTabs(opts: BinOptions, cells?: Partial<BinCells> | null)
   const o = sanitizeBin(opts);
   const { w: W, d: D } = binSize(o, cells);
   const H = binBodyHeight(o);
-  const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
+  const topInfill = accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H);
   // Same floor buildBin cuts the compartments from.
-  const hollowCut = isHollowBase(o.base) && o.interior !== 'pockets' && !o.layout?.walls.some((wall) => wall.removable);
+  const hollowCut = isHollowBase(o.base) && o.interior !== 'pockets' && !o.layout?.walls.some((wall) => wall.removable) && !accessoryNeedsFloor(o);
   return labelTabs(o, W, D, hollowCut ? hollowFloor(o.base) : binFloorZ(o), topInfill);
 }
 
