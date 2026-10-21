@@ -13,11 +13,12 @@
  * layers, the default printer's bed) and records its warnings and `--info`
  * (manifold, repairs, parts). --only keeps groups or parts whose path contains
  * the text. Results go to report.json and report.md in outDir (see
- * docs/print-check.md).
+ * docs/print-check.md); findings listed in KNOWN_FINDINGS are marked as by
+ * design. `--report <report.json>` only writes report.md again from a run.
  */
 import Module from 'manifold-3d';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { buildMesh, exportPlate3MF } from '../src/lib/project';
@@ -26,7 +27,7 @@ import { checkPart, meshTopology, type PrintIssue } from '../src/lib/geometry/pr
 import { FONT_URL_PATH, registerFont } from '../src/lib/geometry/text';
 import { writeSTL } from '../src/lib/export/stl';
 import { usableBed } from '../src/lib/bedfit';
-import { SAMPLE_GROUPS, SAMPLE_SETUP, printedParts } from './sampler-cases';
+import { KNOWN_FINDINGS, SAMPLE_GROUPS, SAMPLE_SETUP, printedParts } from './sampler-cases';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -34,8 +35,9 @@ const value = (name: string) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const positional = args.filter((a, i) => !a.startsWith('--') && !['--only', '--jobs'].includes(args[i - 1]));
-const outDir = resolve(positional[0] ?? 'out/sampler');
+const positional = args.filter((a, i) => !a.startsWith('--') && !['--only', '--jobs', '--report'].includes(args[i - 1]));
+const fromReport = value('--report');
+const outDir = resolve(fromReport ? dirname(fromReport) : (positional[0] ?? 'out/sampler'));
 const only = value('--only');
 const jobs = Math.max(1, Number(value('--jobs')) || Math.max(1, Math.floor(cpus().length / 2)));
 const slice = flag('--slice');
@@ -85,8 +87,14 @@ const records: PartRecord[] = [];
 const warnings: Record<string, string[]> = {};
 const t0 = performance.now();
 mkdirSync(outDir, { recursive: true });
+if (fromReport) {
+  if (!existsSync(fromReport)) throw new Error(`No report at ${fromReport}`);
+  const saved = JSON.parse(readFileSync(fromReport, 'utf8')) as { warnings: typeof warnings; parts: PartRecord[] };
+  records.push(...saved.parts);
+  Object.assign(warnings, saved.warnings);
+}
 
-for (const group of SAMPLE_GROUPS) {
+for (const group of fromReport ? [] : SAMPLE_GROUPS) {
   // Planning is cheap: plan every group and filter its parts by path.
   const job = group.job();
   if (job.warnings.length) warnings[group.name] = job.warnings;
@@ -130,7 +138,7 @@ for (const group of SAMPLE_GROUPS) {
     });
   }
 }
-console.log(`Built and checked ${records.length} parts in ${Math.round((performance.now() - t0) / 1000)} s.`);
+if (!fromReport) console.log(`Built and checked ${records.length} parts in ${Math.round((performance.now() - t0) / 1000)} s.`);
 
 // ---------------------------------------------------------------------------
 // PrusaSlicer
@@ -188,7 +196,7 @@ async function sliceOne(rec: PartRecord): Promise<void> {
   console.log(`${bad ? '!' : '·'} ${rec.file}: ${fields.manifold === 'yes' ? 'manifold' : `manifold=${fields.manifold}`}, parts ${fields.number_of_parts}${notes.length ? `, ${notes.join('; ')}` : ''}`);
 }
 
-if (slice) {
+if (slice && !fromReport) {
   // 0.4 mm nozzle, 0.2 mm layers (first layer too), Bambu-like walls and infill, no supports; the default printer's bed.
   writeFileSync(
     ini,
@@ -223,11 +231,20 @@ if (slice) {
 // Report
 // ---------------------------------------------------------------------------
 
-writeFileSync(join(outDir, 'report.json'), JSON.stringify({ setup: SAMPLE_SETUP, bed, warnings, parts: records }, null, 1));
+if (!fromReport) writeFileSync(join(outDir, 'report.json'), JSON.stringify({ setup: SAMPLE_SETUP, bed, warnings, parts: records }, null, 1));
+const sliced = records.some((r) => r.slicer);
+
+/** Why a finding is there by design (KNOWN_FINDINGS), or null. `what` is the issue kind or the slicer finding. */
+const known = (r: PartRecord, what: string) => KNOWN_FINDINGS.find((k) => k.file.test(r.file) && k.what.test(what))?.why ?? null;
+const note = (r: PartRecord, what: string, text: string) => {
+  const why = known(r, what);
+  return why ? `${text} — by design: ${why}` : text;
+};
 
 const md: string[] = ['# Sampler report', '', `${records.length} parts, ${new Date().toISOString()}`, ''];
 const errored = records.filter((r) => r.error || r.issues.some((i) => i.severity === 'error'));
 const warned = records.filter((r) => !errored.includes(r) && r.issues.length);
+const unexplained = records.filter((r) => r.issues.some((i) => !known(r, i.kind)) || slicerFindings(r).some((f) => !known(r, f)));
 /** What PrusaSlicer had to say: failures, repairs, unexpected part counts, stability issues, other warnings. */
 function slicerFindings(r: PartRecord): string[] {
   const sl = r.slicer;
@@ -244,7 +261,8 @@ function slicerFindings(r: PartRecord): string[] {
 }
 const slicerNotes = records.filter((r) => slicerFindings(r).length);
 md.push(`- ${errored.length} with errors, ${warned.length} with warnings only`);
-if (slice) md.push(`- ${slicerNotes.length} with PrusaSlicer findings; ${records.filter((r) => Number(r.slicer?.info.degenerate_facets) > 0).length} had zero-area facets it removed`);
+md.push(`- ${unexplained.length} with findings not marked as by design`);
+if (sliced) md.push(`- ${slicerNotes.length} with PrusaSlicer findings; ${records.filter((r) => Number(r.slicer?.info.degenerate_facets) > 0).length} had zero-area facets it removed`);
 md.push('');
 for (const [title, list] of [
   ['Errors', errored],
@@ -255,7 +273,7 @@ for (const [title, list] of [
   for (const r of list) {
     md.push(`- \`${r.file}\` (${r.name}, ${r.size.join(' × ')} mm)`);
     if (r.error) md.push(`  - build failed: ${r.error}`);
-    for (const i of r.issues) md.push(`  - ${i.severity} ${i.kind}: ${i.message}`);
+    for (const i of r.issues) md.push(`  - ${note(r, i.kind, `${i.severity} ${i.kind}: ${i.message}`)}`);
   }
   md.push('');
 }
@@ -263,7 +281,7 @@ if (slicerNotes.length) {
   md.push('## PrusaSlicer', '');
   for (const r of slicerNotes) {
     md.push(`- \`${r.file}\``);
-    for (const m of slicerFindings(r)) md.push(`  - ${m}`);
+    for (const m of slicerFindings(r)) md.push(`  - ${note(r, m, m)}`);
   }
   md.push('');
 }
@@ -278,4 +296,9 @@ for (const r of records) {
   md.push(`| \`${r.file}\` | ${r.size.join(' × ')} | ${r.triangles} | ${r.contact ?? ''} | ${r.error ? 'build failed' : r.issues.map((i) => i.kind).join(', ')} | ${sl} |`);
 }
 writeFileSync(join(outDir, 'report.md'), md.join('\n') + '\n');
-console.log(`${errored.length} parts with errors, ${warned.length} with warnings${slice ? `, ${slicerNotes.length} with slicer messages` : ''}. Report: ${join(outDir, 'report.md')}`);
+console.log(
+  `${errored.length} parts with errors, ${warned.length} with warnings${sliced ? `, ${slicerNotes.length} with slicer findings` : ''}; ` +
+    `${unexplained.length} not marked as by design. Report: ${join(outDir, 'report.md')}`,
+);
+// Errors (not warnings, not slicer findings) fail the run.
+if (errored.length) process.exitCode = 1;

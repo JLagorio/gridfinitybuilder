@@ -415,6 +415,26 @@ export const SAMPLE_GROUPS: SampleGroup[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Findings by design
+// ---------------------------------------------------------------------------
+
+/**
+ * Findings that are there by design (docs/print-check.md says more). `what`
+ * matches a print-check issue kind or a PrusaSlicer finding ("stability: …").
+ * The sampler's report marks them, so what is left stands out.
+ */
+export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
+  { file: /^(baseplates\/(bowtie|no-numbers-mask-void|pads-strips-bowtie)\.piece)/, what: /^thin$/, why: '0.65 mm walls beside bowtie pockets (CONNECTOR_MIN_WALL), one line' },
+  { file: /^placement\/stretched/, what: /^overhang$|Floating bridge anchors|Long bridging|Loose extrusions/, why: 'the stretched body overhangs the margin from just above the baseplate (README); print with supports under it' },
+  { file: /^containers\/drawers-/, what: /^overhang$|Long bridging/, why: 'shelves bridge each bay; the planner warns past 60 mm (use more columns, or supports)' },
+  { file: /^compartments\/removable-tab/, what: /^overhang$/, why: 'a tab in front of a removable divider bridges its compartment, side wall to side wall' },
+  { file: /pattern/, what: /Thin fragile part/, why: 'the hex wall pattern leaves 0.95 mm thick webs (Gridfinity Extended)' },
+  { file: /\.(key|lidkey|pin)-\d|spacer-(front|back)-|\.foot-/, what: /Low bed adhesion/, why: 'small or narrow part: a brim helps' },
+  { file: /./, what: /Long bridging extrusions/, why: 'bridges in the design (weight pockets, keyhole slots, hole roofs, half-grid foot gaps): PrusaSlicer flags any long bridge' },
+  { file: /./, what: /Floating bridge anchors/, why: 'small bridges anchored on thin features (hinge-pin holes, pocket roofs): no mid-air islands or long ledges found there' },
+];
+
+// ---------------------------------------------------------------------------
 // Parts
 // ---------------------------------------------------------------------------
 
