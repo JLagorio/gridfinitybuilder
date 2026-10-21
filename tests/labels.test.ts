@@ -340,6 +340,87 @@ describe('label plates', () => {
   });
 });
 
+describe('label tabs and back-wall cutouts', () => {
+  // Three compartments, centered tabs: the back cutout takes the wall the middle tab hangs from.
+  const cutBin = (o: Partial<BinOptions> = {}): BinOptions => ({
+    ...DEFAULT_BIN,
+    unitsX: 2,
+    unitsY: 1,
+    heightUnits: 2,
+    divX: 3,
+    label: 'center',
+    cutoutWalls: 'b',
+    ...o,
+  });
+  /** Half the cutout's width: `cutoutWidth` of the back wall's inside length. */
+  const halfCut = (o: BinOptions) => (o.cutoutWidth * (binSize(o).w - 2 * 0.95)) / 2;
+  const spans = (o: BinOptions) => binLabelTabs(o).map((t) => [t.x0, t.x1]);
+
+  it('leaves no tab floating where the cutout took its wall', () => {
+    for (const o of [
+      cutBin(),
+      cutBin({ cutoutWalls: 'fb' }),
+      cutBin({ scoop: 1 }),
+      cutBin({ cutoutWalls: 'fb', scoop: 1 }),
+      cutBin({ layout: uniformLayout(3, 1) }),
+      // A wide, deep cutout in a tall bin: the loose tab was over 2000 mm³.
+      cutBin({ heightUnits: 6, divX: 1, cutoutWidth: 1, cutoutDepth: 30 }),
+    ]) {
+      expect(check(buildBin(w, o))).toMatchObject({ status: 'NoError', components: 1 });
+    }
+  });
+
+  it('trims tabs back to the cutout’s edge, leaves out the ones inside it and keeps tabs that bridge it', () => {
+    const o = cutBin();
+    const hw = halfCut(o);
+    const tabs = binLabelTabs(o);
+    expect(tabs.map((t) => t.key)).toEqual(['g0,0', 'g2,0']);
+    expect(tabs[0].x1).toBeCloseTo(-hw, 6);
+    expect(tabs[1].x0).toBeCloseTo(hw, 6);
+    // The same compartments as a divider layout get the same tabs.
+    const fromLayout = spans(cutBin({ layout: uniformLayout(3, 1) }));
+    expect(fromLayout).toHaveLength(2);
+    fromLayout.flat().forEach((v, i) => expect(v).toBeCloseTo(spans(o).flat()[i], 6));
+    // Full-width tabs hang from the dividers: the middle one bridges the cutout.
+    expect(binLabelTabs(cutBin({ label: 'full' }))).toHaveLength(3);
+    // In a tall bin the 12 mm cutout leaves enough wall under the tabs: nothing changes.
+    expect(spans(cutBin({ heightUnits: 6 }))).toEqual(spans(cutBin({ heightUnits: 6, cutoutWalls: '' })));
+  });
+
+  it('in a divider layout, tabs bridge the cutout only between plain walls', () => {
+    const lowered = setWallProps(setWallProps(uniformLayout(3, 1), 'x1', { lower: 4 }), 'x2', { lower: 4 });
+    expect(binLabelTabs(cutBin({ label: 'full', layout: uniformLayout(3, 1) }))).toHaveLength(3);
+    // Between two lowered walls the middle tab would hang from nothing: it is left out.
+    const o = cutBin({ label: 'full', layout: lowered });
+    expect(binLabelTabs(o)).toHaveLength(2);
+    expect(check(buildBin(w, o))).toMatchObject({ status: 'NoError', components: 1 });
+  });
+
+  it('puts label text and plates only on what is left of the tabs', () => {
+    const o = cutBin({ unitsX: 3, heightUnits: 6, cutoutDepth: 30, labelText: 'M3', labelStyle: 'inlaid' });
+    const hw = halfCut(o);
+    expect(binLabelTabs(o).map((t) => t.key)).toEqual(['g0,0', 'g2,0']);
+    expect(binLabelTexts(o)).toEqual(['M3', 'M3']);
+    const mesh = buildBin(w, o);
+    expect(check(mesh)).toMatchObject({ status: 'NoError', components: 1 });
+    // The inlaid text sits on the tabs beside the cutout, inside their margins.
+    const p = mesh.overlays![0].positions;
+    let inner = Infinity;
+    for (let i = 0; i < p.length; i += 3) inner = Math.min(inner, Math.abs(p[i]));
+    expect(inner).toBeGreaterThan(hw + 1 - 1e-3);
+
+    const po = { ...o, labelPlates: true };
+    expect(binLabelPlates(po)).toHaveLength(2);
+    expect(binLabelPlatePlaces(po)).toHaveLength(2);
+    const so = sanitizeBin(po);
+    for (const L of planTabLabels(so, binLabelTabs(so), binBodyHeight(so), binSize(so).w)) {
+      const { recess, notch } = L.plate!;
+      expect(Math.max(recess.x1, notch.x + notch.r) <= -hw || recess.x0 >= hw).toBe(true);
+    }
+    expect(check(buildBin(w, po))).toMatchObject({ status: 'NoError', components: 1 });
+  });
+});
+
 describe('planning', () => {
   const removable = () => setWallProps(uniformLayout(2, 1), 'x1', { removable: true });
   const placed = (id: string, x: number, y: number, o: Partial<BinOptions>): PlacedBin => ({ id, x, y, opts: bin(o) });

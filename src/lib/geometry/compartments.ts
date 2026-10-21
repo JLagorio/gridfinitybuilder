@@ -25,6 +25,10 @@
  *   floors and filled compartments.
  * - Removable walls: a slot through the wall's footprint (+ clearance) down into
  *   the floor, and guide ribs at each end (returned in `add`).
+ * - Back-wall cutouts (walls.ts) can cut a label tab off the back wall. Across
+ *   the cutout's span a tab is kept only where it still bridges between two
+ *   holds (the tab going on past the cutout, or a plain side wall); otherwise
+ *   it is trimmed back to the cutout's edge, or left out.
  * - Label tabs are also listed without building anything (`labelTabs`), for the
  *   label text and label-plate recesses in labels.ts.
  */
@@ -42,7 +46,7 @@ import {
 } from './spec';
 import { CORNER_SEGMENTS, boxAt, extrudePolygon, ringAt, roundedRectRing, type CornerRadii } from './shapes';
 import type { BinOptions, LabelStyle } from './bin';
-import { binFloorZ } from './variants';
+import { binBodyHeight, binFloorZ, lipRise } from './variants';
 import { pocketFill, regionPocketCutters, regionPocketLayout, type PocketLayout, type PocketRegion } from './pockets';
 import { cutoutCutters, cutoutKeyPart } from './cutouts';
 import {
@@ -64,6 +68,7 @@ import {
   type ResolvedLayout,
 } from '../dividers';
 import { applyWallExtras, insertExtras, insertExtrasKey, shapeInsert, type InsertExtras } from './wallExtras';
+import { CUTOUT_REACH, backCutout } from './walls';
 
 export interface CutterSpec {
   /** Footprint, already grown by the overlap into the surrounding walls. */
@@ -89,6 +94,10 @@ export interface CutterSpec {
   backInset?: number;
   /** Top of a shaped floor under the tab (default: zFloor); the tab shrinks to stay clear of it. */
   tabZ?: number;
+  /** The bin's back-wall cutout, when this compartment's back is the back wall: its span along X and its bottom. */
+  backCut?: { x0: number; x1: number; z: number } | null;
+  /** Sides that are plain, full-height walls a tab reaching into them hangs from (default: neither). */
+  sideWalls?: { left: boolean; right: boolean };
 }
 
 /** A label tab's flat top, in bin coordinates. */
@@ -137,7 +146,38 @@ export function tabShape(c: CutterSpec): TabShape | null {
   else if (c.label === 'left') tx0 = x0 - eps;
   else if (c.label === 'right') tx0 = x1 + eps - tw;
   else tx0 = (x0 + x1) / 2 - tw / 2;
-  return { tx0, tx1: tx0 + tw, yb: y1 + 2 * eps, yf: y1 - td, th, tabTop, zt: lowered ? tabTop : zTop + 0.5 };
+  let tx1 = tx0 + tw;
+  const cut = c.backCut;
+  if (cut && tx0 < cut.x1 && tx1 > cut.x0 && cutsTabLoose(cut.z, tabTop, th, td, tan)) {
+    // Across the cutout the tab no longer hangs from the back wall: keep it there only as a bridge.
+    const outL = cut.x0 - tx0;
+    const outR = tx1 - cut.x1;
+    const heldL = outL >= TAB_HOLD || (tx0 < x0 && !!c.sideWalls?.left);
+    const heldR = outR >= TAB_HOLD || (tx1 > x1 && !!c.sideWalls?.right);
+    if (!heldL || !heldR) {
+      // Else what is left of it beside the cutout (the longer side), if anything.
+      [tx0, tx1] = outL >= outR ? [tx0, cut.x0] : [cut.x1, tx1];
+      if (tx1 - tx0 < MIN_CUT_TAB) return null;
+    }
+  }
+  return { tx0, tx1, yb: y1 + 2 * eps, yf: y1 - td, th, tabTop, zt: lowered ? tabTop : zTop + 0.5 };
+}
+
+/** Least material that still holds a tab to the wall across a back-wall cutout: left under the cutout, or tab running on past its edge (mm). */
+const TAB_HOLD = 1;
+/** A tab trimmed back to a cutout's edge narrower than this is left out (mm). */
+const MIN_CUT_TAB = 4;
+
+/**
+ * Does a back-wall cutout with its bottom at `z` cut a tab (top `tabTop`, `th`
+ * thick at the wall, `td` deep) off the wall? The cutout takes everything above
+ * `z` within CUTOUT_REACH of the outside; the tab stays held only by what is
+ * left under it there, where its underside has risen toward the front.
+ */
+function cutsTabLoose(z: number, tabTop: number, th: number, td: number, tan: number): boolean {
+  if (z >= tabTop) return false;
+  const reach = CUTOUT_REACH - WALL;
+  return reach >= td || z < tabTop - th + tan * reach + TAB_HOLD;
 }
 
 /** The flat top of a cutter's label tab (clipped to the compartment, clear of the lip). */
@@ -501,6 +541,7 @@ function uniformSpecs(o: BinOptions, W: number, D: number, zFloor: number, topIn
 
   const zTop = topInfill + 1;
   const rc = Math.min(INNER_RADIUS, cw / 2 - 0.05, cd / 2 - 0.05);
+  const back = backCut(o, W);
   const specs: CutterSpec[] = [];
   for (let i = 0; i < o.divX; i++) {
     for (let j = 0; j < o.divY; j++) {
@@ -524,6 +565,8 @@ function uniformSpecs(o: BinOptions, W: number, D: number, zFloor: number, topIn
         label: o.label,
         key: `g${i},${j}`,
         backInset: j === o.divY - 1 ? lipInset(o) : 0,
+        backCut: j === o.divY - 1 ? back : null,
+        sideWalls: { left: true, right: true },
       });
     }
   }
@@ -532,6 +575,27 @@ function uniformSpecs(o: BinOptions, W: number, D: number, zFloor: number, topIn
 
 /** How far the stacking lip reaches in over the back of a tab against the outer wall. */
 const lipInset = (o: BinOptions) => (o.lip ? LIP_DEPTH - WALL : 0);
+
+/** The back-wall cutout as buildBin cuts it from a compartment bin (down to just above the floor), seen from the tabs. */
+const backCut = (o: BinOptions, W: number) => backCutout(o, W, binBodyHeight(o) + lipRise(o), binFloorZ(o) + 1);
+
+/**
+ * Sides of a layout rect a label tab can hang from: the cavity edge, or plain
+ * walls (fixed, full height, no notch or shaped top) along the whole side.
+ */
+function plainSides(r: Pick<ResolvedLayout, 'innerW' | 'walls'>, rc: CompRect): { left: boolean; right: boolean } {
+  const tol = 1e-4;
+  const side = (open: boolean, edge: boolean, pos: number) => {
+    if (!open) return false;
+    if (edge) return true;
+    const ws = r.walls.filter((x) => x.orient === 'v' && Math.abs(x.pos - pos) < tol && x.start < rc.y1 && x.end > rc.y0);
+    return ws.length > 0 && ws.every((x) => !x.removable && !(x.lower > 0) && !x.wall.notch && (x.wall.top ?? 'flat') === 'flat');
+  };
+  return {
+    left: side(rc.open.left, rc.x0 <= tol, rc.x0 - DIVIDER / 2),
+    right: side(rc.open.right, rc.x1 >= r.innerW - tol, rc.x1 + DIVIDER / 2),
+  };
+}
 
 const rectRadius = (r: { x0: number; x1: number; y0: number; y1: number }) =>
   Math.max(0, Math.min(INNER_RADIUS, (r.x1 - r.x0) / 2 - 0.05, (r.y1 - r.y0) / 2 - 0.05));
@@ -562,7 +626,7 @@ interface CompPlan {
 /** Each layout compartment's cutter specs (one per rect), floor, inside and floor shape. */
 function planLayout(
   o: BinOptions,
-  r: Pick<ResolvedLayout, 'innerW' | 'innerD' | 'compartments'>,
+  r: Pick<ResolvedLayout, 'innerW' | 'innerD' | 'compartments'> & Partial<Pick<ResolvedLayout, 'walls'>>,
   ix0: number,
   iy0: number,
   zFloor: number,
@@ -580,6 +644,12 @@ function planLayout(
     y1: iy0 + rc.y1 + grow,
   });
   const backInset = (rc: CompRect) => (rc.y1 >= r.innerD - 1e-6 ? lipInset(o) : 0);
+  // Back-wall cutout over tabs against the back wall, and the sides those tabs can hang from.
+  const back = backCut(o, r.innerW + 2 * WALL);
+  const backWall = (rc: CompRect) => ({
+    backCut: rc.y1 >= r.innerD - 1e-6 ? back : null,
+    sideWalls: r.walls ? plainSides({ innerW: r.innerW, walls: r.walls }, rc) : undefined,
+  });
   // Pocket regions on the cavity edge stay clear of the lip when the fill reaches up under it.
   const region = (rc: CompRect, lip: number): PocketRegion => ({
     x0: ix0 + rc.x0 + (rc.x0 <= 1e-6 ? lip : 0),
@@ -632,6 +702,7 @@ function planLayout(
         label,
         tabTop: topInfill - Math.min(rc.backLower, maxLower),
         backInset: backInset(rc),
+        ...backWall(rc),
         ...tabZ(rc),
       };
       plan.specs = [one];
@@ -650,6 +721,7 @@ function planLayout(
         label: rc === tabStrip ? label : 'none',
         tabTop: topInfill - Math.min(rc.backLower, maxLower),
         backInset: backInset(rc),
+        ...backWall(rc),
         ...tabZ(rc),
       }),
     );

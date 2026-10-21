@@ -50,11 +50,22 @@ export interface CutoutOpts {
   cutoutDepth: number;
 }
 
+/** How far a cutout reaches in from the wall's outer face: deep enough to clear the lip support and any lip notch cusps on the inside. */
+export const CUTOUT_REACH = Math.max(LIP_DEPTH, BASE_TOP_RADIUS) + 0.6;
+
 /** Width and bottom of each cutout, after clamping to the wall. */
 export function cutoutSize(o: CutoutOpts, length: number, top: number, zMin: number) {
   const width = Math.min(o.cutoutWidth * (length - 2 * WALL), length - 2 * BASE_TOP_RADIUS - 2);
   const bottom = Math.max(zMin, top - o.cutoutDepth);
   return { width, bottom };
+}
+
+/** The back wall's cutout as `wallCutouts` cuts it (same arguments, W = the bin's outer width): its span along X and its bottom. */
+export function backCutout(o: CutoutOpts, W: number, top: number, zMin: number): { x0: number; x1: number; z: number } | null {
+  if (!o.cutoutWalls.includes('b')) return null;
+  const { width, bottom } = cutoutSize(o, W, top, zMin);
+  if (width < 4 || top - bottom < 1) return null;
+  return { x0: -width / 2, x1: width / 2, z: bottom };
 }
 
 /**
@@ -68,9 +79,8 @@ export function wallCutouts(w: Wasm, s: Scope, o: CutoutOpts, W: number, D: numb
     const depth = top - bottom;
     if (width < 4 || depth < 1) continue;
     const r = Math.min(width / 2, depth) - 0.01;
-    // Deep enough to clear the lip support and any lip notch cusps on the inside.
     const v0 = -1;
-    const v1 = Math.max(LIP_DEPTH, BASE_TOP_RADIUS) + 0.6;
+    const v1 = CUTOUT_REACH;
     const hw = width / 2;
     const parts: Manifold[] = [
       rod(w, s, -hw + r, bottom + r, r, v0, v1),
