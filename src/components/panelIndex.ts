@@ -45,7 +45,10 @@ export const BIN_INDEX: FindEntry[] = [
       {
         id: 'type',
         title: 'Type',
-        words: ['container', 'kind', 'plain bin', 'drawer unit', 'chest', 'drawers', 'parts box', 'box', 'hinged lid', 'hopper', 'tool rack', 'dispenser'],
+        words: [
+          'container', 'kind', 'plain bin', 'drawer unit', 'chest', 'drawers', 'parts box', 'box', 'hinged lid', 'hopper', 'tool rack', 'dispenser',
+          'vase', 'vase mode', 'spiral', 'spiral vase', 'spiralize', 'single wall', 'one wall', 'fast', 'quick print', 'little filament', 'cheap',
+        ],
       },
       { id: 'size', title: 'Width and depth', words: ['size', 'width', 'depth', 'units', 'footprint', 'bigger', 'smaller', 'resize'] },
       {
@@ -60,8 +63,9 @@ export const BIN_INDEX: FindEntry[] = [
   {
     id: 'container',
     title: 'Container options',
-    when: 'for a drawer unit, parts box, hopper, tool rack or dispenser (Type)',
+    when: 'for a vase-mode bin, drawer unit, parts box, hopper, tool rack or dispenser (Type)',
     words: [
+      'vase', 'vase mode', 'spiral', 'spiral vase', 'single wall', 'one wall', 'fast', 'wall line', 'line width', 'slit', 'bottom layers',
       'drawer unit', 'drawers', 'chest', 'pull', 'knob', 'stop', 'parts box', 'box', 'lid', 'hinge', 'latch', 'magnet', 'snap',
       'hopper', 'slope', 'front lip', 'tool rack', 'screwdriver', 'hex key', 'allen', 'file', 'plier', 'wrench', 'spanner', 'lean',
       'engrave', 'dispenser', 'battery', 'coin cell', 'tape', 'zip tie', 'magazine', 'compartments', 'scoop', 'label', 'columns', 'rows',

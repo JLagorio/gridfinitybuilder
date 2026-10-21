@@ -9,6 +9,7 @@ import { standingNoteFor } from '../lib/geometry/itemHeight';
 import { LID_HEIGHT } from '../lib/geometry/lid';
 import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
 import { LidTopFields, ShadowFloorField } from './InsertFields';
+import { VASE, isVaseBin } from '../lib/geometry/containers/vase';
 import { Find } from './findContext';
 
 type Props = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
@@ -116,6 +117,26 @@ export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinC
 
 /** Foot style. */
 export function BaseField({ opts, onChange }: Props) {
+  // Vase-mode bins: hollow feet drawn as they print, or none (geometry/containers/vase.ts).
+  if (isVaseBin(opts)) {
+    const flat = opts.base === 'flat';
+    return (
+      <Segmented
+        label="Base"
+        value={flat ? 'flat' : 'standard'}
+        options={[
+          { value: 'standard', label: 'Feet', title: 'Gridfinity feet, hollow, printed as the bottom layers' },
+          { value: 'flat', label: 'Flat', title: 'No feet: a flat bottom' },
+        ]}
+        onChange={(base) => onChange({ base })}
+        hint={
+          flat
+            ? 'No feet: a flat-bottomed box for loose use. It does not lock into a baseplate.'
+            : `Gridfinity feet, hollow, with walls two lines thick, joined up to ${VASE.start} mm. A single wall can't go round separate feet, so they print as ordinary bottom layers and the spiral starts above them.`
+        }
+      />
+    );
+  }
   const hints: Record<BinOptions['base'], string> = {
     standard: 'Solid Gridfinity feet.',
     lite: 'Hollow feet with thin walls (gridfinity-rebuilt “lite”): much less plastic. The floor follows the feet.',

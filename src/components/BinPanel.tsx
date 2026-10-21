@@ -37,6 +37,7 @@ import { FindPanel, MoreInAll } from './find';
 import { BIN_INDEX } from './panelIndex';
 import { ExternalBinButtons, ExternalBinPanel } from './ExternalBinPanel';
 import { externalKind, externalSize } from '../lib/external';
+import { isVaseBin } from '../lib/geometry/containers/vase';
 
 type FieldProps = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -293,7 +294,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     setBusy(true);
     try {
       const spec = binSpec(job.layout, sel);
-      const name = `gridfinity-bin-${binUnitsText(job.layout, sel.opts).replace('×', 'x')}x${sel.opts.heightUnits}u`;
+      const name = `gridfinity-${isVaseBin(sel.opts) ? 'vase-' : ''}bin-${binUnitsText(job.layout, sel.opts).replace('×', 'x')}x${sel.opts.heightUnits}u`;
       const label = binLabel(sel.opts, spec.cells);
       if (format === 'stl') downloadBytes(await geometry.exportStlSingle(spec, label), `${name}.stl`, 'model/stl');
       else if (format === 'step') downloadBytes(await geometry.exportStepSingle(spec, `Bin ${label}`), `${name}.step`, 'model/step');
@@ -328,7 +329,8 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const cells = sel ? binCellsAt(job.layout, sel) : undefined;
   const container = activeContainer(opts);
   const stacked = !!one && (!!one.on || bins.some((b) => b.on === one.id));
-  const stretchable = !!one && (hasStretch(one.stretch) || STRETCH_SIDES.some((k) => job.layout.margins[k] >= 0.5));
+  // Vase-mode bins don't stretch: one wall can't print the overhang.
+  const stretchable = !!one && !isVaseBin(one.opts) && (hasStretch(one.stretch) || STRETCH_SIDES.some((k) => job.layout.margins[k] >= 0.5));
   const toolBin = !!sel && (sel.opts.interior === 'cutouts' || usesToolCompartments(sel.opts));
 
   const layout = (
@@ -494,7 +496,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           </Section>
         )}
         {one && <StackSection job={job} bin={one} />}
-        {one && <StretchSection layout={job.layout} bin={one} />}
+        {stretchable && <StretchSection layout={job.layout} bin={one} />}
 
         {sel && (
           <Section find="actions" title={many ? `These ${selIds.length} bins` : 'This bin'}>

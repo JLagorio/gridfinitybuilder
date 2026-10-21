@@ -78,6 +78,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
        - Select one to rename, recolour, resize, turn, print or not, list its contents or stack a bin on it; move, copy, paste, duplicate and delete work as for any bin. Compartments, labels, holes and the other options Gridfit builds don't apply, so they're not there.
        - **Where the mesh lives:** never in the project itself (autosave, undo, share links): bins name their mesh by a hash of its contents. The mesh is kept in this browser's IndexedDB (if the browser won't, a private window say, the dialog tells you to save the project file), and **Save project** puts every mesh in the file, so it opens complete on another computer. A share link can't hold meshes: imported bins go in it as boxes of their size, and copying the link says so. Meshes no drawer has used for 30 days are deleted from the browser. The 3D view shows meshes over 150 000 triangles simplified; exports always use the whole mesh.
    - **Type:** a plain **bin**, or one of these containers, each on the same Gridfinity feet:
+     - **Vase-mode bin:** prints in the slicer's spiral vase mode: solid bottom layers, then one continuous wall. A bin in minutes from a few grams; dividers are folds of the wall. See [Vase-mode bins](#vase-mode-bins).
      - **Drawer unit:** a small chest of 1–8 pull-out drawers in up to 4 columns, with notch, tab, knob or recessed pulls, drawer stops, compartments and labels on the drawer fronts. The top can be flat, have a stacking lip, or have receptacles for bins.
      - **Parts box:** a snap-on hinged lid, a snap latch or magnets, compartments with scoops, and a label on the lid.
      - **Hopper bin:** an open front with a sloped floor, a front lip with a label slot, and dividers.
@@ -224,9 +225,10 @@ Folding groups say what's set in them, start open when anything in them isn't th
      - **Only what's changed** leaves out what's printed already and packs the rest onto fresh plates. It says how many parts it leaves out ("14 parts already printed are left out").
      - **Forget printed** clears the record. The record is saved with the project, in project files and in share links, and marking is undoable.
    - **Exports:**
-     - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected (plus a second filament for inlaid labels). Open it and press **Slice all plates**. With several printers there is one project per printer, each with its own plates and settings.
+     - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected (plus a second filament for inlaid labels). Vase-bin plates have spiral vase turned on and each vase bin set up for it. Open it and press **Slice all plates**. With several printers there is one project per printer, each with its own plates and settings.
      - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus an assembly map per drawer showing which piece goes where (and, with several printers, on which printer's plate). With several printers, each printer's plates are in a folder of their own.
      - **Plates as STL (.zip):** one binary STL per plate, parts already arranged, in a folder per printer when there are several.
+     - Vase-mode bins are named for what the slicer needs (`[spiral vase: bottom layers to 6 mm (30 at 0.2 mm), 0.6 mm wall line]`), and the 3MF zip's README (`spiral-vase.txt` in the STL zip) says which plates print in spiral vase mode.
      - **STEP** for CAD (Fusion 360, FreeCAD, Onshape): the selected bin, one plate, all plates (.zip), or each drawer assembled. Flat areas become single faces. Imported bins that aren't closed solids are left out (the panel says so).
      - Any single plate or bin, as 3MF or STL.
      - **Test-fit kit:** a small baseplate sample with your joints and magnets, plus one 1 × 1 bin, on one plate. Use it to check the fit before printing everything. For a drawer that prints just bins it's the bin alone, to try in the baseplate you have.
@@ -234,7 +236,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
    - **Bill of materials:**
      - Counts magnets, screws, nuts or inserts, filament pins, connector keys, parts and plates. Partial and blocked cells get no holes.
      - Estimates filament per plate from the same sliced layers as the print time (Bambu's 0.20 mm Standard: 2 walls, 5 top and 3 bottom layers, 15 % infill) for 1.75 mm PLA at 1.24 g/cm³. Expect ±10 %. Until a plate's parts are sliced it shows a quicker guess from the part surfaces, which runs high on tall bins.
-     - **Print time** per plate and in total for the selected printer, from a slice of each part at 0.20 mm (checked against a slicer; expect ±25 %).
+     - **Print time** per plate and in total for the selected printer, from a slice of each part at 0.20 mm (checked against a slicer; expect ±25 %). Vase-mode bins count as they print: solid bottom layers, then one line a layer, one bin after another.
      - With several printers: each plate timed on its own printer, time, filament and cost per printer and in total, and **All done in**: when the slowest printer finishes, since they print at the same time.
      - **Cost** from your filament price per kg (a second price for two-colour parts) and, optionally, electricity.
      - TPU non-slip pads (an option under Baseplate) print on their own plate.
@@ -266,6 +268,30 @@ Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl
 - **Fewest plates** (default): tries every split that uses the minimum number of pieces and keeps the one needing the fewest print plates. Small pieces share a plate when they fit. For a 510.5 × 376.5 mm drawer on a P2S (256 mm bed, 10 mm edge margin) it needs 4 baseplate plates, against 6 when every piece prints alone.
 - **Even pieces**: the same number of pieces, sized as evenly as possible.
 - **Biggest pieces**: full-size pieces first, with leftovers at the end.
+
+### Vase-mode bins
+
+A vase-mode bin (*Type: Vase-mode bin*) prints in the slicer's spiral vase mode (*Spiral vase* in PrusaSlicer, Bambu Studio and Orca, *Spiralize outer contour* in Cura): the bottom layers print as usual, then the nozzle goes round the outside in one continuous, rising line. A 1 × 1 × 3u bin takes 4.4 g and 9 minutes instead of 10.4 g and 15 (PrusaSlicer set up like Bambu’s 0.20 mm Standard); the hollow feet under the spiral print as usual, so that’s most of what’s left.
+
+**How it prints.** Above the bottom layers the slicer keeps only each layer's outline, with its holes closed, so whatever the bin needs inside has to be part of that one outline, or below the spiral:
+
+- **Feet.** A bin on several cells stands on a foot per cell, and the feet are separate islands below the baseplate's ridges, which one line can't go round. So the spiral starts above them, at 6 mm (the 30 bottom layers at 0.2 mm that other single-part vase designs use too), and everything under it prints as ordinary bottom layers: each foot a hollow shell two lines thick with a solid floor, joined by walls along the cell lines, with solid bosses round magnet, refined or screw holes. That's why the slicer has to be told the bottom layers (Gridfit does it in Bambu projects). Some designs print the feet separately and glue them on instead ([kennetek's gridfinity-spiral-vase](https://github.com/kennetek/gridfinity-rebuilt-openscad)); this way the bin prints in one piece.
+- **Flat** (Base: Flat): no feet; the floor is the bottom layers and the spiral starts on it.
+- **Dividers** are thin slits (0.15 mm) cut in from the back wall (or the right wall, for sections front to back) up through the top, stopping two lines short of the opposite wall. The outline follows the slit in and back out, so the single wall folds into a divider: two lines, joined at the tip, which touches the opposite wall. The slit has to be wider than twice the slicers' gap-closing radius (0.049 mm), or they close it; the solid at its end has to stay over a line wide once the slicer insets the outline, or the outline splits in two and the spiral stops (PrusaSlicer did at 1.5 lines). Dividers run one way only (as in kennetek's): slits that crossed would cut the bin apart. Below the spiral each divider is a real wall.
+- **Wall line:** the wall is this one line, 0.6 mm by default (1.5 × a 0.4 mm nozzle); wider is stiffer. The part is drawn for it (two-line feet, the slits' ends), the Bambu project prints with it, and a print check flags a line narrower than the nozzle or over twice it, with a one-click fix for your nozzle.
+- The part is drawn as it prints (one line of wall above the bottom layers): the slicer sees the same outline a solid block would give it, but this is one closed shell, the 3D view shows the bin you'll get, its volume is the filament it takes, and without vase mode it still prints, as a thin-walled bin.
+
+**Not for vase bins:** anything inside the wall, which one line can't print: scoops, label tabs and label text, the stacking lip and lids, pockets, tool cutouts, cups, trays, rails, wall cutouts and patterns, and compartments other than the dividers. They're not shown for a vase bin (switching back to a plain bin brings them back). Nothing stacks on a vase bin (it stacks on others), and it doesn't stretch over the margin. Half grids, partial edge cells and magnets work.
+
+**Plates.** Spiral vase is a setting of the whole print, not of a part, so vase bins get plates of their own (*Vase bins 1*, …):
+
+- **PrusaSlicer** has it in the print settings and prints only one object in spiral vase mode (unless *Complete individual objects* prints them one after another), so on other printers each vase bin gets a plate.
+- **Bambu Studio** sets it per plate (*Spiral vase* in the plate's settings, `spiral_mode` in the project's `Metadata/model_settings.config`). Several objects on such a plate must print *By object*, and then every one but the last has to clear the gantry: they stand at least the printer's `extruder_clearance_max_radius` apart (68 mm on X1 / P1, 72 P2S, 73 A1, 81 H2S, 96 H2D), and none may be taller than its rod clearance (34 mm on X1 / P1) where a later one shares its row. So on Bambu printers vase bins under the rod clearance share plates at that spacing, and taller ones print alone.
+- **The Bambu project** turns spiral vase on for those plates (print sequence *By object* when they hold several bins), and gives each vase bin what Bambu Studio itself sets when you turn it on for a plate (1 wall loop, no top shells, 0 % sparse infill, no supports, thin-wall detection off, vertical shell thickness on), plus its bottom shell layers up to the spiral's start (counted for the process's layer heights: 30 at 0.2 mm) and its outer wall line width. Project-wide it switches off what spiral vase can't have (smooth timelapse, continuous Z outer-wall speed). Other plates keep the normal settings. If you change the layer height in Bambu Studio, set the vase bins' bottom shell layers to reach 6 mm again.
+- **Other slicers:** turn on spiral vase, 1 wall, no top layers, 0 % infill, no supports, bottom layers to 6 mm (1 mm on a flat bin) and the wall (external perimeter) line width; each vase part's name says so, and so does the README.
+- Bed fit and several printers work as for other bins.
+
+**Checked** with PrusaSlicer 2.7.2 (`npm run sampler -- out --slice --only vase/`): each sample slices in spiral vase mode with its bottom layers and line width, and its G-code is read back: after the bottom layers every layer is one line with Z rising along it, no travel or retraction, starting where the one before ended, and one turn is as long as the outline and both sides of every slit (so the slits fold the wall rather than being closed). See docs/print-check.md.
 
 ## Dimensions
 
@@ -320,11 +346,11 @@ npx tsx scripts/build-bambu-settings.ts
 ```
 src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (Manifold), label text
                     (a small TrueType reader; Roboto Condensed Bold, OFL, ships in public/fonts)
-src/lib/layout/     drawer → grid fit, bed splitting, plate packing; fleet.ts several printers and sharing parts out
+src/lib/layout/     drawer → grid fit, bed splitting, plate packing; fleet.ts several printers and sharing parts out; spiral.ts vase-bin plates
 src/lib/dividers/   bin interior layouts: walls → compartments, edits, snapping (pure TS)
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
 src/lib/autofill/   "Fill from a list": list parser, item matching, bin sizing, grouping, packing (pure TS)
-src/lib/geometry/containers/  drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
+src/lib/geometry/containers/  vase-mode bins, drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers (a plate, every plate, one part); estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + buildMesh()
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search;

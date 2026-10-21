@@ -20,9 +20,10 @@ const root = resolve(__dirname, '..');
  * ~543 kB with the ammunition presets and their height check (the bin grid's check marks need them).
  * QR codes on bins added ~14 kB (559 kB with all of the above): planning where a code goes and how big, its print checks, the drawer
  * map's and settings search's share. Their encoder and geometry stay out: the encoder loads with the
- * panels that draw codes, the geometry only with the mesh builders.
+ * panels that draw codes, the geometry only with the mesh builders. Vase-mode bins' planning (and,
+ * like every container type, geometry) is on the first screen too: ~7 kB, 567 kB in all.
  */
-const FIRST_SCREEN_BUDGET = 565_000;
+const FIRST_SCREEN_BUDGET = 575_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;

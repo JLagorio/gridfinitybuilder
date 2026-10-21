@@ -2,6 +2,7 @@ import { strToU8, zipSync } from 'fflate';
 import type { MeshData } from '../geometry/kernel';
 import { assemblyMaps, printerFolder, type MeshLookup, type PrintJob } from '../project';
 import { placeTransform, type Mat12 } from './threemf';
+import { spiralNotes } from './spiralNotes';
 
 export interface StlItem {
   mesh: MeshData;
@@ -125,5 +126,8 @@ export function exportPlatesStlZip(job: PrintJob, getMesh: MeshLookup): Uint8Arr
     files[`${printerFolder(job, pl)}${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.stl`] = [exportPlateSTL(job, i, getMesh), { level: 6 }];
   });
   for (const [name, text] of Object.entries(assemblyMaps(job))) files[name] = strToU8(text);
+  // Vase-mode bins need the slicer set up for them (layout/spiral.ts).
+  const vase = spiralNotes(job);
+  if (vase.length) files['spiral-vase.txt'] = strToU8(`${vase.join('\n')}\n`);
   return zipSync(files);
 }

@@ -4,6 +4,7 @@
  */
 export * from './registry';
 export { containerBase, containerRing } from './base';
+import './vase';
 import './drawers';
 import './box';
 import './hopper';

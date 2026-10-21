@@ -4,6 +4,7 @@ import { assemblyMaps, plateContents, printerFolder, type JobPlate, type MeshLoo
 import { connectorSteps, type PrintSetup } from '../layout/plan';
 import { jobPrinters } from '../layout/fleet';
 import { findPrinter } from '../printers';
+import { spiralNotes } from './spiralNotes';
 
 /** 3MF affine transform: m00 m01 m02 m10 m11 m12 m20 m21 m22 tx ty tz (row-vector convention). */
 export type Mat12 = [number, number, number, number, number, number, number, number, number, number, number, number];
@@ -194,6 +195,8 @@ function readme(job: PrintJob, setup: PrintSetup) {
     ...(job.drawers.some((d) => !d.haveBaseplate) ? ['Baseplate pieces are numbered; see the assembly map for where each one goes.'] : []),
     ...(keys ? ['', ...connectorSteps(keys)] : []),
     ...job.drawers.flatMap((d) => (d.steps.length ? ['', ...(job.drawers.length > 1 ? [`${d.name}:`] : []), ...d.steps] : [])),
+    // Vase-mode bins need the slicer set up for them (layout/spiral.ts).
+    ...(spiralNotes(job).length ? ['', ...spiralNotes(job)] : []),
     '',
     ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}${on(pl)}): ${plateContents(job, pl).join(', ')}`),
     '',

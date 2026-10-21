@@ -88,6 +88,8 @@ import {
 import { stackPlaces, stackWarnings } from './stacking';
 import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
 import { buildImported, type ImportedSpec } from './imported/registry';
+import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
+import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
 export interface PlacedBin {
@@ -201,6 +203,8 @@ export interface JobPart {
   bin?: string;
   /** Mesh key the 3D view shows instead of `meshKey` (a big imported mesh, decimated). */
   preview?: string;
+  /** Vase-mode bins: how the slicer must print them (geometry/containers/vase.ts). */
+  spiral?: SpiralPrint;
 }
 
 export interface JobPlate {
@@ -209,6 +213,8 @@ export interface JobPlate {
   placements: Placement[];
   /** The printer it's for, with several (fleet.ts jobPrinters); unset: the first. */
   printer?: number;
+  /** Vase-mode bins only, printed in spiral vase mode (layout/spiral.ts). */
+  spiral?: boolean;
 }
 
 /** One drawer's baseplate within a print job. */
@@ -584,6 +590,9 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       const caption = texts.length ? ` “${texts.slice(0, 3).join(' · ').replace(/\n/g, ' ')}${texts.length > 3 ? ' …' : ''}”` : '';
       const binName = binLabel(b.opts, spec.cells);
       parts[key] = { key, name: `${label}Bin ${binName}${caption}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
+      // Vase-mode bins print in spiral vase mode, on plates of their own (layout/spiral.ts); the name says how.
+      const spiral = binSpiral(spec.opts, spec.cells);
+      if (spiral) Object.assign(parts[key], { spiral, name: `${parts[key].name} [spiral vase: ${spiralSettingsText(spiral)}]` });
       // Drawer units, parts boxes, … (containers/) check their height with their parts in place.
       const container = activeContainer(b.opts);
       const closed = container?.def.closedHeight?.(sanitizeBin(b.opts), container.opts) ?? h;
@@ -681,9 +690,11 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
   });
   if (several) plates.splice(0, plates.length, ...sharePlates(setup, parts, plates, printable, drawerJobs, warnings, opts.seconds));
   else if (printable.length) {
-    const packed = packPlates(printable, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
+    const normal = printable.filter((it) => !parts[it.key].spiral);
+    const packed = packPlates(normal, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
     for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
     packed.plates.forEach((pl, i) => plates.push({ name: `Bins ${i + 1}`, group: 'bins', placements: pl.placements }));
+    plates.push(...vasePlates(printable, parts, bed, setup.printerId, warnings, 0));
   }
   const first = drawerJobs[0];
   return {
@@ -698,6 +709,32 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     warnings: [...warnings],
     ...(several ? { printers: printerNames(setup) } : {}),
   };
+}
+
+/**
+ * The vase-mode bins among `items` on plates of their own (layout/spiral.ts),
+ * numbered on from `first`.
+ */
+function vasePlates(
+  items: PackItem[],
+  parts: Record<string, JobPart>,
+  bed: { bedW: number; bedD: number; margin: number },
+  printerId: string,
+  warnings: Set<string>,
+  first: number,
+  printer?: number,
+): JobPlate[] {
+  const mine = items.filter((it) => parts[it.key].spiral).map((it) => ({ ...it, h: parts[it.key].h }));
+  if (!mine.length) return [];
+  const packed = packSpiral(mine, bed, spiralClearance(printerId));
+  for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
+  return packed.plates.map((pl, i) => ({
+    name: `Vase bins ${first + i + 1}`,
+    group: 'bins',
+    placements: pl.placements,
+    spiral: true,
+    ...(printer === undefined ? {} : { printer }),
+  }));
 }
 
 /** Where a plate's parts are: their bounding box on the bed, mm. */
@@ -771,6 +808,7 @@ function sharePlates(
   const out: JobPlate[] = [];
   const moved = new Map<number, number>();
   let bins = 0;
+  let vases = 0;
   printers.forEach((_, k) => {
     plates.forEach((pl, i) => {
       if (at.get(`#plate:${i}`) !== k) return;
@@ -786,8 +824,11 @@ function sharePlates(
     });
     const mine = binItems.filter((it) => at.get(it.key) === k);
     if (!mine.length) return;
-    const packed = packPlates(mine, beds[k]);
+    const packed = packPlates(mine.filter((it) => !parts[it.key].spiral), beds[k]);
     packed.plates.forEach((pl) => out.push({ name: `Bins ${++bins}`, group: 'bins', placements: pl.placements, printer: k }));
+    const vase = vasePlates(mine, parts, beds[k], printers[k].printerId, warnings, vases, k);
+    vases += vase.length;
+    out.push(...vase);
   });
   // The assembly map names the plate (and printer) each piece's plate ended up as.
   for (const dj of drawerJobs) {

@@ -1,6 +1,6 @@
 /**
- * Container types other than the plain bin: drawer units, parts boxes,
- * hoppers, tool racks, dispensers. A container is placed on the grid like a
+ * Container types other than the plain bin: vase-mode bins, drawer units,
+ * parts boxes, hoppers, tool racks, dispensers. A container is placed on the grid like a
  * bin (a PlacedBin with the same footprint, cells and height fields) and stands
  * on Gridfinity feet, but builds its own body and may print extra parts.
  *
@@ -12,10 +12,10 @@
 import type { MeshData, Wasm } from '../kernel';
 import type { BinCells, BinOptions } from '../bin';
 
-export type ContainerKind = 'bin' | 'drawers' | 'box' | 'hopper' | 'rack' | 'dispenser';
+export type ContainerKind = 'bin' | 'vase' | 'drawers' | 'box' | 'hopper' | 'rack' | 'dispenser';
 export type ContainerType = Exclude<ContainerKind, 'bin'>;
 
-export const CONTAINER_KINDS: readonly ContainerKind[] = ['bin', 'drawers', 'box', 'hopper', 'rack', 'dispenser'];
+export const CONTAINER_KINDS: readonly ContainerKind[] = ['bin', 'vase', 'drawers', 'box', 'hopper', 'rack', 'dispenser'];
 
 /** An extra printed part of a container (a drawer, a lid, a follower…). */
 export interface ContainerPart {

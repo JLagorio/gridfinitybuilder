@@ -13,6 +13,7 @@
 import type { PrintSetup } from './plan';
 import { DEFAULT_MOTION, findPrinter, type PrinterMotion } from '../printers';
 import { estimatePlate, type MeshPrintStats } from '../estimate';
+import type { SpiralPrint } from '../geometry/containers/vase';
 
 /** What each printer has of its own. */
 export interface PrinterSetup {
@@ -161,10 +162,15 @@ function speedFactor(m: PrinterMotion): number {
  * bins (1 × 1 × 3u to 5 × 5 × 6u) and frame baseplate pieces on an X1C,
  * within about 15 %, then scaled to the printer's speeds.
  */
-export function roughSeconds(part: { kind: string; w: number; d: number; h: number }, motion: PrinterMotion = DEFAULT_MOTION): number {
+export function roughSeconds(part: { kind: string; w: number; d: number; h: number; spiral?: SpiralPrint }, motion: PrinterMotion = DEFAULT_MOTION): number {
   const area = part.w * part.d;
   const sides = 2 * (part.w + part.d) * part.h;
   let minutes: number;
+  if (part.spiral) {
+    // Vase-mode bin (estimate.ts): solid bottom layers, then one line a layer, at least 4 s each.
+    const layers = Math.max(0, part.h - part.spiral.start) / 0.2;
+    return (0.024 * area * part.spiral.start + layers * Math.max(4, (2 * (part.w + part.d)) / 150)) * speedFactor(motion);
+  }
   if (part.kind === 'piece') minutes = 0.0018 * area + 7.4;
   // Thin walls on a floor: bins, lids, trays, case parts.
   else if (part.kind === 'bin' || part.kind === 'lid' || part.kind === 'tray' || part.kind === 'enclosure') minutes = Math.max(1, 0.0021 * area + 0.0028 * sides - 1);
@@ -177,7 +183,7 @@ export function roughSeconds(part: { kind: string; w: number; d: number; h: numb
 export function slicedSeconds(
   setup: PrintSetup,
   stats: (meshKey: string) => MeshPrintStats | undefined,
-): (part: { meshKey: string; w: number; d: number }, printer: number) => number | undefined {
+): (part: { meshKey: string; w: number; d: number; spiral?: SpiralPrint }, printer: number) => number | undefined {
   const motions = jobPrinters(setup).map((p) => findPrinter(p.printerId).motion ?? DEFAULT_MOTION);
   const cache = new Map<string, number>();
   return (part, k) => {
@@ -186,7 +192,7 @@ export function slicedSeconds(
     const key = `${k}|${part.meshKey}`;
     let t = cache.get(key);
     if (t === undefined) {
-      t = estimatePlate([{ stats: s, w: part.w, d: part.d }], motions[k] ?? DEFAULT_MOTION).printSeconds;
+      t = estimatePlate([{ stats: s, w: part.w, d: part.d, ...(part.spiral ? { spiral: part.spiral } : {}) }], motions[k] ?? DEFAULT_MOTION).printSeconds;
       cache.set(key, t);
     }
     return t;

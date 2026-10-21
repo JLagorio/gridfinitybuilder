@@ -3,6 +3,7 @@ import { meshVolume } from './geometry/volume';
 import { DEFAULT_MOTION, findPrinter, type PrinterMotion } from './printers';
 import type { PrintSetup } from './layout/plan';
 import type { PrintJob } from './project';
+import type { SpiralPrint } from './geometry/containers/vase';
 
 /**
  * Print-time and cost estimates.
@@ -29,6 +30,16 @@ import type { PrintJob } from './project';
  *   1.20, 4×4 with magnets 0.82, 3×3 weighted 0.92, a plate of 12 bins 1.05,
  *   a mixed plate with label plates 1.06. Bambu Studio slices a little
  *   differently, so expect ±25 % against it.
+ *
+ * Vase-mode bins (geometry/containers/vase.ts) print differently: their bottom
+ * layers are all solid with one wall per edge (the hollow feet are drawn as
+ * they print), then one line of the bin's wall width along the outline per
+ * layer, at outer-wall speed, with no travel and no layer change. A plate of
+ * them prints one bin after another ("by object"), so each bin's layers wait
+ * for the minimum layer time on their own: a small bin's spiral is mostly
+ * that wait. Against PrusaSlicer set up the same way in spiral vase mode
+ * (30 bottom layers, a 0.6 mm wall line), model / slicer: 1x1x3u 0.96
+ * (9.4 min), 2x2x6u 1.01; filament 1.03 and 1.03 (4.4 g and 19.4 g).
  *
  * The volume those lines lay down (`PlateEstimate.extruded`) is the BOM's
  * filament once a plate is sliced. Grams of PLA, model ÷ slicer:
@@ -416,10 +427,79 @@ export interface EstimatePart {
   /** Footprint on the bed, mm. */
   w: number;
   d: number;
+  /** A vase-mode bin: printed in spiral vase mode. */
+  spiral?: SpiralPrint;
+}
+
+/**
+ * One layer of a vase-mode bin: below the spiral's start a solid layer with one
+ * wall per edge, above it one turn of the spiral (`sp.path`: the outline and
+ * both sides of every slit).
+ */
+function spiralLayer(s: MeshPrintStats, k: number, sp: SpiralPrint, mo: Motion, wall: { v: number; a: number }, footprint: number, into: TimeBreakdown) {
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const h = P.layerHeight;
+  const A = s.area[k];
+  const perim = s.perimeter[k];
+  if (A <= 0 || perim <= 0) return { seconds: 0, volume: 0 };
+  const t0 = into.walls + into.skin + into.travel;
+  if ((k + 0.5) * h > sp.start) {
+    into.walls += moveTime(sp.path, sp.path / M.wallStops, wall.v, wall.a);
+    return { seconds: into.walls + into.skin + into.travel - t0, volume: sp.path * sp.line * h };
+  }
+  const corner = perim / Math.max(1, s.contours[k] * M.wallStops);
+  const first = k === 0;
+  const w = first ? P.width.first : sp.line;
+  const wallArea = Math.min(A, perim * w);
+  const inside = A - wallArea;
+  const line = Math.max(1, (Math.PI * Math.max(inside, 0)) / perim);
+  const lineMove = first ? mo.firstWall : wall;
+  const fill = first ? mo.firstInfill : mo.solid;
+  into.walls += moveTime(wallArea / w, corner, lineMove.v, lineMove.a);
+  into.skin += moveTime((inside * M.skinLength) / P.width.solid, line, fill.v, fill.a, P.width.solid);
+  const hop = Math.sqrt(Math.max(footprint, 1));
+  into.travel += Math.max(1, s.islands[k]) * (M.island + moveTime(hop, hop, mo.travel.v, mo.travel.a)) + s.contours[k] * M.contour + M.layer;
+  return { seconds: into.walls + into.skin + into.travel - t0, volume: A * h };
+}
+
+/** A plate of vase-mode bins, printed one bin after another. */
+function estimateSpiralPlate(parts: EstimatePart[], motion: PrinterMotion): PlateEstimate {
+  const P = STANDARD_PROCESS;
+  const M = ESTIMATE_MODEL;
+  const mo = featureMotion(motion);
+  const breakdown = emptyBreakdown();
+  let print = 0;
+  let extruded = 0;
+  for (const p of parts) {
+    const sp = p.spiral!;
+    const wall = { v: Math.min(P.speed.outer, motion.speed, motion.flow / (sp.line * P.layerHeight)), a: Math.min(P.accel.outer, motion.accel) };
+    for (let k = 0; k < p.stats.area.length; k++) {
+      const r = spiralLayer(p.stats, k, sp, mo, wall, p.w * p.d, breakdown);
+      extruded += r.volume;
+      breakdown.cooling += Math.max(0, P.minLayerTime - r.seconds);
+      print += Math.max(r.seconds, P.minLayerTime);
+    }
+    // Lift and move to the next bin.
+    breakdown.travel += 2 * M.island;
+    print += 2 * M.island;
+  }
+  const layers = parts.reduce((t, p) => Math.max(t, p.stats.area.length), 0);
+  return {
+    seconds: print + (layers ? motion.prepare : 0),
+    printSeconds: print,
+    prepareSeconds: layers ? motion.prepare : 0,
+    layers,
+    swaps: 0,
+    wasteGrams: 0,
+    extruded,
+    breakdown,
+  };
 }
 
 /** Print time of one plate on a printer. */
 export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEFAULT_MOTION): PlateEstimate {
+  if (parts.length && parts.every((p) => p.spiral)) return estimateSpiralPlate(parts, motion);
   const P = STANDARD_PROCESS;
   const M = ESTIMATE_MODEL;
   const mo = featureMotion(motion);
@@ -480,7 +560,7 @@ export function estimateJob(
       const part = job.parts[p.key];
       const s = stats(part.meshKey);
       if (!s) return null;
-      parts.push({ stats: s, w: part.w, d: part.d });
+      parts.push({ stats: s, w: part.w, d: part.d, ...(part.spiral ? { spiral: part.spiral } : {}) });
     }
     return estimatePlate(parts, motion);
   });

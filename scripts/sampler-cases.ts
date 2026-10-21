@@ -349,6 +349,17 @@ const placement = binGroup('placement', 'Half-grid bins, bins on partial edge ce
   },
 ]);
 
+const vase = (o: Partial<BinOptions>, v: Record<string, unknown> = {}): Partial<BinOptions> => ({ ...o, container: 'vase', containers: { vase: v } });
+const vaseBins = binGroup('vase', 'Vase-mode bins, sliced in spiral vase mode: 1×1, 2×1, 3×2 with dividers, dividers across the depth, magnets, refined slots, a wide line, flat, half grid', [
+  { id: '1x1', opts: vase({}) },
+  { id: '2x1', opts: vase({ unitsX: 2 }) },
+  { id: '3x2-dividers', opts: vase({ unitsX: 3, unitsY: 2, heightUnits: 4 }, { dividers: 2 }) },
+  { id: '2x3-dividers-across-magnets', opts: vase({ unitsX: 2, unitsY: 3, heightUnits: 5, holes: 'magnets' }, { dividers: 3, axis: 'y' }) },
+  { id: '2x1-refined-wide-line', opts: vase({ unitsX: 2, heightUnits: 4, holes: 'refined' }, { dividers: 1, line: 0.8 }) },
+  { id: '1x1-flat-divider', opts: vase({ base: 'flat' }, { dividers: 1 }) },
+  { id: 'half-3x2-magnets', opts: vase({ unitsX: 3, unitsY: 2, holes: 'magnets' }, { line: 0.45 }), drawer: HALF },
+]);
+
 // ---------------------------------------------------------------------------
 // Baseplates, cases, wall grids, spacers, pads, test-fit kit
 // ---------------------------------------------------------------------------
@@ -423,6 +434,7 @@ export const SAMPLE_GROUPS: SampleGroup[] = [
   labels,
   qr,
   placement,
+  vaseBins,
   baseplates,
   enclosures,
   testFit('bowtie-magnets', { connector: 'bowtie', magnets: true }, { holes: 'magnets' }),
@@ -445,6 +457,7 @@ export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
   { file: /^containers\/drawers-/, what: /^overhang$|Long bridging/, why: 'shelves bridge each bay; the planner warns past 60 mm (use more columns, or supports)' },
   { file: /^compartments\/removable-tab/, what: /^overhang$/, why: 'a tab in front of a removable divider bridges its compartment, side wall to side wall' },
   { file: /pattern/, what: /Thin fragile part/, why: 'the hex wall pattern leaves 0.95 mm thick webs (Gridfinity Extended)' },
+  { file: /^vase\//, what: /^thin$/, why: 'a vase-mode bin is drawn as it prints: one line of wall above the bottom layers, its dividers two lines a slit apart' },
   { file: /\.(key|lidkey|pin)-\d|spacer-(front|back)-|\.foot-/, what: /Low bed adhesion/, why: 'small or narrow part: a brim helps' },
   { file: /./, what: /Long bridging extrusions/, why: 'bridges in the design (weight pockets, keyhole slots, hole roofs, half-grid foot gaps): PrusaSlicer flags any long bridge' },
   { file: /./, what: /Floating bridge anchors/, why: 'small bridges anchored on thin features (hinge-pin holes, pocket roofs): no mid-air islands or long ledges found there' },
