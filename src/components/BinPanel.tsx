@@ -26,6 +26,7 @@ import { Select } from './fields';
 import { bedOvershoot, bedProblem, fitStretch, maxUnitsAlong, placedOvershoot, shrinkToBed, usableBed, type Bed } from '../lib/bedfit';
 import { findPrinter } from '../lib/printers';
 import { sanitizeBin } from '../lib/geometry/bin';
+import { BinChecksNotice } from './PrintChecks';
 
 function BinFields({
   opts,
@@ -400,6 +401,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
         >
           {many && <p className="muted small">Showing the first bin's settings. Changes apply to all {selIds.length}.</p>}
           {!many && <TooBigNotice bin={sel} layout={job.layout} bed={bed} printerName={printerName} />}
+          {!many && <BinChecksNotice bin={sel} layout={job.layout} />}
           <BinFields
             key={sel.id}
             opts={sel.opts}

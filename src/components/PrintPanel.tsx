@@ -10,6 +10,7 @@ import { BomSection, TestFitSection, plateSummary, useJobEstimate } from './Prin
 import { drawerAssemblies } from '../lib/export/step';
 import { CopyShareLink } from './ShareLink';
 import { ContentsSection } from './InventoryList';
+import { NozzleField, PrintChecksSection } from './PrintChecks';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -161,6 +162,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           }))}
           onChange={(id) => store.setPrinter(id)}
         />
+        <NozzleField />
         {setup.printerId === 'custom' && (
           <div className="row3">
             <NumberInput label="Bed X" value={setup.bedW} min={80} max={1000} step={1} onChange={(bedW) => store.setSetup({ bedW })} />
@@ -232,6 +234,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           </dl>
         </div>
       </Section>
+
+      <PrintChecksSection job={job} />
 
       <Section title="Export">
         <Toggle label="Baseplate" checked={include.baseplate} onChange={(v) => store.setInclude({ baseplate: v })} />

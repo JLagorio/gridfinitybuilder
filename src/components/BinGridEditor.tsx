@@ -10,6 +10,7 @@ import { HANDLES, MAX_BIN_UNITS, canMoveGroup, fitResize, nearestBoundary, resiz
 import { useLayoutShortcuts } from './useLayoutShortcuts';
 import { placedOvershoot, rectFitsBed, type Bed } from '../lib/bedfit';
 import type { BinOptions } from '../lib/geometry/bin';
+import type { CheckSeverity } from '../lib/printability';
 import { dividerLines } from './dividerLines';
 
 interface Props {
@@ -28,6 +29,8 @@ interface Props {
   bed?: Bed;
   /** Settings new bins are drawn with (their height and type count against the bed too). */
   newBin?: BinOptions;
+  /** Bins with print checks (printability.ts), by id: marked with a small dot. */
+  marks?: ReadonlyMap<string, CheckSeverity>;
 }
 
 type Pt = [number, number];
@@ -64,7 +67,7 @@ function heightCaption(o: PlacedBin['opts']): string {
  * or drag from outside the grid to box-select, drag a selected bin to move the
  * whole selection, drag a handle to resize. Keyboard: see useLayoutShortcuts.
  */
-export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize, bed, newBin }: Props) {
+export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize, bed, newBin, marks }: Props) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<[number, number] | null>(null);
@@ -310,9 +313,12 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
           // Too big for the printer (e.g. after picking a smaller one): marked until it's shrunk.
           const tooBig = !!bed && placedOvershoot(layout, b, bed) > 1e-6;
           const fs = Math.min(10, (Math.min(feet.width, feet.height) / 4) | 0) || 6;
+          const mark = marks?.get(b.id);
           return (
             <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''}`}>
-              <rect {...r} rx={3.75}>{tooBig && <title>Too big for the printer: select it to shrink it</title>}</rect>
+              <rect {...r} rx={3.75}>
+                {tooBig ? <title>Too big for the printer: select it to shrink it</title> : mark && <title>Select it to see its print checks</title>}
+              </rect>
               {stretched && <rect {...feet} rx={3.75} fill="none" strokeDasharray="3 2" opacity={0.6} pointerEvents="none" />}
               {dividerLines(layout, b).map((l, k) => (
                 <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />
@@ -331,6 +337,8 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
                   </text>
                 );
               })()}
+              {/* Print checks: a small dot in the corner (too-big bins are marked red already). */}
+              {mark && !tooBig && <circle className={`ge-check ${mark}`} cx={r.x + r.width - 7 * px} cy={r.y + 7 * px} r={3.5 * px} />}
             </g>
           );
         })}
