@@ -7,6 +7,7 @@ import { insertParts, planInserts, type InsertPartPlan } from '../lib/geometry/c
 import { CRATE, CUP, SHADOW, wantsInserts, type CupGrip } from '../lib/geometry/insertOptions';
 import { isPocketLid, lidPocketOpts, pocketLidHeight, pocketLidLayout } from '../lib/geometry/pocketLid';
 import { LID_HEIGHT } from '../lib/geometry/lid';
+import { standingNoteFor } from '../lib/geometry/itemHeight';
 import { usesToolCompartments } from '../lib/geometry/compartments';
 import type { Compartment, CompartmentOptions } from '../lib/dividers';
 import { WALL } from '../lib/geometry/spec';
@@ -206,7 +207,12 @@ export function LidTopFields({ opts, onChange, cells }: Props) {
       />
       {pockets && (
         <div className="indent">
-          <PocketSettings value={lidPocketOpts(opts)} onChange={(p) => onChange({ lidPockets: { ...opts.lidPockets, ...p } })} layout={layout} />
+          <PocketSettings
+            value={lidPocketOpts(opts)}
+            onChange={(p) => onChange({ lidPockets: { ...opts.lidPockets, ...p } })}
+            layout={layout}
+            note={standingNoteFor(opts, cells, 'lid', undefined, fmt)}
+          />
           {opts.lidPockets && (
             <button className="link" onClick={() => onChange({ lidPockets: undefined })}>
               Use the bin’s pocket settings

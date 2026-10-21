@@ -6,16 +6,15 @@
  * and the store's `addBins` puts it in the drawer in one undo step.
  */
 import { MIN_HEIGHT_UNITS, binInnerSize, binTotalHeight, type BinCells, type BinOptions } from '../geometry/bin';
-import { binSeatHeight, type BaseplateOptions } from '../geometry/baseplate';
-import { PAD, padStyle } from '../geometry/pads';
+import type { BaseplateOptions } from '../geometry/baseplate';
 import { binFloorZ } from '../geometry/variants';
 import { HEIGHT_UNIT } from '../geometry/spec';
 import { MAX_CELLS } from '../geometry/placement';
-import { maxBinUnits } from '../bins';
+import { drawerRoom, maxBinUnits } from '../bins';
 import { usableBed, usableBeds } from '../bedfit';
 import { binCellsAt, type PlacedBin } from '../project';
 import { formatLength, MM_PER_IN, type Units } from '../units';
-import { insideHeight, type DrawerInput, type GridLayout } from '../layout/drawer';
+import type { DrawerInput, GridLayout } from '../layout/drawer';
 import type { PrintSetup } from '../layout/plan';
 import type { Tool } from '../tools';
 import { parseList, type ListItem } from './parse';
@@ -30,6 +29,8 @@ export { matchItem, matchTools, type Holder } from './match';
 export { cellsFor, fillBin, type BinFill, type BinSize, type Proposal, type SizeContext, type Spec } from './size';
 export { packBins, type PackItem, type PackSpot } from './pack';
 export { cleanFillList, mergeBins, type NewBin } from './apply';
+/** Room above the baseplate (bins.ts), as the list is sized for it. */
+export { drawerRoom } from '../bins';
 
 export interface FillContext {
   layout: GridLayout;
@@ -89,13 +90,6 @@ export interface FillPlan {
 
 /** Most drawers suggested for what doesn't fit. */
 const MAX_EXTRA_DRAWERS = 4;
-
-/** Room above the baseplate for bins, mm: the drawer's inside height less the baseplate (Infinity when not set). */
-export function drawerRoom(drawer: DrawerInput, baseplate: BaseplateOptions): number {
-  const h = insideHeight(drawer);
-  if (drawer.enclosure || !(h > 0)) return Infinity;
-  return h - binSeatHeight(baseplate) - (padStyle(baseplate) ? PAD.proud : 0);
-}
 
 const round = (v: number) => (v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10));
 

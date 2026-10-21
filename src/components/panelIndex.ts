@@ -1,4 +1,5 @@
 import type { FindEntry } from '../lib/panelSearch';
+import { POCKET_PRESETS } from '../lib/geometry/pocketPresets';
 
 /**
  * What "Find a setting" searches (lib/panelSearch.ts), panel by panel, in the
@@ -28,7 +29,7 @@ export const BIN_INDEX: FindEntry[] = [
       {
         id: 'quick',
         title: 'Start from',
-        words: ['preset', 'quick start', 'starting point', 'screws', 'small parts', 'batteries', 'deep bin', 'tall', 'tool tray', 'label everything', 'one click'],
+        words: ['preset', 'quick start', 'starting point', 'screws', 'small parts', 'batteries', 'ammo', 'ammunition', 'cartridge', 'deep bin', 'tall', 'tool tray', 'label everything', 'one click'],
       },
       {
         id: 'type',
@@ -76,7 +77,12 @@ export const BIN_INDEX: FindEntry[] = [
           {
             id: 'pocket-holds',
             title: 'Holds',
-            words: ['battery', 'bits', 'sd card', 'card', 'drill', 'socket', 'hex key', 'marker', 'pen', 'paint', 'nozzle', 'coin', 'test tube', 'sizes', 'set', 'fit an item', 'measure'],
+            words: [
+              'battery', 'bits', 'sd card', 'card', 'drill', 'socket', 'hex key', 'marker', 'pen', 'paint', 'nozzle', 'coin', 'test tube', 'sizes', 'set', 'fit an item', 'measure',
+              'ammunition', 'bullet', 'round', 'reloading block', 'caliber', 'calibre',
+              // What the presets go by ("556", "9x19", "12 gauge").
+              ...new Set(POCKET_PRESETS.flatMap((p) => p.aliases ?? [])),
+            ],
           },
           { id: 'pocket-shape', title: 'Pocket shape and size', words: ['round', 'square', 'hex', 'diameter', 'size', 'depth', 'spacing', 'chamfer', 'clearance'] },
           { id: 'pocket-bottom', title: 'Pocket bottom', words: ['flat', 'round', 'cone', 'point', 'stepped', 'bore', 'collar'] },

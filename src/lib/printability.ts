@@ -21,6 +21,12 @@
  * need the label font: without it (on the main thread before it has loaded)
  * they are left out rather than guessed.
  *
+ * Rounds (and anything else whose pocket preset says how tall it stands,
+ * itemHeight.ts) that stick out of the bin, or would hold up its lid, a bin
+ * stacked on it, or the drawer: placed bins know the room above them, what is
+ * stacked on them and the printers they print on (placeChecks), so a fix that
+ * raises the bin stays within them.
+ *
  * Generators that already warn in their planning notes (drawer-unit bays and
  * hopper lintels that bridge far, racks that may tip over in the drawer,
  * text that doesn't fit a box lid or a hopper lip) aren't repeated here.
@@ -39,6 +45,8 @@ import {
   type BinOptions,
 } from './geometry/bin';
 import { binBodyHeight } from './geometry/variants';
+import { MAX_HEIGHT_UNITS, standingBinHeight, standingGrids, tipLimits, unitsToCover, unitsUnderRim, type StandingGrid } from './geometry/itemHeight';
+import { itemNoun } from './geometry/pocketPresets';
 import { BASE_PROFILE_DEPTH, BASE_TOP, BOWTIE_CLEARANCE, GRID, LIP_SUPPORT_HEIGHT, PUZZLE, WALL } from './geometry/spec';
 import { LABEL_TEXT, capFor, fitText, labelLines, planTabLabels, plateTextBox, type Box, type LabelTextStyle } from './geometry/labels';
 import { labelPlainText } from './geometry/labelIcons';
@@ -51,7 +59,10 @@ import { POCKET_LABEL_SIZE, pocketLayout } from './geometry/pockets';
 import { cutoutArea, cutoutStyle } from './geometry/cutouts';
 import { hasLid } from './geometry/lid';
 import { isPocketLid } from './geometry/pocketLid';
-import { stretchOf } from './geometry/placement';
+import { hasStretch, stretchOf } from './geometry/placement';
+import { bedOvershoot, usableBeds, type Beds } from './bedfit';
+import { drawerRoom } from './bins';
+import { columnOf, stackPlaces, type StackPlace } from './stacking';
 import { activeContainer } from './geometry/containers';
 import { DRAWER_UNIT, type DrawerUnitOptions } from './geometry/containers/drawers';
 import { magazineLayout, type DispenserOptions } from './geometry/containers/dispenser';
@@ -90,7 +101,8 @@ export type CheckRule =
   | 'ridge-trim'
   | 'joint-fit'
   | 'nozzle-walls'
-  | 'bambu-nozzle';
+  | 'bambu-nozzle'
+  | 'item-height';
 
 /** A one-click change that fixes a check: options of the bin it is about, its drawer's baseplate, or the drawer. */
 export interface CheckFix {
@@ -115,7 +127,19 @@ export interface CheckOptions {
   nozzle?: number;
   /** How lengths are written (default: mm, two decimals at most). */
   fmt?: (mm: number) => string;
+  /**
+   * Where the bin is placed (placeChecks works these out from its drawer).
+   * `room`: how tall it may stand, mm from its bottom with its lid on: the
+   * room above the baseplate less where it stands in a stack and what is
+   * stacked on it (missing: no limit). `stacked`: a bin stands on it. `bed`:
+   * the printers' beds, which a fix never makes it too big for.
+   */
+  room?: number;
+  stacked?: boolean;
+  bed?: Beds;
 }
+
+type Place = Pick<CheckOptions, 'room' | 'stacked' | 'bed'>;
 
 // ---------------------------------------------------------------------------
 // Thresholds
@@ -528,7 +552,95 @@ function holeCheck(o: BinOptions): PrintCheck | null {
   };
 }
 
-function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
+const capital = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
+/** The grid inside the bin (not on its lid) whose tips reach highest, or null. */
+const insideTop = (grids: StandingGrid[]) => grids.filter((g) => g.where !== 'lid').reduce<StandingGrid | null>((a, g) => (!a || g.top > a.top ? g : a), null);
+
+/**
+ * The lowest bin height, from each wanted one up, that clears what stands in
+ * it (`clears`, asked of the raised bin) and still fits the printers and the
+ * room it has; or, when none does, why.
+ */
+function raiseFix(o: BinOptions, cells: BinCells, at: Place, wants: { u: number; under: string; clears: (next: BinOptions) => boolean }[]): { fix?: CheckFix; why: string } {
+  let why = '';
+  for (const want of wants) {
+    for (let u = want.u; u <= MAX_HEIGHT_UNITS; u++) {
+      const next = sanitizeBin({ ...o, heightMode: 'units', heightUnits: u });
+      if (binBodyHeight(next) <= binBodyHeight(o) + 1e-6 || !want.clears(next)) continue;
+      // Taller won't fit any better.
+      if (at.bed && bedOvershoot(next, cells, at.bed) > 1e-6) {
+        why ||= ` At ${u}u the bin is too tall for the printer.`;
+        break;
+      }
+      if (standingBinHeight(next, cells) > (at.room ?? Infinity) + 1e-6) {
+        why ||= ` At ${u}u the bin is too tall for the drawer.`;
+        break;
+      }
+      return { fix: { label: `Make it ${u}u`, bin: { heightMode: 'units', heightUnits: u } }, why: ` ${u}u keeps them under ${want.under}.` };
+    }
+  }
+  return { why: why || ` Bins go up to ${MAX_HEIGHT_UNITS}u.` };
+}
+
+/**
+ * Items standing in pockets (rounds) that reach higher than where a lid or a
+ * stacked bin sits, than the drawer, or than the rim; and on a pocket-grid
+ * lid, higher than the drawer.
+ */
+function standingChecks(o: BinOptions, cells: BinCells, x: Ctx, at: Place): PrintCheck[] {
+  const grids = standingGrids(o, cells);
+  if (!grids.length) return [];
+  const out: PrintCheck[] = [];
+  const room = at.room ?? Infinity;
+  const stand = (s: StandingGrid) => `${capital(itemNoun(s.preset))} stand ${x.fmt(s.itemH)} tall`;
+  const s = insideTop(grids);
+  if (s) {
+    const { seat, rim } = tipLimits(o);
+    const on = hasLid(o) && !hasStretch(cells.stretch) ? 'the lid' : at.stacked ? 'the bin stacked on it' : null;
+    const what = `${stand(s)}, their tips ${x.fmt(s.top)} above the bin’s bottom`;
+    const topIn = (b: BinOptions) => insideTop(standingGrids(b, cells))?.top ?? 0;
+    const underSeat = {
+      u: unitsToCover(s.top, o.lip),
+      under: 'a lid or a bin stacked on top',
+      clears: (b: BinOptions) => topIn(b) <= (tipLimits(b).seat ?? tipLimits(b).rim) + 1e-6,
+    };
+    const underRim = { u: unitsUnderRim(s.top, o.lip), under: 'the rim', clears: (b: BinOptions) => topIn(b) <= tipLimits(b).rim + 1e-6 };
+    if (on && seat !== null && s.top > seat + 1e-6) {
+      const r = raiseFix(o, cells, at, [underSeat]);
+      out.push({
+        rule: 'item-height',
+        severity: 'warn',
+        part: 'Pockets',
+        message: `${what}: higher than ${on} sits (${x.fmt(seat)}), so it won’t sit down.${r.why}`,
+        ...(r.fix ? { fix: r.fix } : {}),
+      });
+    } else if (!on && s.top > room + 1e-6) {
+      out.push({ rule: 'item-height', severity: 'warn', part: 'Pockets', message: `${what}: more than the ${x.fmt(room)} of room above the bin, so the drawer won’t close.` });
+    } else if (!on && s.top > rim + 1e-6) {
+      const r = raiseFix(o, cells, at, o.lip ? [underSeat, underRim] : [underRim]);
+      out.push({
+        rule: 'item-height',
+        severity: 'info',
+        part: 'Pockets',
+        message: `${capital(itemNoun(s.preset))} stick out ${x.fmt(s.top - rim)} above the rim: they stand ${x.fmt(s.itemH)} tall, their tips ${x.fmt(s.top)} above the bin’s bottom.${r.why}`,
+        ...(r.fix ? { fix: r.fix } : {}),
+      });
+    }
+  }
+  const l = grids.find((g) => g.where === 'lid');
+  if (l && l.top > room + 1e-6) {
+    out.push({
+      rule: 'item-height',
+      severity: 'warn',
+      part: 'Pocket-grid lid',
+      message: `${stand(l)}: on the closed bin they reach ${x.fmt(l.top)}, more than the ${x.fmt(room)} of room above it, so the drawer won’t close.`,
+    });
+  }
+  return out;
+}
+
+function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx, at: Place = {}): PrintCheck[] {
   const out: (PrintCheck | null)[] = [...labelChecks(o, cells, x), pocketWallCheck(o, cells, x)];
   if (o.patternWalls) {
     out.push(wallCheck('hex-struts', 'Hex pattern', 'The struts between hex holes are', o.patternWeb, x, (v) => ({ label: `Make them ${x.fmt(v)}`, bin: { patternWeb: v } })));
@@ -546,7 +658,7 @@ function plainBinChecks(o: BinOptions, cells: BinCells, x: Ctx): PrintCheck[] {
   if (planInserts(o, cells).crates.length) {
     out.push(wallCheck('crate-walls', 'Grid inserts', 'The grid insert walls are', o.crateWall, x, (v) => ({ label: `Make them ${x.fmt(v)}`, bin: { crateWall: v } })));
   }
-  out.push(fixedPartsCheck(o, cells, x), floatingTabCheck(o, cells, x), fingerCheck(o, cells, x));
+  out.push(fixedPartsCheck(o, cells, x), floatingTabCheck(o, cells, x), fingerCheck(o, cells, x), ...standingChecks(o, cells, x, at));
   const { w: W, d: D } = binSize(o, cells);
   const acc = planAccessories(o, W, D);
   if ((acc.rails || removableInserts(o, cells).length) && SLOT_CLEARANCE < CHECK.snug * x.nozzle) {
@@ -624,15 +736,38 @@ export function binChecks(opts: BinOptions, cellsIn?: Partial<BinCells> | null, 
   const x = context(o);
   const b = sanitizeBin(opts);
   const cells = binCells(b, cellsIn);
-  const out = activeContainer(b) ? containerChecks(b, cells, x) : plainBinChecks(b, cells, x);
+  const out = activeContainer(b) ? containerChecks(b, cells, x) : plainBinChecks(b, cells, x, { room: o?.room, stacked: o?.stacked, bed: o?.bed });
   for (const c of [holeCheck(b), tipCheck(b, cells, x), stretchCheck(cells, x)]) if (c) out.push(c);
   return sortChecks(out);
 }
 
-/** Checks for a bin where it is placed (its cells, stretch and `{contents}` labels). */
+/** Checks for a bin where it is placed (its cells, stretch and `{contents}` labels). Pass placeChecks' answer for its room, stack and beds. */
 export function placedBinChecks(layout: GridLayout, b: PlacedBin, o?: CheckOptions): PrintCheck[] {
   const spec = binSpec(layout, b);
   return binChecks(spec.opts, spec.cells, o);
+}
+
+/**
+ * Where a drawer's bins stand, for their checks (CheckOptions `room`,
+ * `stacked`, `bed`): the room above the baseplate (when the drawer's inside
+ * height is set) less where each bin stands in its stack and what is stacked
+ * on it, whether a bin stands on it, and the printers' beds.
+ */
+export function placeChecks(d: Pick<NamedDrawer, 'drawer' | 'baseplate' | 'bins'>, layout: GridLayout, setup: PrintSetup): (b: PlacedBin) => Place {
+  const room = drawerRoom(d.drawer, d.baseplate);
+  const bed = usableBeds(setup);
+  let places: Map<string, StackPlace> | null = null;
+  return (b) => {
+    const col = columnOf(d.bins, b.id);
+    const stacked = col.length > 1 && col.some((c) => c.id === b.id) && col[col.length - 1].id !== b.id;
+    if (!Number.isFinite(room)) return { stacked, bed };
+    places ??= stackPlaces(layout, d.bins);
+    const me = places.get(b.id);
+    if (!me) return { room, stacked, bed };
+    // Raising this bin raises everything on it: it may stand the room less the rest of its column above it.
+    const top = Math.max(...col.map((c) => places!.get(c.id)?.top ?? 0));
+    return { room: room - top + (me.top - me.z), stacked, bed };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -728,7 +863,8 @@ export function projectChecks(drawers: NamedDrawer[], setup: PrintSetup, include
     if (printsBaseplate(d, include)) out.push(...drawerChecks(d.drawer, d.baseplate, opts).map((c) => ({ ...c, drawerId: d.id })));
     if (!include.bins) continue;
     const layout = computeLayout(d.drawer);
-    for (const b of d.bins) out.push(...placedBinChecks(layout, b, opts).map((c) => ({ ...c, drawerId: d.id, binId: b.id })));
+    const at = placeChecks(d, layout, setup);
+    for (const b of d.bins) out.push(...placedBinChecks(layout, b, { ...opts, ...at(b) }).map((c) => ({ ...c, drawerId: d.id, binId: b.id })));
   }
   return out;
 }

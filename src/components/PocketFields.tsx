@@ -57,7 +57,7 @@ export function PocketSettings({
           label="Holds"
           value={presetId}
           options={[
-            ...POCKET_PRESETS.map((p) => ({ value: p.id, label: p.label, group: p.group })),
+            ...POCKET_PRESETS.map((p) => ({ value: p.id, label: p.label, group: p.group, keywords: p.aliases })),
             { value: 'custom', label: 'Custom size', group: 'Custom' },
             { value: CUSTOM_SET, label: 'Custom set of sizes', group: 'Custom' },
           ]}

@@ -3,6 +3,7 @@ import { binBodyHeight, heightMmFor } from './geometry/variants';
 import { HEIGHT_UNIT } from './geometry/spec';
 import { activeContainer } from './geometry/containers';
 import { findPocketPreset, presetFields } from './geometry/pocketPresets';
+import { freshTop, unitsToCover } from './geometry/itemHeight';
 import { contentsFragment } from './geometry/labelContents';
 import { PRESETS } from './dividers';
 import { maxBinUnits, newId } from './bins';
@@ -115,6 +116,7 @@ const PLAIN_COMPARTMENTS = { container: undefined, interior: 'compartments' } as
 
 const TOOL_TRAY = PRESETS.find((p) => p.id === 'tool-tray')!;
 const AA = findPocketPreset('aa')!;
+const NINE = findPocketPreset('ammo-9mm')!;
 
 export const BIN_PRESETS: BinPreset[] = [
   {
@@ -128,6 +130,18 @@ export const BIN_PRESETS: BinPreset[] = [
     name: 'Batteries',
     hint: 'A grid of AA pockets, tall enough for them. Pick another battery under Inside.',
     patch: (o, room) => ({ container: undefined, interior: 'pockets', ...presetFields(AA), ...heightFor(o, Math.max(unitsOf(o), 5), room) }),
+  },
+  {
+    id: 'ammo',
+    name: 'Ammo',
+    hint: 'A cartridge block of 9mm pockets, tall enough that a lid closes over the rounds (a 3 × 2 bin holds 67). Pick another cartridge under Inside.',
+    // As tall as the rounds standing on this bin's floor need for a lid (or, without a lip, the rim) to clear them.
+    patch: (o, room) => ({
+      container: undefined,
+      interior: 'pockets',
+      ...presetFields(NINE),
+      ...heightFor(o, Math.max(unitsOf(o), unitsToCover(freshTop(o, NINE.itemH!), o.lip)), room),
+    }),
   },
   {
     id: 'deep',

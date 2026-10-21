@@ -16,9 +16,10 @@ const root = resolve(__dirname, '..');
  * chunks), bytes, as this test builds it (development JSX, so more than `npm run build` writes).
  * It was ~460 kB when the split was made (everything in one chunk was 1.5 MB), ~520 kB by the time
  * the native selects gave way to hand-drawn pick lists (components/select.tsx), ~529 kB after, and
- * ~533 kB with "Just bins" (the Drawer panel's choice and the not-printed grid in the 3D view).
+ * ~533 kB with "Just bins" (the Drawer panel's choice and the not-printed grid in the 3D view), and
+ * ~543 kB with the ammunition presets and their height check (the bin grid's check marks need them).
  */
-const FIRST_SCREEN_BUDGET = 540_000;
+const FIRST_SCREEN_BUDGET = 550_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
