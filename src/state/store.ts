@@ -219,7 +219,8 @@ function withStretch(b: PlacedBin, stretch: unknown): PlacedBin {
   return st ? { ...rest, stretch: st } : rest;
 }
 
-function cleanBins(bins: unknown): PlacedBin[] {
+/** Bins from a saved file or storage, made valid (also My bins' entries, state/myBins.ts). */
+export function cleanBins(bins: unknown): PlacedBin[] {
   if (!Array.isArray(bins)) return [];
   // Stacked bins keep the bin they stand on, and its footprint (stacking.ts).
   return cleanStacks(bins.map((b) =>

@@ -13,6 +13,8 @@ import { BaseField, HeightField, HoleFields, InteriorFields, LipFields, WallFiel
 import { downloadBytes, geometry } from '../worker/client';
 import { duplicateSelection, removeSelection, useSelectedIds } from '../state/selection';
 import { BinPresets, TemplatesSection } from './TemplatesSection';
+import { MyBinsSection } from './MyBinsSection';
+import { SaveToMyBinsButton, SaveToMyBinsForm } from './MyBinsSave';
 import { CompartmentTools, EditWallsLink } from './CompartmentFields';
 import { LabelFields } from './LabelFields';
 import { ToolLibrary } from './ToolLibrary';
@@ -478,6 +480,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
               <button onClick={() => setNewBin({ ...sel.opts })} title="New bins you draw will use these settings">
                 Use for new bins
               </button>
+              <SaveToMyBinsButton />
               <button className="danger" onClick={() => removeSelection()}>
                 Delete
               </button>
@@ -492,6 +495,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
                 {many ? `Print these ${selIds.length}` : 'Print just this'}
               </button>
             </div>
+            <SaveToMyBinsForm />
             {one && (
               <div className="field">
                 <span className="field-label">{busy ? 'Building…' : 'Download this bin'}</span>
@@ -518,6 +522,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
         )}
       </Fragment>
 
+      <MyBinsSection job={job} />
       <TemplatesSection />
       <ToolLibrary job={job} />
       {sel && layout}

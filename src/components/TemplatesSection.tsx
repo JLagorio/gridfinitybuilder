@@ -107,6 +107,7 @@ export function TemplatesSection() {
         <p className="muted small">Save a bin’s settings to reuse them in any drawer. Apply one to the selected bins, or to new bins when nothing is selected.</p>
       )}
       {templates.length > 0 && <p className="field-hint">Apply goes to {target}.</p>}
+      <p className="field-hint">Templates are saved with this project and change bins that are already there. To keep a whole bin for every project, use Save to My bins.</p>
     </Section>
   );
 }
