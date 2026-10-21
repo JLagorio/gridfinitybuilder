@@ -17,6 +17,7 @@ import { MyBinsSection } from './MyBinsSection';
 import { SaveToMyBinsButton, SaveToMyBinsForm } from './MyBinsSave';
 import { CompartmentTools, EditWallsLink } from './CompartmentFields';
 import { LabelFields } from './LabelFields';
+import { QrSection } from './QrFields';
 import { ToolLibrary } from './ToolLibrary';
 import { BinContentsFields } from './ContentsField';
 import { AccessoryFields, accessoriesActive, accessoryStatus } from './AccessoryFields';
@@ -436,6 +437,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
               )}
             </Section>
             <LabelSection opts={opts} onChange={onChange} />
+            <QrSection opts={opts} onChange={onChange} bin={one} cells={cells} many={many} />
           </>
         )}
 
@@ -477,7 +479,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
             ids={[
               // Without compartments the front label has no section in Basic (LabelSection).
               ...(container || opts.interior === 'compartments' ? [] : ([['front-label', opts.frontLabel !== 'none']] as [string, boolean][])),
-              ...(container ? [] : ([['walls', wallsActive(opts)], ['trays', accessoriesActive(opts)], ['inserts', insertsActive(opts)]] as [string, boolean][])),
+              ...(container ? [] : ([['walls', wallsActive(opts)], ['trays', accessoriesActive(opts)], ['inserts', insertsActive(opts)], ['qr', opts.qr !== 'none']] as [string, boolean][])),
               ...(one ? ([['stack', stacked]] as [string, boolean][]) : []),
               ...(stretchable ? ([['stretch', hasStretch(one!.stretch)]] as [string, boolean][]) : []),
               ['templates', templates > 0],

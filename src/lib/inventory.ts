@@ -9,7 +9,8 @@
  *   cutout names and drawer names; case- and accent-insensitive, every word
  *   must match, with a little typo tolerance.
  * - A printable top-view drawer map (SVG, mm units, optionally tiled 1:1 over
- *   several pages; one per level when bins are stacked) and a CSV inventory.
+ *   several pages; one per level when bins are stacked), with each bin's QR
+ *   code when it has one, and a CSV inventory.
  *
  * Everything here is pure (no store, no DOM).
  */
@@ -25,6 +26,9 @@ import { formatLength, type InchPrecision, type Units } from './units';
 import { binCellsAt, type NamedDrawer, type PlacedBin } from './project';
 import { stacksOf } from './stacking';
 import { externalKind, externalLabel } from './external';
+import { resolveQrText } from './geometry/binQr';
+import { qrPayload } from './geometry/qrCode';
+import { QR_QUIET, type QrEcc } from './qr';
 
 // ---------------------------------------------------------------------------
 // Contents
@@ -600,7 +604,17 @@ export interface MapOptions {
   precision?: InchPrecision;
   /** Which level of stacked bins to draw (stacking.ts): 0 = the floor (default), 1 = the bins on floor bins, … */
   level?: number;
+  /**
+   * Draw each bin's QR code (geometry/binQr.ts) in its back-right corner with
+   * this encoder: the code's size in modules and its dark modules as
+   * rectangles from the top-left. The map dialog passes it in, so the encoder
+   * stays off the first screen.
+   */
+  qr?: (text: string, ecc: QrEcc) => { size: number; rects: [number, number, number, number][] } | null;
 }
+
+/** Side of a bin's QR code on the map with its quiet zone, mm: a share of the bin, within limits. */
+const MAP_QR = { share: 0.42, min: 9, max: 20 };
 
 /** A drawer's map: SVG markup in mm, origin at the top-left corner, back of the drawer at the top. */
 export interface DrawerMap {
@@ -932,6 +946,27 @@ export function drawerMap(d: NamedDrawer, o: MapOptions = {}): DrawerMap {
       }
       const lines = binLines.length ? binLines : [{ text: e.size, dim: true }];
       blocks.push({ lines, r: { x0: 0, y0: 0, x1: inner.w, y1: inner.d } });
+    }
+    // The bin's QR code in its back-right corner; text keeps clear of it.
+    const qrText = o.qr && b.opts.qr && b.opts.qr !== 'none' ? qrPayload(resolveQrText(b.opts, b, cellsAt)) : '';
+    const code = qrText ? o.qr!(qrText, b.opts.qrEcc) : null;
+    if (code) {
+      const inner = binInnerSize(b.opts, cellsAt);
+      const side = Math.max(MAP_QR.min, Math.min(MAP_QR.max, MAP_QR.share * Math.min(inner.w, inner.d), inner.w, inner.d));
+      const q = { x0: inner.w - side, y0: inner.d - side, x1: inner.w, y1: inner.d };
+      for (const bl of blocks) {
+        const r = bl.r;
+        if (r.x1 <= q.x0 || r.x0 >= q.x1 || r.y1 <= q.y0 || r.y0 >= q.y1) continue;
+        // Beside the code or under it, whichever leaves more room.
+        const beside = (Math.min(r.x1, q.x0 - 0.5) - r.x0) * (r.y1 - r.y0);
+        const under = (r.x1 - r.x0) * (Math.min(r.y1, q.y0 - 0.5) - r.y0);
+        bl.r = beside >= under ? { ...r, x1: Math.min(r.x1, q.x0 - 0.5) } : { ...r, y1: Math.min(r.y1, q.y0 - 0.5) };
+      }
+      const m = side / (code.size + 2 * QR_QUIET);
+      const qx = X(cx + q.x0);
+      const qy = Y(cy + q.y1);
+      const d = code.rects.map(([mx, my, mw, mh]) => `M${n2(qx + (mx + QR_QUIET) * m)} ${n2(qy + (my + QR_QUIET) * m)}h${n2(mw * m)}v${n2(mh * m)}h${n2(-mw * m)}z`).join('');
+      g.push(box(qx, qy, side, side, 'fill="#ffffff"'), `<path d="${d}" fill="#000000" shape-rendering="crispEdges"/>`);
     }
     for (const bl of blocks) {
       const pad = 1.2;

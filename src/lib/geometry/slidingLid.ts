@@ -14,8 +14,9 @@
  * bump when the lid is closed, a tooth behind it is what the bump clicks over,
  * and a channel from there to the back edge lets the bump pass freely while
  * the lid slides. Grip ridges across the top near the front edge, and optional
- * engraved text. Its front corners follow the bin's outline. It prints flat,
- * the way it sits; min corner at the origin.
+ * engraved text, and a QR code (qrCode.ts) at the right-hand end. Its front
+ * corners follow the bin's outline. It prints flat, the way it sits; min
+ * corner at the origin.
  *
  * Must not import bin.ts at runtime.
  */
@@ -24,7 +25,9 @@ import { WALL } from './spec';
 import { boxAt, ringAt, roundedRectRing } from './shapes';
 import { fitText, LABEL_TEXT } from './labels';
 import { textSolid } from './text';
-import { SLIDE, slideLidBox, wallShelf, type SlideLidPart, type SlidePlan } from './accessories';
+import { SLIDE, slideLidBox, slideLidTextBox, wallShelf, type SlideLidPart, type SlidePlan } from './accessories';
+import { emptyQrParts } from './qrCode';
+import { applyQrParts, qrInto, withQrInlay } from './qrSolid';
 
 /** Detent bump on the front sill (bin-centered): middle and length along X, middle along Y. */
 export function slideBump(W: number, D: number) {
@@ -123,16 +126,24 @@ export function buildSlideLid(w: Wasm, p: SlideLidPart): MeshData {
     lid = s.t(w.Manifold.union([lid, ...ridges]));
 
     // Engraved text behind the ridges.
-    const box = { x0: b.x0 + c + 2, x1: b.x1 - c - 2, y0: y0 + (S.ridges - 1) * S.ridgePitch + 3, y1: b.y1 - c - 2 };
+    const box = slideLidTextBox(p.W, p.D, p.qr);
     const fit = p.text.trim() ? fitText(p.text, box, Math.min(LABEL_TEXT.maxCap, 0.6 * (box.y1 - box.y0))) : null;
     if (fit) {
       const cut = textSolid(w, fit.outline, fit.cx, fit.cy, T - S.textDepth, S.textDepth + 1);
       if (cut) lid = s.t(lid.subtract(s.t(cut)));
     }
 
+    // The QR code (qrSolid.ts).
+    let inlay: Manifold | null = null;
+    if (p.qr) {
+      const parts = emptyQrParts();
+      qrInto(w, s, p.qr, T, parts);
+      ({ body: lid, inlay } = applyQrParts(w, s, lid, parts));
+    }
+
     const out = s.t(lid.translate([-b.x0, -b.y0, 0]));
     assertValid(out, 'sliding lid');
-    return toMeshData(out);
+    return withQrInlay(toMeshData(out), inlay && s.t(inlay.translate([-b.x0, -b.y0, 0])));
   } finally {
     s.dispose();
   }

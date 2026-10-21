@@ -75,15 +75,18 @@ import { binAccessoryGeometry } from './accessoryGeometry';
 import { activeContainer, containerKeyPart, sanitizeContainerFields, type ContainerKind, type ContainerType } from './containers/registry';
 import { DEFAULT_INSERTS, insertKeyParts, sanitizeInsertOptions, type BinInsertOptions } from './insertOptions';
 import { shadowOverlay } from './shadowBoard';
+import { DEFAULT_QR, qrInlaid, qrKeyParts, sanitizeQrOptions, type BinQrOptions } from './qrCode';
+import { planFrontQr, type FrontQrPlan } from './qrFront';
+import { applyQrParts, frontQrGeometry, withQrInlay } from './qrSolid';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
 
 /**
  * Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts; label text in labels.ts; trays, sliding lid and rails in accessories.ts;
- * cups, grid inserts, pocket lids and shadow floors in insertOptions.ts.
+ * cups, grid inserts, pocket lids and shadow floors in insertOptions.ts; the QR code in qrCode.ts.
  */
-export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAccessoryOptions, BinInsertOptions {
+export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAccessoryOptions, BinInsertOptions, BinQrOptions {
   /** Footprint in grid units. */
   unitsX: number;
   unitsY: number;
@@ -128,6 +131,7 @@ export const DEFAULT_BIN: BinOptions = {
   ...DEFAULT_LABELS,
   ...DEFAULT_ACCESSORIES,
   ...DEFAULT_INSERTS,
+  ...DEFAULT_QR,
 };
 
 export const MIN_HEIGHT_UNITS = 2;
@@ -212,6 +216,7 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     ...accessoryKeyParts(o, binSize(o, cells)),
     ...(live ? insideKeyParts(o, live) : []),
     ...insertKeyParts(o),
+    ...qrKeyParts(o, 'front'),
   ].join('-');
 }
 
@@ -359,18 +364,23 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const front = frontLabelGeometry(w, s, o, W, D, frontFaceBottom(o, cells));
     const labels = tabLabelGeometry(w, s, o, labelTabs(o, W, D, cutFloor, topInfill), H, W, D, front);
     bin = labels.apply(bin);
+    // A QR code on the front wall (qrFront.ts plans it, qrSolid.ts builds it).
+    const qr = frontQrGeometry(w, s, o, W, D, frontFaceBottom(o, cells));
+    let qrInlay: Manifold | null = null;
+    ({ body: bin, inlay: qrInlay } = applyQrParts(w, s, bin, qr));
 
     // Wall cutouts, down to just above the floor (or the pocket fill).
     const cutLow = pockets ? Math.max(zFloor + 1, pocketLayout(o, W, D, zFloor, topInfill).fillTop + 0.5) : toolCuts ? topInfill + 0.5 : zFloor + 1;
     const cutouts = wallCutouts(w, s, o, W, D, top, cutLow);
     // Hex pattern: from above the floor to below the lip's support.
     const patternTop = !o.lip ? H - 1 : o.lipStyle === 'reduced' ? H : H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL) - 0.5;
-    cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop, front.keepOut ? [front.keepOut] : []));
+    cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop, [front.keepOut, qr.keepOut].filter((k) => !!k)));
     cutouts.push(...acc.cut);
     if (cutouts.length) {
       const cu = s.t(w.Manifold.union(cutouts));
       bin = s.t(bin.subtract(cu));
       labels.clip(cu);
+      if (qrInlay) qrInlay = s.t(qrInlay.subtract(cu));
     }
     bin = acc.finish(bin);
 
@@ -380,7 +390,7 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
 
     assertValid(bin, 'bin');
     // Two-colour shadow board: a filament-2 floor in each tool pocket (shadowBoard.ts).
-    return shadowOverlay(w, s, o, W, D, topInfill, labels.finish(toMeshData(bin)));
+    return shadowOverlay(w, s, o, W, D, topInfill, withQrInlay(labels.finish(toMeshData(bin)), qrInlay));
   } finally {
     s.dispose();
   }
@@ -408,6 +418,7 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     ...sanitizeLabelOptions(o),
     ...sanitizeAccessoryOptions(o),
     ...sanitizeInsertOptions(o),
+    ...sanitizeQrOptions(o),
     cutouts: sanitizeCutouts(o.cutouts),
     cutoutStyle: sanitizeCutoutStyle(o.cutoutStyle),
     ...sanitizeContainerFields(o),
@@ -547,6 +558,15 @@ export function binFrontLabel(opts: BinOptions, cells?: Partial<BinCells> | null
   return planFrontLabel(o, W, D, frontFaceBottom(o, c));
 }
 
+/** The bin's QR code on its front wall as buildBin puts it on (qrFront.ts), or null when it's elsewhere. Not for containers. */
+export function binFrontQr(opts: BinOptions, cells?: Partial<BinCells> | null): FrontQrPlan | null {
+  const o = sanitizeBin(opts);
+  if (activeContainer(o) || o.qr !== 'front') return null;
+  const c = binCells(o, cells);
+  const { w: W, d: D } = binSize(o, c);
+  return planFrontQr(o, W, D, frontFaceBottom(o, c));
+}
+
 /**
  * True when the bin's mesh may carry text on filament 2: inlaid tab text (not
  * on plates), or a two-tone / inlaid front label. Planning can't lay out text,
@@ -558,8 +578,10 @@ export function binUsesInlay(opts: BinOptions, cells?: Partial<BinCells> | null)
   const texts = binLabelTexts(o, cells);
   // With label plates the text is on the plates (unless a tab is too small for one).
   if (o.labelStyle === 'inlaid' && texts.length && (!o.labelPlates || binTabPlates(o, cells).length < texts.length)) return true;
-  if (o.frontLabel === 'none') return false;
   const c = binCells(o, cells);
   const { w: W, d: D } = binSize(o, c);
+  // An inlaid QR code on the front wall (qrFront.ts).
+  if (o.qr === 'front' && qrInlaid(o) && planFrontQr(o, W, D, frontFaceBottom(o, c))?.spot) return true;
+  if (o.frontLabel === 'none') return false;
   return frontLabelInlay(o, W, D, frontFaceBottom(o, c));
 }

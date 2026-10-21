@@ -140,6 +140,21 @@ export const BIN_INDEX: FindEntry[] = [
       { id: 'front-label', title: 'Front label', words: ['label', 'front wall', 'outside', 'text', 'raised', 'engraved', 'inlaid', 'two colour', 'letter height'], basic: false },
     ],
   },
+  // BinPanel + QrFields: a code a phone camera reads to show what's in the bin.
+  {
+    id: 'qr',
+    title: 'QR code',
+    when: 'for a plain bin (Type)',
+    basic: false,
+    words: ['qr', 'barcode', 'scan', 'code', 'phone', 'camera', 'inventory', 'tag', 'sticker'],
+    children: [
+      { id: 'qr-surface', title: 'Where the code goes', words: ['front wall', 'lid', 'plate', 'stick on', 'tag', 'label'] },
+      { id: 'qr-content', title: 'What it says', words: ['contents', 'what’s in it', 'list', 'text', 'url', 'link', 'website', 'custom'] },
+      { id: 'qr-style', title: 'Inlaid, raised or engraved', words: ['inlaid', 'two colour', 'color', 'ams', 'filament', 'raised', 'engraved', 'contrast'] },
+      { id: 'qr-ecc', title: 'Error correction', words: ['error correction', 'ecc', 'damage', 'scuff', 'robust'] },
+      { id: 'qr-size', title: 'Size', words: ['size', 'module', 'big', 'small', 'auto', 'plate size'] },
+    ],
+  },
   // BinPanel: the folding option groups.
   {
     id: 'options',
@@ -368,7 +383,7 @@ export const PRINT_INDEX: FindEntry[] = [
         title: 'Baseplate and bins',
         words: ['include', 'baseplate', 'bins', 'leave out', 'just bins', 'bins only', 'already have', 'skip baseplate', 'not printed', 'nothing to print'],
       },
-      { id: 'label-colour', title: 'Label filament', when: 'with inlaid labels or two-colour pocket floors', words: ['colour', 'color', 'second filament', 'slot 2', 'ams', 'inlaid', 'two colour'] },
+      { id: 'label-colour', title: 'Label filament', when: 'with inlaid labels, inlaid QR codes or two-colour pocket floors', words: ['colour', 'color', 'second filament', 'slot 2', 'ams', 'inlaid', 'two colour', 'qr'] },
       {
         id: 'export-files',
         title: 'Files',
