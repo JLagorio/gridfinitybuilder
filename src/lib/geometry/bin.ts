@@ -42,7 +42,6 @@ import { fingerSlides, wallCutouts, wallPattern } from './walls';
 import { pocketCutters, pocketLayout, type PocketLayout } from './pockets';
 import {
   DEFAULT_LABELS,
-  LABEL_PLATE,
   compartmentLabelText,
   labelKeyParts,
   planTabLabels,
@@ -51,6 +50,7 @@ import {
   type BinLabelOptions,
   type LabelPlate,
 } from './labels';
+import { frontLabelGeometry, frontLabelInlay, planFrontLabel, type FrontLabelPlan } from './frontLabel';
 import { cutoutCutters, cutoutKeyPart, sanitizeCutouts, sanitizeCutoutStyle, type BinCutout, type CutoutStyle } from './cutouts';
 import {
   MAX_CELLS,
@@ -348,8 +348,9 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     solids.push(...acc.add);
 
     let bin = s.t(w.Manifold.union(solids));
-    // Label text / label-plate recesses on the tabs (labels.ts).
-    const labels = tabLabelGeometry(w, s, o, labelTabs(o, W, D, cutFloor, topInfill), H, W, D);
+    // Label text / label-plate recesses on the tabs (labels.ts), and text on the front wall (frontLabel.ts).
+    const front = frontLabelGeometry(w, s, o, W, D, frontFaceBottom(o, cells));
+    const labels = tabLabelGeometry(w, s, o, labelTabs(o, W, D, cutFloor, topInfill), H, W, D, front);
     bin = labels.apply(bin);
 
     // Wall cutouts, down to just above the floor (or the pocket fill).
@@ -357,7 +358,7 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const cutouts = wallCutouts(w, s, o, W, D, top, cutLow);
     // Hex pattern: from above the floor to below the lip's support.
     const patternTop = !o.lip ? H - 1 : o.lipStyle === 'reduced' ? H : H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL) - 0.5;
-    cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop));
+    cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop, front.keepOut ? [front.keepOut] : []));
     cutouts.push(...acc.cut);
     if (cutouts.length) {
       const cu = s.t(w.Manifold.union(cutouts));
@@ -474,32 +475,75 @@ export function binCompartmentPockets(opts: BinOptions, cells: Partial<BinCells>
   return compartmentPocketLayouts(o, c, w, d, binFloorZ(o), o.lip ? H - LIP_SUPPORT_HEIGHT : H);
 }
 
-/** Swappable label plates the bin needs (one per tab when `labelPlates` is on). */
-export function binLabelPlates(opts: BinOptions, cells?: Partial<BinCells> | null): LabelPlate[] {
-  const o = sanitizeBin(opts);
+/** The tabs' sockets and plates (labels.ts), as buildBin cuts them. */
+function binTabPlates(o: BinOptions, cells?: Partial<BinCells> | null) {
   if (!o.labelPlates) return [];
-  return planTabLabels(o, binLabelTabs(o, cells), binBodyHeight(o)).flatMap((l) => (l.plate ? [l.plate.plate] : []));
+  return planTabLabels(o, binLabelTabs(o, cells), binBodyHeight(o), binSize(o, cells).w).flatMap((l) => (l.plate ? [l.plate] : []));
 }
 
 /**
- * Where each label plate sits when pressed into its recess, in binLabelPlates
+ * Swappable label plates the bin needs, to print with it (one per tab when
+ * `labelPlates` is on; Cullenect / Pred labels only with `labelPrint`).
+ */
+export function binLabelPlates(opts: BinOptions, cells?: Partial<BinCells> | null): LabelPlate[] {
+  const o = sanitizeBin(opts);
+  if (o.labelFormat !== 'gridfit' && !o.labelPrint) return [];
+  return binTabPlates(o, cells).map((p) => p.plate);
+}
+
+/**
+ * Where each label plate sits when pressed into its socket, in binLabelPlates
  * order: its min corner relative to the bin mesh's front-left-bottom corner.
  */
 export function binLabelPlatePlaces(opts: BinOptions, cells?: Partial<BinCells> | null): { x: number; y: number; z: number }[] {
   const o = sanitizeBin(opts);
-  if (!o.labelPlates) return [];
+  if (o.labelFormat !== 'gridfit' && !o.labelPrint) return [];
   const { w: W, d: D } = binSize(o, cells);
-  const c = LABEL_PLATE.clearance;
-  return planTabLabels(o, binLabelTabs(o, cells), binBodyHeight(o)).flatMap((l) =>
-    l.plate ? [{ x: l.plate.recess.x0 + c + W / 2, y: l.plate.recess.y0 + c + D / 2, z: l.tab.z - LABEL_PLATE.thickness }] : [],
-  );
+  return binTabPlates(o, cells).map((p) => ({ x: p.at.x + W / 2, y: p.at.y + D / 2, z: p.at.z }));
 }
 
 /** Label text of each tab, in tab order (blank tabs left out). */
 export function binLabelTexts(opts: BinOptions, cells?: Partial<BinCells> | null): string[] {
   const o = sanitizeBin(opts);
-  if (!labelKeyParts(o).some((p) => p.startsWith('T"')) && !Object.values(o.layout?.comps ?? {}).some((c) => c.labelText?.trim())) return [];
+  if (
+    !labelKeyParts(o).some((p) => p.startsWith('T"') || p.startsWith('TT')) &&
+    !Object.values(o.layout?.comps ?? {}).some((c) => c.labelText?.trim())
+  ) {
+    return [];
+  }
   return binLabelTabs(o, cells)
     .map((t) => compartmentLabelText(o, t.key))
     .filter(Boolean);
+}
+
+/** Where the front face starts: above the feet (or the stretch overhang); the bottom for flat bins. */
+function frontFaceBottom(o: BinOptions, cells: BinCells): number {
+  if (o.base === 'flat') return 0;
+  return hasStretch(cells.stretch) ? Math.max(STRETCH_Z, BASE_PROFILE_HEIGHT) : BASE_PROFILE_HEIGHT;
+}
+
+/** The bin's front label as buildBin puts it on (frontLabel.ts), or null. Not for containers. */
+export function binFrontLabel(opts: BinOptions, cells?: Partial<BinCells> | null): FrontLabelPlan | null {
+  const o = sanitizeBin(opts);
+  if (activeContainer(o) || o.frontLabel === 'none') return null;
+  const c = binCells(o, cells);
+  const { w: W, d: D } = binSize(o, c);
+  return planFrontLabel(o, W, D, frontFaceBottom(o, c));
+}
+
+/**
+ * True when the bin's mesh may carry text on filament 2: inlaid tab text (not
+ * on plates), or a two-tone / inlaid front label. Planning can't lay out text,
+ * so a label too small to print still counts.
+ */
+export function binUsesInlay(opts: BinOptions, cells?: Partial<BinCells> | null): boolean {
+  const o = sanitizeBin(opts);
+  if (activeContainer(o)) return false;
+  const texts = binLabelTexts(o, cells);
+  // With label plates the text is on the plates (unless a tab is too small for one).
+  if (o.labelStyle === 'inlaid' && texts.length && (!o.labelPlates || binTabPlates(o, cells).length < texts.length)) return true;
+  if (o.frontLabel === 'none') return false;
+  const c = binCells(o, cells);
+  const { w: W, d: D } = binSize(o, c);
+  return frontLabelInlay(o, W, D, frontFaceBottom(o, c));
 }

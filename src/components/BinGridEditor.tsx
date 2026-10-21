@@ -2,6 +2,7 @@ import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from '
 import { cellEdge, cellIndexAt, type GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin } from '../lib/project';
 import { binTotalHeight } from '../lib/geometry/bin';
+import { labelCaption } from '../lib/geometry/labelContents';
 import { MAX_CELLS, stretchOf } from '../lib/geometry/placement';
 import { effectiveStretch } from '../lib/layout/stretch';
 import { binRect, canPlace, occupancy, onBlocked, outOfBounds, withBlocked, type CellRect } from '../lib/bins';
@@ -298,8 +299,8 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
                 {heightCaption(b.opts)}
               </text>
               {(() => {
-                // What's in the bin, from its label text (first line, cut to fit).
-                const t = b.opts.labelText?.trim().split('\n')[0];
+                // What's in the bin, from its label text (first line as printed, cut to fit).
+                const t = labelCaption(b);
                 if (!t || r.height < fs * 2.6) return null;
                 const room = Math.max(1, Math.floor((r.width - 4) / (fs * 0.5)));
                 return (

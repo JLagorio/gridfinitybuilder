@@ -16,6 +16,8 @@
 import { BASE_TOP, GRID, WALL } from './geometry/spec';
 import { binInnerSize, binLabel, binLayout, binSize, type BinCells, type BinOptions } from './geometry/bin';
 import { labelLines } from './geometry/labels';
+import { labelPlainText } from './geometry/labelIcons';
+import { labelCaptionText } from './geometry/labelContents';
 import { placedOutline } from './geometry/cutouts';
 import { compartmentAt, resolveLayout, uniformLayout, type Compartment, type DividerLayout, type Rect } from './dividers';
 import { cellEdge, computeLayout } from './layout/drawer';
@@ -216,7 +218,8 @@ export interface BinEntry {
   tools: string[];
 }
 
-const oneLine = (text: string | undefined | null) => labelLines(text).split('\n').filter(Boolean).join(' / ');
+// Label text as printed: icons by name (labelIcons.ts).
+const oneLine = (text: string | undefined | null) => labelPlainText(labelLines(text)).split('\n').filter(Boolean).join(' / ');
 
 /** Back to front, then left to right: the order you read the map in. */
 const readingOrder = (a: Compartment, b: Compartment) => b.bounds.y1 - a.bounds.y1 || a.bounds.x0 - b.bounds.x0;
@@ -273,7 +276,7 @@ export function binEntry(d: Pick<NamedDrawer, 'id' | 'name'>, b: PlacedBin, cell
     size: `${o.unitsX}×${o.unitsY}`,
     desc: binLabel(o),
     pos: cellName(b.x, b.y),
-    label: oneLine(o.labelText),
+    label: oneLine(labelCaptionText(b)),
     contents,
     comps,
     tools,

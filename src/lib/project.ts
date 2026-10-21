@@ -14,8 +14,10 @@ import {
   binLabelPlates,
   binCells,
   binLabelTexts,
+  binFrontLabel,
   binSize,
   binTotalHeight,
+  binUsesInlay,
   buildBin,
   buildDividerInsert,
   fullCells,
@@ -28,6 +30,9 @@ import {
 } from './geometry/bin';
 import { activeContainer, containerDef, type ContainerType } from './geometry/containers';
 import { buildLabelPlate, labelPlateHeight, labelPlateKey, type LabelPlate } from './geometry/labels';
+import { resolveContentLabels } from './geometry/labelContents';
+import { labelPlainText } from './geometry/labelIcons';
+import { frontLabelClashes } from './geometry/frontLabel';
 import { buildBinLid, hasLid, lidKey, lidSize, lidStackHeight } from './geometry/lid';
 import { accessoryParts, planAccessories, type AccessoryPart } from './geometry/accessories';
 import { buildAccessoryPart } from './geometry/accessoryGeometry';
@@ -211,10 +216,15 @@ export function binCellsAt(layout: GridLayout, b: PlacedBin): BinCells | undefin
   return fullCells(cells) && !cells.half && !cells.stretch ? undefined : cells;
 }
 
-/** The mesh spec for a placed bin. */
+/**
+ * The mesh spec for a placed bin. Label text that asks for `{contents}` is
+ * filled in from what's in the bin here (labelContents.ts), so only then does
+ * the key follow the contents.
+ */
 export function binSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'bin' }> {
   const cells = binCellsAt(layout, b);
-  return { kind: 'bin', key: `bin|${binKey(b.opts, cells)}`, opts: b.opts, cells };
+  const opts = resolveContentLabels(b.opts, b);
+  return { kind: 'bin', key: `bin|${binKey(opts, cells)}`, opts, cells };
 }
 
 /** True when the bin's body reaches over the margin where it is. */
@@ -328,13 +338,18 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     drawerJobs.push({ id: d.id, name: d.name, layout, plan, connectors, sites, steps, plateOffset, plateCount: plates.length - plateOffset });
 
     const room = d.drawer.mode === 'drawer' && d.drawer.height > 0 ? d.drawer.height - binSeatHeight(d.baseplate) : Infinity;
+    // Raised front labels stand proud of the 0.5 mm gap to the bin in front.
+    for (const b of frontLabelClashes(d.bins, (x) => !!binFrontLabel(resolveContentLabels(x.opts, x), binCellsAt(layout, x)))) {
+      warn(`Bin ${binLabel(b.opts)}: its raised front label touches the bin in front of it (make it inlaid or engraved).`);
+    }
     for (const b of d.bins) {
       const key = `${prefix}bin:${b.id}`;
       const spec = binSpec(layout, b);
       const { w, d: dd } = binSize(b.opts, spec.cells);
       const h = binTotalHeight(b.opts);
       meshes[spec.key] = spec;
-      const texts = [...new Set(binLabelTexts(b.opts, spec.cells))];
+      const front = binFrontLabel(spec.opts, spec.cells)?.segments.map((g) => g.text) ?? [];
+      const texts = [...new Set([...binLabelTexts(spec.opts, spec.cells), ...front].map(labelPlainText).filter(Boolean))];
       const caption = texts.length ? ` “${texts.slice(0, 3).join(' · ').replace(/\n/g, ' ')}${texts.length > 3 ? ' …' : ''}”` : '';
       const binName = binLabel(b.opts, spec.cells);
       parts[key] = { key, name: `${label}Bin ${binName}${caption}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
@@ -379,20 +394,21 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         parts[k] = { key: k, name, kind: 'divider', meshKey, w: ins.length, d: ins.height, h: ins.thickness, drawer: d.id };
         if (include.bins) binItems.push({ key: k, w: ins.length, d: ins.height });
       });
-      const platePlaces = binLabelPlatePlaces(b.opts, spec.cells);
-      binLabelPlates(b.opts, spec.cells).forEach((pl, i) => {
+      const platePlaces = binLabelPlatePlaces(spec.opts, spec.cells);
+      binLabelPlates(spec.opts, spec.cells).forEach((pl, i) => {
         const meshKey = labelPlateKey(pl);
         meshes[meshKey] = { kind: 'label', key: meshKey, plate: pl };
         const k = `${prefix}label:${b.id}:${i}`;
-        const text = pl.text.trim() ? `“${pl.text.trim().replace(/\s*\n\s*/g, ' ')}”` : `${round1(pl.width)} × ${round1(pl.depth)} mm`;
-        const name = `${label}Label plate ${text} (${owner})`;
+        const plain = labelPlainText(pl.text.trim());
+        const text = plain ? `“${plain.replace(/\s*\n\s*/g, ' ')}”` : `${round1(pl.width)} × ${round1(pl.depth)} mm`;
+        const name = `${label}${pl.format === 'cullenect' ? 'Cullenect label' : pl.format === 'pred' ? 'Pred label' : 'Label plate'} ${text} (${owner})`;
         parts[k] = { key: k, name, kind: 'label', meshKey, w: pl.width, d: pl.depth, h: labelPlateHeight(pl), drawer: d.id };
         // Pressed into its tab, for the assembled drawer view.
         if (platePlaces[i]) parts[k].assembled = platePlaces[i];
         if (include.bins) binItems.push({ key: k, w: pl.width, d: pl.depth });
       });
       // Lift-out trays, sliding lids and rail plates (accessories.ts).
-      const acc = sanitizeBin(b.opts);
+      const acc = sanitizeBin(spec.opts);
       for (const msg of planAccessories(acc, w, dd).notes) warn(`Bin ${binLabel(b.opts)}: ${msg}`);
       for (const a of accessoryParts(acc, w, dd)) {
         meshes[a.meshKey] = { kind: 'accessory', key: a.meshKey, part: a.part };
@@ -504,10 +520,8 @@ export function usesSecondFilament(job: PrintJob): boolean {
     for (const p of pl.placements) {
       const spec = job.meshes[job.parts[p.key].meshKey];
       if (spec?.kind === 'label' && spec.plate.style === 'inlaid' && spec.plate.text.trim()) return true;
-      if (spec?.kind === 'bin' && spec.opts.labelStyle === 'inlaid' && binLabelTexts(spec.opts, spec.cells).length) {
-        // With label plates the text is on the plates (unless a tab is too small for one).
-        if (!spec.opts.labelPlates || binLabelPlates(spec.opts, spec.cells).length < binLabelTexts(spec.opts, spec.cells).length) return true;
-      }
+      // Inlaid tab text (with label plates it's on the plates, unless a tab is too small for one), two-tone or inlaid front labels.
+      if (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) return true;
     }
   }
   return false;

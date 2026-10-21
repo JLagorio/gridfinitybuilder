@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { compartmentLabelText } from '../lib/geometry/labels';
+import { labelPlainText } from '../lib/geometry/labelIcons';
 import { history, useStore, useUnits } from '../state/store';
 import type { GridLayout } from '../lib/layout/drawer';
 import { BASE_TOP_RADIUS, DIVIDER, INNER_RADIUS, TAB_DEPTH, TAB_WIDTH_NOMINAL, WALL } from '../lib/geometry/spec';
@@ -1016,7 +1017,7 @@ function CompartmentShape({
           const td = Math.min(TAB_DEPTH, (r.y1 - r.y0) * 0.45);
           const tw = o.label === 'full' ? cw : Math.min(cw, TAB_WIDTH_NOMINAL);
           const x0 = o.label === 'full' || o.label === 'left' ? r.x0 : o.label === 'right' ? r.x1 - tw : (r.x0 + r.x1) / 2 - tw / 2;
-          const text = compartmentLabelText(info.opts, c.key).split('\n')[0];
+          const text = labelPlainText(compartmentLabelText(info.opts, c.key)).split('\n')[0];
           // Rough fit: condensed capitals are about 0.5 em wide.
           const fsz = Math.min(td * 0.55, ((tw - 2) / Math.max(text.length, 1)) * 1.9);
           return (

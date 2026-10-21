@@ -118,7 +118,18 @@ export interface PatternOpts extends CutoutOpts {
  * rows with `patternWeb` of plastic between holes, clear of the corners and of
  * any wall cutout on the same wall.
  */
-export function wallPattern(w: Wasm, s: Scope, o: PatternOpts, W: number, D: number, top: number, zLow: number, zHigh: number): Manifold[] {
+export function wallPattern(
+  w: Wasm,
+  s: Scope,
+  o: PatternOpts,
+  W: number,
+  D: number,
+  top: number,
+  zLow: number,
+  zHigh: number,
+  /** Areas left solid (a front label): wall, u range along it from its middle, z range. */
+  keepOut: { wall: Wall; u0: number; u1: number; z0: number; z1: number }[] = [],
+): Manifold[] {
   const out: Manifold[] = [];
   const af = o.patternSize; // across flats, horizontal
   const R = af / Math.sqrt(3); // circumradius = half the hole's height
@@ -145,6 +156,7 @@ export function wallPattern(w: Wasm, s: Scope, o: PatternOpts, W: number, D: num
         if (Math.abs(u) > half + 1e-9) continue;
         // Skip holes that would run into a cutout on this wall.
         if (cut && Math.abs(u) < cut.width / 2 + o.patternWeb + af / 2 && z + R > cut.bottom - o.patternWeb) continue;
+        if (keepOut.some((k) => k.wall === f.wall && u + af / 2 > k.u0 && u - af / 2 < k.u1 && z + R > k.z0 && z - R < k.z1)) continue;
         holes.push(s.t(s.t(s.t(w.Manifold.cylinder(v1 - v0, R, R, 6)).rotate([0, 0, 90]).rotate([-90, 0, 0])).translate([u, v0, z])));
       }
     }
