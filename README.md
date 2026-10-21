@@ -328,6 +328,7 @@ A vase-mode bin (*Type: Vase-mode bin*) prints in the slicer's spiral vase mode 
 **New: Skådis board** in the drawer menu adds a pegboard to the project, beside the drawers: IKEA SKÅDIS hooks, shelves and containers hang in it, and so do the attachments Gridfit makes for it (below). Its first tab (*Skådis board*) takes the place of *Drawer & baseplate*, its second (*Attachments*) the place of *Bins*, and it prints, exports and shares like any drawer: on its own plates, in the Bambu project, the 3MF / STL / STEP files and the assembly map. Have a board already (IKEA's, or one printed before)? *Print for this board: Just attachments* prints only what hangs on it; the IKEA buttons set its size (36, 56 or 76 × 56 cm) and its measured 5.1 mm thickness and 5.1 × 15.2 mm slots.
 
 - **The pattern is IKEA's:** upright 5 × 15 mm slots, columns 20 mm apart, the slots in a column 40 mm apart and every other column 20 mm higher, in a 5 mm board, chamfered on both faces. Slot size, chamfer and thickness can change (*All* settings), say for a looser fit.
+- **Or another pattern** (*Slot pattern*), on a lattice of any step from 14 to 40 mm: a **square grid** (a slot where both lattice indices are even: openGrid-like 28 mm squares at a 14 mm step) or **dense** (a slot at every step; the step stays at least the slot length + 4 mm). Attachments' mounts are two steps apart, so they fit all three. Seams never cost a square grid any slots; a dense board loses the column or row a seam takes.
 - **The space:** give the width and height of the space on the wall. A rectangle board fills it, the slots centred with at least the border (10 mm) around them; hexagons fit in it.
 - **Rectangle tiles:** the board is split into the fewest, most even tiles that fit the bed (its edge margin, either way round, clear of an X1 / P1's front-left corner), as MOSS 3D's Skadis Pegboard Generator does it:
   - An **upright seam** takes the place of a column of slots, so there is 17.5 mm of plastic on each side of it. A **level seam** runs through a row of slots: every other slot along it is cut in half, and whole again once the tiles are together; the slots beside it are 12.5 mm clear.
@@ -337,7 +338,10 @@ A vase-mode bin (*Type: Vase-mode bin*) prints in the slicer's spiral vase mode 
 - **Hanging it:**
   - **Posts** (default) print on the back of each tile, standing up as it prints face down: no supports and nothing to lose. Or separate **spacers** (tubes behind each screw, printed with the joint plates), or **nothing**, for a frame. The gap behind the board is 20 mm by default: room for the hooks' tails.
   - **Screws:** countersunk on the front (⌀4 by default, head ⌀8.5). A rectangle tile gets one near each corner and more about every 200 mm (*Screws about every*); a hexagon two, in its left and right corners, with posts in the other four (spacers need a screw each). The parts list counts them and says how long they need to be.
-- **Printing:** every tile prints face down, so the front is the side on the bed, and the slots and countersinks open toward the bed with a chamfer; a rectangle tile's number is debossed on the back. The 3D view shows the board that way, from the back as you put it together (its left on the right); *Spread pieces* pulls the tiles apart. The assembly map shows the tiles as seen from the front, with the steps: tabs into sockets, plates into pockets (a drop of glue makes it one board), screws into the wall.
+  - **Or without screws in the wall** (rectangle boards, *Hang it*): on a **French cleat** (a board cleat and a wall cleat as thick as the gap, split to fit the bed, both printed with the 45° face up), **over a door** on two hooks (three over 700 mm wide; *Door thickness*), or **on a desk**, standing in feet with a groove for its bottom edge or clamped to the desk's back edge with an M6 bolt. Each part screws to the board from the front through countersunk holes; the posts left become rests.
+- **Frame** (rectangle boards): rim strips round the front border (tiles print face down, so the rim is separate flat strips with pins, pressed into holes in the border and glued; cut to fit the bed, clear of the seams, so they also hold the tiles in line), and with *LED* a channel round the back edge for a strip (8, 10 or 12 mm) that lights the wall behind.
+- **Solid zones** (rectangle boards): areas with no slots, snapped to the lattice, blank, with **text** engraved in the front, or with 6 × 2 mm **magnet** pockets from the back for knives and bits (the parts list counts them). Attachments can't use their slots.
+- **Printing:** every tile prints face down, so the front is the side on the bed, and the slots and countersinks open toward the bed with a chamfer; a rectangle tile's number is debossed on the back. *Spread pieces* pulls the tiles apart in the 3D view. The assembly map shows the tiles as seen from the front, with the steps: tabs into sockets, plates into pockets (a drop of glue makes it one board), screws into the wall.
 - **Colours:** tiles print in the *Wall grid* role's colour, joint plates and spacers in *Connector keys & spacer strips*.
 - **The 3D view** shows the board face up, as it hangs (the wall's up is away from you), with its attachments standing on it.
 
@@ -376,7 +380,7 @@ The dimensions follow the community spec (gridfinity.xyz) as implemented by [gri
 
 All constants live in `src/lib/geometry/spec.ts`.
 
-**Skådis boards** (`src/lib/geometry/skadis.ts`): IKEA's 5 × 15 mm slots on a 20 mm lattice (every lattice point whose column and row add up to an even number), a 5 mm board, 0.6 mm chamfers. Joint plates 20 × 20 × 1.4 mm with ⌀5 pins 2.3 mm long, in 1.5 mm pockets (0.2 mm clear round) with ⌀5.3 holes 2.5 mm deep. Dovetail tabs 8 mm long, 8 mm wide at the seam and 12 at the end, 0.15 mm clear in their sockets. Posts ⌀13 at the board, ⌀10 at the wall.
+**Skådis boards** (`src/lib/geometry/skadis.ts`, rim strips and hanging parts in `skadisParts.ts`): IKEA's 5 × 15 mm slots on a 20 mm lattice (every lattice point whose column and row add up to an even number), a 5 mm board, 0.6 mm chamfers. Joint plates 20 × 20 × 1.4 mm with ⌀5 pins 2.3 mm long, in 1.5 mm pockets (0.2 mm clear round) with ⌀5.3 holes 2.5 mm deep. Dovetail tabs 8 mm long, 8 mm wide at the seam and 12 at the end, 0.15 mm clear in their sockets. Posts ⌀13 at the board, ⌀10 at the wall.
 
 ## Development
 
@@ -422,7 +426,8 @@ src/lib/dividers/   bin interior layouts: walls → compartments, edits, snappin
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
 src/lib/autofill/   "Fill from a list": list parser, item matching, bin sizing, grouping, packing (pure TS)
 src/lib/geometry/containers/  vase-mode bins, drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
-src/lib/geometry/skadis.ts    Skådis pegboards: the slot pattern, tiles split to the bed, hexagons, joints, mounting, the tiles' solids
+src/lib/geometry/skadis.ts    Skådis pegboards: the slot patterns, tiles split to the bed, hexagons, joints, mounting, frame, zones, the tiles' solids
+src/lib/geometry/skadisParts.ts  rim strips, cleats, door hooks and desk feet / clamps for a board
 src/lib/wall/                 what hangs on a board: the mount standard (mount.ts), placing on slots (plan.ts), the kinds (kinds/)
 src/lib/enclosures.ts         carry cases, wall grids, spacer strips and Skådis boards: their pieces, extra parts and drawer view
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers (a plate, every plate, one part); estimate.ts print time and cost

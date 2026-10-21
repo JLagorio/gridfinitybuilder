@@ -31,9 +31,10 @@ const root = resolve(__dirname, '..');
  * Wall attachments' planning (lib/wall: the mount standard, snapping to slots, each kind's options,
  * size and mounts) is on it too: ~12 kB with the first four kinds (625 kB in all), ~1.5 kB a kind
  * more. Their names and forms (lib/wall/ui.ts) load with the Attachments tab, their geometry
- * (lib/wall/build.ts) with the mesh builders.
+ * (lib/wall/build.ts) with the mesh builders. With 20 kinds (Gridfinity shelves, storage rails,
+ * tools, lighting and cables) and the boards' slot patterns, frame, zones and ways to hang, ~656 kB.
  */
-const FIRST_SCREEN_BUDGET = 660_000;
+const FIRST_SCREEN_BUDGET = 680_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
