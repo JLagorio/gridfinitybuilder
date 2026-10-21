@@ -4,7 +4,9 @@ import { binSeatHeight, type BaseplateOptions } from '../geometry/baseplate';
 import { binBodyHeight } from '../geometry/variants';
 import { LID_SEAT_DROP } from '../geometry/lid';
 import { assembledParts } from '../geometry/accessories';
-import { assemblyMaps, binOrigin, printerFolder, type MeshLookup, type PlacedBin, type PrintJob } from '../project';
+import { assemblyMaps, binOrigin, printerFolder, type JobPart, type MeshLookup, type PlacedBin, type PrintJob } from '../project';
+import type { ColourSetupFields } from '../colours';
+import { meshBodyColours } from './colourExport';
 import { placeTransform, type Mat12 } from './threemf';
 import { stackPlaces } from '../stacking';
 
@@ -645,6 +647,8 @@ export interface StepBody {
   name: string;
   /** Planar B-rep shells of the body (meshToShells). */
   shells: BrepShell[];
+  /** Multi-colour (colours.ts): its filament's colour, #RRGGBB. */
+  colour?: string;
 }
 
 export interface StepPart {
@@ -703,13 +707,32 @@ export function writeStep(doc: StepDocument): string {
     const pds = d.add(`PRODUCT_DEFINITION_SHAPE('','',#${pd})`);
     return { pd, pds };
   };
+  // Colours (AP214 presentation): a STYLED_ITEM per coloured solid, one surface style per colour.
+  const styles = new Map<string, number>();
+  const styled: number[] = [];
+  const style = (hex: string) => {
+    let psa = styles.get(hex);
+    if (psa === undefined) {
+      const [r, g, b] = [1, 3, 5].map((i) => stepReal(parseInt(hex.slice(i, i + 2), 16) / 255, 4));
+      const rgb = d.add(`COLOUR_RGB('',${r},${g},${b})`);
+      const area = d.add(`FILL_AREA_STYLE('',(#${d.add(`FILL_AREA_STYLE_COLOUR('',#${rgb})`)}))`);
+      const side = d.add(`SURFACE_SIDE_STYLE('',(#${d.add(`SURFACE_STYLE_FILL_AREA(#${area})`)}))`);
+      psa = d.add(`PRESENTATION_STYLE_ASSIGNMENT((#${d.add(`SURFACE_STYLE_USAGE(.BOTH.,#${side})`)}))`);
+      styles.set(hex, psa);
+    }
+    return psa;
+  };
   // A part: its SHAPE_REPRESENTATION (an origin to place it by) tied to the B-rep.
   const writePart = (part: StepPart) => {
     const { pd, pds } = product(part.name);
     const origin = d.placement([0, 0, 0]);
     const rep = d.add(`SHAPE_REPRESENTATION(${stepString(part.name)},(#${origin}),#${ctx})`);
     d.add(`SHAPE_DEFINITION_REPRESENTATION(#${pds},#${rep})`);
-    const solids = part.bodies.flatMap((b) => writeSolids(d, b.name, b.shells));
+    const solids = part.bodies.flatMap((b) => {
+      const ids = writeSolids(d, b.name, b.shells);
+      if (b.colour && /^#[0-9a-f]{6}$/i.test(b.colour)) for (const id of ids) styled.push(d.add(`STYLED_ITEM('color',(#${style(b.colour)}),#${id})`));
+      return ids;
+    });
     const brep = d.add(
       `ADVANCED_BREP_SHAPE_REPRESENTATION(${stepString(part.name)},(${[...solids, d.placement([0, 0, 0])].map((s) => `#${s}`).join(',')}),#${ctx})`,
     );
@@ -746,6 +769,7 @@ export function writeStep(doc: StepDocument): string {
     });
   }
   d.add(`PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,(${products.map((p) => `#${p}`).join(',')}))`);
+  if (styled.length) d.add(`MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION('',(${styled.map((i) => `#${i}`).join(',')}),#${ctx})`);
 
   const stamp = (doc.date ?? new Date()).toISOString().slice(0, 19);
   return [
@@ -779,12 +803,16 @@ export interface StepItem {
   name: string;
   meshKey: string;
   transform: Mat12;
+  /** Multi-colour: what its colours come from (the job part's role and own colour). */
+  part?: Pick<JobPart, 'role' | 'colour'>;
 }
 
 /** A STEP file to write: a named set of placed parts. */
 export interface StepAssembly {
   name: string;
   items: StepItem[];
+  /** Multi-colour on (the job's `colours`): each body in its filament's colour. */
+  colours?: ColourSetupFields;
 }
 
 /** B-reps are worth keeping between files of one export (the same bin on several plates). */
@@ -795,7 +823,10 @@ export function assemblySTEP(asm: StepAssembly, getMesh: MeshLookup, cache: Body
   const parts: StepPart[] = [];
   const index = new Map<string, number>();
   const instances: StepInstance[] = asm.items.map((it) => {
-    let i = index.get(it.meshKey);
+    // Parts share a product when they share the mesh and its colours.
+    const colours = asm.colours ? meshBodyColours(asm.colours, it.part, getMesh(it.meshKey)) : undefined;
+    const key = colours ? `${it.meshKey}|${colours.join()}` : it.meshKey;
+    let i = index.get(key);
     if (i === undefined) {
       let bodies = cache.get(it.meshKey);
       if (!bodies) {
@@ -803,8 +834,8 @@ export function assemblySTEP(asm: StepAssembly, getMesh: MeshLookup, cache: Body
         cache.set(it.meshKey, bodies);
       }
       i = parts.length;
-      parts.push({ name: it.name, bodies });
-      index.set(it.meshKey, i);
+      parts.push({ name: it.name, bodies: colours ? bodies.map((b, k) => ({ ...b, colour: colours[k] })) : bodies });
+      index.set(key, i);
     }
     return { part: i, name: it.name, transform: it.transform };
   });
@@ -823,8 +854,9 @@ export function plateAssembly(job: PrintJob, plateIndex: number): StepAssembly {
     name: pl.name,
     items: pl.placements.map((p) => {
       const part = job.parts[p.key];
-      return { name: part.name, meshKey: part.meshKey, transform: placeTransform(p.x, p.y, p.rotated, part.d) };
+      return { name: part.name, meshKey: part.meshKey, transform: placeTransform(p.x, p.y, p.rotated, part.d), ...partColour(job, part) };
     }),
+    ...(job.colours ? { colours: job.colours } : {}),
   };
 }
 
@@ -864,6 +896,10 @@ export interface AssemblyDrawer {
 
 const translate = (x: number, y: number, z: number): Mat12 => [1, 0, 0, 0, 1, 0, 0, 0, 1, x, y, z];
 
+/** A StepItem's colour fields, multi-colour on. */
+const partColour = (job: PrintJob, part: JobPart): Pick<StepItem, 'part'> =>
+  job.colours ? { part: { role: part.role, ...(part.colour ? { colour: part.colour } : {}) } } : {};
+
 /**
  * Each drawer of a job as it goes together: baseplate pieces in place, bins
  * seated on it with their lids, trays, sliding lids, container parts and
@@ -878,7 +914,7 @@ export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): Step
     const items: StepItem[] = [];
     const add = (key: string, x: number, y: number, z: number) => {
       const part = job.parts[key];
-      if (part) items.push({ name: part.name, meshKey: part.meshKey, transform: translate(x, y, z) });
+      if (part) items.push({ name: part.name, meshKey: part.meshKey, transform: translate(x, y, z), ...partColour(job, part) });
     };
     for (const p of dj.plan.pieces) add(`${prefix}piece:${p.id}`, p.x0, p.y0, 0);
     if (doc) {
@@ -904,6 +940,6 @@ export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): Step
       }
     }
     const name = dj.name || doc?.name || `Drawer ${di + 1}`;
-    return { name: `${name} assembled`, items };
+    return { name: `${name} assembled`, items, ...(job.colours ? { colours: job.colours } : {}) };
   });
 }

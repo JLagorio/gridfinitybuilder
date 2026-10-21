@@ -26,6 +26,7 @@ import { partProfile } from '../src/lib/colourPlan';
 import { FILAMENT_VARIANT_KEYS, exportBambuProject, withFilaments } from '../src/lib/export/bambu';
 import { exportPlate3MF } from '../src/lib/export/threemf';
 import { exportPlatesStlZip } from '../src/lib/export/stl';
+import { drawerAssemblies, exportAssembliesSTEP, exportPlateSTEP } from '../src/lib/export/step';
 import { estimateJob, estimatePlate, sliceStats, type MeshPrintStats } from '../src/lib/estimate';
 import { billOfMaterials } from '../src/lib/bom';
 import { colourChecks } from '../src/lib/colourChecks';
@@ -301,6 +302,39 @@ describe('exports by strategy', () => {
     const names = Object.keys(zip).filter((n) => n.endsWith('.stl')).sort();
     expect(names).toEqual(['01-bins-1.slot1-black.stl', '01-bins-1.slot2-white.stl', '01-bins-1.slot3-red.stl']);
     expect(strFromU8(zip['README.txt'])).toContain('one STL per filament slot');
+  });
+
+  it('STEP: every solid in its filament colour (AP214 styled items), parts sharing a mesh apart when their colours differ', () => {
+    const rgb = (hex: string) => [1, 3, 5].map((i) => String(Math.round((parseInt(hex.slice(i, i + 2), 16) / 255) * 1e4) / 1e4)).join(',');
+    const styled = (step: string) => {
+      const solids = (step.match(/=(MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS)\(/g) ?? []).length;
+      const items = (step.match(/=STYLED_ITEM\('color'/g) ?? []).length;
+      return { solids, items, colours: (step.match(/COLOUR_RGB\('',[^)]*\)/g) ?? []).sort() };
+    };
+    // By feature: a bin's volumes each in their role's colour.
+    const sf = withColours({ strategy: 'feature', roles: { binFeet: 3, binWalls: 1, binLip: 4 } });
+    const jf = planPrint([drawer([bin('a', { label: 'none' })], 1, 1)], sf, { baseplate: false, bins: true });
+    const feat = styled(strFromU8(exportPlateSTEP(jf, 0, meshes(jf))));
+    expect(feat.items).toBe(feat.solids);
+    expect(feat.colours).toEqual(expect.arrayContaining([`COLOUR_RGB('',${rgb('#161616')})`, `COLOUR_RGB('',${rgb('#C12E1F')})`, `COLOUR_RGB('',${rgb('#0A2989')})`]));
+    // By part: two bins of one mesh, one with its own colour, are two products; the assembled drawer is coloured too.
+    const sp = withColours({ roles: { plate: 3, binWalls: 1 }, mix: true });
+    const jp = planPrint([drawer([bin('a'), bin('b', { colour: 4 }, 1)], 2, 1)], sp, { baseplate: true, bins: true });
+    expect(jp.parts['bin:a'].meshKey).toBe(jp.parts['bin:b'].meshKey);
+    const bins = jp.plates.findIndex((pl) => pl.placements.filter((p) => p.key.startsWith('bin:')).length === 2);
+    const part = strFromU8(exportPlateSTEP(jp, bins, meshes(jp)));
+    // The plate, and a product per colour of the bin.
+    expect((part.match(/=PRODUCT\(/g) ?? []).length).toBe(3);
+    const asm = strFromU8(exportAssembliesSTEP(drawerAssemblies(jp, [drawer([bin('a'), bin('b', { colour: 4 }, 1)], 2, 1)]), meshes(jp)));
+    const a = styled(asm);
+    expect(a.items).toBe(a.solids);
+    expect(new Set(a.colours)).toEqual(new Set([`COLOUR_RGB('',${rgb('#C12E1F')})`, `COLOUR_RGB('',${rgb('#161616')})`, `COLOUR_RGB('',${rgb('#0A2989')})`]));
+    expect(asm).toContain('MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION');
+    // Multi-colour off: no colours, as before.
+    const off = planPrint([drawer([bin('a')], 1, 1)], DEFAULT_SETUP, { baseplate: false, bins: true });
+    const plain = strFromU8(exportPlateSTEP(off, 0, meshes(off)));
+    expect(plain).not.toContain('STYLED_ITEM');
+    expect(plain).not.toContain('COLOUR_RGB');
   });
 });
 

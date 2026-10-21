@@ -1,5 +1,5 @@
 import type { MeshData } from '../geometry/kernel';
-import type { MeshSpec, PrintJob } from '../project';
+import type { JobPart, MeshSpec, PrintJob } from '../project';
 import { findPrinter } from '../printers';
 import {
   LAYERS,
@@ -39,9 +39,24 @@ const escapeXml = (s: string) => s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>
 /** The slot of each body (main, then the overlays) of a part's mesh. */
 export function meshBodySlots(setup: ColourSetupFields, job: PrintJob, partKey: string, mesh: MeshData, base?: number): number[] {
   const part = job.parts[partKey];
+  return partBodySlots(setup, part, mesh, job.meshes[part.meshKey] as MeshSpec | undefined, base);
+}
+
+function partBodySlots(setup: ColourSetupFields, part: Pick<JobPart, 'role' | 'colour'>, mesh: MeshData, spec?: MeshSpec, base?: number): number[] {
   const roles: (ColourRole | null)[] = [mesh.role ?? null, ...(mesh.overlays ?? []).map((o) => overlayRole(o))];
   const legacy = [1, ...(mesh.overlays ?? []).map((o) => o.filament)];
-  return bodySlots(setup, part, job.meshes[part.meshKey] as MeshSpec | undefined, roles, legacy, base);
+  return bodySlots(setup, part, spec, roles, legacy, base);
+}
+
+/**
+ * The colour (#RRGGBB) of each body of a part's mesh, for files that hold one
+ * colour per solid (STEP): as meshBodySlots, and by height the part's main
+ * colour (its bands are the slicer's). Undefined with multi-colour off.
+ */
+export function meshBodyColours(setup: ColourSetupFields | undefined, part: Pick<JobPart, 'role' | 'colour'> | undefined, mesh: MeshData): string[] | undefined {
+  if (!setup || !part || !strategyOf(setup)) return undefined;
+  const pal = slotColours(setup, 16);
+  return partBodySlots(setup, part, mesh).map((s) => pal[s - 1] ?? '#808080');
 }
 
 /** A plate's filament changes by height ('height'), from its tallest part's bands; null when there are none. */
