@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { allDrawers, useStore, useUnits } from '../state/store';
-import { PAPERS, combinedMapSvg, drawerMap, mapSvg, tilePlan, type DrawerMap, type Tile } from '../lib/inventory';
+import { PAPERS, combinedMapSvg, drawerMaps, mapSvg, tilePlan, type DrawerMap, type Tile } from '../lib/inventory';
 import { downloadBytes } from '../worker/client';
 import { Segmented } from './fields';
 
@@ -47,7 +47,8 @@ export function DrawerMapDialog({ initialScope = 'active', onClose }: { initialS
   const [paperId, setPaperId] = useState(units === 'in' ? 'letter' : 'a4');
   const paper = PAPERS.find((p) => p.id === paperId) ?? PAPERS[0];
   const shown = useMemo(() => (scope === 'all' ? docs : docs.filter((d) => d.id === activeDrawerId)), [docs, scope, activeDrawerId]);
-  const maps = useMemo(() => shown.map((d) => drawerMap(d, { units, precision })), [shown, units, precision]);
+  // Stacked bins get a map per level.
+  const maps = useMemo(() => shown.flatMap((d) => drawerMaps(d, { units, precision })), [shown, units, precision]);
   const pages = useMemo<Page[]>(
     () =>
       scale === 'fit'

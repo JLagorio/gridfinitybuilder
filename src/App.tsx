@@ -26,6 +26,7 @@ import { LID_SEAT_DROP } from './lib/geometry/lid';
 import { assembledParts } from './lib/geometry/accessories';
 import { usableBed } from './lib/bedfit';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
+import { stackPlaces } from './lib/stacking';
 import './components/workflow.css';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -71,24 +72,28 @@ function drawerScene(
     // Container parts that sit in their container (drawers in a drawer unit, …), by bin.
     const placedParts = new Map<string, JobPart[]>();
     for (const p of Object.values(job.parts)) if (p.bin && p.assembled) placedParts.set(p.bin, [...(placedParts.get(p.bin) ?? []), p]);
+    // Stacked bins stand in the lip of the bin below; Lift spreads the levels apart (stacking.ts).
+    const stacked = stackPlaces(job.layout, state.bins);
     for (const b of state.bins) {
       const part = job.parts[`bin:${b.id}`];
       if (!part) continue;
       // The mesh's front-left corner: its feet sit on the bin's cells, a stretched body reaches past them.
       const at = binOrigin(job.layout, b);
+      const z0 = seat + (stacked.get(b.id)?.z ?? 0);
+      const lift = (stacked.get(b.id)?.level ?? 0) + 1;
       items.push({
         id: b.id,
         meshKey: part.meshKey,
         x: at.x,
         y: at.y,
-        z: seat,
+        z: z0,
         w: part.w,
         d: part.d,
         h: part.h,
         color: BIN_COLOR,
         selected: selectedIds(state.ui).includes(b.id),
         pickable: true,
-        lift: true,
+        lift,
       });
       // A lid sits in the bin's lip (hidden while the bin is selected, so its inside stays visible).
       const lid = job.parts[`lid:${b.id}`];
@@ -98,12 +103,12 @@ function drawerScene(
           meshKey: lid.meshKey,
           x: at.x,
           y: at.y,
-          z: seat + binBodyHeight(b.opts) - LID_SEAT_DROP,
+          z: z0 + binBodyHeight(b.opts) - LID_SEAT_DROP,
           w: lid.w,
           d: lid.d,
           h: lid.h,
           color: LID_COLOR,
-          lift: true,
+          lift,
         });
       }
       // Lift-out trays and a sliding lid sit in the bin the same way.
@@ -114,12 +119,12 @@ function drawerScene(
             meshKey: a.meshKey,
             x: at.x + a.assembled.x,
             y: at.y + a.assembled.y,
-            z: seat + a.assembled.z,
+            z: z0 + a.assembled.z,
             w: a.w,
             d: a.d,
             h: a.h,
             color: LID_COLOR,
-            lift: true,
+            lift,
           });
         }
       }
@@ -129,12 +134,12 @@ function drawerScene(
           meshKey: p.meshKey,
           x: at.x + p.assembled!.x,
           y: at.y + p.assembled!.y,
-          z: seat + p.assembled!.z,
+          z: z0 + p.assembled!.z,
           w: p.w,
           d: p.d,
           h: p.h,
           color: p.kind === 'lid' ? LID_COLOR : BIN_COLOR,
-          lift: true,
+          lift,
         });
       }
       // Swappable label plates, pressed into their tabs.
@@ -146,12 +151,12 @@ function drawerScene(
           meshKey: pl.meshKey,
           x: at.x + pl.assembled.x,
           y: at.y + pl.assembled.y,
-          z: seat + pl.assembled.z,
+          z: z0 + pl.assembled.z,
           w: pl.w,
           d: pl.d,
           h: pl.h,
           color: LABEL_PLATE_COLOR,
-          lift: true,
+          lift,
         });
       }
     }
