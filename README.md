@@ -93,7 +93,7 @@ Folding groups say what's set in them, start open when anything in them isn't th
      - **What's in it:** a list of what the bin holds, per bin or per compartment. It's for finding things and for the drawer map, and doesn't change the print.
 
      The panel goes in that order: the bin (type, size, height), **Inside** (compartments, pocket grid or tool cutouts, with the compartment tools), **Scoop & label**, **Options** (base & holes, lip & lid, walls, trays, cups), **What's in it**, stacking and stretching, then **This bin** (duplicate, delete, download it on its own). With nothing selected, the drawer's **Layout** (draw, fill, clear) comes first and the settings are for new bins.
-   - **Start from** a preset: *Screws & small parts* (three compartments with scoops and labels), *Batteries* (an AA pocket grid, tall enough), *Deep bin* (one tall compartment, as tall as the drawer allows), *Tool tray* (low, a long slot and two compartments) or *Label everything* (label tabs, or a front label, with the text from *What's in it*). One click sets the selected bins, or new bins when none is selected, as one undo step. A preset only sets what it's about: the size, base, holes and lip stay, and a bin too tall for the printer is made smaller to fit.
+   - **Start from** a preset: *Screws & small parts* (three compartments with scoops and labels), *Batteries* (an AA pocket grid, tall enough), *Ammo* (a 9mm cartridge block, tall enough that a lid closes over the rounds), *Deep bin* (one tall compartment, as tall as the drawer allows), *Tool tray* (low, a long slot and two compartments) or *Label everything* (label tabs, or a front label, with the text from *What's in it*). One click sets the selected bins, or new bins when none is selected, as one undo step. A preset only sets what it's about: the size, base, holes and lip stay, and a bin too tall for the printer is made smaller to fit.
    - **Templates** save a bin's settings by name. Apply one to the selected bins or to new bins, in any drawer.
 
    **Compartments.**
@@ -117,11 +117,12 @@ Folding groups say what's set in them, start open when anything in them isn't th
    - **Mirror, rotate, copy:** mirror or rotate a layout, or copy it onto other bins in any drawer ("Copy to…", or ⌘C / ⌘V in the editor). Proportional walls adapt to the new size.
 
    **Pocket grids** fill the bin (or one compartment) and cut as many pockets as fit:
-   - **55 presets:**
+   - **91 presets:**
      - batteries (AA to D, 9V, 18650, 21700, CR123A, coin cells)
      - cards and cartridges (SD, microSD, CFexpress, SIM, USB sticks, Switch and Game Boy cartridges)
      - hex and power bits, router bits, M2–M8 screws
      - hobby paints, markers, pens, printer nozzles, test tubes, coins
+     - **ammunition**, 36 cartridges standing head down like in a reloading block: rimfire (.22 LR, .22 WMR / .17 HMR), pistol (5.7×28, .380 ACP, 9mm to .45 ACP, .38 Special, .357 and .44 Magnum, .45 Colt), rifle (.223 / 5.56, 5.45×39, .300 Blackout, 7.62×39, 6.5 Grendel, .22-250, .243, 6.5 Creedmoor, .308 / 7.62 NATO, .30-30, .45-70, 7.62×54R, .270, .30-06, 7mm Rem Mag, .300 Win Mag) and 12 ga, 20 ga and .410 shotshells. Each pocket is the cartridge's SAAMI or C.I.P. maximum rim (or case) diameter plus 0.5 mm (0.8 mm for shotshells), half its case deep (8 to 30 mm); search the list by what you call them (`556`, `9x19`, `300blk`, `12ga`). Rounds stand far taller than their pockets, so a note under the grid says how tall the bin has to be, in units, for their tips to stay under the rim and under a lid or a bin stacked on top.
    - **Graduated sets:** drill indexes (1–10 or 1–13 mm, 1/16–1/2″ by 1/64), ¼″ and ⅜″ socket sets, hex keys. Each pocket is sized to its item, with the size engraved in front of it. A custom list of sizes in mm or inches works too.
    - **Fit an item:** type the item's size and height; the pocket gets clearance and a depth of 2/3 its height.
    - **Pocket options:**
@@ -153,12 +154,13 @@ Folding groups say what's set in them, start open when anything in them isn't th
    - **From What's in it:** `{contents}` (or `{contents:2}`) puts the bin's or compartment's first contents lines on the label.
    - **Front-wall labels** go on the outside of the front wall: raised, two-tone, engraved or inlaid, one per front compartment.
 
-   **Fill from a list.** Type what you want to store, one item per line (`200 M3 screws`, `12 AA batteries`, `SD cards x8`, `hex keys 1.5–10 mm`, `calipers`), and Gridfit proposes bins for it and lays them out in the drawer:
+   **Fill from a list.** Type what you want to store, one item per line (`200 M3 screws`, `12 AA batteries`, `SD cards x8`, `hex keys 1.5–10 mm`, `100 rounds 9mm`, `calipers`), and Gridfit proposes bins for it and lays them out in the drawer:
    - **The list:** counts like `200`, `x8`, `8x`, `8 pcs` or `a dozen`; ranges like `1.5-10 mm` or `1/16–1/2in`; sizes like `M3`, `M3x12`, `AA`, `18650` or `100x60x20mm`. A line Gridfit doesn't know still gets a bin (`misc small parts` gets one with two compartments).
    - **What each item gets:**
      - a tool in your tool library with that name: tool cutouts, sized like *Make a bin*
      - drill bits, hex keys, sockets: a graduated set, cut to the range you typed
      - batteries, cards, bits, markers, paints, coins: a pocket grid from the presets
+     - ammunition (`9mm x 50`, `200 .22LR`, `20 rounds .308`, `box of 5.56`, `2 boxes of 12ga`): a cartridge block, a pocket per round (a box of them when the line gives no count), as tall as the rounds need for a lid over them, or for the rim when the drawer is lower. More rounds than one printable bin holds go in several.
      - coin cells, zip ties, a roll of tape: a dispenser
      - screws, nuts, washers and other loose parts: a compartment with a scoop, sized from a rough volume per part and the count (filled to 80 %)
      - calipers, pliers, scissors and other things that lie flat: a bin of their typical size (trace yours for a cutout)
@@ -180,7 +182,8 @@ Folding groups say what's set in them, start open when anything in them isn't th
    - **Print checks:** before the exports, a list of what won't print well in everything being printed, from the settings alone:
      - **likely to fail:** label text that doesn't fit its tab (and is left off) or has strokes thinner than the nozzle, a label tab left off because it sits against a removable divider with a removable side wall too, drawers with too little play, very tall bins on a small base, a stretched body far over the margin
      - **prints, but worse:** raised text under 3 mm, walls between pockets, hex struts, grid inserts and drawer walls under two nozzle lines, big hex holes, magnet + screw holes without printable tops, compartments too narrow and deep to reach into, wide bridges (including a label tab spanning a wide compartment in front of a removable divider), an untrimmed baseplate ridge, and fits that are tight for a big nozzle (divider slots, the sliding lid's click, hinges, puzzle tabs and keys)
-     - Most have a one-click fix ("Make them 1.2 mm", "Turn on printable hole tops"). Click a bin's name to select it, switching drawer if needed.
+     - **rounds** in a cartridge pocket grid (the bin's, a compartment's or a pocket-grid lid's) that would hold up the bin's lid or a bin stacked on it, or reach higher than the drawer's inside height (likely to fail), or stick out above the rim (a tip). The fix raises the bin to the height in units that clears them, as far as the printer and the drawer allow.
+     - Most have a one-click fix ("Make them 1.2 mm", "Turn on printable hole tops", "Make it 6u"). Click a bin's name to select it, switching drawer if needed.
      - The selected bin shows its own checks above its settings, and bins with any get a small dot on the bin grid (yellow: likely to fail; blue: a tip).
    - **Two or more printers:** **Add a printer** for a big one and a small one, or two of the same. Each has its own model, bed, edge margin and height (and power draw for the cost), and can be removed again.
      - **Baseplate prints on** the biggest printer, split for its bed, or on the printer you pick, split for that one. Left to the biggest, a baseplate plate can still go to another printer that takes it.
