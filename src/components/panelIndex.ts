@@ -95,7 +95,7 @@ export const BIN_INDEX: FindEntry[] = [
               ...new Set(POCKET_PRESETS.flatMap((p) => p.aliases ?? [])),
             ],
           },
-          { id: 'pocket-shape', title: 'Pocket shape and size', words: ['round', 'square', 'hex', 'diameter', 'size', 'depth', 'spacing', 'chamfer', 'clearance'] },
+          { id: 'pocket-shape', title: 'Pocket shape and size', words: ['round', 'square', 'hex', 'diameter', 'size', 'depth', 'spacing', 'chamfer', 'clearance', 'item height', 'overall length', 'oal'] },
           { id: 'pocket-bottom', title: 'Pocket bottom', words: ['flat', 'round', 'cone', 'point', 'stepped', 'bore', 'collar'] },
           { id: 'pocket-lean', title: 'Lean', words: ['lean', 'tilt', 'angle', 'tip'] },
           { id: 'pocket-access', title: 'Finger access', words: ['finger', 'groove', 'notch', 'thumb', 'grab'] },

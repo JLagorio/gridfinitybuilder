@@ -52,7 +52,9 @@ describe('bin presets', () => {
 
   it('ammo: a 9mm cartridge block, tall enough for a lid over the rounds', () => {
     const o = applyPreset(preset('ammo'), { ...DEFAULT_BIN, unitsX: 3, unitsY: 2 });
-    expect(o).toMatchObject({ interior: 'pockets', pocketPreset: 'ammo-9mm', heightMode: 'units', heightUnits: 6, unitsX: 3, unitsY: 2 });
+    expect(o).toMatchObject({ interior: 'pockets', pocketPreset: 'ammo-9mm', pocketItemH: 29.69, heightMode: 'units', heightUnits: 6, unitsX: 3, unitsY: 2 });
+    // Batteries afterwards: AA pockets carry no height.
+    expect(applyPreset(preset('batteries'), o).pocketItemH).toBe(0);
     const { w, d } = binSize(o);
     const body = binBodyHeight(o);
     // As many as the hint says.

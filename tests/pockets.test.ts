@@ -295,7 +295,7 @@ describe('mesh keys', () => {
   });
 
   it('pocketFields picks out every pocket option and nothing else', () => {
-    expect(POCKET_KEYS).toHaveLength(19);
+    expect(POCKET_KEYS).toHaveLength(20);
     const f = pocketFields(bin({ pocketTilt: 12 }));
     expect(Object.keys(f).sort()).toEqual([...POCKET_KEYS].sort());
     expect(f.pocketTilt).toBe(12);

@@ -4,6 +4,7 @@ import { Field, Group, LengthInput, Segmented, Slider, Toggle } from './fields';
 import { Combobox } from './combobox';
 import {
   CUSTOM_SET,
+  customEdit,
   FIT_DEFAULTS,
   POCKET_PRESETS,
   findPocketPreset,
@@ -43,8 +44,8 @@ export function PocketSettings({
 }) {
   const { fmt } = useUnits();
   const set = o.pocketSizes.length > 0;
-  /** An edit to what the pockets hold: no longer the preset. */
-  const custom = (p: Partial<PocketFields>) => onChange({ ...p, pocketPreset: set ? CUSTOM_SET : 'custom' });
+  /** An edit to what the pockets hold: no longer the preset, the same item height. */
+  const custom = (p: Partial<PocketFields>) => onChange(customEdit(o, p));
   const preset = findPocketPreset(o.pocketPreset);
   const presetId = preset ? preset.id : set ? CUSTOM_SET : 'custom';
   const sizeLabel = o.pocketShape === 'round' ? 'Diameter' : o.pocketShape === 'hex' ? 'Across flats' : 'Size X';
@@ -65,7 +66,7 @@ export function PocketSettings({
             const p = findPocketPreset(id);
             if (p) onChange(presetFields(p));
             else if (id === CUSTOM_SET) onChange({ pocketPreset: CUSTOM_SET, ...(set ? {} : { pocketSizes: CUSTOM_SET_START, pocketSizeNames: [] }) });
-            else onChange({ pocketPreset: 'custom', pocketSizes: [], pocketSizeNames: [] });
+            else onChange({ pocketPreset: 'custom', pocketSizes: [], pocketSizeNames: [], pocketItemH: o.pocketItemH });
           }}
           hint={preset?.note ?? (set ? 'One pocket per size, smallest first from the front.' : undefined)}
         />
@@ -117,6 +118,22 @@ export function PocketSettings({
           <LengthInput label="Spacing" value={o.pocketSpacing} min={0.8} max={20} onChange={(pocketSpacing) => custom({ pocketSpacing })} />
           <LengthInput label="Chamfer" value={o.pocketChamfer} min={0} max={5} onChange={(pocketChamfer) => custom({ pocketChamfer })} />
         </div>
+        {/* Set by a preset (cartridges) or Fit an item; kept when the pockets change. It doesn't change the pockets, so the preset stays. */}
+        {o.pocketItemH > 0 && (
+          <>
+            <LengthInput
+              label="Item height"
+              value={o.pocketItemH}
+              min={1}
+              max={400}
+              onChange={(pocketItemH) => onChange({ pocketItemH })}
+              hint="How tall what stands in each pocket is: the note below and the print checks say how tall the bin must be for it."
+            />
+            <button type="button" className="link" onClick={() => onChange({ pocketItemH: -1 })}>
+              Don’t check the height
+            </button>
+          </>
+        )}
       </Find>
       <Find id={find ? 'pocket-bottom' : undefined}>
         <Segmented

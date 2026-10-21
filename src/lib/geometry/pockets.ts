@@ -27,6 +27,7 @@ import { sizeLabelText } from './pocketPresets';
 export {
   CUSTOM_SET,
   FIT_DEFAULTS,
+  customEdit,
   POCKET_GROUPS,
   POCKET_PRESETS,
   findPocketPreset,

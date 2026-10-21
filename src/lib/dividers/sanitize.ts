@@ -117,10 +117,10 @@ function cleanPockets(v: unknown): CompartmentPockets | null {
   return Object.keys(out).length ? (out as CompartmentPockets) : null;
 }
 
-/** Canonical text for pocket overrides (the preset name is UI only). */
+/** Canonical text for pocket overrides (the preset name and the item height are UI only). */
 function pocketsKey(p: CompartmentPockets): string {
   const parts = Object.entries(p)
-    .filter(([k]) => k !== 'pocketPreset')
+    .filter(([k]) => k !== 'pocketPreset' && k !== 'pocketItemH')
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([k, v]) => `${k.slice(6)}${typeof v === 'object' ? JSON.stringify(v) : v}`);
   return parts.length ? `{${parts.join(',')}}` : '';
