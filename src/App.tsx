@@ -9,6 +9,7 @@ import { plateOrigin } from './lib/export/bambu';
 import { findPrinter } from './lib/printers';
 import { geometry } from './worker/client';
 import { Viewer, type SceneBed, type SceneItem } from './components/Viewer';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { DrawerPanel } from './components/DrawerPanel';
 import { BinPanel } from './components/BinPanel';
 import { PrintPanel } from './components/PrintPanel';
@@ -198,34 +199,37 @@ export default function App() {
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
 
+  // Its own boundary, so a 3D problem never blanks the panels and editors.
   const viewer = (
-    <Viewer
-      items={scene.items}
-      beds={scene.beds}
-      outline={scene.outline}
-      fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
-      fitIds={focusing ? [ui.selectedBinId!] : undefined}
-      onPick={ui.tab === 'bins' ? (id) => state.setUI({ selectedBinId: id }) : undefined}
-    >
-      {ui.tab === 'bins' && (
-        <div className="viewer-tools">
-          <button className={!focusing ? 'active' : ''} onClick={() => setFocusSel(false)}>
-            Whole drawer
-          </button>
-          <button className={focusing ? 'active' : ''} disabled={!ui.selectedBinId} onClick={() => setFocusSel(true)}>
-            Selected bin
-          </button>
-        </div>
-      )}
-      {ui.tab === 'drawer' && (
-        <div className="viewer-tools">
-          <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
-            Spread pieces
-          </button>
-        </div>
-      )}
-      <div className="viewer-hint">Drag to orbit · right-drag to pan · scroll to zoom{ui.tab === 'bins' ? ' · click a bin to select' : ''}</div>
-    </Viewer>
+    <ErrorBoundary scope="The 3D view" compact>
+      <Viewer
+        items={scene.items}
+        beds={scene.beds}
+        outline={scene.outline}
+        fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
+        fitIds={focusing ? [ui.selectedBinId!] : undefined}
+        onPick={ui.tab === 'bins' ? (id) => state.setUI({ selectedBinId: id }) : undefined}
+      >
+        {ui.tab === 'bins' && (
+          <div className="viewer-tools">
+            <button className={!focusing ? 'active' : ''} onClick={() => setFocusSel(false)}>
+              Whole drawer
+            </button>
+            <button className={focusing ? 'active' : ''} disabled={!ui.selectedBinId} onClick={() => setFocusSel(true)}>
+              Selected bin
+            </button>
+          </div>
+        )}
+        {ui.tab === 'drawer' && (
+          <div className="viewer-tools">
+            <button className={ui.explode ? 'active' : ''} onClick={() => state.setUI({ explode: !ui.explode })}>
+              Spread pieces
+            </button>
+          </div>
+        )}
+        <div className="viewer-hint">Drag to orbit · right-drag to pan · scroll to zoom{ui.tab === 'bins' ? ' · click a bin to select' : ''}</div>
+      </Viewer>
+    </ErrorBoundary>
   );
 
   return (

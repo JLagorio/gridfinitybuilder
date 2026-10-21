@@ -195,7 +195,8 @@ function persisted(s: Store) {
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,
-    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [] },
+    // View-only state (selection, spread pieces, shown plate) starts fresh on every load.
+    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1 },
   };
 }
 
@@ -469,7 +470,8 @@ export const useStore = create<Store>()(
           printPick: p.printPick ?? current.printPick,
           templates: cleanTemplates(p.templates ?? current.templates),
           tools: cleanTools(p.tools ?? current.tools),
-          ui: { ...current.ui, ...p.ui },
+          // Saved before view state stopped being persisted: never come back with pieces spread apart.
+          ui: { ...current.ui, ...p.ui, explode: false, plate: -1 },
         };
       },
     },

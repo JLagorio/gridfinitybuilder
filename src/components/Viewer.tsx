@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -61,33 +61,70 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, children 
   const version = useGeometryVersion();
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
+  // 'lost': the GPU dropped the WebGL context; 'failed': WebGL couldn't start at all.
+  const [gl, setGl] = useState<{ state: 'ok' | 'lost' | 'failed'; detail?: string }>({ state: 'ok' });
+  // Bumped by "Restart 3D view" to build a fresh renderer.
+  const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
-    const c = createContext(host.current!, (id) => pickRef.current?.(id));
+    let c: ReturnType<typeof createContext>;
+    try {
+      c = createContext(host.current!, (id) => pickRef.current?.(id), (lost) => setGl({ state: lost ? 'lost' : 'ok' }));
+    } catch (e) {
+      console.error('[Gridfit] The 3D view could not start WebGL:', e);
+      setGl({ state: 'failed', detail: e instanceof Error ? e.message : String(e) });
+      return;
+    }
     ctx.current = c;
-    return () => c.dispose();
-  }, []);
+    setGl({ state: 'ok' });
+    return () => {
+      c.dispose();
+      ctx.current = null;
+    };
+  }, [generation]);
 
   useEffect(() => {
     ctx.current?.setScene(items, beds ?? [], outline);
-  }, [items, beds, outline, version]);
+  }, [items, beds, outline, version, generation]);
 
   useEffect(() => {
     const only = fitIds?.length ? items.filter((it) => fitIds.includes(it.id)) : null;
     if (only?.length) ctx.current?.fit(only, []);
     else ctx.current?.fit(items, beds ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey]);
+  }, [fitKey, generation]);
 
   return (
     <div className="viewer">
       <div ref={host} className="viewer-canvas" />
       {children}
+      {gl.state !== 'ok' && (
+        <div className="viewer-failure" role="alert">
+          {gl.state === 'lost' ? (
+            <>
+              <b>The 3D view lost its graphics context.</b>
+              <p>The graphics driver reset or ran out of memory. Your project is fine.</p>
+            </>
+          ) : (
+            <>
+              <b>The 3D view couldn't start WebGL.</b>
+              <p>
+                If Chrome showed “WebGL hit a snag”, it has turned WebGL off for this site after a graphics crash: quit and
+                reopen the browser. Everything else (layout, exports) still works.
+              </p>
+              {gl.detail && <code>{gl.detail}</code>}
+            </>
+          )}
+          <button className="primary" onClick={() => setGeneration((g) => g + 1)}>
+            Restart 3D view
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
+function createContext(el: HTMLDivElement, pick: (id: string | null) => void, onContext: (lost: boolean) => void) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -149,12 +186,23 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
     return { mesh, edges };
   }
 
+  /** Overlay bodies (label text) are drawn without edge lines. */
+  function buildSurface(positions: Float32Array, indices: Uint32Array) {
+    const bg = new THREE.BufferGeometry();
+    bg.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    bg.setIndex(new THREE.BufferAttribute(indices, 1));
+    const mesh = toCreasedNormals(bg, Math.PI / 7);
+    bg.dispose();
+    mesh.computeBoundingSphere();
+    return mesh;
+  }
+
   function geometryFor(key: string, data: MeshData) {
     let g = geoms.get(key);
     if (!g) {
       g = {
         ...buildGeometry(data.positions, data.indices),
-        overlays: (data.overlays ?? []).map((o) => ({ filament: o.filament, mesh: buildGeometry(o.positions, o.indices).mesh })),
+        overlays: (data.overlays ?? []).map((o) => ({ filament: o.filament, mesh: buildSurface(o.positions, o.indices) })),
       };
       geoms.set(key, g);
     }
@@ -312,6 +360,20 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
   renderer.domElement.addEventListener('pointerdown', onDown);
   renderer.domElement.addEventListener('pointerup', onUp);
 
+  // three.js rebuilds its GPU state when a lost context comes back; say what happened meanwhile.
+  const onLost = (e: Event) => {
+    e.preventDefault();
+    console.warn('[Gridfit] The 3D view lost its WebGL context (graphics driver reset, or too many WebGL pages open).');
+    onContext(true);
+  };
+  const onRestored = () => {
+    console.info('[Gridfit] WebGL context restored.');
+    onContext(false);
+    requestRender();
+  };
+  renderer.domElement.addEventListener('webglcontextlost', onLost);
+  renderer.domElement.addEventListener('webglcontextrestored', onRestored);
+
   const resize = () => {
     const w = el.clientWidth || 1;
     const h = el.clientHeight || 1;
@@ -347,13 +409,19 @@ function createContext(el: HTMLDivElement, pick: (id: string | null) => void) {
       controls.dispose();
       renderer.domElement.removeEventListener('pointerdown', onDown);
       renderer.domElement.removeEventListener('pointerup', onUp);
+      renderer.domElement.removeEventListener('webglcontextlost', onLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', onRestored);
       for (const g of geoms.values()) {
         g.mesh.dispose();
         g.edges.dispose();
+        for (const o of g.overlays) o.mesh.dispose();
       }
       disposeTree(bedGroup);
       disposeTree(helpers);
       renderer.dispose();
+      // Release the context now rather than at garbage collection: browsers allow only ~16 live
+      // WebGL contexts and silently kill the oldest, and the view is rebuilt on every tab switch.
+      if (!renderer.getContext().isContextLost()) renderer.forceContextLoss();
       renderer.domElement.remove();
     },
   };

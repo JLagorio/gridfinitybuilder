@@ -2010,3 +2010,76 @@ details.option-group summary > span::before {
 details.option-group[open] summary > span::before {
   content: '▾';
 }
+
+/* ==========================================================================
+   Failure states: 3D view lost/failed, crash screen, error banner (ErrorBoundary.tsx, Viewer.tsx)
+   ========================================================================== */
+
+.viewer-failure,
+.crash-compact {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(15, 17, 20, 0.92);
+}
+.viewer-failure p,
+.crash-compact p {
+  max-width: 440px;
+  margin: 0;
+  color: var(--muted);
+}
+.viewer-failure code,
+.crash-compact code {
+  max-width: 520px;
+  font-size: 12px;
+  color: var(--danger);
+  word-break: break-word;
+}
+.crash {
+  max-width: 760px;
+  margin: 10vh auto;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.crash h2 {
+  margin: 0 0 8px;
+  color: var(--danger);
+}
+.crash p {
+  color: var(--muted);
+}
+.crash pre {
+  overflow: auto;
+  max-height: 40vh;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.error-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  z-index: 50;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 10px 14px;
+  background: #3a1d20;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}

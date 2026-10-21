@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { ErrorBanner, ErrorBoundary } from './components/ErrorBoundary';
 import './styles.css';
 import { geometry } from './worker/client';
 import { projectOf, useStore } from './state/store';
@@ -11,6 +12,9 @@ if (import.meta.env.DEV) Object.assign(window, { __gridfit: { geometry, useStore
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+      <ErrorBanner />
+    </ErrorBoundary>
   </StrictMode>,
 );
