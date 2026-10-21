@@ -72,12 +72,17 @@ import { isMod } from './shortcuts';
 import { CompartmentInsidePreview, useInsideBadge } from './CompartmentInsidePreview';
 import { isContainer } from '../lib/geometry/containers';
 import { stretchOf } from '../lib/geometry/placement';
+import { TouchToggle, fingerPx, isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
 
 const T = DIVIDER;
 /** Pointer distances, in screen pixels. */
 const HIT_PX = 6;
 const HANDLE_PX = 6;
 const SNAP_PX = 8;
+/** Snapping reaches further for a finger. */
+const TOUCH_SNAP_PX = 14;
+/** Handles on a touch screen. */
+const COARSE_HANDLE_PX = 10;
 const FONT_PX = 11;
 
 type WallDrag = {
@@ -175,6 +180,12 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   const [drag, setDrag] = useState<Drag | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const editDone = useRef(false);
+  // Touch: bigger handles, and the Flip / No snap toggles in place of Shift / Alt.
+  const coarse = useCoarsePointer();
+  const touchModes = useTouchModes();
+  const handlePx = coarse ? COARSE_HANDLE_PX : HANDLE_PX;
+  /** The press that started the drag was a finger. */
+  const touchPress = useRef(false);
 
   /** Each edit starts its own undo step; `join` doesn't force one (sliding a wall just placed groups with it if quick). */
   const commit = (next: DividerLayout, join = false) => {
@@ -185,8 +196,8 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   // A stretched body reaches past the feet on the left / front, so the seams sit that much further in.
   const cellsX = useMemo(() => (info ? cellLines(info.cells.x, stretchOf(info.cells.stretch).left) : []), [info]);
   const cellsY = useMemo(() => (info ? cellLines(info.cells.y, stretchOf(info.cells.stretch).front) : []), [info]);
-  const snapOpts = (alt: boolean) => ({ tolerance: SNAP_PX / pxPerMm, step, free: alt, cellsX, cellsY });
-  const pointOpts = (alt: boolean) => ({ tolerance: SNAP_PX / pxPerMm, step, free: alt });
+  const snapOpts = (alt: boolean, touch = false) => ({ tolerance: (touch ? TOUCH_SNAP_PX : SNAP_PX) / pxPerMm, step, free: alt, cellsX, cellsY });
+  const pointOpts = (alt: boolean, touch = false) => ({ tolerance: (touch ? TOUCH_SNAP_PX : SNAP_PX) / pxPerMm, step, free: alt });
 
   // Track the drawing scale (font sizes and hit tolerances are in screen pixels).
   useEffect(() => {
@@ -320,6 +331,12 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   const sy = (y: number) => ID - y;
   const fs = FONT_PX / pxPerMm;
   const px = (n: number) => n / pxPerMm;
+  /** How close a press must be to a wall, or to a handle, in mm. */
+  const hitMm = (touch: boolean) => px(fingerPx(HIT_PX, touch));
+  const grabMm = (touch: boolean) => px(fingerPx(handlePx + 3, touch));
+  /** Shift and Alt, or their on-screen toggles. */
+  const shiftOf = (e: { shiftKey: boolean }) => e.shiftKey || touchModes.flip;
+  const altOf = (e: { altKey: boolean }) => e.altKey || touchModes.free;
 
   const toMm = (e: { clientX: number; clientY: number }) => {
     const m = svgRef.current?.getScreenCTM();
@@ -340,24 +357,24 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     if (shift) o = o === 'v' ? 'h' : 'v';
     return o;
   };
-  const ghostFor = (x: number, y: number, alt: boolean, shift: boolean): Ghost | null => {
-    if (wallAt(info.resolved, x, y, px(HIT_PX)) || freeWallAt(info.resolved, x, y, px(HIT_PX))) return null;
-    return ghostAt(info.resolved, x, y, orientAt(x, y, shift), snapOpts(alt));
+  const ghostFor = (x: number, y: number, alt: boolean, shift: boolean, touch = false): Ghost | null => {
+    if (wallAt(info.resolved, x, y, hitMm(touch)) || freeWallAt(info.resolved, x, y, hitMm(touch))) return null;
+    return ghostAt(info.resolved, x, y, orientAt(x, y, shift), snapOpts(alt, touch));
   };
   const handleAt = (W: ResolvedWall, which: 'start' | 'end'): [number, number] => {
     const run = which === 'start' ? W.start : W.end;
     return W.orient === 'v' ? [W.pos, run] : [run, W.pos];
   };
 
-  const ghost = !drag && !editing && hover && !hover.onBadge && sel.tool === 'wall' ? ghostFor(hover.x, hover.y, mods.alt, mods.shift) : null;
+  const ghost = !drag && !editing && hover && !hover.onBadge && sel.tool === 'wall' ? ghostFor(hover.x, hover.y, mods.alt || touchModes.free, mods.shift || touchModes.flip) : null;
   const hoverFree = !drag && hover && sel.tool !== 'free' ? freeWallAt(view, hover.x, hover.y, px(HIT_PX)) : null;
   const hoverWall = !drag && hover && !hoverFree ? wallAt(view, hover.x, hover.y, px(HIT_PX)) : null;
   const hoverComp = !drag && hover && !hoverWall && !hoverFree ? compartmentAt(view, hover.x, hover.y) : null;
   const selWall = sel.wallId ? view.byId.get(sel.wallId) ?? null : null;
   const selFree = sel.freeId ? view.free.find((f) => f.id === sel.freeId) ?? null : null;
   /** Which handle of a free wall is under a point: an end, or the middle (bend). */
-  const freeHandleAt = (F: ResolvedFreeWall, x: number, y: number): 'a' | 'b' | 'mid' | null => {
-    const near = (q: [number, number]) => Math.hypot(q[0] - x, q[1] - y) <= px(HANDLE_PX + 3);
+  const freeHandleAt = (F: ResolvedFreeWall, x: number, y: number, touch = false): 'a' | 'b' | 'mid' | null => {
+    const near = (q: [number, number]) => Math.hypot(q[0] - x, q[1] - y) <= grabMm(touch);
     return near(F.a) ? 'a' : near(F.b) ? 'b' : near(freeWallMid(F)) ? 'mid' : null;
   };
   /** Sagitta for a bend handle dragged to (x, y): snaps to straight, then to the fine step. */
@@ -370,19 +387,22 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     if (!alt) s = Math.abs(s) < SNAP_PX / pxPerMm ? 0 : Math.round(s / step) * step;
     return s;
   };
-  const hoverSnap = !drag && hover && sel.tool === 'free' ? snapPoint(info.resolved, hover.x, hover.y, pointOpts(mods.alt)) : null;
+  const hoverSnap = !drag && hover && sel.tool === 'free' ? snapPoint(info.resolved, hover.x, hover.y, pointOpts(mods.alt || touchModes.free)) : null;
 
   // ------------------------------------------------------------------ pointer
 
   const onDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return;
+    // A second finger never starts a second drag.
+    if (e.button !== 0 || !e.isPrimary) return;
     const p = toMm(e);
     if (!p) return;
     setEditing(null);
     svgRef.current?.setPointerCapture(e.pointerId);
     const r = info.resolved;
+    const touch = isTouch(e);
+    touchPress.current = touch;
     if (selFree) {
-      const h = freeHandleAt(selFree, p.x, p.y);
+      const h = freeHandleAt(selFree, p.x, p.y, touch);
       if (h === 'mid') {
         setDrag({ kind: 'free-bend', id: selFree.id, layout: info.layout, preview: null });
         return;
@@ -395,7 +415,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     if (selWall) {
       for (const which of ['start', 'end'] as const) {
         const [hx, hy] = handleAt(selWall, which);
-        if (Math.hypot(hx - p.x, hy - p.y) <= px(HANDLE_PX + 3)) {
+        if (Math.hypot(hx - p.x, hy - p.y) <= grabMm(touch)) {
           setDrag({ kind: 'end', id: selWall.id, which, layout: info.layout, preview: null });
           return;
         }
@@ -403,17 +423,17 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     }
     if (sel.tool === 'free') {
       // Press, drag, release: a diagonal wall between the two (snapped) points.
-      const a = snapPoint(r, p.x, p.y, pointOpts(e.altKey));
+      const a = snapPoint(r, p.x, p.y, pointOpts(altOf(e), touch));
       setDrag({ kind: 'draw', a, b: null, press: [p.x, p.y], startPx: [e.clientX, e.clientY], moved: false, preview: null });
       return;
     }
-    const fhit = freeWallAt(r, p.x, p.y, px(HIT_PX));
+    const fhit = freeWallAt(r, p.x, p.y, hitMm(touch));
     if (fhit) {
       selectFreeWall(binId, fhit.id);
       setDrag({ kind: 'free-move', id: fhit.id, layout: info.layout, origin: [p.x, p.y], startPx: [e.clientX, e.clientY], moved: false, preview: null });
       return;
     }
-    const hit = wallAt(r, p.x, p.y, px(HIT_PX));
+    const hit = wallAt(r, p.x, p.y, hitMm(touch));
     if (hit) {
       selectWall(binId, hit.id);
       const ctx = dragContext(info.layout, r, hit.id);
@@ -426,7 +446,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
       selectCompartment(binId, badge ?? comp?.key ?? null);
       return;
     }
-    const g = comp ? ghostFor(p.x, p.y, e.altKey, e.shiftKey) : null;
+    const g = comp ? ghostFor(p.x, p.y, altOf(e), shiftOf(e), touch) : null;
     if (g) {
       const wall = makeWall(info.layout, g.orient, g.pos, g, { start: g.startRef, end: g.endRef }, g.snap);
       const next = addWall(info.layout, info.size, wall);
@@ -442,16 +462,20 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
   };
 
   const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!e.isPrimary) return;
     const p = toMm(e);
     if (!p) return;
+    const touch = isTouch(e);
+    const alt = altOf(e);
+    const slop = tapSlop(touch) - 1;
     const onBadge = !!(e.target as Element).closest?.('[data-comp]');
     setHover({ x: p.x, y: p.y, onBadge });
     if (mods.alt !== e.altKey || mods.shift !== e.shiftKey) setMods({ alt: e.altKey, shift: e.shiftKey });
     if (!drag) return;
     if (drag.kind === 'draw') {
-      const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > 3;
+      const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > slop;
       if (!moved) return;
-      const b = snapPoint(info.resolved, p.x, p.y, { ...pointOpts(e.altKey), from: [drag.a.x, drag.a.y], constrain: e.shiftKey });
+      const b = snapPoint(info.resolved, p.x, p.y, { ...pointOpts(alt, touch), from: [drag.a.x, drag.a.y], constrain: shiftOf(e) });
       setDrag({ ...drag, moved, b });
       return;
     }
@@ -462,18 +486,18 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
       const show = (lay: DividerLayout) => ({ layout: lay, resolved: resolveIn(lay, info.size) });
       if (drag.kind === 'free-end') {
         const fixed = drag.which === 'a' ? F.b : F.a;
-        const at = snapPoint(r0, p.x, p.y, { ...pointOpts(e.altKey), from: fixed, constrain: e.shiftKey, exclude: F.id });
+        const at = snapPoint(r0, p.x, p.y, { ...pointOpts(alt, touch), from: fixed, constrain: shiftOf(e), exclude: F.id });
         if (Math.hypot(at.x - fixed[0], at.y - fixed[1]) < MIN_FREE_WALL) return;
         const end: [number, number] = [at.x, at.y];
         setDrag({ ...drag, at, preview: show(updateFreeWall(drag.layout, info.size, F.id, drag.which === 'a' ? { a: end } : { b: end })) });
       } else if (drag.kind === 'free-bend') {
-        setDrag({ ...drag, preview: show(updateFreeWall(drag.layout, info.size, F.id, { bend: bendAt(F, p.x, p.y, e.altKey) })) });
+        setDrag({ ...drag, preview: show(updateFreeWall(drag.layout, info.size, F.id, { bend: bendAt(F, p.x, p.y, alt) })) });
       } else {
-        const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > 3;
+        const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > slop;
         if (!moved) return;
         let dx = p.x - drag.origin[0];
         let dy = p.y - drag.origin[1];
-        if (!e.altKey) {
+        if (!alt) {
           dx = Math.round(dx / step) * step;
           dy = Math.round(dy / step) * step;
         }
@@ -486,7 +510,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
       return;
     }
     if (drag.kind === 'wall') {
-      const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > 3;
+      const moved = drag.moved || Math.hypot(e.clientX - drag.startPx[0], e.clientY - drag.startPx[1]) > slop;
       if (!moved) return;
       const across = drag.ctx.orient === 'v' ? p.x : p.y;
       const snap = snapAcross({
@@ -496,7 +520,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
         inner: acrossSize(drag.ctx.orient, IW, ID),
         align: drag.ctx.align,
         cells: drag.ctx.orient === 'v' ? cellsX : cellsY,
-        ...snapOpts(e.altKey),
+        ...snapOpts(alt, touch),
       });
       const c = clampDrag(drag.layout, info.size, drag.id, snap.pos);
       setDrag({ ...drag, moved: true, preview: { ...c, snap: Math.abs(c.pos - snap.pos) < 1e-6 ? snap : null } });
@@ -511,7 +535,10 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
     }
   };
 
-  const onUp = () => {
+  const onUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!e.isPrimary) return;
+    // A finger leaves no hover behind (no ghost wall where it lifted).
+    if (isTouch(e)) setHover(null);
     if (drag?.kind === 'wall' && drag.moved && drag.preview) {
       const s = drag.preview.snap;
       commit(moveWall(drag.layout, info.size, drag.id, drag.preview.pos, s && s.kind !== 'step' && s.kind !== 'free' ? s : undefined), drag.fresh);
@@ -528,8 +555,8 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
       } else {
         // A click: pick what's under it.
         const [x, y] = drag.press;
-        const f = freeWallAt(info.resolved, x, y, px(HIT_PX));
-        const wl = f ? null : wallAt(info.resolved, x, y, px(HIT_PX));
+        const f = freeWallAt(info.resolved, x, y, hitMm(touchPress.current));
+        const wl = f ? null : wallAt(info.resolved, x, y, hitMm(touchPress.current));
         if (f) selectFreeWall(binId, f.id);
         else if (wl) selectWall(binId, wl.id);
         else clearInteriorSelection();
@@ -666,7 +693,7 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
           hover &&
           (['start', 'end'] as const).some((wh) => {
             const [hx, hy] = handleAt(selWall, wh);
-            return Math.hypot(hx - hover.x, hy - hover.y) <= px(HANDLE_PX + 3);
+            return Math.hypot(hx - hover.x, hy - hover.y) <= grabMm(false);
           })) ||
         (selFree && hover && freeHandleAt(selFree, hover.x, hover.y))
       ? 'grab'
@@ -860,18 +887,18 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
             <g className="ie-handles">
               {(['start', 'end'] as const).map((wh) => {
                 const [hx, hy] = handleAt(selWall, wh);
-                return <circle key={wh} className="ie-handle" cx={hx} cy={sy(hy)} r={px(HANDLE_PX)} />;
+                return <circle key={wh} className="ie-handle" cx={hx} cy={sy(hy)} r={px(handlePx)} />;
               })}
             </g>
           )}
           {selFree && drag?.kind !== 'free-move' && (
             <g className="ie-handles">
               {[selFree.a, selFree.b].map((q, k) => (
-                <circle key={k} className="ie-handle" cx={q[0]} cy={sy(q[1])} r={px(HANDLE_PX)} />
+                <circle key={k} className="ie-handle" cx={q[0]} cy={sy(q[1])} r={px(handlePx)} />
               ))}
               {(() => {
                 const [mx, my] = freeWallMid(selFree);
-                const h = px(HANDLE_PX * 0.85);
+                const h = px(handlePx * 0.85);
                 return (
                   <rect className="ie-handle ie-bend-handle" x={mx - h} y={sy(my) - h} width={2 * h} height={2 * h} transform={`rotate(45 ${mx} ${sy(my)})`}>
                     <title>Drag to curve the wall</title>
@@ -910,7 +937,15 @@ export function BinInteriorEditor({ binId, grid }: { binId: string; grid: GridLa
         )}
       </div>
       <div className="ie-hint">
-        {sel.tool === 'free' ? (
+        {coarse ? (
+          sel.tool === 'free' ? (
+            <>Drag from point to point to draw a wall · it snaps to corners, wall ends, midpoints and quarter points · drag the middle handle to curve it</>
+          ) : sel.tool === 'wall' ? (
+            <>Tap to add a wall · drag a wall to move it · Flip turns the next wall the other way · tap a size to type it</>
+          ) : (
+            <>Tap a compartment to set its scoop, label and floor · drag walls to move them</>
+          )
+        ) : sel.tool === 'free' ? (
           <>
             Drag from point to point to draw a wall · snaps to corners, wall ends, midpoints and quarter points · <kbd>Shift</kbd> 15° steps ·{' '}
             <kbd>Alt</kbd> no snapping · drag the middle handle to curve it · <kbd>Del</kbd> removes
@@ -947,6 +982,8 @@ function InteriorToolbar({ info, onLayout }: { info: BinInterior & { binId: stri
   const tool = useInterior((s) => s.tool);
   const orient = useInterior((s) => s.orient);
   const set = useInterior((s) => s.set);
+  const coarse = useCoarsePointer();
+  const modes = useTouchModes();
   const n = info.resolved.compartments.length;
   return (
     <div className="ie-toolbar">
@@ -968,6 +1005,17 @@ function InteriorToolbar({ info, onLayout }: { info: BinInterior & { binId: stri
         ]}
         onChange={(o) => set({ orient: o })}
       />}
+      {coarse && tool !== 'select' && (
+        <span className="touch-toggles">
+          <TouchToggle
+            on={modes.flip}
+            label={tool === 'free' ? '15° steps' : 'Flip'}
+            title={tool === 'free' ? 'Keep diagonal walls to 15° steps (Shift)' : 'Turn the next wall the other way (Shift)'}
+            onChange={(flip) => modes.set({ flip })}
+          />
+          <TouchToggle on={modes.free} label="No snap" title="Place walls freely, without snapping (Alt)" onChange={(free) => modes.set({ free })} />
+        </span>
+      )}
       <LayoutActions info={info} onLayout={onLayout} />
       <span className="ie-status">
         {n} compartment{n === 1 ? '' : 's'}

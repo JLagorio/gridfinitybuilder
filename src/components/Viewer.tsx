@@ -6,6 +6,7 @@ import { geometry } from '../worker/client';
 import type { MeshData } from '../lib/geometry/kernel';
 import { useUnits } from '../state/store';
 import { isMod, isTyping, keyLetter } from './shortcuts';
+import { isTouch, tapSlop } from './touch';
 import {
   AXES,
   LIFT_DEFAULT,
@@ -1025,14 +1026,18 @@ function createContext(
     if (points.length) report();
   }
 
+  // A tap (click) picks or measures; a drag orbits. Two fingers (pinch, pan) never count as a tap.
   let down: { x: number; y: number } | null = null;
+  const pressed = new Set<number>();
   const onDown = (e: PointerEvent) => {
-    down = { x: e.clientX, y: e.clientY };
+    pressed.add(e.pointerId);
+    down = pressed.size === 1 ? { x: e.clientX, y: e.clientY } : null;
     hover = null;
     overlayDirty = true;
   };
   const onUp = (e: PointerEvent) => {
-    if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+    pressed.delete(e.pointerId);
+    if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > tapSlop(isTouch(e))) return;
     down = null;
     if (tools.measure) {
       const p = measureHit(e.clientX, e.clientY);
@@ -1062,10 +1067,15 @@ function createContext(
     hover = null;
     overlayDirty = true;
   };
+  const onCancel = (e: PointerEvent) => {
+    pressed.delete(e.pointerId);
+    down = null;
+  };
   renderer.domElement.addEventListener('pointerdown', onDown);
   renderer.domElement.addEventListener('pointerup', onUp);
   renderer.domElement.addEventListener('pointermove', onMove);
   renderer.domElement.addEventListener('pointerleave', onLeave);
+  renderer.domElement.addEventListener('pointercancel', onCancel);
 
   // three.js rebuilds its GPU state when a lost context comes back; say what happened meanwhile.
   const onLost = (e: Event) => {
@@ -1150,6 +1160,7 @@ function createContext(
       renderer.domElement.removeEventListener('pointerup', onUp);
       renderer.domElement.removeEventListener('pointermove', onMove);
       renderer.domElement.removeEventListener('pointerleave', onLeave);
+      renderer.domElement.removeEventListener('pointercancel', onCancel);
       renderer.domElement.removeEventListener('webglcontextlost', onLost);
       renderer.domElement.removeEventListener('webglcontextrestored', onRestored);
       for (const g of geoms.values()) {

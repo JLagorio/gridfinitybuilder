@@ -26,6 +26,7 @@ import { bounds, nearestOnPolygon } from '../lib/trace/polygon';
 import { snapStep } from '../lib/units';
 import { isMod, isTyping } from './shortcuts';
 import { usesToolCompartments } from '../lib/geometry/compartments';
+import { doubleTapper, isTouch, tapSlop, useCoarsePointer } from './touch';
 
 /** dataTransfer type for dragging a library tool into the editor. */
 export const TOOL_DRAG_MIME = 'application/x-gridfit-tool';
@@ -75,7 +76,8 @@ export function CutoutEditor({ job }: { job: PrintJob }) {
 }
 
 type Drag =
-  | { kind: 'move'; i: number; grab: Pt; moved: boolean }
+  /** `press`: where it started on screen, so a finger's tap jitter doesn't move the pocket. */
+  | { kind: 'move'; i: number; grab: Pt; moved: boolean; press: Pt }
   | { kind: 'rotate'; i: number; start: number; rot0: number }
   | { kind: 'label'; i: number; grab: Pt }
   | { kind: 'notch'; i: number; k: number };
@@ -103,6 +105,22 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
   const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
   const [snapOn, setSnapOn] = useState(true);
   const [dropHover, setDropHover] = useState(false);
+  // Touch: bigger handles, and double taps where a mouse double-clicks.
+  const coarse = useCoarsePointer();
+  const [doubleTap] = useState(doubleTapper);
+  const lastTouch = useRef(false);
+  /** This pointerup was a double tap, which made its own change: the drag it ends commits nothing. */
+  const doubleTapped = useRef(false);
+  /** A double-click from a mouse; fingers go through doubleTap (some browsers send both). */
+  const onMouseDouble = (fn: (e: React.MouseEvent) => void) => (e: React.MouseEvent) => {
+    if (!lastTouch.current) fn(e);
+  };
+  /** The same action on the second of two quick taps. */
+  const onDoubleTap = (key: string, fn: (e: RPointerEvent) => void) => (e: RPointerEvent) => {
+    if (!isTouch(e) || !doubleTap.up(e, key)) return;
+    doubleTapped.current = true;
+    fn(e);
+  };
 
   const cells = binSpec(job.layout, bin).cells;
   const { w: W, d: D } = binSize(bin.opts, cells);
@@ -188,18 +206,21 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
 
   const startDrag = (e: RPointerEvent, d: Drag) => {
     e.stopPropagation();
+    // A second finger never starts a second drag.
+    if (!e.isPrimary) return;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     setDrag(d);
     setDraft(saved);
   };
 
   const onPointerMove = (e: RPointerEvent) => {
-    if (!drag || !draft) return;
+    if (!drag || !draft || !e.isPrimary) return;
     const p = mm(e);
     if (!p) return;
     const c = draft[drag.i];
     let next: BinCutout = c;
     if (drag.kind === 'move') {
+      if (!drag.moved && isTouch(e) && Math.hypot(e.clientX - drag.press[0], e.clientY - drag.press[1]) < tapSlop(true)) return;
       let x = p[0] - drag.grab[0];
       let y = p[1] - drag.grab[1];
       if (snapOn && !e.altKey) {
@@ -224,8 +245,11 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
     setDraft(draft.map((q, k) => (k === drag.i ? next : q)));
   };
 
-  const onPointerUp = () => {
-    if (drag && draft && (drag.kind !== 'move' || drag.moved)) commit(draft);
+  const onPointerUp = (e: RPointerEvent) => {
+    if (!e.isPrimary) return;
+    const tapped = doubleTapped.current;
+    doubleTapped.current = false;
+    if (!tapped && drag && draft && (drag.kind !== 'move' || drag.moved)) commit(draft);
     else setDraft(null);
     setDrag(null);
     setGuides({ x: [], y: [] });
@@ -346,7 +370,11 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
         <svg
           ref={svgRef}
           viewBox={`${-W / 2 - pad} ${-D / 2 - pad} ${W + 2 * pad} ${D + 2 * pad}`}
-          onPointerDown={() => setSel(null)}
+          onPointerDownCapture={(e) => {
+            lastTouch.current = isTouch(e);
+            doubleTap.down(e);
+          }}
+          onPointerDown={(e) => e.isPrimary && setSel(null)}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
@@ -371,15 +399,10 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
                       const p = mm(e);
                       if (!p) return;
                       setSel(i);
-                      startDrag(e, { kind: 'move', i, grab: [p[0] - c.x, p[1] - c.y], moved: false });
+                      startDrag(e, { kind: 'move', i, grab: [p[0] - c.x, p[1] - c.y], moved: false, press: [e.clientX, e.clientY] });
                     }}
-                    onDoubleClick={(e) => {
-                      // Double-click the pocket: add a finger notch at the nearest point of the outline.
-                      const p = mm(e);
-                      if (!p) return;
-                      const q = nearestOnPolygon(toTool(c, p), c.outline);
-                      patchSelOr(i, { notches: [...(c.notches ?? []), [r2(q[0]), r2(q[1])]] });
-                    }}
+                    onDoubleClick={onMouseDouble((e) => addNotch(i, c, e))}
+                    onPointerUp={onDoubleTap(`pocket${i}`, (e) => addNotch(i, c, e))}
                   >
                     {notchCenters(c).map(([x, y], k) => (
                       <circle key={k} className="co-notch-area" cx={x} cy={y} r={style.notchDiameter / 2} />
@@ -394,13 +417,14 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
                         className="co-notch-handle"
                         cx={x}
                         cy={y}
-                        r={Math.max(1.4, fs * 0.45)}
+                        r={Math.max(1.4, fs * (coarse ? 0.8 : 0.45))}
                         strokeWidth={ink}
                         onPointerDown={(e) => startDrag(e, { kind: 'notch', i, k })}
-                        onDoubleClick={(e) => {
+                        onDoubleClick={onMouseDouble((e) => {
                           e.stopPropagation();
                           patchSelOr(i, { notches: (c.notches ?? []).filter((_, j) => j !== k) });
-                        }}
+                        })}
+                        onPointerUp={onDoubleTap(`notch${i}:${k}`, () => patchSelOr(i, { notches: (c.notches ?? []).filter((_, j) => j !== k) }))}
                       >
                         <title>Drag along the outline · double-click to remove</title>
                       </circle>
@@ -415,10 +439,11 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
                         const at = labelPlacement(c, style, area);
                         startDrag(e, { kind: 'label', i, grab: [p[0] - at.x, p[1] - at.y] });
                       }}
-                      onDoubleClick={(e) => {
+                      onDoubleClick={onMouseDouble((e) => {
                         e.stopPropagation();
                         patchSelOr(i, { labelOffset: undefined });
-                      }}
+                      })}
+                      onPointerUp={onDoubleTap(`label${i}`, () => patchSelOr(i, { labelOffset: undefined }))}
                     >
                       {labelGlyphs(c)}
                     </g>
@@ -430,7 +455,7 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
                         className="co-rot-handle"
                         cx={rotHandle(c)[0]}
                         cy={rotHandle(c)[1]}
-                        r={Math.max(1.8, fs * 0.6)}
+                        r={Math.max(1.8, fs * (coarse ? 1 : 0.6))}
                         strokeWidth={ink * 1.5}
                         onPointerDown={(e) => {
                           const p = mm(e);
@@ -517,7 +542,9 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
           </div>
         ) : (
           <div className="muted small">
-            Click a pocket to select it · drag to move (Alt: no snapping) · R rotates 15° · arrows nudge · double-click the outline to add a finger notch · Delete removes
+            {coarse
+              ? 'Tap a pocket to select it · drag to move · double-tap the outline to add a finger notch'
+              : 'Click a pocket to select it · drag to move (Alt: no snapping) · R rotates 15° · arrows nudge · double-click the outline to add a finger notch · Delete removes'}
           </div>
         )}
         {(warnings.length > 0 || tooShallow) && (
@@ -538,6 +565,14 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
       </div>
     </div>
   );
+
+  /** Add a finger notch at the outline point nearest to the pointer. */
+  function addNotch(i: number, c: BinCutout, e: { clientX: number; clientY: number }) {
+    const p = mm(e);
+    if (!p) return;
+    const q = nearestOnPolygon(toTool(c, p), c.outline);
+    patchSelOr(i, { notches: [...(c.notches ?? []), [r2(q[0]), r2(q[1])]] });
+  }
 
   function patchSelOr(i: number, patch: Partial<BinCutout>) {
     commit(saved.map((c, k) => (k === i ? { ...c, ...patch } : c)));
