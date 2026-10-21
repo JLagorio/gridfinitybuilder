@@ -47,8 +47,8 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Shift- or ⌘/Ctrl-click bins, or Shift-drag a box (or drag from outside the grid), to select several.
      - Drag a selection, nudge it with the arrow keys, copy and paste it (⌘C / ⌘V pastes at the cell under the pointer), duplicate it (⌘D) or delete it.
      - Drag the handles of a selected bin to resize it.
-     - **Bins always fit your printer.** Drawing, resizing, the size and height fields, stretching, templates and "Make a bin" all stop at what the bed takes (inside the edge margin, either way round) and at the printer's height. A container's own parts (a drawer unit's drawers, a box lid) count too. After switching to a smaller printer, bins that no longer fit turn red, aren't printed, and get a **Shrink to fit** button.
-     - "Fill empty with 1×1" fills the rest of the drawer.
+     - **Bins always fit your printer.** Drawing, resizing, the size and height fields, stretching, templates, "Make a bin" and "Fill from a list" all stop at what the bed takes (inside the edge margin, either way round) and at the printer's height. A container's own parts (a drawer unit's drawers, a box lid) count too. After switching to a smaller printer, bins that no longer fit turn red, aren't printed, and get a **Shrink to fit** button.
+     - "Fill empty with 1×1" fills the rest of the drawer; "Fill from a list…" proposes bins for what you want to store (see below).
      - **Stretch into the gap:** a bin on the edge of the grid can reach over the solid margin to the drawer wall (Auto, or mm per side). Its feet stay on the grid. The stretched part starts just above the baseplate.
    - **Type:** a plain **bin**, or one of these containers, each on the same Gridfinity feet:
      - **Drawer unit:** a small chest of 1–8 pull-out drawers in up to 4 columns, with notch, tab, knob or recessed pulls, drawer stops, compartments and labels on the drawer fronts. The top can be flat, have a stacking lip, or have receptacles for bins.
@@ -137,6 +137,19 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
    - **From What's in it:** `{contents}` (or `{contents:2}`) puts the bin's or compartment's first contents lines on the label.
    - **Front-wall labels** go on the outside of the front wall: raised, two-tone, engraved or inlaid, one per front compartment.
 
+   **Fill from a list.** Type what you want to store, one item per line (`200 M3 screws`, `12 AA batteries`, `SD cards x8`, `hex keys 1.5–10 mm`, `calipers`), and Gridfit proposes bins for it and lays them out in the drawer:
+   - **The list:** counts like `200`, `x8`, `8x`, `8 pcs` or `a dozen`; ranges like `1.5-10 mm` or `1/16–1/2in`; sizes like `M3`, `M3x12`, `AA`, `18650` or `100x60x20mm`. A line Gridfit doesn't know still gets a bin (`misc small parts` gets one with two compartments).
+   - **What each item gets:**
+     - a tool in your tool library with that name: tool cutouts, sized like *Make a bin*
+     - drill bits, hex keys, sockets: a graduated set, cut to the range you typed
+     - batteries, cards, bits, markers, paints, coins: a pocket grid from the presets
+     - coin cells, zip ties, a roll of tape: a dispenser
+     - screws, nuts, washers and other loose parts: a compartment with a scoop, sized from a rough volume per part and the count (filled to 80 %)
+     - calipers, pliers, scissors and other things that lie flat: a bin of their typical size (trace yours for a cutout)
+   - **Group small items** (on by default): small parts that go together share a bin, a compartment each, sized by volume. M3 screws, nuts and washers go in one bin; resistors and LEDs in another.
+   - **Packing:** bins go on free cells, around blocked cells and the bins already there (or in their place, with *Replace the bins in this drawer*), on whole cells and whole units where they can, related bins side by side, biggest first. Every bin fits the printer. With the drawer's inside height set, bins stay low enough, and long things like markers lie flat.
+   - **Review:** the preview shows the layout. Each bin says what it holds and why; change its size or leave it out. What has no room is listed, and can go in a new drawer like this one. **Add bins** puts everything in as one undo step, each bin labelled and with its *What's in it* filled from the list. The list stays with the drawer for next time.
+
    **3D view.** Orbit all the way under the model, or jump to Iso / Top / Front / Side / Under. The tool bar adds:
    - **Section (C):** a cut along X, Y or Z, with the cut faces filled in
    - **Measure (M):** click two points; it snaps to corners and shows ΔX / ΔY / ΔZ
@@ -218,6 +231,7 @@ src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (M
 src/lib/layout/     drawer → grid fit, bed splitting, plate packing
 src/lib/dividers/   bin interior layouts: walls → compartments, edits, snapping (pure TS)
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
+src/lib/autofill/   "Fill from a list": list parser, item matching, bin sizing, grouping, packing (pure TS)
 src/lib/geometry/containers/  drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers; estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters

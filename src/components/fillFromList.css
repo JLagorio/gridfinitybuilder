@@ -1,0 +1,245 @@
+/* ---------- Fill from a list (FillFromList.tsx) ---------- */
+
+.fill-dialog {
+  width: min(1240px, calc(100vw - 32px));
+  height: min(860px, calc(100vh - 32px));
+}
+.fill-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+}
+.fill-side {
+  border-right: 1px solid var(--border);
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.fill-label {
+  font-weight: 600;
+}
+.input-wrap.fill-text {
+  flex: 1;
+  min-height: 180px;
+  align-items: stretch;
+}
+.fill-text textarea {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.55;
+  padding: 8px 10px;
+  outline: none;
+  resize: none;
+}
+.fill-text textarea::placeholder {
+  color: var(--faint);
+}
+.fill-main {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.fill-empty {
+  margin: auto;
+}
+.fill-preview {
+  background: #0b0d10;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+.fill-preview svg {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+}
+.fill-cell {
+  fill: #20252e;
+  stroke: #2d3440;
+  stroke-width: 0.5;
+}
+.fill-existing {
+  fill: #2c323d;
+  stroke: #4a5363;
+  stroke-width: 0.8;
+}
+.fill-bin rect {
+  fill: rgba(245, 165, 36, 0.2);
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+.fill-bin.warn rect {
+  stroke-dasharray: 3 2;
+}
+.fill-bin.hot rect {
+  fill: rgba(245, 165, 36, 0.42);
+  stroke-width: 1.8;
+}
+.fill-bin text {
+  fill: var(--text);
+  font-weight: 700;
+  pointer-events: none;
+}
+.fill-bin text.fill-bin-label {
+  fill: var(--accent);
+  font-weight: 500;
+}
+.fill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fill-list.stale {
+  opacity: 0.6;
+}
+.fill-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 7px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.fill-row.hot {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+.fill-row.skipped .fill-what,
+.fill-row.skipped .fill-size {
+  opacity: 0.45;
+}
+.fill-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.fill-row.out .fill-num,
+.fill-row.skipped .fill-num {
+  background: var(--panel-3);
+  color: var(--faint);
+}
+.fill-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.fill-holds {
+  color: var(--ok);
+}
+.fill-warn {
+  color: #ffb3b7;
+}
+.fill-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.fill-size {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.fill-step {
+  display: inline-flex;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+.fill-step > span {
+  min-width: 26px;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fill-step button {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.fill-step button:hover:not(:disabled) {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.fill-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.fill-left {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fill-left p {
+  margin: 0;
+}
+.fill-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.fill-foot > span {
+  margin-right: auto;
+}
+@media (max-width: 860px) {
+  .fill-body {
+    grid-template-columns: 1fr;
+    align-content: start;
+    overflow-y: auto;
+  }
+  .fill-side {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    min-height: auto;
+    overflow: visible;
+  }
+  .fill-main {
+    min-height: auto;
+    overflow: visible;
+  }
+  .fill-row {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+  .fill-controls {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+}

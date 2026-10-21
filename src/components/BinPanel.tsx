@@ -26,6 +26,7 @@ import { Select } from './fields';
 import { bedOvershoot, bedProblem, fitStretch, maxUnitsAlong, placedOvershoot, shrinkToBed, usableBed, type Bed } from '../lib/bedfit';
 import { findPrinter } from '../lib/printers';
 import { sanitizeBin } from '../lib/geometry/bin';
+import { FillFromListButton } from './FillFromList';
 
 function BinFields({
   opts,
@@ -461,6 +462,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <button onClick={() => fillEmpty()} disabled={!nx || !ny}>
             Fill empty with 1×1
           </button>
+          <FillFromListButton layout={job.layout} />
           <button className="danger" onClick={() => confirm('Remove all bins?') && clearBins()} disabled={!bins.length}>
             Clear all
           </button>
