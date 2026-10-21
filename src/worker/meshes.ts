@@ -8,6 +8,7 @@ import type { MeshPrintStats } from '../lib/estimate';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 import { FONT_URL_PATH, registerFont } from '../lib/geometry/text';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
+import { putImported } from '../lib/imported/registry';
 
 /**
  * The geometry worker's work: builds meshes with Manifold and answers the
@@ -39,7 +40,7 @@ function fontReady() {
 }
 
 /** Baseplate pieces (without case walls) and connector keys never have text: they don't wait for the font. */
-const textFree = (spec: MeshSpec) => (spec.kind === 'piece' && !spec.enclosure) || spec.kind === 'key';
+const textFree = (spec: MeshSpec) => (spec.kind === 'piece' && !spec.enclosure) || spec.kind === 'key' || spec.kind === 'imported';
 
 /** The file writers (3MF, Bambu, STL, STEP, zips) and the slicer, loaded on the first request that needs them. */
 let writers: Promise<typeof import('./writers')> | null = null;
@@ -123,6 +124,9 @@ function post(msg: WorkerResponse, transfer: Transferable[] = []) {
 async function handle(req: WorkerRequest) {
   try {
     switch (req.type) {
+      case 'put-mesh':
+        putImported(req.hash, req.mesh);
+        break;
       case 'mesh': {
         const m = await meshFor(req.spec);
         // Copy so the cached arrays stay usable in this worker.

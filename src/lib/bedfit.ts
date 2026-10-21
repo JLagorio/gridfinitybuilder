@@ -22,6 +22,7 @@ import { hasLid, lidSize } from './geometry/lid';
 import { binCellsAt, type PlacedBin } from './project';
 import type { BinStretch } from './geometry/placement';
 import { jobPrinters, printerNames } from './layout/fleet';
+import { meshSize, printsMesh } from './external';
 
 /** What the printer can take: footprint (either way round) and height, mm. */
 export interface Bed {
@@ -92,7 +93,19 @@ export function bedOvershoot(opts: BinOptions, cells: Partial<BinCells> | null |
 }
 
 export function placedOvershoot(layout: GridLayout, b: PlacedBin, bed: Beds): number {
+  if (b.external) return externalOvershoot(b, bed);
   return bedOvershoot(b.opts, binCellsAt(layout, b), bed);
+}
+
+/**
+ * Bins from elsewhere (external.ts): only an imported mesh that prints has to
+ * fit the printer, as it is (its cells don't change it); placeholders and
+ * bins you already have never print.
+ */
+export function externalOvershoot(b: Pick<PlacedBin, 'external'>, bed: Beds): number {
+  if (!printsMesh(b)) return 0;
+  const s = meshSize(b.external!.mesh!);
+  return partOvershoot(s.w, s.d, s.h, bed);
 }
 
 /** Footprint and height overshoot of the bin's worst parts, separately. */
@@ -140,7 +153,8 @@ function bedsProblem(parts: PartSize[], beds: readonly Bed[], fmt: (mm: number) 
 }
 
 /** Does a bin with these options fit the bed with this footprint (cells) on the grid? */
-export function rectFitsBed(layout: GridLayout, b: Pick<PlacedBin, 'opts'> & { stretch?: Partial<BinStretch> }, r: CellRect, bed: Beds): boolean {
+export function rectFitsBed(layout: GridLayout, b: Pick<PlacedBin, 'opts' | 'external'> & { stretch?: Partial<BinStretch> }, r: CellRect, bed: Beds): boolean {
+  if (b.external) return externalOvershoot(b, bed) <= EPS;
   const probe: PlacedBin = { id: '#probe', x: r.x, y: r.y, opts: { ...b.opts, unitsX: r.w, unitsY: r.d }, ...(b.stretch ? { stretch: b.stretch } : {}) };
   return placedOvershoot(layout, probe, bed) <= EPS;
 }
@@ -163,6 +177,8 @@ export function maxUnitsAlong(layout: GridLayout, b: PlacedBin, axis: 'x' | 'y',
  * With several beds, made to fit the one that leaves it biggest.
  */
 export function shrinkToBed(layout: GridLayout, b: PlacedBin, beds: Beds): PlacedBin {
+  // An imported mesh is what it is; placeholders never print.
+  if (b.external) return b;
   const list = bedList(beds);
   if (list.length > 1) {
     if (placedOvershoot(layout, b, list) <= EPS) return b;

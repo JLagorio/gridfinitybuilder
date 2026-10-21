@@ -64,6 +64,7 @@ import { computeLayout, spacerMargins, type DrawerInput, type GridLayout } from 
 import { DEFAULT_NOZZLE, type PrintSetup } from './layout/plan';
 import { findPrinter } from './printers';
 import { binSpec, type NamedDrawer, type PlacedBin, type ProjectState } from './project';
+import { meshSize, printsMesh } from './external';
 
 export type CheckSeverity = 'warn' | 'info';
 
@@ -90,7 +91,8 @@ export type CheckRule =
   | 'ridge-trim'
   | 'joint-fit'
   | 'nozzle-walls'
-  | 'bambu-nozzle';
+  | 'bambu-nozzle'
+  | 'mesh-open';
 
 /** A one-click change that fixes a check: options of the bin it is about, its drawer's baseplate, or the drawer. */
 export interface CheckFix {
@@ -631,8 +633,42 @@ export function binChecks(opts: BinOptions, cellsIn?: Partial<BinCells> | null, 
 
 /** Checks for a bin where it is placed (its cells, stretch and `{contents}` labels). */
 export function placedBinChecks(layout: GridLayout, b: PlacedBin, o?: CheckOptions): PrintCheck[] {
+  if (b.external) return externalChecks(b, o);
   const spec = binSpec(layout, b);
   return binChecks(spec.opts, spec.cells, o);
+}
+
+/**
+ * Bins from elsewhere (external.ts): only an imported mesh that prints has
+ * anything to check. Gridfit didn't make it, so all it can tell is whether
+ * it's a closed solid and whether it stands steady.
+ */
+function externalChecks(b: PlacedBin, o?: CheckOptions): PrintCheck[] {
+  if (!printsMesh(b)) return [];
+  const x = context(o);
+  const m = b.external!.mesh!;
+  const out: PrintCheck[] = [];
+  if (!m.closed) {
+    out.push({
+      rule: 'mesh-open',
+      severity: 'warn',
+      part: 'Imported mesh',
+      message: 'It isn’t a closed solid (it has holes or flipped faces). It still exports as it is, but the slicer may fill or drop parts of it: let the slicer repair it.',
+    });
+  }
+  const s = meshSize(m);
+  const foot = Math.min(s.w, s.d);
+  const k = s.h / Math.max(1, foot);
+  if (k > CHECK.tip) {
+    const fall = k > CHECK.fall;
+    out.push({
+      rule: 'tip-over',
+      severity: fall ? 'warn' : 'info',
+      part: 'Imported mesh',
+      message: `It's ${x.fmt(Math.round(s.h))} tall on a base ${x.fmt(Math.round(foot))} wide, so it ${fall ? 'will likely tip over' : 'may wobble'} while printing. Add a brim in the slicer.`,
+    });
+  }
+  return sortChecks(out);
 }
 
 // ---------------------------------------------------------------------------

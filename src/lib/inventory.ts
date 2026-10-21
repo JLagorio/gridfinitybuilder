@@ -24,6 +24,7 @@ import { cellEdge, computeLayout } from './layout/drawer';
 import { formatLength, type InchPrecision, type Units } from './units';
 import { binCellsAt, type NamedDrawer, type PlacedBin } from './project';
 import { stacksOf } from './stacking';
+import { externalKind, externalLabel } from './external';
 
 // ---------------------------------------------------------------------------
 // Contents
@@ -277,7 +278,7 @@ export function binEntry(d: Pick<NamedDrawer, 'id' | 'name'>, b: PlacedBin, cell
     drawerName: d.name,
     bin: b,
     size: `${o.unitsX}×${o.unitsY}`,
-    desc: binLabel(o),
+    desc: b.external ? externalLabel(b, !!cells?.half) : binLabel(o),
     pos: level ? `${cellName(b.x, b.y)} · level ${level + 1}` : cellName(b.x, b.y),
     level,
     label: oneLine(labelCaptionText(b)),
@@ -890,7 +891,9 @@ export function drawerMap(d: NamedDrawer, o: MapOptions = {}): DrawerMap {
     const x0 = cellEdge(L.xs, b.x, L.pitchX) + inset;
     const y0 = cellEdge(L.ys, b.y, L.pitchY) + inset;
     const g: string[] = [];
-    g.push(box(X(x0) + 0.3, Y(y0 + bd) + 0.3, bw - 0.6, bd - 0.6, `rx="3.4" fill="#e9ecf0" stroke="${INK}" stroke-width="0.45"`));
+    // Bins from elsewhere (external.ts): dashed, so the map says which ones Gridfit doesn't print.
+    const look = b.external ? `fill="#f6f4ef" stroke="${INK}" stroke-width="0.45" stroke-dasharray="2.2 1.1"` : `fill="#e9ecf0" stroke="${INK}" stroke-width="0.45"`;
+    g.push(box(X(x0) + 0.3, Y(y0 + bd) + 0.3, bw - 0.6, bd - 0.6, `rx="3.4" ${look}`));
     const cx = x0 + WALL;
     const cy = y0 + WALL;
     const blocks: { lines: TextLine[]; r: Rect }[] = [];
@@ -898,6 +901,7 @@ export function drawerMap(d: NamedDrawer, o: MapOptions = {}): DrawerMap {
       ...(e.label ? [{ text: e.label, bold: true, scale: 1.15 }] : []),
       ...e.contents.map((text) => ({ text })),
       ...e.tools.filter((t) => !e.contents.includes(t)).map((text) => ({ text, dim: !!e.contents.length })),
+      ...(b.external ? [{ text: externalKind(b), dim: true }] : []),
     ];
     if (e.comps.length) {
       const r = binLayout(b.opts, cellsAt);

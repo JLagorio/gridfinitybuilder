@@ -20,6 +20,7 @@ import { cleanEnclosure } from '../lib/enclosureOptions';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
+import { cleanExternal, cleanExternalOpts, patchExternalOpts } from '../lib/external';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -126,7 +127,10 @@ export interface Store extends ProjectState {
   /** Go to a bin found by search: switch to its drawer, open the Bins tab and select it (just the drawer without a bin). */
   locateBin(drawerId: string, binId?: string | null): void;
   resetAll(): void;
-  /** Replace the project with one loaded from a saved file. */
+  /**
+   * Replace the project with one loaded from a saved file. A version 3 file's
+   * `meshes` (imported bins) go in first, through imported/meshStore.ts adoptMeshes.
+   */
   loadProject(data: unknown): void;
   /**
    * Put a divider layout (walls, diagonal walls, per-compartment options) into
@@ -207,19 +211,22 @@ function withStretch(b: PlacedBin, stretch: unknown): PlacedBin {
 function cleanBins(bins: unknown): PlacedBin[] {
   if (!Array.isArray(bins)) return [];
   // Stacked bins keep the bin they stand on, and its footprint (stacking.ts).
-  return cleanStacks(bins.map((b) =>
-    withStretch(
+  return cleanStacks(bins.map((b) => {
+    // Bins from elsewhere (external.ts): footprint and height only, never stretched.
+    const external = cleanExternal(b?.external);
+    return withStretch(
       {
         id: String(b?.id ?? newId()),
         x: Math.round(Number(b?.x) || 0),
         y: Math.round(Number(b?.y) || 0),
-        opts: sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
+        opts: external ? cleanExternalOpts(b?.opts, external) : sanitizeBin({ ...DEFAULT_BIN, ...b?.opts }),
         ...cleanBinContents(b),
         ...(typeof b?.on === 'string' ? { on: b.on } : {}),
+        ...(external ? { external } : {}),
       },
-      b?.stretch,
-    ),
-  ));
+      external ? undefined : b?.stretch,
+    );
+  }));
 }
 
 /** Patches that can change a bin's compartments (and so where per-compartment contents belong). */
@@ -356,9 +363,10 @@ export const useStore = create<Store>()(
               ...b,
               x: patch.x ?? b.x,
               y: patch.y ?? b.y,
-              opts: patch.opts ? sanitizeBin({ ...b.opts, ...patch.opts }) : b.opts,
+              // A bin from elsewhere only takes its footprint, height and stackable (external.ts).
+              opts: patch.opts ? (b.external ? patchExternalOpts(b, patch.opts) : sanitizeBin({ ...b.opts, ...patch.opts })) : b.opts,
             };
-            const stretched = patch.stretch !== undefined ? withStretch(next, patch.stretch) : next;
+            const stretched = patch.stretch !== undefined && !b.external ? withStretch(next, patch.stretch) : next;
             // Per-compartment contents follow their compartments when the walls change.
             const walls = b.compContents && patch.opts && WALL_KEYS.some((k) => k in patch.opts!);
             const out = walls ? carryContents({ ...stretched, opts: b.opts }, stretched.opts) : stretched;
@@ -391,7 +399,7 @@ export const useStore = create<Store>()(
             const r = { x: i, y: j, w: src.opts.unitsX, d: src.opts.unitsY };
             if (canPlace(withBlocked(s.bins, mask), r, nx, ny)) {
               const nid = newId();
-              set({ bins: [...s.bins, { id: nid, x: i, y: j, opts: { ...src.opts } }], ui: { ...s.ui, selectedBinId: nid } });
+              set({ bins: [...s.bins, { id: nid, x: i, y: j, opts: { ...src.opts }, ...(src.external ? { external: structuredClone(src.external) } : {}) }], ui: { ...s.ui, selectedBinId: nid } });
               return nid;
             }
           }
@@ -701,11 +709,16 @@ export const useStore = create<Store>()(
   ),
 );
 
-/** Contents of a saved .gridfit.json file. */
+/**
+ * Contents of a saved .gridfit.json file. Version 3: bins may be from
+ * elsewhere (`external`, external.ts), and a saved file adds the bytes of their
+ * meshes as `meshes` (imported/meshStore.ts projectWithMeshes); 1 and 2 load as
+ * before.
+ */
 export function projectFile(s: Store) {
   return {
     app: 'gridfit',
-    version: 2,
+    version: 3,
     ...projectOf(s),
     newBin: s.newBin,
     drawers: allDrawers(s),

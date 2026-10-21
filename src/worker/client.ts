@@ -4,6 +4,7 @@ import type { PrintSetup } from '../lib/layout/plan';
 import type { StepAssembly } from '../lib/export/step';
 import type { MeshPrintStats } from '../lib/estimate';
 import type { WorkerRequest, WorkerResponse } from './protocol';
+import { importedMesh } from '../lib/imported/registry';
 
 type Pending = {
   resolve: (r: WorkerResponse) => void;
@@ -63,7 +64,27 @@ class GeometryClient {
     };
   }
 
+  /** Imported meshes the worker has (imported/registry.ts), by hash. */
+  private sent = new Set<string>();
+
+  /** Send the worker the imported meshes a request needs and it doesn't have yet (the page has them in memory). */
+  private sendImported(body: Body) {
+    const specs: (MeshSpec | undefined)[] = [];
+    if ('spec' in body) specs.push(body.spec);
+    if ('specs' in body) specs.push(...body.specs);
+    if ('job' in body) specs.push(...Object.values(body.job.meshes));
+    if ('meshes' in body) specs.push(...Object.values(body.meshes));
+    for (const s of specs) {
+      if (s?.kind !== 'imported' || this.sent.has(s.hash)) continue;
+      const m = importedMesh(s.hash);
+      if (!m) continue;
+      this.sent.add(s.hash);
+      this.worker.postMessage({ id: 0, type: 'put-mesh', hash: s.hash, mesh: { positions: m.positions, indices: m.indices } } satisfies WorkerRequest);
+    }
+  }
+
   private call(body: Body, onProgress?: Pending['onProgress']): Promise<WorkerResponse> {
+    this.sendImported(body);
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onProgress });
