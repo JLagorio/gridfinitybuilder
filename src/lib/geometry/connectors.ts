@@ -327,13 +327,20 @@ function offsetConvex(pts: Vec2[], d: number): Vec2[] {
 const toPlate = (site: Pick<ConnectorSite, 'x' | 'y' | 'axis'>, u: number, v: number, z: number): Vec3 =>
   site.axis === 'x' ? [site.x + u, site.y + v, z] : [site.x + v, site.y + u, z];
 
-/** Hull of convex outlines (seam coordinates) lofted through the layers, one hull per outline. */
+/**
+ * Convex outlines (seam coordinates) lofted through the layers: one hull per
+ * outline and pair of neighbouring layers. A single hull of all the layers
+ * would fill in a profile that narrows and then runs straight (a pocket's
+ * mouth flare), tapering the whole pocket.
+ */
 function loftConvex(w: Wasm, s: Scope, site: Pick<ConnectorSite, 'x' | 'y' | 'axis'>, outlines: Vec2[][], layers: Layer[]): Manifold {
-  const parts = outlines.map((outline) => {
-    const pts: Vec3[] = [];
-    for (const l of layers) for (const [u, v] of offsetConvex(outline, l.offset)) pts.push(toPlate(site, u, v, l.z));
-    return s.t(w.Manifold.hull(pts));
-  });
+  const parts = outlines.flatMap((outline) =>
+    layers.slice(1).map((top, i) => {
+      const pts: Vec3[] = [];
+      for (const l of [layers[i], top]) for (const [u, v] of offsetConvex(outline, l.offset)) pts.push(toPlate(site, u, v, l.z));
+      return s.t(w.Manifold.hull(pts));
+    }),
+  );
   return parts.length === 1 ? parts[0] : s.t(w.Manifold.union(parts));
 }
 

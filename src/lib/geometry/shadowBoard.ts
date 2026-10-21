@@ -14,7 +14,7 @@ import { assertValid, toMeshData, type Manifold, type MeshData, type Scope, type
 import { INNER_RADIUS, WALL } from './spec';
 import { boxAt, extrudePolygon, roundedRectRing } from './shapes';
 import type { BinOptions } from './bin';
-import { cutoutFloor, cutoutStyle, placedOutline, pocketFloorZ } from './cutouts';
+import { cutoutFloor, cutoutStyle, notchCutters, placedOutline, pocketFloorZ } from './cutouts';
 import { SHADOW, wantsShadow } from './insertOptions';
 import { compartmentInside } from './compartments';
 import { resolveLayout } from '../dividers';
@@ -26,7 +26,7 @@ export function shadowFloors(w: Wasm, s: Scope, o: BinOptions, W: number, D: num
   if (!wantsShadow(o)) return null;
   const st = cutoutStyle(o);
   const floor = cutoutFloor(o);
-  const pockets: { area: Manifold; zb: number; box: [number, number, number, number] }[] = [];
+  const pockets: { area: Manifold; zb: number; box: [number, number, number, number]; notches: Manifold[] }[] = [];
   for (const c of o.cutouts ?? []) {
     if (c.outline.length < 3) continue;
     const tool = s.t(new w.CrossSection([placedOutline(c)], 'NonZero'));
@@ -35,20 +35,21 @@ export function shadowFloors(w: Wasm, s: Scope, o: BinOptions, W: number, D: num
     const zb = pocketFloorZ(top, c, st, floor);
     if (zb >= top - 0.05) continue;
     const b = area.bounds();
-    pockets.push({ area: s.t(area.extrude(SHADOW.depth).translate([0, 0, zb - SHADOW.depth])), zb, box: [b.min[0], b.min[1], b.max[0], b.max[1]] });
+    const notches = notchCutters(w, s, c, st, zb, top + 2);
+    pockets.push({ area: s.t(area.extrude(SHADOW.depth).translate([0, 0, zb - SHADOW.depth])), zb, box: [b.min[0], b.min[1], b.max[0], b.max[1]], notches });
   }
   if (!pockets.length) return null;
-  // Where pockets overlap, a floor must not float in a deeper pocket's opening.
+  // Where pockets overlap, a floor must not float in a deeper pocket's opening, nor over a deeper pocket's finger notch.
   const fills = pockets.map((p, i) => {
-    const deeper = pockets.filter(
-      (q, j) => j !== i && q.zb < p.zb - 1e-6 && q.box[0] < p.box[2] && p.box[0] < q.box[2] && q.box[1] < p.box[3] && p.box[1] < q.box[3],
-    );
-    if (!deeper.length) return p.area;
-    const voids = deeper.map((q) => {
-      const cs = s.t(q.area.slice(q.zb - SHADOW.depth / 2));
-      return s.t(s.t(cs.extrude(top + 2 - q.zb)).translate([0, 0, q.zb]));
-    });
-    return s.t(p.area.subtract(s.t(w.Manifold.union(voids))));
+    const deeper = pockets.filter((q, j) => j !== i && q.zb < p.zb - 1e-6);
+    const voids = deeper
+      .filter((q) => q.box[0] < p.box[2] && p.box[0] < q.box[2] && q.box[1] < p.box[3] && p.box[1] < q.box[3])
+      .map((q) => {
+        const cs = s.t(q.area.slice(q.zb - SHADOW.depth / 2));
+        return s.t(s.t(cs.extrude(top + 2 - q.zb)).translate([0, 0, q.zb]));
+      });
+    voids.push(...deeper.flatMap((q) => q.notches));
+    return voids.length ? s.t(p.area.subtract(s.t(w.Manifold.union(voids)))) : p.area;
   });
   let m = s.t(w.Manifold.union(fills));
   // Inside the walls, as cutoutCutters clips the pockets.

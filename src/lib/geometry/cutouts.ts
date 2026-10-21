@@ -300,6 +300,17 @@ export function maxPocketDepth(top: number, floor = POCKET_MIN_FLOOR_Z): number 
   return Math.max(0, top - floor);
 }
 
+/** A pocket's finger notches: round-bottomed holes from its floor `zb` up to `above`. */
+export function notchCutters(w: Wasm, s: Scope, c: BinCutout, st: CutoutStyle, zb: number, above: number): Manifold[] {
+  const r = st.notchDiameter / 2;
+  return notchCenters(c).map(([nx, ny]) => {
+    const zc = zb + r;
+    const ball = s.t(w.Manifold.sphere(r, ROUND_SEGS).translate([nx, ny, zc]));
+    const shaft = s.t(w.Manifold.cylinder(Math.max(above - zc, 0.5), r, r, ROUND_SEGS).translate([nx, ny, Math.min(zc, above - 0.5)]));
+    return s.t(w.Manifold.hull([ball, shaft]));
+  });
+}
+
 /**
  * What to subtract from the bin's solid fill (top at `top`): every pocket,
  * edge step, notch and label, clipped to the inside of the walls (the walls
@@ -337,13 +348,7 @@ export function cutoutCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: nu
     }
 
     // Finger notches: round-bottomed holes, as deep as the pocket.
-    const r = st.notchDiameter / 2;
-    for (const [nx, ny] of notchCenters(c)) {
-      const zc = zb + r;
-      const ball = s.t(w.Manifold.sphere(r, ROUND_SEGS).translate([nx, ny, zc]));
-      const shaft = s.t(w.Manifold.cylinder(Math.max(above - zc, 0.5), r, r, ROUND_SEGS).translate([nx, ny, Math.min(zc, above - 0.5)]));
-      out.push(s.t(w.Manifold.hull([ball, shaft])));
-    }
+    out.push(...notchCutters(w, s, c, st, zb, above));
 
     // Name, engraved into the top surface.
     if (c.label && c.name.trim() && hasFont()) {
