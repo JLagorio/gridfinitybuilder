@@ -196,7 +196,7 @@ export interface ThinRegion {
   /** Center of the region's footprint, and its size. */
   at: [number, number];
   size: [number, number];
-  /** Rough width (2 × area / perimeter), mm. */
+  /** About how thick it is (the thinnest layer's), mm. */
   width: number;
 }
 
@@ -238,7 +238,7 @@ export function sliceReport(w: Wasm, mesh: Pick<MeshData, 'positions' | 'indices
     // A hair under half the width, so a wall of exactly minWidth passes.
     const r = o.minWidth / 2 - 0.01;
     // Thin pieces per layer, linked up the part into regions.
-    type Open = { z0: number; z1: number; x0: number; y0: number; x1: number; y1: number; width: number; n: number; seen: number };
+    type Open = { z0: number; z1: number; x0: number; y0: number; x1: number; y1: number; width: number; seen: number };
     const open: Open[] = [];
     const done: Open[] = [];
     heights.forEach((z, k) => {
@@ -271,7 +271,7 @@ export function sliceReport(w: Wasm, mesh: Pick<MeshData, 'positions' | 'indices
         const a = piece.area();
         if (a < o.minThinArea) continue;
         const b = piece.bounds();
-        const width = (2 * a) / Math.max(1e-6, perimeter(piece));
+        const width = thinWidth(w, keep, s, piece, r);
         const hit = open.find((q) => q.seen === k - 1 && q.x0 <= b.max[0] && b.min[0] <= q.x1 && q.y0 <= b.max[1] && b.min[1] <= q.y1);
         if (hit) {
           hit.z1 = z;
@@ -280,9 +280,8 @@ export function sliceReport(w: Wasm, mesh: Pick<MeshData, 'positions' | 'indices
           hit.y0 = Math.min(hit.y0, b.min[1]);
           hit.x1 = Math.max(hit.x1, b.max[0]);
           hit.y1 = Math.max(hit.y1, b.max[1]);
-          hit.width += width;
-          hit.n++;
-        } else open.push({ z0: z, z1: z, x0: b.min[0], y0: b.min[1], x1: b.max[0], y1: b.max[1], width, n: 1, seen: k });
+          hit.width = Math.min(hit.width, width);
+        } else open.push({ z0: z, z1: z, x0: b.min[0], y0: b.min[1], x1: b.max[0], y1: b.max[1], width, seen: k });
       }
       for (let i = open.length - 1; i >= 0; i--) if (open[i].seen < k) done.push(...open.splice(i, 1));
     });
@@ -294,7 +293,7 @@ export function sliceReport(w: Wasm, mesh: Pick<MeshData, 'positions' | 'indices
         z1: r3(q.z1),
         at: [r3((q.x0 + q.x1) / 2), r3((q.y0 + q.y1) / 2)] as [number, number],
         size: [r3(q.x1 - q.x0), r3(q.y1 - q.y0)] as [number, number],
-        width: r3(q.width / q.n),
+        width: r3(q.width),
       }));
     return { layers: heights.length, contact: r3(contact), contactPatches, islands, overhangs, thin };
   } finally {
@@ -488,6 +487,26 @@ function overlapVolume(w: Wasm, body: MeshData, others: Pick<MeshData, 'position
   }
   a.delete();
   return v;
+}
+
+/**
+ * How thick the slice is where `piece` was opened away: twice the largest
+ * erosion (below `r`) that still keeps half of it, found on the slice around it.
+ */
+function thinWidth(w: Wasm, keep: <T extends { delete(): void }>(x: T) => T, s: CrossSection, piece: CrossSection, r: number): number {
+  const b = piece.bounds();
+  const pad = 2 * r + 1;
+  const near = keep(s.intersect(keep(w.CrossSection.square([b.max[0] - b.min[0] + 2 * pad, b.max[1] - b.min[1] + 2 * pad]).translate([b.min[0] - pad, b.min[1] - pad]))));
+  const area = piece.area();
+  let lo = 0;
+  let hi = r;
+  for (let i = 0; i < 7; i++) {
+    const t = (lo + hi) / 2;
+    const opened = keep(keep(near.offset(-t, 'Round')).offset(t + 0.01, 'Round'));
+    if (keep(piece.intersect(opened)).area() > area / 2) lo = t;
+    else hi = t;
+  }
+  return 2 * lo;
 }
 
 function perimeter(cs: CrossSection): number {
