@@ -76,7 +76,13 @@ describe('reading the list', () => {
     expect(item('CR2032 (10)').qty).toBe(10);
     expect(item('bolts qty 30').qty).toBe(30);
     expect(item('two screwdrivers').qty).toBe(2);
+    expect(item('a soldering iron').qty).toBe(1);
+    expect(item('a box of screws').qty).toBeNull();
     expect(item('screws 50').qty).toBe(50);
+    // After a battery size or a length, "x4" is still a count; between two numbers it's a size.
+    expect(item('18650 x4')).toMatchObject({ qty: 4, cell: '18650' });
+    expect(item('LEDs 5mm x100')).toMatchObject({ qty: 100, length: 5 });
+    expect(item('M3 x 12 bolts')).toMatchObject({ qty: null, threadLength: 12 });
     expect(item('calipers').qty).toBeNull();
     // The quantity isn't part of the name.
     expect(item('200 M3 screws').name).toBe('M3 screws');
@@ -184,7 +190,7 @@ describe('what each item needs', () => {
     expect(kind('electrical tape')).toMatchObject({ kind: 'dispenser', style: 'tape', item: 'electrical' });
     // Not a tape measure, and not several rolls.
     expect(kind('tape measure').kind).toBe('objects');
-    expect(kind('5 rolls of washi tape').kind).not.toBe('dispenser');
+    expect(kind('5 rolls of washi tape')).toMatchObject({ kind: 'objects', count: 5, l: 35, h: 15 });
   });
 
   it('estimates loose parts by volume', () => {
@@ -435,6 +441,11 @@ describe('packing the drawer', () => {
     const plan = planFill('12 AA batteries', c, { sizes: { [key]: { ux: 1, uy: 1, h: 5 } } });
     expect(plan.placed[0].size).toEqual({ ux: 1, uy: 1, h: 5 });
     expect(plan.placed[0].warnings.join(' ')).toMatch(/Too small for everything/);
+    // Never bigger than the printer takes.
+    const wide = planFill('12 AA batteries', c, { sizes: { [key]: { ux: 7, uy: 1, h: 5 } } });
+    expect(wide.placed[0].size).toEqual({ ux: 5, uy: 1, h: 5 });
+    expect(wide.placed[0].fill.printable).toBe(true);
+    expect(propose('batteries x4', plan.ctx, []).proposals[0].reason).toBe('Pocket grid for 4 batteries (AA battery size).');
     const skipped = planFill('12 AA batteries\ncalipers', c, { skip: ['calipers'] });
     expect(skipped.placed.map((b) => b.proposal.title)).toEqual(['AA batteries']);
     expect(skipped.skipped.map((p) => p.title)).toEqual(['calipers']);

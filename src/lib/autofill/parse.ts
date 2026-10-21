@@ -141,8 +141,15 @@ export function parseLine(raw: string): ListItem | null {
   take(/\s(?:qty|quantity)\.?\s*:?\s*(\d+)(?=\s)/i, (m) => Number(m[1]));
   take(/\s\((\d+)\)(?=\s)/, (m) => Number(m[1]));
   take(/\s(\d+)\s*(?:pcs|pc|pieces|piece|ea|each|count|ct)\.?(?=\s)/i, (m) => Number(m[1]));
-  // "x8" after a word, not between two numbers ("100 x 60", "M3 x 12"); "8x" or "8 x" before a word.
-  take(/\sx\s?(\d+)(?=\s)/i, (m) => (/\d[a-z"]*\s*$/i.test(s.slice(0, m.index)) ? null : Number(m[1])));
+  // "x8" after a word, or glued to its count after a battery or a length ("18650 x4", "5mm x100");
+  // not between two numbers ("100 x 60", "M3 x 12").
+  take(/\sx(\s?)(\d+)(?=\s)/i, (m) => {
+    const before = s.slice(0, m.index);
+    if (!/\d[a-z"]*\s*$/i.test(before)) return Number(m[2]);
+    const prev = /(\S+)\s*$/.exec(before)?.[1] ?? '';
+    return !m[1] && (CELL_NUMBERS.has(prev) || /\d(mm|cm|in|")$/i.test(prev)) ? Number(m[2]) : null;
+  });
+  // "8x" or "8 x" before a word.
   take(/\s(\d+)\s?x\s(?=[a-z])/i, (m) => Number(m[1]));
 
   // Sizes, read from the rest of the line (they stay in the name).
@@ -174,8 +181,9 @@ export function parseLine(raw: string): ListItem | null {
 
   // A number up front is how many ("200 M3 screws"), unless it's a battery size ("18650 cells").
   take(/^\s(\d+)(?=\s)(?!\s*(?:x\s*\d|-\s*\d|to\s+\d|mm|cm|in\b|inch|"))/i, (m) => (CELL_NUMBERS.has(m[1]) && !/^\s\d+\s+\d/.test(s) ? null : Number(m[1])));
+  // "a calipers" is one; "a box of screws" says nothing about how many.
   take(/^\s(an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred)(?=\s)/i, (m) =>
-    /^an?$/i.test(m[1]) ? 1 : NUMBER_WORDS[m[1].toLowerCase()],
+    /^an?$/i.test(m[1]) ? (/^\s\S+\s+(box|bag|bunch|handful|lot|pile|pack|tub|tube|jar|tin|bucket|load)/i.test(s) ? null : 1) : NUMBER_WORDS[m[1].toLowerCase()],
   );
   // Or a plain number at the end ("screws 50"), when it isn't part of a size.
   if (!out.range && !out.length && !out.dims) take(/\s(\d+)\s$/, (m) => (CELL_NUMBERS.has(m[1]) ? null : Number(m[1])));

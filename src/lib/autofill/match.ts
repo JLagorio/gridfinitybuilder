@@ -6,6 +6,7 @@
  */
 import { findPocketPreset, type PocketPreset } from '../geometry/pocketPresets';
 import { MM_PER_IN } from '../units';
+import { findTapeRoll } from '../geometry/containers/dispenser';
 import type { Tool } from '../tools';
 import { MAX_SCREW_POCKETS, SCREW_POCKETS, knownObject, looseKind, pocketRule, screwLength, type LooseKind } from './catalog';
 import { wordsOf, type ListItem } from './parse';
@@ -85,8 +86,8 @@ function dispenser(item: ListItem): Holder | null {
   const coin = item.cell ? COIN_CELLS[item.cell] : has(item, /\b(coin|button) cell\b/) ? 'cr2032' : undefined;
   if (coin) return { kind: 'dispenser', style: 'coin', item: coin, count: item.qty, length: 0 };
   if (has(item, /\b(zip|cable) tie\b|\btie wrap\b/)) return { kind: 'dispenser', style: 'channel', item: 'zip ties', count: item.qty, length: item.length ?? 150 };
-  // One roll of tape gets a dispenser; several are just rolls in a bin.
-  if (has(item, /\btape\b/) && !has(item, /\bmeasur/) && (item.qty ?? 1) <= 1) {
+  // One roll of tape gets a dispenser; several lie flat in a bin.
+  if (has(item, /\btape\b/) && !has(item, /\bmeasur/)) {
     const roll = has(item, /\b(electrical|insulating|insulation)\b/)
       ? 'electrical'
       : has(item, /\bwashi\b/)
@@ -98,7 +99,9 @@ function dispenser(item: ListItem): Holder | null {
             : has(item, /\b(packing|parcel|duct)\b/)
               ? 'packing'
               : 'office';
-    return { kind: 'dispenser', style: 'tape', item: roll, count: 1, length: 0 };
+    if ((item.qty ?? 1) <= 1) return { kind: 'dispenser', style: 'tape', item: roll, count: 1, length: 0 };
+    const r = findTapeRoll(roll)!;
+    return { kind: 'objects', count: item.qty!, l: r.outer, w: r.outer, h: r.width, typical: true };
   }
   return null;
 }

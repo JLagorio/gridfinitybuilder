@@ -99,6 +99,8 @@ export interface BinFill {
   need: number;
   /** Holds everything and fits the printer. */
   ok: boolean;
+  /** Fits the printer (bedfit.ts). */
+  printable: boolean;
   /** "12 of 12 pockets", "About 70 % full". */
   holds: string;
 }
@@ -207,8 +209,8 @@ export function fillBin(p: Proposal, size: BinSize, cells: BinCells, ctx: SizeCo
   const contents = single !== undefined ? { contents: single } : {};
   const done = (opts: BinOptions, cap: number, need: number, holds: string, extra: Partial<BinFill> = {}): BinFill => {
     const o = sanitizeBin(opts);
-    const fits = bedOvershoot(o, cells, ctx.bed) <= EPS;
-    return { opts: o, ...contents, cap, need, ok: fits && cap >= need - EPS, holds, ...extra };
+    const printable = bedOvershoot(o, cells, ctx.bed) <= EPS;
+    return { opts: o, ...contents, cap, need, ok: printable && cap >= need - EPS, printable, holds, ...extra };
   };
   const s = p.spec;
   switch (s.kind) {
@@ -483,7 +485,9 @@ function specFor(item: ListItem, h: Holder, ctx: SizeContext): { spec: Spec; rea
       }
       if (reach > ctx.room + EPS) warnings.push(`They stand about ${ctx.fmt(h.itemH)} tall, more than the drawer has room for.`);
       const need = h.given ? Math.max(1, Math.ceil(h.count / h.per)) : 1;
-      const reason = h.given ? `Pocket grid for ${h.count} ${name}.` : `Pocket grid for ${name}. No count given: the smallest bin.`;
+      // "Batteries" without a size get AA pockets: say so.
+      const what = h.preset.group === 'Batteries' && !item.cell ? `${name} (${h.preset.label} size)` : name;
+      const reason = h.given ? `Pocket grid for ${h.count} ${what}.` : `Pocket grid for ${what}. No count given: the smallest bin.`;
       return { spec: { kind: 'pockets', preset: h.preset, need, per: h.per, given: h.given }, reason, cluster: h.preset.group, warnings };
     }
     case 'set': {
@@ -536,9 +540,11 @@ function specFor(item: ListItem, h: Holder, ctx: SizeContext): { spec: Spec; rea
     }
     case 'objects': {
       const size = `${ctx.fmt(h.l, { unit: false })} × ${ctx.fmt(h.w)}`;
-      const reason = h.typical
-        ? `Sized for typical ${name} (about ${size}). Trace yours for a cutout that fits.`
-        : `Sized for ${h.count > 1 ? `${h.count} at ` : ''}${size} × ${ctx.fmt(h.h)}.`;
+      const reason = !h.typical
+        ? `Sized for ${h.count > 1 ? `${h.count} at ` : ''}${size} × ${ctx.fmt(h.h)}.`
+        : h.count > 1
+          ? `Room for ${h.count} ${name} lying flat, about ${size} each.`
+          : `Sized for typical ${name} (about ${size}). Trace yours for a cutout that fits.`;
       return { spec: { kind: 'objects', count: h.count, l: h.l, w: h.w, h: h.h }, reason, cluster: 'Tools', warnings };
     }
     case 'general':
@@ -619,7 +625,7 @@ function finish(p: Proposal, ctx: SizeContext): Proposal[] {
 const cellsAcross = (mm: number, pitch: number) => Math.max(1, Math.ceil((mm + 2 * WALL + (GRID - BASE_TOP) + 1) / pitch - EPS));
 
 /** A size cut down to the grid, the drawer's height and the print bed (the longer side first). */
-function shrinkSize(want: BinSize, ctx: SizeContext): BinSize {
+export function shrinkSize(want: BinSize, ctx: SizeContext): BinSize {
   const s = { ux: Math.min(want.ux, ctx.maxX), uy: Math.min(want.uy, ctx.maxY), h: Math.min(want.h, ctx.maxH) };
   const over = () => bedOvershoot(sanitizeBin({ ...ctx.base, unitsX: s.ux, unitsY: s.uy, heightUnits: s.h }), cellsFor(ctx, s.ux, s.uy), ctx.bed) > EPS;
   while (over() && (s.ux > 1 || s.uy > 1)) {

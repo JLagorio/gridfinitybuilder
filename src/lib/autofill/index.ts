@@ -22,12 +22,12 @@ import { parseList, type ListItem } from './parse';
 import { matchItem } from './match';
 import { groupEntries, groupItems, isGroup, type Entry } from './group';
 import { packBins, type PackItem } from './pack';
-import { FILL_FACTOR, cellsFor, fillBin, sizeGroup, sizeItem, startOpts, type BinFill, type BinSize, type Proposal, type SizeContext } from './size';
+import { FILL_FACTOR, cellsFor, fillBin, shrinkSize, sizeGroup, sizeItem, startOpts, type BinFill, type BinSize, type Proposal, type SizeContext } from './size';
 import type { NewBin } from './apply';
 
 export { parseLine, parseList, type ListItem } from './parse';
 export { matchItem, matchTools, type Holder } from './match';
-export { fillBin, type BinFill, type BinSize, type Proposal, type Spec } from './size';
+export { cellsFor, fillBin, type BinFill, type BinSize, type Proposal, type SizeContext, type Spec } from './size';
 export { packBins, type PackItem, type PackSpot } from './pack';
 export { cleanFillList, mergeBins, type NewBin } from './apply';
 
@@ -236,7 +236,8 @@ export function planFill(text: string, c: FillContext, o: FillOptions = {}): Fil
   const proposals = raw.map((p) => {
     const s = o.sizes?.[p.key];
     if (!s) return p;
-    const size = { ux: clampInt(s.ux, 1, ctx.maxX), uy: clampInt(s.uy, 1, ctx.maxY), h: clampInt(s.h, MIN_HEIGHT_UNITS, ctx.maxH) };
+    // Never past the printer: like the bin editors, a size stops at what the bed takes.
+    const size = shrinkSize({ ux: clampInt(s.ux, 1, ctx.maxX), uy: clampInt(s.uy, 1, ctx.maxY), h: clampInt(s.h, MIN_HEIGHT_UNITS, ctx.maxH) }, ctx);
     return { ...p, size, alts: [] };
   });
   const skip = new Set(o.skip ?? []);

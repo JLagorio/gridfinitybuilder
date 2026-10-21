@@ -6,7 +6,7 @@ import { MOD } from './shortcuts';
 import { cellEdge, type GridLayout } from '../lib/layout/drawer';
 import type { PlacedBin } from '../lib/project';
 import { labelCaption } from '../lib/geometry/labelContents';
-import { planFill, plannedBins, type BinSize, type FillPlan, type PlannedBin, type Proposal } from '../lib/autofill';
+import { cellsFor, fillBin, planFill, plannedBins, type BinSize, type FillPlan, type PlannedBin, type Proposal } from '../lib/autofill';
 import './fillFromList.css';
 
 const EXAMPLE = ['200 M3 screws', '50 M3 nuts', '12 AA batteries', 'hex keys 1.5–10 mm', 'SD cards x8', 'calipers', 'misc small parts'].join('\n');
@@ -28,6 +28,7 @@ export function FillFromListButton({ layout }: { layout: GridLayout }) {
 /** Type what to store, one item per line; see the bins Gridfit proposes; add them in one step. */
 export function FillFromListDialog({ layout, onClose }: { layout: GridLayout; onClose: () => void }) {
   const saved = useStore((s) => activeDrawer(s).fillList ?? '');
+  const name = useStore((s) => activeDrawer(s).name);
   const drawer = useStore((s) => s.drawer);
   const baseplate = useStore((s) => s.baseplate);
   const setup = useStore((s) => s.setup);
@@ -91,6 +92,7 @@ export function FillFromListDialog({ layout, onClose }: { layout: GridLayout; on
       <div className="modal fill-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="modal-head">
           <h2 id={titleId}>Fill from a list</h2>
+          <span className="muted small">{name}</span>
           <button className="link modal-close" onClick={() => close.current()} aria-label="Close">
             ✕
           </button>
@@ -170,7 +172,13 @@ export function FillFromListDialog({ layout, onClose }: { layout: GridLayout; on
                           )}
                         </div>
                         <div className="fill-controls">
-                          <SizeSteps size={at?.size ?? p.size} half={half} max={{ ux: plan.ctx.maxX, uy: plan.ctx.maxY, h: plan.ctx.maxH }} onChange={(s) => setSize(p, s)} />
+                          <SizeSteps
+                            size={at?.size ?? p.size}
+                            half={half}
+                            max={{ ux: plan.ctx.maxX, uy: plan.ctx.maxY, h: plan.ctx.maxH }}
+                            fits={(s) => fillBin(p, s, cellsFor(plan.ctx, s.ux, s.uy), plan.ctx).printable}
+                            onChange={(s) => setSize(p, s)}
+                          />
                           <label className="fill-skip small">
                             <input type="checkbox" checked={skipped} onChange={(e) => setSkip(e.target.checked ? [...skip, p.key] : skip.filter((k) => k !== p.key))} /> Leave out
                           </label>
@@ -219,20 +227,27 @@ export function FillFromListDialog({ layout, onClose }: { layout: GridLayout; on
   );
 }
 
-/** Width, depth and height of a proposed bin, each with − and +. Half-grid sizes show in units (cells / 2). */
-function SizeSteps({ size, half, max, onChange }: { size: BinSize; half: boolean; max: BinSize; onChange: (s: BinSize) => void }) {
+/**
+ * Width, depth and height of a proposed bin, each with − and +, up to the
+ * grid, the drawer's height and what the printer takes. Half-grid sizes show
+ * in units (cells / 2).
+ */
+function SizeSteps({ size, half, max, fits, onChange }: { size: BinSize; half: boolean; max: BinSize; fits: (s: BinSize) => boolean; onChange: (s: BinSize) => void }) {
   const u = (n: number) => (half ? n / 2 : n);
-  const step = (k: keyof BinSize, d: number, lo: number) => {
-    const v = Math.min(max[k], Math.max(lo, size[k] + d));
-    if (v !== size[k]) onChange({ ...size, [k]: v });
-  };
+  const more = (k: keyof BinSize) => ({ ...size, [k]: size[k] + 1 });
   const part = (k: keyof BinSize, label: string, lo: number, text: string) => (
     <span className="fill-step" title={label}>
-      <button type="button" aria-label={`Less ${label.toLowerCase()}`} disabled={size[k] <= lo} onClick={() => step(k, -1, lo)}>
+      <button type="button" aria-label={`Less ${label.toLowerCase()}`} disabled={size[k] <= lo} onClick={() => onChange({ ...size, [k]: size[k] - 1 })}>
         −
       </button>
       <span>{text}</span>
-      <button type="button" aria-label={`More ${label.toLowerCase()}`} disabled={size[k] >= max[k]} onClick={() => step(k, 1, lo)}>
+      <button
+        type="button"
+        aria-label={`More ${label.toLowerCase()}`}
+        disabled={size[k] >= max[k] || !fits(more(k))}
+        title={size[k] < max[k] && !fits(more(k)) ? 'The printer takes no bigger' : undefined}
+        onClick={() => onChange(more(k))}
+      >
         +
       </button>
     </span>
