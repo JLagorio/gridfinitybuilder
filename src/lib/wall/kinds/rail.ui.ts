@@ -16,6 +16,18 @@ registerAttachmentUi({
         { value: '42', label: '42 mm', title: 'Lines up with Gridfinity' },
       ],
     },
+    {
+      key: 'ends',
+      label: 'Ends',
+      kind: 'select',
+      options: [
+        { value: 'both', label: 'Both', title: 'An end panel on the left, a stop on the right: a rail on its own' },
+        { value: 'left', label: 'Left', title: 'The left end of a run: the right end open' },
+        { value: 'none', label: 'Middle', title: 'Both ends open: the middle of a run' },
+        { value: 'right', label: 'Right', title: 'The right end of a run: the left end open' },
+      ],
+      hint: 'A run longer than your printer takes: a left end, middle pieces and a right end, butted together on one row.',
+    },
     { key: 'rows', label: 'Rails', kind: 'number', min: 1, max: 3, step: 1, suffix: '', hint: 'One above the other, a container height apart.' },
     {
       key: 'kind',

@@ -371,3 +371,132 @@ describe('storage rail: on a board', () => {
     expect(clash.warnings.join()).toMatch(/overlap/);
   });
 });
+
+describe('storage rail: runs of rails with open ends', () => {
+  const ENDS = ['both', 'left', 'right', 'none'] as const;
+
+  it('by default a rail on its own, as before', () => {
+    const o = opts();
+    expect(o.ends).toBe('both');
+    const l = def().layout(o, CTX);
+    expect(l.w).toBeCloseTo(210.4, 6);
+    expect(l.depth).toBe(60);
+    expect(parts(o).map((p) => p.key)).toEqual(['c0', 'c1', 'c2', 'c3', 'c4', 's0']);
+  });
+
+  it('open ends: no end panel or stop there, the back flush, the units 20 mm either side of a slot column', () => {
+    for (const ends of ENDS) {
+      const o = opts({ ends, length: 3, rows: 2 });
+      const l = def().layout(o, CTX);
+      const panel = ends === 'both' || ends === 'left';
+      const stop = ends === 'both' || ends === 'right';
+      const x0 = panel ? RAIL.end : 0;
+      expect(l.w, ends).toBeCloseTo(x0 + 120 + (stop ? RAIL.stop : 0), 6);
+      // The clips are behind the middles of the units, so every kind of end meets the next on the lattice.
+      expect(l.anchor[0] - x0, ends).toBeCloseTo(20, 6);
+      expect(l.mounts.filter((m) => m.kind === 'clip').map((m) => m.di)).toEqual([0, 2, 4]);
+      // Only a rail with an end panel stands out as far as its containers.
+      expect(l.depth).toBe(panel ? o.depth : 10.7);
+      expect(parts(o).filter((p) => p.key.startsWith('s'))).toHaveLength(stop ? 2 : 0);
+      expect(parts(o).filter((p) => p.key.startsWith('c'))).toHaveLength(6);
+      const mesh = bodyMesh(o);
+      expect(
+        checkPart(w, mesh).issues.filter((i) => i.severity === 'error'),
+        ends,
+      ).toEqual([]);
+      const b = meshBounds(mesh);
+      const want = printedSize(l, CTX);
+      expect(
+        [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]].map((v) => +v.toFixed(2)),
+        ends,
+      ).toEqual([want.w, want.d, want.h].map((v) => +v.toFixed(2)));
+      // Containers start where the units do, and sit clear of the rail.
+      const rail = railInFrame(o);
+      expect(part(o, 'c0').place!.at[0]).toBeCloseTo(x0 + RAIL.gap / 2, 6);
+      for (const p of parts(o)) expect(shared(rail, placed(p)), `${ends} ${p.key}`).toBeLessThan(0.02);
+    }
+  });
+
+  it('notes a long piece, and 42 mm units that cannot join', () => {
+    const notes = (o: Partial<RailOptions>) => def().notes!(opts(o), CTX).join(' ');
+    expect(notes({ length: 7 })).toMatch(/Over 250 mm long: if it doesn't fit your printer, build the run from shorter rails with open ends/);
+    expect(notes({ length: 5 })).toBe('');
+    expect(notes({ length: 6, ends: 'none' })).toBe('');
+    expect(notes({ unit: '42', ends: 'left' })).toMatch(/42 mm units don't line up/);
+    expect(notes({ unit: '42' })).toBe('');
+    expect(notes({ ends: 'none' })).toBe('');
+  });
+
+  it('a left end, a middle and a right end butt into one run on a 560 × 560 board', () => {
+    // On a row of slots clear of the board's seams: clips at 40 … 320.
+    const run: PlacedAttachment[] = [
+      { id: 'a', type: 'rail', x: 40, y: 280, opts: { ends: 'left', length: 3 } },
+      { id: 'b', type: 'rail', x: 160, y: 280, opts: { ends: 'none', length: 3 } },
+      { id: 'c', type: 'rail', x: 280, y: 280, opts: { ends: 'right', length: 2 } },
+    ];
+    const job = plan(board(run));
+    expect(job.warnings).toEqual([]);
+    const pieces = job.drawers[0].enclosure!.wall!.placed;
+    pieces.forEach((p, k) => {
+      expect(p.ok).toBe(true);
+      expect([p.x, p.y]).toEqual([run[k].x, run[k].y]);
+    });
+    // End to end, no gap and no overlap.
+    expect(pieces[0].x1).toBeCloseTo(pieces[1].x0, 6);
+    expect(pieces[1].x1).toBeCloseTo(pieces[2].x0, 6);
+    // Each piece fills its own units; the right end has the stop.
+    expect(Object.values(job.parts).filter((p) => p.kind === 'attachment')).toHaveLength(3 + 3 + 3 + 2 + 1);
+
+    // The ridges, a unit apart all along the run: planned, and in the solids.
+    const os = run.map((a) => opts(a.opts as Partial<RailOptions>));
+    const offsets = pieces.map((p) => [p.x - p.layout.anchor[0], p.y - p.layout.anchor[1]]);
+    const planned = os.flatMap((o, k) => railRidges(o).map((x) => +(x + offsets[k][0]).toFixed(2)));
+    expect(planned).toEqual([40, 80, 120, 160, 200, 240, 280, 320]);
+    const rails = os.map((o, k) => moved(railInFrame(o), [offsets[k][0], offsets[k][1], 0]));
+    const y0 = offsets[0][1];
+    const found = rails
+      .flatMap((r) =>
+        keep(r.intersect(slab(pieces[0].x0 + RAIL.end + 0.1, y0 + RAIL_SEAT + 1, RAIL.plate + 0.2, 560, y0 + RAIL_SEAT + 4, RAIL.plate + 0.5))).decompose(),
+      )
+      .map((m) => {
+        const b = m.boundingBox();
+        m.delete();
+        return +((b.min[0] + b.max[0]) / 2).toFixed(2);
+      })
+      .sort((a, b) => a - b);
+    expect(found).toEqual(planned);
+
+    // A container part way across a joint touches neither rail, nor does a two-unit one sitting across it.
+    const joints = [pieces[0].x1, pieces[1].x1];
+    const across = (solid: Manifold, x: number) => {
+      const b = solid.boundingBox();
+      return moved(solid, [x - b.min[0], y0, 0]);
+    };
+    const bin = placed(part(os[0], 'c0'));
+    for (const j of joints)
+      for (const e of [10, 20, 30]) {
+        const m = across(bin, j - 40 + RAIL.gap / 2 + e);
+        for (const r of rails) expect(shared(r, m), `${j} ${e}`).toBeLessThan(0.02);
+      }
+    const wide = placed(part(opts({ ends: 'left', length: 3, size: '2x1' }), 'c0'));
+    for (const j of joints) {
+      const m = across(wide, j - 40 + RAIL.gap / 2);
+      for (const r of rails) expect(shared(r, m), `${j}`).toBeLessThan(0.02);
+    }
+  });
+
+  it('an open end is chamfered so a container crossing a small step does not catch', () => {
+    const rail = railInFrame(opts({ ends: 'none', length: 2 }));
+    const Q = RAIL.plate;
+    const ys = RAIL_SEAT - 0.5;
+    // The lip's back face and its top: drawn in at the very ends, whole 1 mm in.
+    const lipBack = (x: number) => shared(rail, slab(x, ys + 1, Q + RAIL.valley, x + 0.05, ys + 7, Q + RAIL.valley + 0.4));
+    const lipTop = (x: number) => shared(rail, slab(x, ys + RAIL.rise - 0.4, Q + RAIL.valley + 1, x + 0.05, ys + RAIL.rise, Q + RAIL.valley + 2));
+    for (const x of [0, 80 - 0.05]) {
+      expect(lipBack(x)).toBeLessThan(1e-3);
+      expect(lipTop(x)).toBeLessThan(1e-3);
+    }
+    expect(lipBack(1)).toBeCloseTo(0.05 * 6 * 0.4, 4);
+    expect(lipTop(1)).toBeCloseTo(0.05 * 0.4 * 1, 4);
+  });
+});

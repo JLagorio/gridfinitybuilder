@@ -15,6 +15,9 @@
  * 0.3 clear of the ridges, with a strip cut free by two slots and thinned in
  * front, two teeth at its foot that the ridge clicks between; over the lip it
  * bridges 5 mm, and in front of the lip it reaches up under the flare.
+ *
+ * An open end (a rail that joins the next of a run) stops flush with the last
+ * unit, its lip, flare and the back of its valley chamfered 0.5 mm.
  */
 import { Scope, type Manifold, type Vec2, type Wasm } from '../../geometry/kernel';
 import { boxAt } from '../../geometry/shapes';
@@ -83,7 +86,66 @@ export function railProfile(y0: number): Vec2[] {
 }
 
 /** Where the detent ridges are along a rail (the middle of each unit), x. */
-export const railRidges = (o: RailOptions): number[] => Array.from({ length: o.length }, (_, k) => E + (k + 0.5) * +o.unit);
+export const railRidges = (o: RailOptions): number[] => Array.from({ length: o.length }, (_, k) => railPlan(o).x0 + (k + 0.5) * +o.unit);
+
+/**
+ * What to take off an open end at x = xe (the rail on the side `dir` points
+ * to), so a container crossing the joint to the next rail doesn't catch on a
+ * small step: the lip's and the flare's edges and the back of the valley,
+ * 0.5 mm at 45°. The lip and the flare are two convex pieces, each the hull of
+ * its outline drawn in by 0.5 at the end and full 0.5 in.
+ */
+function openEnd(w: Wasm, s: Scope, xe: number, dir: number, ys: number): Manifold[] {
+  const c = 0.5;
+  const x1 = xe + dir * c;
+  const top = ys + L;
+  // The flare's underside, a 45° line through the lip's front at yu, drawn in by c: where it meets the top drawn in by c.
+  const yu = top - F - 0.5;
+  const ya = yu - c + c * Math.SQRT2;
+  const at = (x: number, pts: Vec2[]) => pts.map(([z, y]) => [x, y, z] as [number, number, number]);
+  const lip = w.Manifold.hull([
+    ...at(xe, [
+      [Q + V + c, ys - 0.01],
+      [Z1 - c, ys - 0.01],
+      [Z1 - c, top - c],
+      [Q + V + c, top - c],
+    ]),
+    ...at(x1, [
+      [Q + V, ys - 0.01],
+      [Z1, ys - 0.01],
+      [Z1, top],
+      [Q + V, top],
+    ]),
+  ]);
+  const flare = w.Manifold.hull([
+    ...at(xe, [
+      [Z1 - c, ya],
+      [Z1 - c + top - c - ya, top - c],
+      [Z1 - c, top - c],
+    ]),
+    ...at(x1, [
+      [Z1 - c, yu - c],
+      [ZF, top - 0.5],
+      [ZF, top],
+      [Z1 - c, top],
+    ]),
+  ]);
+  const xa = Math.min(xe - dir, x1);
+  const keep = s.t(s.t(lip).add(s.t(flare)));
+  const box = s.t(boxAt(w, xa, ys, Q + V - 0.01, xa + 1 + c, top + 1, ZF + 1));
+  const back = prismY(
+    w,
+    s,
+    xz([
+      [xe - dir * 0.01, Q - c - 0.01],
+      [xe + dir * (c + 0.01), Q + 0.01],
+      [xe - dir * 0.01, Q + 0.01],
+    ]),
+    ys - 0.01,
+    L,
+  );
+  return [s.t(box.subtract(keep)), back];
+}
 
 /** A ridge standing `r` out from a wall face at x (toward `dir`), around z, from y0 to y1. */
 function ridge(w: Wasm, s: Scope, x: number, dir: number, z: number, y0: number, y1: number, r = 0.3): Manifold {
@@ -325,12 +387,13 @@ export const railBuilder: AttachmentBuilder<RailOptions> = {
   body(w, s, o, layout) {
     const p = railPlan(o);
     const W = layout.w;
-    const add = [s.t(boxAt(w, 0, 0, 0, W, layout.h, Q)), s.t(boxAt(w, 0, 0, 0, E, layout.h, o.depth))];
+    const add = [s.t(boxAt(w, 0, 0, 0, W, layout.h, Q))];
+    if (p.panel) add.push(s.t(boxAt(w, 0, 0, 0, E, layout.h, o.depth)));
     const cut: Manifold[] = [];
     for (let r = 0; r < o.rows; r++) {
       const y0 = r * p.S;
       const ys = y0 + SEAT;
-      add.push(prismX(w, s, zy(railProfile(y0)), E - 0.5, W - E + 0.5));
+      add.push(prismX(w, s, zy(railProfile(y0)), p.x0 && p.x0 - 0.5, W - (p.x0 && p.x0 - 0.5)));
       for (const x of railRidges(o))
         add.push(
           prismY(
@@ -346,9 +409,11 @@ export const railBuilder: AttachmentBuilder<RailOptions> = {
             L - 1,
           ),
         );
-      // The stop's pocket.
+      // The stop's pocket; open ends.
       const x0 = W - PZ + 0.2;
-      cut.push(s.t(boxAt(w, x0, ys - 4, Q, x0 + 6.2, ys + 0.1, Q + V)));
+      if (p.stop) cut.push(s.t(boxAt(w, x0, ys - 4, Q, x0 + 6.2, ys + 0.1, Q + V)));
+      else cut.push(...openEnd(w, s, W, -1, ys));
+      if (!p.panel) cut.push(...openEnd(w, s, 0, 1, ys));
     }
     return s.t(s.t(w.Manifold.union(add)).subtract(s.t(w.Manifold.union(cut))));
   },
