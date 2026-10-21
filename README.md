@@ -25,6 +25,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **Inside height** (optional): shows the tallest bin that fits and warns about bins that don't.
      - Gridfit fits as many 42 mm cells as possible, then places the grid left/center/right and front/center/back.
    - **Leftover space** around the grid can stay solid plastic, or become a row of **half (21 mm) cells**, or **partial cells** that use the whole gap. Bins drawn on partial cells get feet sized to each cell. Push the grid to one side to turn two thin gaps into one useful row.
+   - **Half grid** (21 mm): the baseplate gets 21 mm receptacles and every bin stands on 21 mm half feet, so bins come in half units (1.5 × 2.5 u) and sit at any half-cell offset. Sizes still show in 42 mm units. Turning it on or off converts the drawer's bins in one undo step. Magnet holes go in the corners of each 42 mm unit, as in Gridfinity Extended.
    - **Blocked cells:** click or drag on the cell map to mark cells where slide hardware or a bump gets in the way. They get no receptacle (filled flat, or cut out of the plate) and bins can't go there.
    - **Baseplate options:**
      - **Style:** open frame (least filament), weighted (gridfinity-rebuilt weight pockets), skeletonized, or solid floor.
@@ -44,6 +45,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Drag a selection, nudge it with the arrow keys, copy and paste it (⌘C / ⌘V pastes at the cell under the pointer), duplicate it (⌘D) or delete it.
      - Drag the handles of a selected bin to resize it.
      - "Fill empty with 1×1" fills the rest of the drawer.
+     - **Stretch into the gap:** a bin on the edge of the grid can reach over the solid margin to the drawer wall (Auto, or mm per side). Its feet stay on the grid. The stretched part starts just above the baseplate.
    - **Each bin has:**
      - height in 7 mm units, or as an inside depth or overall height in mm
      - **inside:** compartments, a pocket grid, or tool cutouts (see below)
@@ -56,6 +58,12 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
        - stacking lip: normal, reduced or none, with optional anti-slide notches
        - optional stacking lid, printed as its own part
      - **walls:** cutouts, finger slides and a hex wall pattern, per wall; rounded inside corners
+     - **trays, lids & rails:**
+       - **lift-out trays** (up to 3, stacked) on printed ledges, each with its own compartments and lift tabs
+       - a **sliding lid** for bins without a stacking lip, with a click detent and optional engraved text
+       - **divider rails:** guide ribs every few mm on opposite walls, so loose divider plates slide in anywhere
+       - trays, the lid and the plates print as their own parts
+     - **What's in it:** a list of what the bin holds, per bin or per compartment. It's for finding things and for the drawer map, and doesn't change the print.
 
      The base, lip and wall groups fold away. Each says what's set, and starts open when anything in it isn't the default.
    - **Templates** save a bin's settings by name. Apply one to the selected bins or to new bins, in any drawer.
@@ -73,9 +81,26 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Walls placed by snapping stay proportional when the bin or a neighbour changes; typed sizes stay fixed.
    - The sidebar has presets and splits a compartment into equal parts, by ratio (`1:2:1`) or by minimum size. It also sets:
      - **each wall's height:** lowered so fingers reach over, or removable (a slide-in plate in slots that prints with the bins)
+     - **each wall's top:** flat, chamfered or rounded, with optional U-shaped **finger notches**
      - **each compartment's** scoop, label tab, label text and floor height
+     - **each compartment's inside:** open, a **pocket grid** of its own, **tool cutouts** (the bin's tools are cut only inside it), or solid
+     - **each compartment's floor:** flat, a **ramp**, or 2–6 **steps** rising toward any side
+   - **Diagonal / curved walls** (D): drag from point to point. They snap to corners, wall ends and midpoints, and to 25/50/75 % of a wall; drag the middle handle to bend a wall into an arc. They don't split compartments (scoops, tabs and compartment options ignore them).
+   - **Mirror, rotate, copy:** mirror or rotate a layout, or copy it onto other bins in any drawer ("Copy to…", or ⌘C / ⌘V in the editor). Proportional walls adapt to the new size.
 
-   **Pocket grids** fill the bin and cut a grid of pockets, fitted automatically. Presets cover AA, AAA, 18650, CR2032, SD and microSD cards, ¼″ hex bits and M3–M5 screws; custom round, square or hex pockets work too.
+   **Pocket grids** fill the bin (or one compartment) and cut as many pockets as fit:
+   - **55 presets:**
+     - batteries (AA to D, 9V, 18650, 21700, CR123A, coin cells)
+     - cards and cartridges (SD, microSD, CFexpress, SIM, USB sticks, Switch and Game Boy cartridges)
+     - hex and power bits, router bits, M2–M8 screws
+     - hobby paints, markers, pens, printer nozzles, test tubes, coins
+   - **Graduated sets:** drill indexes (1–10 or 1–13 mm, 1/16–1/2″ by 1/64), ¼″ and ⅜″ socket sets, hex keys. Each pocket is sized to its item, with the size engraved in front of it. A custom list of sizes in mm or inches works too.
+   - **Fit an item:** type the item's size and height; the pocket gets clearance and a depth of 2/3 its height.
+   - **Pocket options:**
+     - bottoms: flat, round, 118° cone, or stepped (a narrower bore for a collar)
+     - **lean** up to 45° toward you
+     - finger access: a **groove** along each row, or a **thumb notch** per pocket
+     - a **magnet** recess under each pocket
 
    **Tool cutouts.** Make a shadow-board pocket for a tool:
    - **Trace it from a photo:**
@@ -96,6 +121,14 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
    - **inlaid**: engraved and filled flush in a second filament. The Bambu project gets a second filament for it; pick its colour in *Print plates*. Needs an AMS or a filament change.
    - on **swappable label plates**: the tab gets a shallow recess with a pry notch, and small text plates print with the bins and press in, so you can relabel later.
 
+   **3D view.** Orbit all the way under the model, or jump to Iso / Top / Front / Side / Under. The tool bar adds:
+   - **Section (C):** a cut along X, Y or Z, with the cut faces filled in
+   - **Measure (M):** click two points; it snaps to corners and shows ΔX / ΔY / ΔZ
+   - **X-ray (X):** see-through models
+   - **Lift (L):** float the bins above the baseplate to see their feet
+
+   **Find (⌘/Ctrl+K or /)** searches every drawer: what's in the bins, labels, compartment labels, tool names. Pick a result to jump to its drawer and bin.
+
 3. **Print plates.**
    - **Printer:** pick it. The Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles.
    - **Split and pack:** Gridfit splits each baseplate on cell boundaries, so every receptacle stays whole. Each drawer's baseplate gets its own plates (named after the drawer). Bins, lids, removable dividers and label plates from every printed drawer share plates.
@@ -110,6 +143,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Counts magnets, screws, nuts or inserts, filament pins, connector keys, parts and plates. Partial and blocked cells get no holes.
      - Estimates filament per plate the way a slicer would print it (Bambu's 0.20 mm Standard: about 0.85 mm of walls and top/bottom layers solid, 15 % infill inside) for 1.75 mm PLA at 1.24 g/cm³. Expect ±15 %.
      - Downloads as CSV or text.
+   - **Drawer map & contents:** a printable top view of a drawer (or all of them) with each bin's label and contents, fit to a page or at actual size across several pages, or as an SVG. Also a contents list of every bin, and a CSV of it.
 
 Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl+Y). Press **?** for all keyboard shortcuts.
 
@@ -166,7 +200,7 @@ src/lib/dividers/   bin interior layouts: walls → compartments, edits, snappin
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
 src/lib/export/     plain 3MF, Bambu Studio project and binary STL writers
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters
-src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links
+src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
 src/worker/         geometry Web Worker + client with a mesh queue/cache
 src/components/     React UI (three.js viewer, 2D bin layout editor, panels)
@@ -176,4 +210,4 @@ tests/              vitest suites
 
 ## Credits
 
-Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT). Several options follow other community projects: Gridfinity Extended (lip styles, efficient floor, wall cutouts, pocket grids), Gridfinity Refined (side-loaded magnets), GridFlock (pin and puzzle joints), cq-gridfinity, and Tracefinity (tool tracing). The label font is Roboto Condensed (SIL Open Font License, `public/fonts/RobotoCondensed-OFL.txt`).
+Gridfinity was created by [Zack Freedman](https://www.youtube.com/c/ZackFreedman). The dimensions come from gridfinity-rebuilt-openscad (MIT). Several options follow other community projects: Gridfinity Extended (lip styles, efficient floor, wall cutouts, pocket grids, half-pitch grids), Gridfinity Refined (side-loaded magnets), GridFlock (pin and puzzle joints), cq-gridfinity, and Tracefinity (tool tracing). The label font is Roboto Condensed (SIL Open Font License, `public/fonts/RobotoCondensed-OFL.txt`).
