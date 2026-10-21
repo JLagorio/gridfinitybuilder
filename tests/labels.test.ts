@@ -7,8 +7,10 @@ import { meshBounds } from '../src/lib/geometry/kernel';
 import {
   DEFAULT_BIN,
   binKey,
+  binLabelPlatePlaces,
   binLabelPlates,
   binLabelTabs,
+  binSize,
   binLabelTexts,
   binTotalHeight,
   buildBin,
@@ -259,6 +261,27 @@ describe('label text', () => {
 });
 
 describe('label plates', () => {
+  it('are placed pressed into their recesses for the assembled view', () => {
+    const o = bin({ unitsX: 2, divX: 2, labelText: 'M3 SCREWS', labelPlates: true });
+    const plates = binLabelPlates(o);
+    const places = binLabelPlatePlaces(o);
+    expect(places).toHaveLength(plates.length);
+    const { w: W, d: D } = binSize(o);
+    const body = solid(buildBin(w, o)).translate([W / 2, D / 2, 0]);
+    const so = sanitizeBin(o);
+    const tabs = planTabLabels(so, binLabelTabs(so), binBodyHeight(so));
+    places.forEach((at, i) => {
+      // Top of the plate flush with the tab, inside the recess, not overlapping the bin.
+      expect(at.z + plates[i].thickness).toBeCloseTo(tabs[i].tab.z, 6);
+      expect(at.x - W / 2).toBeCloseTo(tabs[i].plate!.recess.x0 + LABEL_PLATE.clearance, 6);
+      const plate = solid(buildLabelPlate(w, plates[i])).translate([at.x, at.y, at.z]);
+      expect(body.intersect(plate).volume()).toBeLessThan(0.05);
+    });
+    // Planned parts carry the place, so the drawer view can show them in the bin.
+    const job = planJob({ ...DEFAULT_PROJECT, drawer: { ...DEFAULT_DRAWER, mode: 'grid', gridX: 2, gridY: 1 }, bins: [{ id: 'b', x: 0, y: 0, opts: o }] });
+    expect(job.parts['label:b:0'].assembled).toEqual(places[0]);
+  });
+
   it('cut a recess with room for the plate and plan one plate per tab', () => {
     const o = bin({ unitsX: 2, divX: 2, labelText: 'M3 SCREWS', labelPlates: true, labelStyle: 'inlaid' });
     const plates = binLabelPlates(o);

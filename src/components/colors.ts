@@ -9,3 +9,5 @@ export const BASEPLATE_COLOR = '#8b94a3';
 export const BIN_COLOR = '#d7dce3';
 export const KEY_COLOR = '#5f6b7a';
 export const LID_COLOR = '#b9c6d6';
+/** Swappable label plates, shown pressed into their tabs. */
+export const LABEL_PLATE_COLOR = '#f3d58a';

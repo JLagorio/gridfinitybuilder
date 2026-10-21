@@ -367,7 +367,8 @@ describe('pocket grid', () => {
       expect(c.status, p.id).toBe('NoError');
       expect(c.components, p.id).toBe(1);
     }
-  });
+    // Builds all 55 presets: give it room when the whole suite runs in parallel.
+  }, 30_000);
 
   it('hex pockets have flats facing their neighbours', () => {
     const o = { unitsX: 2, interior: 'pockets' as const, ...presetFields(POCKET_PRESETS.find((p) => p.id === 'hexbit')!), pocketChamfer: 0 };

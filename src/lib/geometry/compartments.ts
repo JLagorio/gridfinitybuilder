@@ -251,7 +251,13 @@ export function labelTabs(o: BinOptions, W: number, D: number, zFloor: number, t
     const r = resolveLayout(o.layout, W - 2 * WALL, D - 2 * WALL);
     specs = planLayout(o, r, -W / 2 + WALL, -D / 2 + WALL, zFloor, topInfill).flatMap((x) => x.specs);
   }
-  return specs.map(tabOf).filter((t): t is LabelTab => !!t);
+  // Only the part of a tab clear of the stacking lip can take text or a plate (the lip overhangs the side walls too).
+  const lim = o.lip ? W / 2 - LIP_DEPTH : Infinity;
+  return specs
+    .map(tabOf)
+    .filter((t): t is LabelTab => !!t)
+    .map((t) => ({ ...t, x0: Math.max(t.x0, -lim), x1: Math.min(t.x1, lim) }))
+    .filter((t) => t.x1 - t.x0 >= 1);
 }
 
 // ---------------------------------------------------------------------------

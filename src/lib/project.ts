@@ -10,6 +10,7 @@ import {
   DEFAULT_BIN,
   binKey,
   binLabel,
+  binLabelPlatePlaces,
   binLabelPlates,
   binLabelTexts,
   binSize,
@@ -357,6 +358,7 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         parts[k] = { key: k, name, kind: 'divider', meshKey, w: ins.length, d: ins.height, h: ins.thickness, drawer: d.id };
         if (include.bins) binItems.push({ key: k, w: ins.length, d: ins.height });
       });
+      const platePlaces = binLabelPlatePlaces(b.opts, spec.cells);
       binLabelPlates(b.opts, spec.cells).forEach((pl, i) => {
         const meshKey = labelPlateKey(pl);
         meshes[meshKey] = { kind: 'label', key: meshKey, plate: pl };
@@ -364,6 +366,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         const text = pl.text.trim() ? `“${pl.text.trim().replace(/\s*\n\s*/g, ' ')}”` : `${round1(pl.width)} × ${round1(pl.depth)} mm`;
         const name = `${label}Label plate ${text} (${owner})`;
         parts[k] = { key: k, name, kind: 'label', meshKey, w: pl.width, d: pl.depth, h: labelPlateHeight(pl), drawer: d.id };
+        // Pressed into its tab, for the assembled drawer view.
+        if (platePlaces[i]) parts[k].assembled = platePlaces[i];
         if (include.bins) binItems.push({ key: k, w: pl.width, d: pl.depth });
       });
       // Lift-out trays, sliding lids and rail plates (accessories.ts).

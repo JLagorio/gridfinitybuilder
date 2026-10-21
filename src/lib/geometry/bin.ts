@@ -42,6 +42,7 @@ import { fingerSlides, wallCutouts, wallPattern } from './walls';
 import { pocketCutters, pocketLayout, type PocketLayout } from './pockets';
 import {
   DEFAULT_LABELS,
+  LABEL_PLATE,
   compartmentLabelText,
   labelKeyParts,
   planTabLabels,
@@ -448,6 +449,20 @@ export function binLabelPlates(opts: BinOptions, cells?: Partial<BinCells> | nul
   const o = sanitizeBin(opts);
   if (!o.labelPlates) return [];
   return planTabLabels(o, binLabelTabs(o, cells), binBodyHeight(o)).flatMap((l) => (l.plate ? [l.plate.plate] : []));
+}
+
+/**
+ * Where each label plate sits when pressed into its recess, in binLabelPlates
+ * order: its min corner relative to the bin mesh's front-left-bottom corner.
+ */
+export function binLabelPlatePlaces(opts: BinOptions, cells?: Partial<BinCells> | null): { x: number; y: number; z: number }[] {
+  const o = sanitizeBin(opts);
+  if (!o.labelPlates) return [];
+  const { w: W, d: D } = binSize(o, cells);
+  const c = LABEL_PLATE.clearance;
+  return planTabLabels(o, binLabelTabs(o, cells), binBodyHeight(o)).flatMap((l) =>
+    l.plate ? [{ x: l.plate.recess.x0 + c + W / 2, y: l.plate.recess.y0 + c + D / 2, z: l.tab.z - LABEL_PLATE.thickness }] : [],
+  );
 }
 
 /** Label text of each tab, in tab order (blank tabs left out). */

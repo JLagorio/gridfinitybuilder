@@ -20,7 +20,7 @@ import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { FindBox } from './components/FindBox';
 import { useOpenSharedProject } from './components/ShareLink';
 import { Segmented } from './components/fields';
-import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LID_COLOR, pieceColor } from './components/colors';
+import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LABEL_PLATE_COLOR, LID_COLOR, pieceColor } from './components/colors';
 import { binBodyHeight } from './lib/geometry/variants';
 import { LID_SEAT_DROP } from './lib/geometry/lid';
 import { assembledParts } from './lib/geometry/accessories';
@@ -108,6 +108,23 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
             lift: true,
           });
         }
+      }
+      // Swappable label plates, pressed into their tabs.
+      for (let i = 0; job.parts[`label:${b.id}:${i}`]; i++) {
+        const pl = job.parts[`label:${b.id}:${i}`];
+        if (!pl.assembled) continue;
+        items.push({
+          id: `${b.id}:${pl.key}`,
+          meshKey: pl.meshKey,
+          x: at.x + pl.assembled.x,
+          y: at.y + pl.assembled.y,
+          z: seat + pl.assembled.z,
+          w: pl.w,
+          d: pl.d,
+          h: pl.h,
+          color: LABEL_PLATE_COLOR,
+          lift: true,
+        });
       }
     }
   }

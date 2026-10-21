@@ -87,11 +87,13 @@ export function LabelFields({ opts, onChange }: { opts: BinOptions; onChange: (p
         label="Label text"
         value={opts.labelText}
         onChange={(labelText) => onChange({ labelText })}
-        placeholder="M3 screws"
+        placeholder="Type the label (e.g. M3 screws)"
         hint={
           compTexts
             ? 'Used for compartments without their own text (set those in Compartments).'
-            : `Up to ${LABEL_MAX_LINES} lines; it shrinks to fit each tab. Give compartments their own text in Compartments.`
+            : any
+              ? `Up to ${LABEL_MAX_LINES} lines; it shrinks to fit each tab. Give compartments their own text in Compartments.`
+              : 'No label text yet, so the tab prints blank. Type text here, or give compartments their own in Compartments.'
         }
       />
       {any && (
