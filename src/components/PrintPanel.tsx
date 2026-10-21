@@ -6,7 +6,8 @@ import { assemblyMaps, plateContents, usesSecondFilament, type PrintJob } from '
 import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
-import { BomSection, TestFitSection } from './PrintExtras';
+import { BomSection, TestFitSection, plateSummary, useJobEstimate } from './PrintExtras';
+import { drawerAssemblies } from '../lib/export/step';
 import { CopyShareLink } from './ShareLink';
 import { ContentsSection } from './InventoryList';
 
@@ -64,6 +65,24 @@ export function PrintPanel({ job }: { job: PrintJob }) {
       const name = job.plates[i].name.toLowerCase().replace(/\s+/g, '-');
       downloadBytes(bytes, `gridfinity-${name}.stl`, 'model/stl');
     });
+  const exportStepZip = () =>
+    run('Building STEP plates', async (p) => {
+      const bytes = await geometry.exportStepZip(job, p);
+      downloadBytes(bytes, `gridfinity-drawer-${stamp}-plates-step.zip`, 'application/zip');
+    });
+  const exportStepPlate = (i: number) =>
+    run(`Building plate ${i + 1}`, async (p) => {
+      const bytes = await geometry.exportStepPlate(job, i, p);
+      const name = job.plates[i].name.toLowerCase().replace(/\s+/g, '-');
+      downloadBytes(bytes, `gridfinity-${name}.step`, 'model/step');
+    });
+  const exportAssembled = () =>
+    run('Building the assembled drawer', async (p) => {
+      const assemblies = drawerAssemblies(job, printing);
+      const bytes = await geometry.exportStepAssembly(assemblies, job.meshes, p);
+      if (assemblies.length > 1) downloadBytes(bytes, `gridfinity-${stamp}-assembled-step.zip`, 'application/zip');
+      else downloadBytes(bytes, `gridfinity-drawer-${stamp}-assembled.step`, 'model/step');
+    });
   const exportMap = () =>
     downloadBytes(
       new TextEncoder().encode(Object.values(assemblyMaps(job)).join('\n\n')),
@@ -88,6 +107,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   };
 
   const twoColour = usesSecondFilament(job);
+  const estimate = useJobEstimate(job);
+  const currency = estimate.bom.estimate?.currency ?? '$';
   const nBasePlates = job.plates.filter((p) => p.group === 'baseplate').length;
   const nBinPlates = job.plates.length - nBasePlates;
 
@@ -260,6 +281,18 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             {multi ? 'Assembly maps' : 'Assembly map'}
           </button>
         </div>
+        <div className="button-row">
+          <button disabled={!!progress || !job.plates.length} onClick={exportStepZip} title="One STEP file per plate, parts arranged, flat faces for CAD">
+            Plates as STEP (.zip)
+          </button>
+          <button
+            disabled={!!progress || (!nPieces && !nBins)}
+            onClick={exportAssembled}
+            title="Baseplate, bins, lids and label plates put together, one solid per part, for CAD"
+          >
+            {multi ? 'Drawers assembled (.step)' : 'Drawer assembled (.step)'}
+          </button>
+        </div>
         {progress && (
           <div className="progress">
             <div className="progress-label">
@@ -273,7 +306,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
         {error && <div className="field-error">{error}</div>}
       </Section>
 
-      <BomSection job={job} stamp={stamp} />
+      <BomSection job={job} stamp={stamp} estimate={estimate} />
       <ContentsSection />
       <TestFitSection />
 
@@ -312,12 +345,16 @@ export function PrintPanel({ job }: { job: PrintJob }) {
                   {i + 1}. {pl.name}
                 </b>
                 <span className="muted small">{plateContents(job, pl).map((n) => n.replace('Baseplate piece', 'Piece')).join(', ')}</span>
+                {plateSummary(estimate.bom.plates[i], currency) && <span className="small plate-estimate">{plateSummary(estimate.bom.plates[i], currency)}</span>}
                 <span className="plate-downloads">
                   <button className="link" disabled={!!progress} onClick={() => exportPlate(i)}>
                     Download .3mf
                   </button>
                   <button className="link" disabled={!!progress} onClick={() => exportStlPlate(i)}>
                     .stl
+                  </button>
+                  <button className="link" disabled={!!progress} onClick={() => exportStepPlate(i)}>
+                    .step
                   </button>
                 </span>
               </div>

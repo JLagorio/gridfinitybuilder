@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useStore } from '../state/store';
-import { billOfMaterials, bomCsv, bomText, filamentNote, type PlateBom } from '../lib/bom';
+import { billOfMaterials, bomCsv, bomText, estimateNote, filamentNote, type Bom, type PlateBom } from '../lib/bom';
+import { currencySymbol, estimateJob, formatDuration, formatMoney } from '../lib/estimate';
+import { DEFAULT_MOTION } from '../lib/printers';
 import { planTestFit } from '../lib/testfit';
 import { binLabel, sanitizeBin } from '../lib/geometry/bin';
 import { findPrinter } from '../lib/printers';
 import type { MeshSpec, PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { bambuSettings } from './bambuSettings';
-import { Section } from './fields';
+import { NumberInput, Section, TextInput } from './fields';
 
 const subscribe = (cb: () => void) => geometry.subscribe(cb);
 const version = () => geometry.getVersion();
@@ -49,13 +51,86 @@ function useJobVolumes(job: PrintJob) {
   return { lookup, progress };
 }
 
+/** Slice data for the job's meshes; asks the worker for missing ones once edits settle. */
+function useJobStats(job: PrintJob) {
+  const v = useSyncExternalStore(subscribe, version);
+  const specs = useMemo(() => plateSpecs(job), [job]);
+  const [progress, setProgress] = useState<[number, number] | null>(null);
+  useEffect(() => {
+    const missing = specs.filter((s) => geometry.printStats(s.key) === undefined && !geometry.printStatsFailed(s.key));
+    if (!missing.length) return;
+    let live = true;
+    // After the volumes (700 ms), so the BOM's grams come first.
+    const t = setTimeout(() => {
+      setProgress([0, missing.length]);
+      geometry
+        .slice(missing, (done, total) => live && setProgress([done, total]))
+        .catch(() => undefined)
+        .finally(() => live && setProgress(null));
+    }, 900);
+    return () => {
+      live = false;
+      clearTimeout(t);
+      setProgress(null);
+    };
+  }, [specs]);
+  const lookup = useMemo(() => {
+    void v;
+    const snapshot = new Map(specs.map((s) => [s.key, geometry.printStats(s.key)]));
+    return (key: string) => snapshot.get(key);
+  }, [specs, v]);
+  return { lookup, progress };
+}
+
+export interface JobEstimate {
+  /** Bill of materials with filament, time and cost per plate. */
+  bom: Bom;
+  /** What the worker is busy with, if anything. */
+  busy: { label: string; done: number; total: number } | null;
+}
+
+/** Filament, print time and cost of every plate of the job, for the selected printer and prices. */
+export function useJobEstimate(job: PrintJob): JobEstimate {
+  const setup = useStore((s) => s.setup);
+  const volumes = useJobVolumes(job);
+  const stats = useJobStats(job);
+  const printer = findPrinter(setup.printerId);
+  const plates = useMemo(() => estimateJob(job, stats.lookup, setup.printerId), [job, stats.lookup, setup.printerId]);
+  const bom = useMemo(
+    () =>
+      billOfMaterials(job, volumes.lookup, {
+        plates,
+        overlayVolume: (key) => stats.lookup(key)?.overlayVolume,
+        setup,
+        printer: printer.name,
+      }),
+    [job, volumes.lookup, plates, stats.lookup, setup, printer.name],
+  );
+  const busy = volumes.progress
+    ? { label: 'Measuring parts', done: volumes.progress[0], total: volumes.progress[1] }
+    : stats.progress
+      ? { label: 'Estimating print time', done: stats.progress[0], total: stats.progress[1] }
+      : null;
+  return { bom, busy };
+}
+
 const grams = (p: PlateBom) => (p.grams === null ? '…' : `${Math.round(p.grams)} g`);
 const meters = (p: PlateBom) => (p.meters === null ? '…' : `${(Math.round(p.meters * 10) / 10).toFixed(1)} m`);
+const duration = (p: PlateBom) => (p.seconds === null || p.seconds === undefined ? '…' : formatDuration(p.seconds));
+const cost = (p: PlateBom, symbol: string) => (p.cost ? formatMoney(p.cost.total, symbol) : '…');
 
-/** Hardware, parts and filament for the job, with CSV/text download. */
-export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
-  const { lookup, progress } = useJobVolumes(job);
-  const bom = useMemo(() => billOfMaterials(job, lookup), [job, lookup]);
+/** "≈ 1 h 05 min · 46 g · $0.95" for a plate card. */
+export function plateSummary(p: PlateBom | undefined, symbol: string): string {
+  if (!p) return '';
+  const parts = [p.seconds === null || p.seconds === undefined ? null : `≈ ${formatDuration(p.seconds)}`, p.grams === null ? null : `${Math.round(p.grams)} g`];
+  if (p.cost) parts.push(formatMoney(p.cost.total, symbol));
+  return parts.filter(Boolean).join(' · ');
+}
+
+/** Hardware, parts, filament, time and cost for the job, with CSV/text download. */
+export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: string; estimate: JobEstimate }) {
+  const { bom, busy } = estimate;
+  const symbol = bom.estimate?.currency ?? '$';
   const download = (kind: 'csv' | 'txt') =>
     downloadBytes(
       new TextEncoder().encode(kind === 'csv' ? bomCsv(bom) : bomText(bom)),
@@ -93,7 +168,8 @@ export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
               <th>Plate</th>
               <th>Parts</th>
               <th>Filament</th>
-              <th>Length</th>
+              <th>Time</th>
+              <th>Cost</th>
             </tr>
           </thead>
           <tbody>
@@ -103,8 +179,11 @@ export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
                   {i + 1}. {p.name}
                 </td>
                 <td>{p.parts}</td>
-                <td>{grams(p)}</td>
-                <td>{meters(p)}</td>
+                <td title={meters(p)}>{grams(p)}</td>
+                <td title={p.swaps ? `${p.swaps} filament swaps, ${Math.round(p.wasteGrams ?? 0)} g purged` : undefined}>{duration(p)}</td>
+                <td title={p.cost && bom.estimate?.electricity ? `filament ${formatMoney(p.cost.filament, symbol)}, electricity ${formatMoney(p.cost.energy, symbol)}` : undefined}>
+                  {cost(p, symbol)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -112,21 +191,71 @@ export function BomSection({ job, stamp }: { job: PrintJob; stamp: string }) {
             <tr>
               <td>Total</td>
               <td>{bom.total.parts}</td>
-              <td>{grams(bom.total)}</td>
-              <td>{meters(bom.total)}</td>
+              <td title={meters(bom.total)}>{grams(bom.total)}</td>
+              <td>{duration(bom.total)}</td>
+              <td>{cost(bom.total, symbol)}</td>
             </tr>
           </tfoot>
         </table>
       )}
       <div className="field-hint">
-        {progress ? `Measuring parts… ${progress[0]}/${progress[1]}. ` : ''}
-        Estimate for {filamentNote()}.
+        {busy ? `${busy.label}… ${busy.done}/${busy.total}. ` : ''}
+        Filament for {filamentNote()}.
       </div>
+      <div className="field-hint">
+        {estimateNote(bom.estimate?.printer ?? 'printer')}.
+        {bom.total.swaps ? ` Includes ${bom.total.swaps} filament swaps (${Math.round(bom.total.wasteGrams ?? 0)} g purged).` : ''}
+      </div>
+      <CostFields twoColour={bom.plates.some((p) => (p.swaps ?? 0) > 0)} />
       <div className="button-row">
         <button onClick={() => download('csv')}>BOM (.csv)</button>
         <button onClick={() => download('txt')}>BOM (.txt)</button>
       </div>
     </Section>
+  );
+}
+
+/** Filament prices, currency and electricity for the cost column. */
+function CostFields({ twoColour }: { twoColour: boolean }) {
+  const setup = useStore((s) => s.setup);
+  const setSetup = useStore((s) => s.setSetup);
+  const symbol = currencySymbol(setup.currency);
+  const price = setup.filamentPrice ?? 20;
+  const watts = setup.printerWatts ?? (findPrinter(setup.printerId).motion ?? DEFAULT_MOTION).watts;
+  return (
+    <div className="cost-fields">
+      <div className="row2">
+        <NumberInput label="Filament price" value={price} min={0} max={100000} step={1} suffix={`${symbol}/kg`} onChange={(filamentPrice) => setSetup({ filamentPrice })} />
+        <TextInput label="Currency" value={setup.currency ?? ''} placeholder={symbol} onChange={(currency) => setSetup({ currency: currency.trim().slice(0, 4) })} />
+      </div>
+      {twoColour && (
+        <NumberInput
+          label="Filament 2 price (label text)"
+          value={setup.filamentPrice2 ?? price}
+          min={0}
+          max={100000}
+          step={1}
+          suffix={`${symbol}/kg`}
+          onChange={(filamentPrice2) => setSetup({ filamentPrice2 })}
+        />
+      )}
+      <div className="row2">
+        <NumberInput
+          label="Electricity"
+          value={setup.kwhPrice ?? 0}
+          min={0}
+          max={1000}
+          step={0.01}
+          digits={3}
+          suffix={`${symbol}/kWh`}
+          hint={setup.kwhPrice ? undefined : '0 leaves it out'}
+          onChange={(kwhPrice) => setSetup({ kwhPrice })}
+        />
+        {!!setup.kwhPrice && (
+          <NumberInput label="Printer draws" value={watts} min={1} max={5000} step={5} digits={0} suffix="W" onChange={(printerWatts) => setSetup({ printerWatts })} />
+        )}
+      </div>
+    </div>
   );
 }
 

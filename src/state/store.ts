@@ -4,7 +4,7 @@ import { DEFAULT_PROJECT, binCellsAt, type NamedDrawer, type PlacedBin, type Pro
 import { DEFAULT_BIN, binInnerSize, sanitizeBin, type BinOptions } from '../lib/geometry/bin';
 import { DEFAULT_BASEPLATE, type BaseplateOptions } from '../lib/geometry/baseplate';
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput } from '../lib/layout/drawer';
-import { DEFAULT_SETUP, type PrintSetup } from '../lib/layout/plan';
+import { cleanSetup, type PrintSetup } from '../lib/layout/plan';
 import { findPrinter } from '../lib/printers';
 import { canPlace, newId, occupancy, withBlocked } from '../lib/bins';
 import { DEFAULT_INCH_PRECISION, formatBoth, formatLength, type FormatOptions, type InchPrecision, type Units } from '../lib/units';
@@ -565,7 +565,7 @@ export const useStore = create<Store>()(
           drawer: active.drawer,
           baseplate: active.baseplate,
           bins: active.bins,
-          setup: { ...DEFAULT_SETUP, ...p.setup },
+          setup: cleanSetup(p.setup),
           include: { ...DEFAULT_PROJECT.include, ...p.include },
           newBin: sanitizeBin({ ...DEFAULT_BIN, ...p.newBin }),
           printScope: p.printScope === 'all' || p.printScope === 'pick' ? p.printScope : 'active',
@@ -601,7 +601,7 @@ export const useStore = create<Store>()(
           bins,
           drawers: docs,
           activeDrawerId,
-          setup: { ...current.setup, ...p.setup },
+          setup: cleanSetup(p.setup, current.setup),
           include: { ...current.include, ...p.include },
           newBin: sanitizeBin({ ...current.newBin, ...p.newBin }),
           printScope: p.printScope ?? current.printScope,
