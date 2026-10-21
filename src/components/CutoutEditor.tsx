@@ -25,6 +25,7 @@ import { cutoutFromTool, cutoutIssues, findFreePlacement, heightUnitsFor, pocket
 import { bounds, nearestOnPolygon } from '../lib/trace/polygon';
 import { snapStep } from '../lib/units';
 import { isMod, isTyping } from './shortcuts';
+import { usesToolCompartments } from '../lib/geometry/compartments';
 
 /** dataTransfer type for dragging a library tool into the editor. */
 export const TOOL_DRAG_MIME = 'application/x-gridfit-tool';
@@ -116,7 +117,8 @@ function BinCutouts({ bin, job }: { bin: PlacedBin; job: PrintJob }) {
 
   const commit = (list: BinCutout[]) => {
     setDraft(null);
-    updateBin(bin.id, { opts: { interior: 'cutouts', cutouts: list } });
+    // A bin with a tools compartment keeps its compartments (the tools are cut there).
+    updateBin(bin.id, { opts: { interior: usesToolCompartments(bin.opts) ? 'compartments' : 'cutouts', cutouts: list } });
   };
   const patchSel = (patch: Partial<BinCutout>) => {
     if (sel === null) return;

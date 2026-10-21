@@ -1,10 +1,14 @@
-import { EDGE, MAX_WALLS, type CompartmentOptions, type DividerLayout, type DividerWall, type WallPos } from './types';
+import { EDGE, MAX_WALLS, type CompartmentOptions, type CompartmentPockets, type DividerLayout, type DividerWall, type WallPos } from './types';
 import type { LabelStyle } from '../geometry/bin';
 import { sanitizeLabelText } from '../geometry/labels';
+import { sanitizeVariants } from '../geometry/variants';
 
 const LABELS: LabelStyle[] = ['none', 'full', 'left', 'center', 'right'];
 const num = (v: unknown) => (typeof v === 'number' ? v : Number(v));
 const round = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;
+/** Step count range for 'tiers' floors. */
+export const MIN_TIERS = 2;
+export const MAX_TIERS = 6;
 
 function cleanId(v: unknown): string {
   return String(v ?? '')
@@ -36,7 +40,56 @@ export function cleanCompartmentOptions(c: unknown): CompartmentOptions | null {
     const t = sanitizeLabelText(o.labelText);
     if (t) out.labelText = t;
   }
+  // Defaults ('open', 'flat', 'back') are left out, so they key like old layouts.
+  if (o.inside === 'pockets' || o.inside === 'tools' || o.inside === 'solid') out.inside = o.inside;
+  const pockets = cleanPockets(o.pockets);
+  if (pockets) out.pockets = pockets;
+  if (o.floorShape === 'ramp' || o.floorShape === 'tiers') out.floorShape = o.floorShape;
+  if (o.floorRise !== undefined && o.floorRise !== null && Number.isFinite(num(o.floorRise))) {
+    out.floorRise = round(Math.min(200, Math.max(0, num(o.floorRise))), 3);
+  }
+  if (o.floorHigh === 'front' || o.floorHigh === 'left' || o.floorHigh === 'right') out.floorHigh = o.floorHigh;
+  if (o.tiers !== undefined && o.tiers !== null && Number.isFinite(num(o.tiers))) out.tiers = Math.min(MAX_TIERS, Math.max(MIN_TIERS, Math.round(num(o.tiers))));
   return Object.keys(out).length ? out : null;
+}
+
+/**
+ * A compartment's pocket overrides. Each `pocket*` field is cleaned the way the
+ * bin's own field is (sanitizeVariants), so fields added there later are
+ * handled too; values that aren't a valid setting are dropped.
+ */
+function cleanPockets(v: unknown): CompartmentPockets | null {
+  if (!v || typeof v !== 'object') return null;
+  const src = v as Record<string, unknown>;
+  const clean = sanitizeVariants({ ...src, heightUnits: 3, lip: true }) as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, raw] of Object.entries(src)) {
+    if (!k.startsWith('pocket') || !(k in clean) || raw === undefined || raw === null) continue;
+    const c = clean[k];
+    if (typeof c === 'number' && (typeof raw === 'number' || typeof raw === 'string') && Number.isFinite(num(raw))) out[k] = c;
+    else if (typeof c === 'string' && c === raw) out[k] = c;
+    else if (typeof c === 'boolean' && typeof raw === 'boolean') out[k] = c;
+  }
+  return Object.keys(out).length ? (out as CompartmentPockets) : null;
+}
+
+/** Canonical text for pocket overrides (the preset name is UI only). */
+function pocketsKey(p: CompartmentPockets): string {
+  const parts = Object.entries(p)
+    .filter(([k]) => k !== 'pocketPreset')
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k.slice(6)}${v}`);
+  return parts.length ? `{${parts.join(',')}}` : '';
+}
+
+/** Extra key text for a compartment's inside and floor shape; '' for defaults (old layouts). */
+function compartmentExtraKey(c: CompartmentOptions): string {
+  const filled = c.inside !== undefined && c.inside !== 'open';
+  let s = filled ? `/I${c.inside}${c.inside === 'pockets' && c.pockets ? pocketsKey(c.pockets) : ''}` : '';
+  if (!filled && c.floorShape && c.floorShape !== 'flat') {
+    s += `/S${c.floorShape}${c.floorRise ?? ''}${c.floorHigh ?? ''}${c.floorShape === 'tiers' ? `x${c.tiers ?? ''}` : ''}`;
+  }
+  return s;
 }
 
 /**
@@ -141,7 +194,7 @@ export function layoutKey(l: DividerLayout | null | undefined, live?: Set<string
     .map((k) => {
       const c = l.comps![k];
       const text = c.labelText === undefined ? '' : `/${JSON.stringify(c.labelText)}`;
-      return `${k}=${c.scoop === undefined ? '' : round(c.scoop, 3)}/${c.label ?? ''}/${c.floor ?? ''}${text}`;
+      return `${k}=${c.scoop === undefined ? '' : round(c.scoop, 3)}/${c.label ?? ''}/${c.floor ?? ''}${text}${compartmentExtraKey(c)}`;
     });
   return `${walls.join(';')}|${comps.join(';')}`;
 }

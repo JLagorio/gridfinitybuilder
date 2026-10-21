@@ -7,6 +7,7 @@ import { useMemo } from 'react';
 import { create } from 'zustand';
 import { useStore } from '../state/store';
 import { binCells, binInnerSize, type BinCells, type BinOptions } from '../lib/geometry/bin';
+import { compartmentInside } from '../lib/geometry/compartments';
 import { binCellsAt } from '../lib/project';
 import type { GridLayout } from '../lib/layout/drawer';
 import { resolveLayout, uniformLayout, type DividerLayout, type InnerSize, type ResolvedLayout } from '../lib/dividers';
@@ -70,6 +71,23 @@ export function useBinInterior(binId: string | null, grid: GridLayout | null): (
     if (!bin) return null;
     return { ...interiorOf(bin.opts, grid ? binCellsAt(grid, bin) : undefined), binId: bin.id };
   }, [bin, grid]);
+}
+
+/**
+ * Effective options of a compartment (its own, else the bin's). Filled insides
+ * have no scoop or label tab.
+ */
+export function compartmentOptions(info: BinInterior, key: string) {
+  const co = info.layout.comps?.[key];
+  const inside = compartmentInside(co);
+  const open = inside === 'open';
+  return {
+    scoop: open ? (co?.scoop ?? info.opts.scoop) : 0,
+    label: open ? (co?.label ?? info.opts.label) : ('none' as const),
+    floor: inside === 'tools' || inside === 'solid' ? 0 : (co?.floor ?? 0),
+    own: !!co,
+    inside,
+  };
 }
 
 /** The selection, restricted to walls/compartments that exist in this bin right now. */

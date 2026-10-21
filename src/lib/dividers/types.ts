@@ -12,6 +12,7 @@
  * the same compartments the old `divX × divY` code produced.
  */
 import type { LabelStyle } from '../geometry/bin';
+import type { BinVariantOptions } from '../geometry/variants';
 import { DIVIDER } from '../geometry/spec';
 
 /** 'v' walls run front→back and sit at an x position; 'h' walls run left→right at a y position. */
@@ -46,6 +47,23 @@ export interface DividerWall {
   removable?: boolean;
 }
 
+/**
+ * What fills a compartment:
+ * - open: an empty compartment (scoop, label tab, floor shape).
+ * - pockets: filled solid to the pocket depth, with its own pocket grid.
+ * - tools: filled solid, with the bin's tool cutouts cut only inside it.
+ * - solid: filled flat to the top (a blank / spacer).
+ */
+export type CompartmentInside = 'open' | 'pockets' | 'tools' | 'solid';
+/** Floor of an open compartment: flat, a ramp, or steps like stadium seating. */
+export type FloorShape = 'flat' | 'ramp' | 'tiers';
+/** The side a ramp or the steps rise toward. */
+export type FloorHigh = 'back' | 'front' | 'left' | 'right';
+/** Every pocket-grid field of the bin options (`pocketShape`, `pocketW`, …). */
+export type PocketField = Extract<keyof BinVariantOptions, `pocket${string}`>;
+/** A compartment's pocket settings, over the bin's own pocket fields. */
+export type CompartmentPockets = Partial<Pick<BinVariantOptions, PocketField>>;
+
 /** Per-compartment overrides. Undefined fields use the bin-level setting. */
 export interface CompartmentOptions {
   /** 0..1, like BinOptions.scoop. */
@@ -55,6 +73,18 @@ export interface CompartmentOptions {
   floor?: number;
   /** Text on this compartment's label tab (else the bin's `labelText`). */
   labelText?: string;
+  /** Undefined = 'open'. Filled insides get no scoop, label tab or floor shape. */
+  inside?: CompartmentInside;
+  /** 'pockets': settings over the bin's pocket fields. */
+  pockets?: CompartmentPockets;
+  /** Undefined = 'flat'. */
+  floorShape?: FloorShape;
+  /** How far the high side of a ramp / the top step rises above the floor (mm). */
+  floorRise?: number;
+  /** Undefined = 'back' (parts slide toward the front scoop). */
+  floorHigh?: FloorHigh;
+  /** Number of steps (2–6), for 'tiers'. */
+  tiers?: number;
 }
 
 export interface DividerLayout {

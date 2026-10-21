@@ -6,6 +6,7 @@ import { TOOL_DRAG_MIME, ToolThumb } from './CutoutEditor';
 import { binSpec, type PrintJob } from '../lib/project';
 import { binSize } from '../lib/geometry/bin';
 import { cutoutArea, cutoutStyle, type CutoutStyle } from '../lib/geometry/cutouts';
+import { usesToolCompartments } from '../lib/geometry/compartments';
 import {
   binOptsForTools,
   cutoutFromTool,
@@ -48,7 +49,7 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
     const list = sel.opts.cutouts ?? [];
     const spot = findFreePlacement(list, t, cutoutArea(w, d, sel.opts.lip, sel.opts.lipStyle));
     const added = cutoutFromTool(t, spot.x, spot.y, spot.rotation);
-    updateBin(sel.id, { opts: { interior: 'cutouts', cutouts: [...list, added] } });
+    updateBin(sel.id, { opts: { interior: usesToolCompartments(sel.opts) ? 'compartments' : 'cutouts', cutouts: [...list, added] } });
     setUI({ binPane: 'cutouts' });
     setMsg(list.some((c) => pocketsClash(c, added)) ? `No free room for “${t.name}” in this bin: it was put in the middle. Move things around, or make the bin bigger.` : null);
   };
@@ -167,7 +168,7 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
         )}
         {msg && <div className="field-error">{msg}</div>}
       </Section>
-      {sel?.opts.interior === 'cutouts' ? <PocketSettings binId={sel.id} style={cutoutStyle(sel.opts)} count={sel.opts.cutouts?.length ?? 0} /> : null}
+      {sel && (sel.opts.interior === 'cutouts' || usesToolCompartments(sel.opts)) ? <PocketSettings binId={sel.id} style={cutoutStyle(sel.opts)} count={sel.opts.cutouts?.length ?? 0} /> : null}
       {dialog && <TraceDialog initialTab={dialog} onClose={() => setDialog(null)} />}
     </>
   );
