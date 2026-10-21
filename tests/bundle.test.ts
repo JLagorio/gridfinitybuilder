@@ -23,7 +23,7 @@ const root = resolve(__dirname, '..');
  * panels that draw codes, the geometry only with the mesh builders. Vase-mode bins' planning (and,
  * like every container type, geometry) is on the first screen too: ~7 kB, 567 kB in all.
  * Multi-colour planning (colours.ts, colourPlan.ts, plates by colour) and the 3D view's filament
- * colours and bands are on it too, ~26 kB (593 kB in all); the Colours section, its palette,
+ * colours and bands are on it too, ~27 kB (594 kB in all); the Colours section, its palette,
  * presets, texts and checks load with the print tab.
  */
 const FIRST_SCREEN_BUDGET = 600_000;
