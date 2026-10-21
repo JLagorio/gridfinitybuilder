@@ -14,3 +14,8 @@ import './kinds/toolRack';
 import './kinds/cradle';
 import './kinds/plate';
 import './kinds/rail';
+import './kinds/ledBar';
+import './kinds/cableClip';
+import './kinds/cableChannel';
+import './kinds/powerStrip';
+import './kinds/cableComb';

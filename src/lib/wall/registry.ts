@@ -111,7 +111,7 @@ export interface AttachmentHardware {
   note?: string;
 }
 
-export type AttachmentGroup = 'hooks' | 'storage' | 'gridfinity' | 'containers' | 'shelves' | 'tools' | 'devices' | 'board' | 'other';
+export type AttachmentGroup = 'hooks' | 'storage' | 'gridfinity' | 'containers' | 'shelves' | 'tools' | 'devices' | 'board' | 'other' | 'power';
 
 export interface AttachmentDef<O extends object = Record<string, unknown>> {
   type: string;

@@ -13,3 +13,8 @@ import './kinds/toolRack.ui';
 import './kinds/cradle.ui';
 import './kinds/plate.ui';
 import './kinds/rail.ui';
+import './kinds/ledBar.ui';
+import './kinds/cableClip.ui';
+import './kinds/cableChannel.ui';
+import './kinds/powerStrip.ui';
+import './kinds/cableComb.ui';

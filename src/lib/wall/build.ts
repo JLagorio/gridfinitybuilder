@@ -17,6 +17,11 @@ import { toolRackBuilder } from './kinds/toolRack.geom';
 import { cradleBuilder } from './kinds/cradle.geom';
 import { plateBuilder } from './kinds/plate.geom';
 import { railBuilder } from './kinds/rail.geom';
+import { ledBarBuilder } from './kinds/ledBar.geom';
+import { cableClipBuilder } from './kinds/cableClip.geom';
+import { cableChannelBuilder } from './kinds/cableChannel.geom';
+import { powerStripBuilder } from './kinds/powerStrip.geom';
+import { cableCombBuilder } from './kinds/cableComb.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -40,6 +45,11 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   cradle: cradleBuilder as AttachmentBuilder<never>,
   plate: plateBuilder as AttachmentBuilder<never>,
   rail: railBuilder as AttachmentBuilder<never>,
+  ledBar: ledBarBuilder as AttachmentBuilder<never>,
+  cableClip: cableClipBuilder as AttachmentBuilder<never>,
+  cableChannel: cableChannelBuilder as AttachmentBuilder<never>,
+  powerStrip: powerStripBuilder as AttachmentBuilder<never>,
+  cableComb: cableCombBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
