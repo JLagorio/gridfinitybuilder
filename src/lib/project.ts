@@ -82,6 +82,10 @@ import {
   type PieceEnclosure,
 } from './enclosures';
 import { stackPlaces, stackWarnings } from './stacking';
+import { specRole as specRoleOf, splitByRoles } from './geometry/colourRegions';
+import type { ColourOverride, ColourRole, ColourSetupFields } from './colours';
+import { cleanSlot, colourSetupOf } from './colours';
+import { groupName, plateGroup, plateGroups, soloGroup, tagColours, useSplitMeshes } from './colourPlan';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
 export interface PlacedBin {
@@ -164,7 +168,9 @@ export type MeshSpec =
   /** An extra part of a drawer unit, parts box, … (containers/). */
   | { kind: 'container'; key: string; type: ContainerType; spec: unknown }
   /** Case lid, hinge pin, handle, foot, spacer strip, wall cleat (enclosures.ts); `view` poses it for the drawer view. */
-  | { kind: 'enclosure'; key: string; part: EnclosurePart; view?: EnclosureView };
+  | { kind: 'enclosure'; key: string; part: EnclosurePart; view?: EnclosureView }
+  /** `base` cut into a volume per colour role (multi-colour 'feature': geometry/colourRegions.ts); key: colours.ts splitMeshKey. */
+  | { kind: 'split'; key: string; base: MeshSpec };
 
 export interface JobPart {
   key: string;
@@ -184,6 +190,10 @@ export interface JobPart {
   assembled?: { x: number; y: number; z: number };
   /** Container parts: the placed bin they belong to. */
   bin?: string;
+  /** Colour role of the part (multi-colour, colours.ts); set by planning. */
+  role?: ColourRole;
+  /** Its bin's or its drawer's own colour over the roles' (colourPlan.ts tagColours). */
+  colour?: ColourOverride;
 }
 
 export interface JobPlate {
@@ -236,6 +246,8 @@ export interface PrintJob {
   printed?: string[];
   /** Parts left out because they're printed already ("only what's changed"). */
   leftOut?: string[];
+  /** Multi-colour (colours.ts): the setup's colour fields the exports and estimates go by; unset when it's off. */
+  colours?: ColourSetupFields;
 }
 
 /** What else planPrint can take into account. */
@@ -250,7 +262,14 @@ export interface PlanPrintOptions {
 
 export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, connectors: ConnectorSite[] = []) {
   const id = o.pieceNumbers ? piece.id : 0; // numbered pieces are all different
-  return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, o, connectors, id])}`;
+  return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, geometryOf(o), connectors, id])}`;
+}
+
+/** Baseplate options without what isn't geometry (its colour), so a colour never changes a mesh. */
+export function geometryOf(o: BaseplateOptions): BaseplateOptions {
+  if (o.colour === undefined) return o;
+  const { colour: _, ...rest } = o;
+  return rest;
 }
 
 /**
@@ -363,7 +382,10 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
   // Parts printed already ("only what's changed").
   const keep = (it: PackItem) => !skip?.has(it.key);
 
-  for (const d of drawers) {
+  for (const withColour of drawers) {
+    // Its colour is for tagColours below; the geometry never sees it.
+    const d = { ...withColour, baseplate: geometryOf(withColour.baseplate) };
+    const plateColour = cleanSlot(withColour.baseplate.colour);
     const prefix = multi ? `${d.id}/` : '';
     const label = multi ? `${d.name} · ` : '';
     const warn = (msg: string) => warnings.add(multi ? `${d.name}: ${msg}` : msg);
@@ -420,7 +442,13 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       const piecePlates: PlateLayout[] = plan.plates.map((pl) => ({
         placements: pl.placements.map((p) => ({ ...p, key: prefix + p.key })),
       }));
-      const packed = packIntoPlates(piecePlates, keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
+      // Multi-colour (colourPlan.ts): keys in another colour than the pieces get plates of their own.
+      const pieceRole = enc?.kind === 'case' ? 'caseShell' : enc?.kind === 'wall' ? 'wallGrid' : 'plate';
+      const over = plateColour ? { plate: plateColour } : undefined;
+      const apart = soloGroup(setup, 'plateAccent', over) !== soloGroup(setup, pieceRole, over);
+      const packed = apart
+        ? { ...packIntoPlates([], keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true }), plates: piecePlates }
+        : packIntoPlates(piecePlates, keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
       packed.plates.forEach((pl, i) => {
         plates.push({ name: `${label}${enc?.kind === 'case' ? 'Case body' : 'Baseplate'} ${i + 1}`, group: 'baseplate', placements: pl.placements });
       });
@@ -461,7 +489,19 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         items.push({ key: k, w: p.w, d: p.d });
       }
       if (include.baseplate && items.some(keep)) {
-        const packed = packPlates(items.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
+        // Multi-colour (colourPlan.ts): each colour on plates of its own.
+        const encColour = (k: string) => {
+          const p = enc.parts.find((x) => prefix + x.key === k);
+          const spec = p?.part ? meshes[p.meshKey] : undefined;
+          const role = spec ? specRoleOf(spec) : 'plateAccent';
+          return soloGroup(setup, role, plateColour ? { plate: plateColour } : undefined);
+        };
+        const packed = { plates: [] as PlateLayout[], oversize: [] as PackItem[] };
+        for (const [, list] of plateGroups(setup, items.filter(keep), (it) => encColour(it.key), () => 0)) {
+          const one = packPlates(list, { ...bed, spacing: setup.spacing, nest: true });
+          packed.plates.push(...one.plates);
+          packed.oversize.push(...one.oversize);
+        }
         const count = new Map<string, number>();
         const group = (pl: PlateLayout) => enc.parts.find((p) => prefix + p.key === pl.placements[0].key)?.group ?? 'Parts';
         const totals = new Map<string, number>();
@@ -593,6 +633,10 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     }
   }
 
+  // Multi-colour (colours.ts): every part's role and own colour, and 'feature' meshes cut by role.
+  tagColours(parts, meshes, drawers, multi);
+  useSplitMeshes(setup, parts, meshes);
+  const groupOf = (it: PackItem) => plateGroup(setup, parts[it.key], meshes[parts[it.key].meshKey]);
   const several = printers.length > 1;
   // Parts taller than the printer prints are left out, like ones bigger than the bed (the editors keep new ones within both: bedfit.ts).
   const printable = binItems.filter(keep).filter((it) => {
@@ -601,11 +645,17 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     warnings.add(`${p.name} is ${round(p.h)} mm tall, taller than the printer prints (${setup.maxH} mm), and was left out.`);
     return false;
   });
-  if (several) plates.splice(0, plates.length, ...sharePlates(setup, parts, plates, printable, drawerJobs, warnings, opts.seconds));
+  if (several) plates.splice(0, plates.length, ...sharePlates(setup, parts, plates, printable, drawerJobs, warnings, opts.seconds, groupOf));
   else if (printable.length) {
-    const packed = packPlates(printable, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
-    for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
-    packed.plates.forEach((pl, i) => plates.push({ name: `Bins ${i + 1}`, group: 'bins', placements: pl.placements }));
+    // One colour group after another (colourPlan.ts); a single group without multi-colour.
+    const groups = plateGroups(setup, printable, groupOf, (it) => parts[it.key].h);
+    let n = 0;
+    for (const [g, list] of groups) {
+      const packed = packPlates(list, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
+      for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
+      const tag = groups.length > 1 ? ` · ${groupName(setup, g)}` : '';
+      packed.plates.forEach((pl) => plates.push({ name: `Bins ${++n}${tag}`, group: 'bins', placements: pl.placements }));
+    }
   }
   const first = drawerJobs[0];
   return {
@@ -619,6 +669,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     plates,
     warnings: [...warnings],
     ...(several ? { printers: printerNames(setup) } : {}),
+    ...(colourSetupOf(setup) ? { colours: colourSetupOf(setup)! } : {}),
   };
 }
 
@@ -652,6 +703,7 @@ function sharePlates(
   drawerJobs: DrawerJob[],
   warnings: Set<string>,
   seconds?: PlanPrintOptions['seconds'],
+  groupOf: (it: PackItem) => string = () => '',
 ): JobPlate[] {
   const EPS = 1e-6;
   const printers = jobPrinters(setup);
@@ -708,8 +760,12 @@ function sharePlates(
     });
     const mine = binItems.filter((it) => at.get(it.key) === k);
     if (!mine.length) return;
-    const packed = packPlates(mine, beds[k]);
-    packed.plates.forEach((pl) => out.push({ name: `Bins ${++bins}`, group: 'bins', placements: pl.placements, printer: k }));
+    // One colour group after another (colourPlan.ts).
+    const groups = plateGroups(setup, mine, groupOf, (it) => parts[it.key].h);
+    for (const [g, list] of groups) {
+      const tag = groups.length > 1 ? ` · ${groupName(setup, g)}` : '';
+      packPlates(list, beds[k]).plates.forEach((pl) => out.push({ name: `Bins ${++bins}${tag}`, group: 'bins', placements: pl.placements, printer: k }));
+    }
   });
   // The assembly map names the plate (and printer) each piece's plate ended up as.
   for (const dj of drawerJobs) {
@@ -723,6 +779,7 @@ function sharePlates(
 
 /** Build a mesh with its footprint's min corner at the origin and its bottom at z = 0. */
 export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
+  if (spec.kind === 'split') return splitByRoles(w, buildMesh(w, spec.base), spec.base);
   if (spec.kind === 'piece') {
     if (spec.enclosure) return buildEnclosurePiece(w, spec.layout, spec.piece, spec.opts, spec.connectors, spec.enclosure);
     const m = buildBaseplatePiece(w, spec.layout, spec.piece, spec.opts, spec.connectors);
@@ -750,6 +807,13 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
 
 export type MeshLookup = (meshKey: string) => MeshData;
 
+/** The mesh a spec describes, before any colour split ('split' specs: their base). */
+export function baseSpec<S extends MeshSpec | undefined>(spec: S): Exclude<MeshSpec, { kind: 'split' }> | (S extends undefined ? undefined : never) {
+  let s: MeshSpec | undefined = spec;
+  while (s?.kind === 'split') s = s.base;
+  return s as never;
+}
+
 /** A bin with tool pockets whose shadow-board floors print in filament 2 (shadowBoard.ts). */
 function binHasShadow(spec: Extract<MeshSpec, { kind: 'bin' }>): boolean {
   const o = sanitizeBin(spec.opts);
@@ -767,7 +831,7 @@ function binHasShadow(spec: Extract<MeshSpec, { kind: 'bin' }>): boolean {
 export function usesSecondFilament(job: PrintJob): boolean {
   for (const pl of job.plates) {
     for (const p of pl.placements) {
-      const spec = job.meshes[job.parts[p.key].meshKey];
+      const spec = baseSpec(job.meshes[job.parts[p.key].meshKey]);
       if (spec?.kind === 'bin' && binHasShadow(spec)) return true;
       if (spec?.kind === 'label' && spec.plate.style === 'inlaid' && spec.plate.text.trim()) return true;
       // Inlaid tab text (with label plates it's on the plates, unless a tab is too small for one), two-tone or inlaid front labels.

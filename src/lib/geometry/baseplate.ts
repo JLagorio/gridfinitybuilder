@@ -76,6 +76,8 @@ export interface BaseplateOptions {
   pieceNumbers: boolean;
   /** TPU non-slip pads in recesses underneath (pads.ts). Unset = none, so it isn't in DEFAULT_BASEPLATE or old keys. */
   pads?: PadStyle;
+  /** This drawer's baseplate filament slot with multi-colour on (colours.ts); not geometry, so planning drops it from mesh keys. Unset: the Baseplate colour. */
+  colour?: number;
 }
 
 export const DEFAULT_BASEPLATE: BaseplateOptions = {

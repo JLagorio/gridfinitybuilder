@@ -3,9 +3,10 @@ import { lowSideOf } from './geometry/connectors';
 import { maskSet } from './geometry/mask';
 import { binHoleSites } from './geometry/bin';
 import { BP_PROFILE_DEPTH, GRID, PIN, SCREW_JOIN } from './geometry/spec';
-import type { MeshSpec, PrintJob } from './project';
+import { baseSpec, type MeshSpec, type PrintJob } from './project';
 import type { PrintSetup } from './layout/plan';
-import { STANDARD_PROCESS, currencySymbol, formatDuration, formatMoney, plateCost, type CostBreakdown, type PlateEstimate } from './estimate';
+import { STANDARD_PROCESS, currencySymbol, formatDuration, formatMoney, plateCost, slotGrams, type CostBreakdown, type PlateEstimate } from './estimate';
+import { coloursOn, slotLabel, slotPrice } from './colours';
 import { enclosurePartHardware, type EnclosurePartKind } from './enclosures';
 import { printerSetup } from './layout/fleet';
 
@@ -56,6 +57,22 @@ export interface PlateBom {
   cost?: CostBreakdown | null;
   /** The printer it's for, with several (JobPlate.printer). */
   printer?: number;
+  /** Multi-colour (colours.ts): grams, purge and filament cost by palette slot, once sliced. */
+  slots?: SlotBom[];
+  /** Colour changes done by hand (pauses): the printer has fewer slots than the plate uses. */
+  manual?: boolean;
+}
+
+/** One filament slot's share. */
+export interface SlotBom {
+  slot: number;
+  /** "Slot 2 · Black". */
+  name: string;
+  grams: number;
+  /** Purge and prime tower, g. */
+  waste: number;
+  /** Filament and purge at the slot's price. */
+  cost: number;
 }
 
 /** One printer's share of a job printed on several. */
@@ -96,6 +113,8 @@ export interface Bom {
   printers?: PrinterBom[];
   /** With several printers: when the last one is done, s (null until every plate is estimated). */
   finish?: number | null;
+  /** Multi-colour: each filament slot's grams, purge and cost over the job (once every plate is sliced). */
+  filaments?: SlotBom[];
 }
 
 /** Time and cost inputs for billOfMaterials. */
@@ -104,7 +123,7 @@ export interface BomEstimate {
   plates: (PlateEstimate | null)[];
   /** Volume of a mesh's filament-2 bodies (inlaid text), mm³, when known. */
   overlayVolume?: (meshKey: string) => number | undefined;
-  setup: Pick<PrintSetup, 'printerId' | 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'currency' | 'printers'>;
+  setup: Pick<PrintSetup, 'printerId' | 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'currency' | 'printers' | 'filaments' | 'colours'>;
   /** Printer name, for the notes. */
   printer: string;
   /** Every printer's name when the job is for several (PrintJob.printers): the BOM then has each one's share. */
@@ -123,7 +142,8 @@ export function filamentFor(volumeMm3: number) {
 }
 
 /** Holes in one mesh, by kind of hardware. */
-function holesIn(spec: MeshSpec | undefined): { item: string; count: number; note?: string }[] {
+function holesIn(split: MeshSpec | undefined): { item: string; count: number; note?: string }[] {
+  const spec = baseSpec(split);
   if (!spec) return [];
   if (spec.kind === 'enclosure') return enclosurePartHardware(spec.part);
   if (spec.kind === 'piece') {
@@ -234,10 +254,22 @@ export function billOfMaterials(
       out.wasteGrams = est?.wasteGrams ?? 0;
       // Inlaid text prints solid, so its grams are its volume's.
       const g2 = Math.min(out.grams ?? 0, filamentFor(second).grams);
+      const at = printerSetup(estimate.setup, pl.printer ?? 0);
       out.cost =
         est && out.grams !== null
-          ? plateCost({ main: out.grams - g2, second: g2, waste: est.wasteGrams }, est.seconds, printerSetup(estimate.setup, pl.printer ?? 0))
+          ? plateCost({ main: out.grams - g2, second: g2, waste: est.wasteGrams }, est.seconds, at)
           : null;
+      // Multi-colour: each slot's grams in its material, at its price (colours.ts).
+      if (est?.slotVolume && coloursOn(estimate.setup)) {
+        const grams = slotGrams(estimate.setup, est.slotVolume);
+        const waste = est.slotWaste ?? [];
+        out.slots = grams
+          .map((g, slot) => ({ slot, name: slotLabel(estimate.setup, slot), grams: g, waste: waste[slot] ?? 0, cost: ((g + (waste[slot] ?? 0)) * slotPrice(estimate.setup, slot)) / 1000 }))
+          .filter((x) => x.slot > 0 && (x.grams > 0 || x.waste > 0));
+        out.grams = grams.reduce((t, g) => t + g, 0);
+        out.cost = plateCost({ main: 0, second: 0, waste: 0, slots: grams, slotWaste: waste }, est.seconds, at);
+        if (est.manual) out.manual = true;
+      }
     }
     return out;
   });
@@ -255,6 +287,23 @@ export function billOfMaterials(
     total.seconds = sum((p) => p.seconds);
     total.swaps = plates.reduce((t, p) => t + (p.swaps ?? 0), 0);
     total.wasteGrams = plates.reduce((t, p) => t + (p.wasteGrams ?? 0), 0);
+    // Multi-colour: grams in each slot's material, and each slot's share over the job.
+    if (plates.some((p) => p.slots)) {
+      if (plates.every((p) => p.grams !== null)) total.grams = plates.reduce((t, p) => t + p.grams!, 0);
+      if (plates.every((p) => p.slots)) {
+        const by = new Map<number, SlotBom>();
+        for (const p of plates) {
+          for (const x of p.slots!) {
+            const y = by.get(x.slot) ?? { ...x, grams: 0, waste: 0, cost: 0 };
+            y.grams += x.grams;
+            y.waste += x.waste;
+            y.cost += x.cost;
+            by.set(x.slot, y);
+          }
+        }
+        bom.filaments = [...by.values()].sort((a, b) => a.slot - b.slot);
+      }
+    }
     const filament = sum((p) => p.cost?.filament);
     const energy = sum((p) => p.cost?.energy);
     total.cost = filament === null || energy === null ? null : { filament, energy, total: filament + energy };
@@ -356,6 +405,7 @@ export function bomCsv(b: Bom): string {
     const slow = slowestPrinter(b);
     rows.push(['Done', 'All printers done', '', '', '', '', minutes({ seconds: b.finish }), '', slow ? `when the ${slow.name} finishes` : '']);
   }
+  for (const x of b.filaments ?? []) rows.push(['Filament', x.name, '', '', r1(x.grams), '', '', money(x.cost), x.waste ? `${r1(x.waste)} g purged` : '']);
   if (b.estimate && t.cost) {
     rows.push(['Cost', 'Filament', '', '', '', '', '', money(t.cost.filament), '']);
     if (b.estimate.electricity) rows.push(['Cost', 'Electricity', '', '', '', '', '', money(t.cost.energy), '']);
@@ -397,6 +447,13 @@ export function bomText(b: Bom): string {
   const on = (p: PlateBom) => (b.printers ? `, on the ${b.printers[p.printer ?? 0]?.name}` : '');
   b.plates.forEach((p, i) => lines.push(`  ${i + 1}. ${p.name}${on(p)}: ${p.parts} parts, ${fil(p)}${extra(p)}`));
   lines.push('', `Filament total: ${fil(b.total)}`, `  ${filamentNote()}`);
+  if (b.filaments?.length) {
+    lines.push('', 'Filament by slot');
+    for (const x of b.filaments) {
+      const cost = b.estimate ? `, ${formatMoney(x.cost, b.estimate.currency)}` : '';
+      lines.push(`  ${x.name}: ${Math.round(x.grams)} g${x.waste ? ` + ${Math.round(x.waste * 10) / 10} g purged` : ''}${cost}`);
+    }
+  }
   if (est) {
     const t = b.total;
     lines.push('', `Print time total: ${t.seconds === null || t.seconds === undefined ? 'not estimated yet' : `about ${formatDuration(t.seconds)}`}`);

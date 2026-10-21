@@ -3,6 +3,7 @@ import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import { cloneMesh, type MeshData, type Wasm } from '../lib/geometry/kernel';
 import { buildMesh, type MeshSpec, type PrintJob } from '../lib/project';
+import { splitByRoles } from '../lib/geometry/colourRegions';
 import { printedVolume } from '../lib/geometry/volume';
 import type { MeshPrintStats } from '../lib/estimate';
 import type { WorkerRequest, WorkerResponse } from './protocol';
@@ -39,7 +40,7 @@ function fontReady() {
 }
 
 /** Baseplate pieces (without case walls) and connector keys never have text: they don't wait for the font. */
-const textFree = (spec: MeshSpec) => (spec.kind === 'piece' && !spec.enclosure) || spec.kind === 'key';
+const textFree = (spec: MeshSpec): boolean => (spec.kind === 'piece' && !spec.enclosure) || spec.kind === 'key' || (spec.kind === 'split' && textFree(spec.base));
 
 /** The file writers (3MF, Bambu, STL, STEP, zips) and the slicer, loaded on the first request that needs them. */
 let writers: Promise<typeof import('./writers')> | null = null;
@@ -81,9 +82,11 @@ async function meshFor(spec: MeshSpec): Promise<MeshData> {
   const hit = getCached(spec.key);
   if (hit) return hit;
   const text = textFree(spec) ? null : fontReady();
+  // A part split by colour role (multi-colour 'feature') starts from its cached whole mesh.
+  const base = spec.kind === 'split' ? await meshFor(spec.base) : null;
   const w = await wasmReady;
   await text;
-  const mesh = buildMesh(w, spec);
+  const mesh = spec.kind === 'split' ? splitByRoles(w, base!, spec.base) : buildMesh(w, spec);
   cache.set(spec.key, mesh);
   volumes.set(spec.key, printedVolume(mesh));
   while (volumes.size > MAX_VOLUMES) volumes.delete(volumes.keys().next().value!);

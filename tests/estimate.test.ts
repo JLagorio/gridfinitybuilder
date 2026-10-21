@@ -377,8 +377,12 @@ describe('setup migration', () => {
     expect(s.currency).toBe('€');
     expect(s.filamentPrice2).toBeUndefined();
     expect(s.printerWatts).toBeUndefined();
-    expect(cleanSetup({ filamentPrice2: 35, printerWatts: 140, currency: 'kr', kwhPrice: 0.2 })).toMatchObject({
-      filamentPrice2: 35,
+    expect(s.filaments).toBeUndefined();
+    // Filament 2's price moves into the palette's slot 2 (colours.ts).
+    const kept = cleanSetup({ filamentPrice2: 35, printerWatts: 140, currency: 'kr', kwhPrice: 0.2 });
+    expect('filamentPrice2' in kept).toBe(false);
+    expect(kept.filaments?.[1].price).toBe(35);
+    expect(kept).toMatchObject({
       printerWatts: 140,
       currency: 'kr',
       kwhPrice: 0.2,

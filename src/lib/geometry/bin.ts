@@ -110,6 +110,8 @@ export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAcces
   container?: ContainerKind;
   /** Each container type's options, kept while another type is active. */
   containers?: Partial<Record<ContainerType, unknown>>;
+  /** The bin's own filament slot with multi-colour on (colours.ts): its body, lid, dividers and trays; not its label text. Not geometry (binKey leaves it out). */
+  colour?: number;
 }
 
 export const DEFAULT_BIN: BinOptions = {

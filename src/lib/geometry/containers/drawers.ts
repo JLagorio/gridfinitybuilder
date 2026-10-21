@@ -464,6 +464,21 @@ function pullLayout(p: DrawerSpec, cx: number, below: boolean, narrow = false): 
   return { grip: { x0: cx - gw / 2, x1: cx + gw / 2, z0, h, depth }, label: band(z0 - m) };
 }
 
+/**
+ * Where a drawer part's pull stands out of its front, in the part's mesh
+ * frame (front face at y = oy): for colouring the pull apart
+ * (colourRegions.ts). Null for pulls cut into the front (notch, grip).
+ */
+export function drawerPullBox(p: DrawerSpec): { x0: number; x1: number; z0: number; z1: number; y: number } | null {
+  const f = frontLayout(p);
+  if (f.tab) return { x0: f.tab.x0 + p.ox, x1: f.tab.x1 + p.ox, z0: f.tab.zUnder - p.reach - 1, z1: p.h + 1, y: p.oy };
+  if (f.knob) {
+    const r = f.knob.r + 1;
+    return { x0: f.knob.cx - r + p.ox, x1: f.knob.cx + r + p.ox, z0: Math.max(0, f.knob.zc - Math.SQRT2 * f.knob.r - 1), z1: f.knob.zc + r, y: p.oy };
+  }
+  return null;
+}
+
 /** Width the pull takes on the face. */
 function pullWidth(f: FrontLayout): number {
   if (f.notch) return 2 * f.notch.rx;
