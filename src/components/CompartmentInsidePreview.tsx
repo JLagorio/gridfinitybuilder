@@ -15,15 +15,15 @@ const LINE = 'rgba(205, 213, 224, 0.32)';
 const HATCH = 'rgba(205, 213, 224, 0.16)';
 const TOOL = 'rgba(245, 165, 36, 0.55)';
 
-/** Pocket grid of a pocket compartment, in cavity mm. */
+/** Pocket grid of a pocket compartment, in cavity mm: each pocket's mouth center and size (graduated sets vary). */
 function usePockets(info: BinInterior, c: Compartment, on: boolean) {
   return useMemo(() => {
-    if (!on) return { centers: [] as [number, number][], hexFlatX: true };
+    if (!on) return { places: [] as { x: number; y: number; w: number; d: number }[], hexFlatX: true };
     const layouts = binCompartmentPockets(info.opts, info.cells, c);
     const dx = info.size.w / 2;
     const dy = info.size.d / 2;
     return {
-      centers: layouts.flatMap((L) => L.centers.map(([x, y]) => [x + dx, y + dy] as [number, number])),
+      places: layouts.flatMap((L) => L.pockets.map((p) => ({ x: p.x + dx, y: p.y + dy, w: p.w, d: p.d }))),
       hexFlatX: layouts[0]?.hexFlatX ?? true,
     };
   }, [info, c, on]);
@@ -32,7 +32,7 @@ function usePockets(info: BinInterior, c: Compartment, on: boolean) {
 /** Pocket count, or a word for the other insides and floor shapes (for the compartment's badge). */
 export function useInsideBadge(info: BinInterior, c: Compartment): string | null {
   const o = compartmentOptions(info, c.key);
-  const n = usePockets(info, c, o.inside === 'pockets').centers.length;
+  const n = usePockets(info, c, o.inside === 'pockets').places.length;
   if (o.inside === 'pockets') return `${n} pocket${n === 1 ? '' : 's'}`;
   if (o.inside === 'tools') return 'tools';
   if (o.inside === 'solid') return 'solid';
@@ -54,20 +54,18 @@ export function CompartmentInsidePreview({ c, info, sy }: { c: Compartment; info
   if (o.inside === 'pockets') {
     const p = compartmentPocketOpts(info.opts, co);
     const style = { fill: 'rgba(8, 10, 14, 0.3)', stroke: LINE, strokeWidth: 1 };
-    pockets.centers.forEach(([x, y], k) => {
+    pockets.places.forEach(({ x, y, w: pw, d: pd }, k) => {
       if (p.pocketShape === 'square') {
-        content.push(
-          <rect key={k} x={x - p.pocketW / 2} y={sy(y + p.pocketD / 2)} width={p.pocketW} height={p.pocketD} style={style} vectorEffect="non-scaling-stroke" />,
-        );
+        content.push(<rect key={k} x={x - pw / 2} y={sy(y + pd / 2)} width={pw} height={pd} style={style} vectorEffect="non-scaling-stroke" />);
       } else if (p.pocketShape === 'hex') {
-        const R = p.pocketW / Math.sqrt(3);
+        const R = pw / Math.sqrt(3);
         const a0 = pockets.hexFlatX ? 30 : 0;
         const pts = Array.from({ length: 6 }, (_, i) => {
           const a = ((a0 + 60 * i) * Math.PI) / 180;
           return `${x + R * Math.cos(a)},${sy(y + R * Math.sin(a))}`;
         }).join(' ');
         content.push(<polygon key={k} points={pts} style={style} vectorEffect="non-scaling-stroke" />);
-      } else content.push(<circle key={k} cx={x} cy={sy(y)} r={p.pocketW / 2} style={style} vectorEffect="non-scaling-stroke" />);
+      } else content.push(<circle key={k} cx={x} cy={sy(y)} r={pw / 2} style={style} vectorEffect="non-scaling-stroke" />);
     });
   } else if (o.inside === 'tools' || o.inside === 'solid') {
     // Diagonal hatch on a fixed grid, so the strips of an L-shaped compartment line up.
