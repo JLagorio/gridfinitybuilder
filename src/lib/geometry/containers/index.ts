@@ -4,3 +4,5 @@
  */
 export * from './registry';
 export { containerBase, containerRing } from './base';
+import './rack';
+import './dispenser';
