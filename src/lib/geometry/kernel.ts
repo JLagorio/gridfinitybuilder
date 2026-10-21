@@ -1,4 +1,5 @@
 import type { Manifold, ManifoldToplevel, Vec2, Vec3 } from 'manifold-3d';
+import type { ColourRole } from '../colours';
 
 export type Wasm = ManifoldToplevel;
 export type { Manifold, Vec2, Vec3 };
@@ -9,6 +10,34 @@ export interface MeshData {
   positions: Float32Array;
   /** vertex indices, three per triangle, CCW from outside */
   indices: Uint32Array;
+  /**
+   * Extra bodies that belong to the same part but print in another filament
+   * (e.g. inlaid label text). They touch the main body without overlapping it.
+   */
+  overlays?: OverlayPart[];
+  /**
+   * Colour role of the main body when it's one volume of a part split by role
+   * (geometry/colourRegions.ts); unset: the part's own role.
+   */
+  role?: ColourRole;
+}
+
+export interface OverlayPart {
+  name: string;
+  /** 1-based filament slot (1 = the part's own filament) while multi-colour is off. */
+  filament: number;
+  /** Colour role (colours.ts) with multi-colour on; unset: filament 2's bodies are the label text's. */
+  role?: ColourRole;
+  positions: Float32Array;
+  indices: Uint32Array;
+}
+
+/** Deep copy (for sending a cached mesh across a worker boundary). */
+export function cloneMesh(m: MeshData): MeshData {
+  const out: MeshData = { positions: m.positions.slice(), indices: m.indices.slice() };
+  if (m.role) out.role = m.role;
+  if (m.overlays?.length) out.overlays = m.overlays.map((o) => ({ ...o, positions: o.positions.slice(), indices: o.indices.slice() }));
+  return out;
 }
 
 export interface Bounds3 {
@@ -69,13 +98,14 @@ export function meshBounds(mesh: MeshData): Bounds3 {
   return { min, max };
 }
 
-/** Translate a mesh in place. */
+/** Translate a mesh (and its overlays) in place. */
 export function translateMesh(mesh: MeshData, dx: number, dy: number, dz: number): MeshData {
-  const p = mesh.positions;
-  for (let i = 0; i < p.length; i += 3) {
-    p[i] += dx;
-    p[i + 1] += dy;
-    p[i + 2] += dz;
+  for (const p of [mesh.positions, ...(mesh.overlays ?? []).map((o) => o.positions)]) {
+    for (let i = 0; i < p.length; i += 3) {
+      p[i] += dx;
+      p[i + 1] += dy;
+      p[i + 2] += dz;
+    }
   }
   return mesh;
 }

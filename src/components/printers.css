@@ -1,0 +1,78 @@
+/* ---------- several printers, and reprinting only what changed ---------- */
+
+.more-printers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.more-printers > button {
+  align-self: flex-start;
+}
+.printer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.printer-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12.5px;
+}
+.printer-card-head .link {
+  font-size: 12.5px;
+}
+
+/* The plate list, grouped by printer. */
+.plate-printer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.plate-printer span {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.bom-table td + td,
+.bom-table th + th {
+  padding-left: 6px;
+}
+.bom-table tr.bom-printer td {
+  color: var(--muted);
+  font-weight: 600;
+  padding-top: 8px;
+}
+.bom-table tr.bom-finish td {
+  color: var(--accent);
+}
+
+/* Printed parts (printed.ts). */
+.only-changed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plate-printed {
+  font-size: 12px;
+  color: var(--muted);
+}
+.plate-printed.done {
+  color: var(--ok);
+}
+.plate-meta .plate-printed .link {
+  font-size: 12px;
+}
+.ge-bin text.ge-printed {
+  fill: var(--ok);
+  font-weight: 700;
+}
+.ge-bin text.ge-printed.changed {
+  fill: var(--accent);
+}

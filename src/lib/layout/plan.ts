@@ -1,5 +1,9 @@
 import type { GridLayout } from './drawer';
-import { packPlates, type PackItem, type PlateLayout } from './pack';
+import { clearAreas, packPlates, plateBed, type PackItem, type PlateLayout } from './pack';
+import { cleanPrinters, type PrinterSetup } from './fleet';
+import { cleanColourFields, type ColourSetup, type FilamentSlot } from '../colours';
+
+export type { PlateLayout };
 import {
   axisCuts,
   balanceScore,
@@ -26,7 +30,42 @@ export interface PrintSetup {
   splitMargins: boolean;
   /** Put several baseplate pieces on one plate when they fit. */
   nest: boolean;
+  /**
+   * @deprecated Filament 2's colour before the palette: cleanSetup moves it into `filaments[1]`.
+   * Setups that skip cleanSetup still get it as slot 2 (colours.ts paletteOf).
+   */
+  labelColour?: string;
+  /** Filament price per kg, in `currency`: every slot's that doesn't have its own. */
+  filamentPrice?: number;
+  /** @deprecated Filament 2's price before the palette: cleanSetup moves it into `filaments[1].price`. */
+  filamentPrice2?: number;
+  /** Filament palette, slot 1 first (colours.ts); unset: the default palette. Slot 2 prints label inlays. */
+  filaments?: FilamentSlot[];
+  /** Multi-colour printing (colours.ts); unset: off. */
+  colours?: ColourSetup;
+  /** Filament slots the printer feeds by itself (AMS slots, toolheads); unset: the printer's own (printers.ts). */
+  filamentSlots?: number;
+  /** Currency symbol for costs; empty: guessed from the browser's language. */
+  currency?: string;
+  /** Electricity price per kWh; 0 leaves electricity out of the cost. */
+  kwhPrice?: number;
+  /** Printer power draw while printing, W; unset: the printer's typical draw. */
+  printerWatts?: number;
+  /** Nozzle diameter, mm (one of NOZZLES); unset: DEFAULT_NOZZLE. The print checks size lines and fits by it. */
+  nozzle?: number;
+  /**
+   * More printers that share the job (fleet.ts); the fields above are the
+   * first one's. Unset: just the one printer.
+   */
+  printers?: PrinterSetup[];
+  /** The printer the baseplate is split for and printed on (0 = the first); unset: the biggest, and its plates may go to any printer that takes them. */
+  baseplatePrinter?: number;
 }
+
+/** Nozzle sizes the printer section offers, mm. */
+export const NOZZLES = [0.2, 0.4, 0.6, 0.8] as const;
+/** What every Bambu profile here is set up for. */
+export const DEFAULT_NOZZLE = 0.4;
 
 export const DEFAULT_SETUP: PrintSetup = {
   printerId: 'p2s',
@@ -38,7 +77,36 @@ export const DEFAULT_SETUP: PrintSetup = {
   splitStyle: 'auto',
   splitMargins: false,
   nest: true,
+  filamentPrice: 20,
+  currency: '',
+  kwhPrice: 0,
 };
+
+/**
+ * A saved setup with the cost fields filled in and checked (projects saved
+ * before they existed, or edited by hand). Other fields pass through.
+ */
+export function cleanSetup(saved: Partial<PrintSetup> | null | undefined, base: PrintSetup = DEFAULT_SETUP): PrintSetup {
+  const s = { ...base, ...(saved ?? {}) } as PrintSetup;
+  const price = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(v, max) : undefined);
+  s.filamentPrice = price(s.filamentPrice, 100000) ?? DEFAULT_SETUP.filamentPrice;
+  s.kwhPrice = price(s.kwhPrice, 1000) ?? 0;
+  s.currency = typeof s.currency === 'string' ? s.currency.trim().slice(0, 4) : '';
+  // The palette, colour roles and AMS slots; the old label filament moves into slot 2 (colours.ts).
+  cleanColourFields(s);
+  const watts = price(s.printerWatts, 5000);
+  if (watts === undefined || watts === 0) delete s.printerWatts;
+  else s.printerWatts = watts;
+  // Only a size the field offers is kept; the default stays unset, like projects saved before it existed.
+  if (!NOZZLES.some((n) => n === s.nozzle) || s.nozzle === DEFAULT_NOZZLE) delete s.nozzle;
+  // More printers (fleet.ts): only kept when there are some, so older setups stay as they were.
+  const printers = cleanPrinters(s.printers);
+  if (printers) s.printers = printers;
+  else delete s.printers;
+  const bp = s.baseplatePrinter;
+  if (!printers || !(typeof bp === 'number' && Number.isInteger(bp) && bp >= 0 && bp <= printers.length)) delete s.baseplatePrinter;
+  return s;
+}
 
 export interface BaseplatePlan {
   pieces: PieceDef[];
@@ -49,6 +117,18 @@ export interface BaseplatePlan {
 }
 
 const pieceKey = (id: number) => `piece:${id}`;
+
+export interface PlanOptions {
+  /** How far a piece can stick out past its right / back edge (puzzle tabs), mm. */
+  protrude?: number;
+  /** Pieces to leave out (nothing to print, e.g. fully cut-out blocked cells). */
+  skip?: (p: PieceDef) => boolean;
+}
+
+/** Printed footprint of a piece, including anything that sticks out past its right / back edge. */
+export function pieceFootprint(p: PieceDef, protrude = 0): { w: number; d: number } {
+  return { w: p.x1 - p.x0 + (p.outer.right ? 0 : protrude), d: p.y1 - p.y0 + (p.outer.back ? 0 : protrude) };
+}
 
 function greedyFromEnd(total: number, cuts: number[], maxLen: number): AxisPartition | null {
   const mirrored = cuts.map((c) => total - c).reverse();
@@ -74,22 +154,33 @@ function candidatesFor(total: number, cuts: number[], maxLen: number, style: Spl
 /**
  * Split the baseplate into pieces that fit the printer and lay them out on plates.
  * 'auto' tries every minimum-piece split and keeps the one needing the fewest plates.
+ * Where the printer keeps part of its bed free (printers.ts `exclude`), every
+ * piece fits beside or behind that area, clear of it by the spacing.
  */
-export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplatePlan {
-  const UW = setup.bedW - 2 * setup.plateMargin;
-  const UD = setup.bedD - 2 * setup.plateMargin;
+export function planBaseplate(layout: GridLayout, setup: PrintSetup, opts: PlanOptions = {}): BaseplatePlan {
+  const protrude = opts.protrude ?? 0;
+  const keep = (p: PieceDef) => !opts.skip?.(p);
+  const UW = setup.bedW - 2 * setup.plateMargin - protrude;
+  const UD = setup.bedD - 2 * setup.plateMargin - protrude;
   if (UW <= 0 || UD <= 0) return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Bed margin leaves no room.' };
   if (layout.plateW <= 0 || layout.plateD <= 0)
     return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Drawer is too small for a baseplate.' };
 
-  const orientations: [number, number][] = [[UW, UD]];
-  if (Math.abs(UW - UD) > 1e-6) orientations.push([UD, UW]);
+  const bed = plateBed(setup);
+  // The biggest piece, either way round: the usable bed, or where the printer keeps an area free, the part of it beside or behind the area (pack.ts clearAreas).
+  const orientations: [number, number][] = [];
+  for (const a of clearAreas({ ...bed, spacing: setup.spacing })) {
+    for (const o of [[a.w - protrude, a.d - protrude] as [number, number], [a.d - protrude, a.w - protrude] as [number, number]]) {
+      if (o[0] > 0 && o[1] > 0 && !orientations.some((p) => Math.abs(p[0] - o[0]) <= 1e-6 && Math.abs(p[1] - o[1]) <= 1e-6)) orientations.push(o);
+    }
+  }
+  if (!orientations.length) return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Bed margin leaves no room.' };
 
   type Cand = { xs: AxisPartition; ys: AxisPartition; score: number[] };
   let best: Cand | null = null;
   for (const [maxX, maxY] of orientations) {
-    const cutsX = axisCuts(layout.originX, layout.nx, layout.pitchX, layout.plateW, maxX, setup.splitMargins);
-    const cutsY = axisCuts(layout.originY, layout.ny, layout.pitchY, layout.plateD, maxY, setup.splitMargins);
+    const cutsX = axisCuts(layout.xs, layout.plateW, maxX, setup.splitMargins);
+    const cutsY = axisCuts(layout.ys, layout.plateD, maxY, setup.splitMargins);
     const xsList = candidatesFor(layout.plateW, cutsX, maxX, setup.splitStyle);
     const ysList = candidatesFor(layout.plateD, cutsY, maxY, setup.splitStyle);
     for (const xs of xsList) {
@@ -97,13 +188,10 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplateP
         const nPieces = (xs.length - 1) * (ys.length - 1);
         let nPlates = nPieces;
         if (setup.splitStyle === 'auto' && setup.nest && nPieces > 1) {
-          const items: PackItem[] = makePieces(layout, xs, ys).map((p) => ({
-            key: pieceKey(p.id),
-            w: p.x1 - p.x0,
-            d: p.y1 - p.y0,
-          }));
-          nPlates = packPlates(items, { ...setup, bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin }).plates
-            .length;
+          const items: PackItem[] = makePieces(layout, xs, ys)
+            .filter(keep)
+            .map((p) => ({ key: pieceKey(p.id), ...pieceFootprint(p, protrude) }));
+          nPlates = packPlates(items, { ...bed, spacing: setup.spacing, nest: setup.nest }).plates.length;
         }
         const score = [nPlates, nPieces, balanceScore(xs) + balanceScore(ys)];
         if (!best || lexLess(score, best.score)) best = { xs, ys, score };
@@ -119,10 +207,10 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplateP
       error: 'Could not split the baseplate to fit this bed. Try allowing margin splits or a larger printer.',
     };
   }
-  const pieces = makePieces(layout, best.xs, best.ys);
+  const pieces = makePieces(layout, best.xs, best.ys).filter(keep);
   const { plates } = packPlates(
-    pieces.map((p) => ({ key: pieceKey(p.id), w: p.x1 - p.x0, d: p.y1 - p.y0 })),
-    { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, spacing: setup.spacing, nest: setup.nest },
+    pieces.map((p) => ({ key: pieceKey(p.id), ...pieceFootprint(p, protrude) })),
+    { ...bed, spacing: setup.spacing, nest: setup.nest },
   );
   return { pieces, plates, cols: best.xs.length - 1, rows: best.ys.length - 1 };
 }
@@ -145,12 +233,25 @@ export function connectorSteps(keys: number): string[] {
 }
 
 /** Text map of which piece covers which cell — handy taped inside the drawer. */
-export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKeys = 0): string {
+export function assemblyMap(
+  layout: GridLayout,
+  plan: BaseplatePlan,
+  connectorKeys = 0,
+  plateOffset = 0,
+  /** Extra assembly notes (joints without keys). */
+  steps: string[] = [],
+  /** What to call each of `plan.plates` ("Plate 3 (Bambu Lab A1 mini)"), when they aren't numbered from `plateOffset` in turn. */
+  plateNames?: string[],
+): string {
   const lines: string[] = [];
   lines.push('BASEPLATE ASSEMBLY MAP');
   lines.push('='.repeat(40));
   lines.push(`Baseplate: ${fmt(layout.plateW)} × ${fmt(layout.plateD)} mm`);
-  lines.push(`Grid: ${layout.nx} × ${layout.ny} cells (${layout.pitchX} mm)`);
+  const partial = [...layout.xs.slice(1).map((v, i) => v - layout.xs[i]), ...layout.ys.slice(1).map((v, i) => v - layout.ys[i])].some(
+    (v) => Math.abs(v - layout.pitchX) > 1e-6 && Math.abs(v - layout.pitchY) > 1e-6,
+  );
+  const half = layout.halfGrid ? ' half grid' : '';
+  lines.push(`Grid: ${layout.nx} × ${layout.ny} cells (${layout.pitchX} mm${half}${partial ? ', with partial edge cells' : ''})`);
   lines.push(
     `Margins: left ${fmt(layout.margins.left)}, right ${fmt(layout.margins.right)}, front ${fmt(layout.margins.front)}, back ${fmt(layout.margins.back)} mm`,
   );
@@ -164,7 +265,8 @@ export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKe
     let row = String(layout.ny - j).padStart(3) + ' ';
     for (let i = 0; i < layout.nx; i++) {
       const p = plan.pieces.find((pc) => i >= pc.cells.x0 && i < pc.cells.x1 && j >= pc.cells.y0 && j < pc.cells.y1);
-      row += String(p?.id ?? '?').padStart(w + 1);
+      const blocked = layout.mask?.includes(`${i},${j}`);
+      row += String(blocked ? (layout.maskStyle === 'void' ? '.' : '#') : (p?.id ?? '?')).padStart(w + 1);
     }
     lines.push(row);
   }
@@ -177,9 +279,11 @@ export function assemblyMap(layout: GridLayout, plan: BaseplatePlan, connectorKe
     lines.push(`Piece ${p.id}: ${cw} × ${cd} cells, ${fmt(p.x1 - p.x0)} × ${fmt(p.y1 - p.y0)} mm`);
   }
   plan.plates.forEach((pl, i) => {
-    lines.push(`Plate ${i + 1}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
+    lines.push(`${plateNames?.[i] ?? `Plate ${plateOffset + i + 1}`}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
   });
   if (connectorKeys) lines.push('', ...connectorSteps(connectorKeys));
+  if (steps.length) lines.push('', ...steps);
+  if (layout.mask?.length) lines.push('', `Blocked cells: ${layout.mask.length} (${layout.maskStyle === 'void' ? '. = cut out' : '# = solid'}).`);
   return lines.join('\n') + '\n';
 }
 

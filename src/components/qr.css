@@ -1,0 +1,79 @@
+/* QR code section (QrFields.tsx) and the codes on the drawer map. */
+.qr-status {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 8px 0 6px;
+}
+.qr-preview {
+  flex: none;
+  border-radius: 4px;
+}
+/* Light body, dark modules: what a phone sees (scan it off the screen to try it). */
+.qr-preview .qr-body {
+  fill: #f4f3ee;
+}
+.qr-preview .qr-ink {
+  fill: #161616;
+}
+.qr-preview.one-colour .qr-body {
+  fill: #c9c7c0;
+}
+.qr-preview.one-colour .qr-ink {
+  fill: #8f8c84;
+}
+.qr-readout {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  min-width: 0;
+}
+.qr-readout b {
+  color: var(--text);
+  font-weight: 600;
+}
+.qr-readout > div + div {
+  margin-top: 4px;
+}
+.qr-readout .ok {
+  color: var(--ok);
+}
+.qr-readout .bad {
+  color: var(--danger);
+}
+.qr-says {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  max-height: 7.5em;
+  overflow: auto;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  background: var(--panel-3, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* Like the label and contents text boxes (styles.css), in a fixed-width face: links read better. */
+.input-wrap.qr-text textarea {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 7px 9px;
+  outline: none;
+  resize: none;
+  line-height: 1.35;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.qr-problem,
+.qr-tip {
+  margin-top: 6px;
+}
+@media (max-width: 380px) {
+  .qr-status {
+    flex-direction: column;
+  }
+}

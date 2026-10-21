@@ -1,52 +1,120 @@
-import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Vec3, type Wasm } from './kernel';
+import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Wasm } from './kernel';
 import {
-  BASE_HEIGHT,
   BASE_PROFILE,
   BASE_PROFILE_DEPTH,
   BASE_PROFILE_HEIGHT,
   BASE_TOP,
   BASE_TOP_RADIUS,
-  DIVIDER,
   GRID,
-  HEIGHT_UNIT,
-  HOLE_OFFSET,
-  INNER_RADIUS,
   LIP_DEPTH,
-  LIP_HEIGHT,
-  LIP_PROFILE,
   LIP_SUPPORT_HEIGHT,
-  LIP_TOP_FLAT,
-  MAGNET_HOLE_DEPTH,
-  MAGNET_HOLE_DIAMETER,
-  SCREW_HOLE_DEPTH,
-  SCREW_HOLE_DIAMETER,
-  TAB_DEPTH,
-  TAB_SUPPORT_ANGLE_DEG,
-  TAB_TIP_HEIGHT,
-  TAB_WIDTH_NOMINAL,
   WALL,
 } from './spec';
-import { boxAt, cylinderAt, extrudePolygon, loftRoundedRect, ringAt, roundedRectRing } from './shapes';
+import { extrudePolygon, loftRoundedRect, roundedRectRing } from './shapes';
+import {
+  buildDividerInsert,
+  compartmentPocketLayouts,
+  hasFilledCompartment,
+  insertKey,
+  insertsFor,
+  insideKeyParts,
+  insideSummary,
+  interiorCuts,
+  labelTabs,
+  type DividerInsert,
+  type LabelTab,
+} from './compartments';
+import { layoutKey, resolveLayout, sanitizeLayout, uniformLayout, type Compartment, type DividerLayout, type ResolvedLayout } from '../dividers';
+import {
+  DEFAULT_VARIANTS,
+  binBodyHeight,
+  binFloorZ,
+  heightKey,
+  lipRise,
+  sanitizeVariants,
+  variantKeyParts,
+  type BinVariantOptions,
+} from './variants';
+import { holeBosses, holeCutters, holeSites } from './holes';
+import { clipToHollow, hollowFloor, isHollowBase } from './binbase';
+import { lipCavityKnots, lipNotches } from './lip';
+import { fingerSlides, wallCutouts, wallPattern } from './walls';
+import { pocketCutters, pocketLayout, type PocketLayout } from './pockets';
+import {
+  DEFAULT_LABELS,
+  compartmentLabelText,
+  labelKeyParts,
+  planTabLabels,
+  sanitizeLabelOptions,
+  tabLabelGeometry,
+  type BinLabelOptions,
+  type LabelPlate,
+} from './labels';
+import { frontLabelGeometry, frontLabelInlay, planFrontLabel, type FrontLabelPlan } from './frontLabel';
+import { cutoutCutters, cutoutKeyPart, sanitizeCutouts, sanitizeCutoutStyle, type BinCutout, type CutoutStyle } from './cutouts';
+import {
+  MAX_CELLS,
+  STRETCH_Z,
+  cleanStretch,
+  halfHoleSites,
+  hasStretch,
+  stretchKey,
+  stretchOf,
+  stretchOffset,
+  type BinStretch,
+} from './placement';
+import {
+  DEFAULT_ACCESSORIES,
+  accessoryInfillTop,
+  accessoryKeyParts,
+  accessoryNeedsFloor,
+  sanitizeAccessoryOptions,
+  type BinAccessoryOptions,
+} from './accessories';
+import { binAccessoryGeometry } from './accessoryGeometry';
+import { activeContainer, containerKeyPart, sanitizeContainerFields, type ContainerKind, type ContainerType } from './containers/registry';
+import { DEFAULT_INSERTS, insertKeyParts, sanitizeInsertOptions, type BinInsertOptions } from './insertOptions';
+import { shadowOverlay } from './shadowBoard';
+import { DEFAULT_QR, qrInlaid, qrKeyParts, sanitizeQrOptions, type BinQrOptions } from './qrCode';
+import { planFrontQr, type FrontQrPlan } from './qrFront';
+import { applyQrParts, frontQrGeometry, withQrInlay } from './qrSolid';
 
-export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both';
+export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
 
-export interface BinOptions {
+/**
+ * Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts; label text in labels.ts; trays, sliding lid and rails in accessories.ts;
+ * cups, grid inserts, pocket lids and shadow floors in insertOptions.ts; the QR code in qrCode.ts.
+ */
+export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAccessoryOptions, BinInsertOptions, BinQrOptions {
   /** Footprint in grid units. */
   unitsX: number;
   unitsY: number;
-  /** Height in 7 mm units, excluding the stacking lip. */
+  /** Height in 7 mm units, excluding the stacking lip (when heightMode is 'units'). */
   heightUnits: number;
+  /** Stacking lip on/off; its shape is `lipStyle`. */
   lip: boolean;
   holes: HoleStyle;
-  /** Number of compartments along X and Y. */
+  /** Number of compartments along X and Y (used when there is no `layout`). */
   divX: number;
   divY: number;
+  /** Free-form dividers (src/lib/dividers). When set it replaces divX × divY. */
+  layout?: DividerLayout | null;
   /** 0 = none, 1 = largest scoop on the front wall of each compartment. */
   scoop: number;
   label: LabelStyle;
   /** Round the bottom edges of compartments. */
   fillet: boolean;
+  /** Tool-outline pockets, used when `interior` is 'cutouts': the bin is filled solid and each tool is cut in (cutouts.ts). */
+  cutouts?: BinCutout[];
+  /** How those pockets are cut; missing fields use DEFAULT_CUTOUT_STYLE. */
+  cutoutStyle?: Partial<CutoutStyle>;
+  /** Container type (containers/registry.ts); unset = a plain bin. */
+  container?: ContainerKind;
+  /** Each container type's options, kept while another type is active. */
+  containers?: Partial<Record<ContainerType, unknown>>;
+  /** The bin's own filament slot with multi-colour on (colours.ts): its body, lid, dividers and trays; not its label text. Not geometry (binKey leaves it out). */
+  colour?: number;
 }
 
 export const DEFAULT_BIN: BinOptions = {
@@ -60,25 +128,81 @@ export const DEFAULT_BIN: BinOptions = {
   scoop: 0,
   label: 'none',
   fillet: true,
+  layout: null,
+  ...DEFAULT_VARIANTS,
+  ...DEFAULT_LABELS,
+  ...DEFAULT_ACCESSORIES,
+  ...DEFAULT_INSERTS,
+  ...DEFAULT_QR,
 };
 
 export const MIN_HEIGHT_UNITS = 2;
 
-export function binSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>) {
-  return { w: GRID * o.unitsX - (GRID - BASE_TOP), d: GRID * o.unitsY - (GRID - BASE_TOP) };
+/**
+ * Pitch of each grid cell a bin covers, when it sits on partial (edge-fill) cells.
+ * Missing entries are full cells. Each cell gets a foot of its own size.
+ */
+export interface BinCells {
+  x: number[];
+  y: number[];
+  /** On a half-grid drawer: 21 mm cells are whole feet, one hole each (placement.ts). */
+  half?: boolean;
+  /** How far the body reaches past the feet, from the bin's place by the drawer wall (placement.ts). */
+  stretch?: BinStretch;
+}
+
+export function binCells(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null): BinCells {
+  const fit = (arr: number[] | undefined, n: number) => Array.from({ length: n }, (_, k) => (arr?.[k] && arr[k] > 0 ? arr[k] : GRID));
+  const out: BinCells = { x: fit(cells?.x, o.unitsX), y: fit(cells?.y, o.unitsY) };
+  if (cells?.half) out.half = true;
+  const stretch = cleanStretch(cells?.stretch);
+  if (stretch) out.stretch = stretch;
+  return out;
+}
+
+/** True when every cell is a full grid cell (the common case). */
+export function fullCells(c: BinCells | null | undefined): boolean {
+  return !c || [...c.x, ...c.y].every((v) => Math.abs(v - GRID) < 1e-6);
+}
+
+const sum = (a: number[]) => a.reduce((t, v) => t + v, 0);
+
+/** Outside size of the body: the feet's footprint, plus any stretch (placement.ts). */
+export function binSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null) {
+  const c = binCells(o, cells);
+  const st = stretchOf(c.stretch);
+  return { w: sum(c.x) - (GRID - BASE_TOP) + st.left + st.right, d: sum(c.y) - (GRID - BASE_TOP) + st.front + st.back };
+}
+
+/** Magnet / screw hole sites, bin-centered, as buildBin cuts them. */
+export function binHoleSites(o: Pick<BinOptions, 'unitsX' | 'unitsY' | 'holes' | 'holeCorners' | 'base'>, cellsIn?: Partial<BinCells> | null) {
+  if (o.base === 'flat' || o.holes === 'none') return [];
+  const cells = binCells(o, cellsIn);
+  const { fx, fy } = stretchOffset(cells.stretch);
+  const sites = cells.half ? halfHoleSites(cells, !!o.holeCorners) : holeSites(cells, !!o.holeCorners);
+  return fx || fy ? sites.map((p) => ({ ...p, x: p.x + fx, y: p.y + fy })) : sites;
 }
 
 /** Overall height including the lip. */
-export function binTotalHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'>) {
-  return HEIGHT_UNIT * o.heightUnits + (o.lip ? LIP_HEIGHT - LIP_TOP_FLAT : 0);
+export function binTotalHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'> & Partial<BinOptions>) {
+  const c = activeContainer(o);
+  if (c) return c.def.height(o as BinOptions, c.opts);
+  return binBodyHeight(o) + lipRise(o);
 }
 
 /** Stable key so identical bins share one mesh. */
-export function binKey(o: BinOptions): string {
+export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string {
+  const c = binCells(o, cells);
+  const cellPart = fullCells(c) ? [] : [`c${c.x.join('/')}x${c.y.join('/')}`];
+  // Placement (placement.ts): half-grid holes, stretched body.
+  const placePart = [...(c.half ? ['h'] : []), ...(c.stretch ? [stretchKey(c.stretch)] : [])];
+  const live = o.layout ? new Set(binLayout(o, cells).compartments.map((k) => k.key)) : null;
   return [
+    ...cellPart,
+    ...placePart,
     o.unitsX,
     o.unitsY,
-    o.heightUnits,
+    heightKey(o),
     o.lip ? 'L' : 'n',
     o.holes,
     o.divX,
@@ -86,207 +210,380 @@ export function binKey(o: BinOptions): string {
     Math.round(o.scoop * 100),
     o.label,
     o.fillet ? 'F' : 'n',
+    ...(o.layout && live ? [`D{${layoutKey(o.layout, live)}}`] : []),
+    ...variantKeyParts(o),
+    ...labelKeyParts(o),
+    ...cutoutKeyPart(o),
+    ...containerKeyPart(o),
+    ...accessoryKeyParts(o, binSize(o, cells)),
+    ...(live ? insideKeyParts(o, live) : []),
+    ...insertKeyParts(o),
+    ...qrKeyParts(o, 'front'),
   ].join('-');
 }
 
-export function binLabel(o: BinOptions): string {
-  const parts = [`${o.unitsX}×${o.unitsY}×${o.heightUnits}u`];
-  if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
+/** "3×2×4u …". On a half grid (`cells.half`) the footprint is given in 42 mm units: 1.5×1. */
+export function binLabel(o: BinOptions, cells?: Partial<BinCells> | null): string {
+  const h = o.heightMode && o.heightMode !== 'units' ? `${Math.round(binTotalHeight(o) * 10) / 10}mm` : `${o.heightUnits}u`;
+  const u = (n: number) => (cells?.half ? n / 2 : n);
+  const parts = [`${u(o.unitsX)}×${u(o.unitsY)}×${h}`];
+  const c = activeContainer(o);
+  if (c) {
+    const more = c.def.summary?.(sanitizeBin(o), c.opts, binCells(o, cells));
+    return [...parts, c.def.label.toLowerCase(), ...(more ? [more] : [])].join(' ');
+  }
+  const tools = o.cutouts?.length ?? 0;
+  if (o.interior === 'cutouts') parts.push(`${tools} tool pocket${tools === 1 ? '' : 's'}`);
+  else if (o.interior === 'pockets') parts.push('pockets');
+  else if (o.layout) {
+    const r = binLayout(o);
+    const n = r.compartments.length;
+    const desc = [n > 1 ? `${n} compartments` : '', ...insideSummary(o, r)].filter(Boolean).join(', ');
+    if (desc) parts.push(desc);
+  } else if (o.divX * o.divY > 1) parts.push(`${o.divX}×${o.divY} compartments`);
   return parts.join(' ');
+}
+
+/**
+ * Gridfinity feet under every cell of a bin (sized to the cell, for partial
+ * edge cells; off-center by the stretch, if any), bin-centered, from z = 0 to
+ * just above BASE_PROFILE_HEIGHT. None for flat bases. Containers use these too.
+ */
+export function buildFeet(w: Wasm, s: Scope, o: Pick<BinOptions, 'unitsX' | 'unitsY' | 'base'>, cells: BinCells): Manifold[] {
+  const feet: Manifold[] = [];
+  if (o.base === 'flat') return feet;
+  const { fx, fy } = stretchOffset(cells.stretch);
+  const gap = GRID - BASE_TOP;
+  const totalX = sum(cells.x);
+  const totalY = sum(cells.y);
+  for (let i = 0, x0 = fx - totalX / 2; i < o.unitsX; x0 += cells.x[i], i++) {
+    for (let j = 0, y0 = fy - totalY / 2; j < o.unitsY; y0 += cells.y[j], j++) {
+      const cw = cells.x[i];
+      const cd = cells.y[j];
+      feet.push(
+        s.t(
+          loftRoundedRect(w, x0 + cw / 2, y0 + cd / 2, cw - gap, cd - gap, BASE_TOP_RADIUS, [
+            { z: 0, inset: BASE_PROFILE_DEPTH },
+            { z: BASE_PROFILE.chamfer1, inset: BASE_PROFILE.chamfer2 },
+            { z: BASE_PROFILE.chamfer1 + BASE_PROFILE.vertical, inset: BASE_PROFILE.chamfer2 },
+            { z: BASE_PROFILE_HEIGHT, inset: 0 },
+            { z: BASE_PROFILE_HEIGHT + 0.25, inset: 0 },
+          ]),
+        ),
+      );
+    }
+  }
+  return feet;
 }
 
 /**
  * Build a bin centered on the origin in XY with its bottom at z = 0.
  */
-export function buildBin(w: Wasm, input: BinOptions): MeshData {
+export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells> | null): MeshData {
   const o = sanitizeBin(input);
+  const cells = binCells(o, cellsIn);
+  // Drawer units, parts boxes, … (containers/) build their own body.
+  const container = activeContainer(o);
+  if (container) return container.def.build(w, o, container.opts, cells);
   const s = new Scope();
   try {
-    const { w: W, d: D } = binSize(o);
-    const H = HEIGHT_UNIT * o.heightUnits;
-    const topInfill = o.lip ? H - LIP_SUPPORT_HEIGHT : H;
-    const zFloor = BASE_HEIGHT;
+    const { w: W, d: D } = binSize(o, cells);
+    const H = binBodyHeight(o);
+    // Trays and sliding lids take the top of the bin: the compartments stop under them.
+    const topInfill = accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H);
+    const zFloor = binFloorZ(o);
     const outerRing = roundedRectRing(-W / 2, -D / 2, W / 2, D / 2, BASE_TOP_RADIUS);
+    const flat = o.base === 'flat';
+    const pockets = o.interior === 'pockets';
+    const toolCuts = o.interior === 'cutouts';
+    const hollow = isHollowBase(o.base) && !pockets && !toolCuts;
+    // Holes only fit in full cells (flat bins have no feet to hold them); half-grid feet get one each.
+    const sites = binHoleSites(o, cells);
+    // Stretched bins (placement.ts): W × D is the body; the feet sit off its center by (fx, fy).
+    const stretched = hasStretch(cells.stretch);
+    const { fx, fy } = stretchOffset(cells.stretch);
 
     const solids: Manifold[] = [];
 
-    // 1. Base profile under every grid cell.
-    const cellCenters: [number, number][] = [];
-    for (let i = 0; i < o.unitsX; i++) {
-      for (let j = 0; j < o.unitsY; j++) {
-        const cx = (i + 0.5) * GRID - (GRID * o.unitsX) / 2;
-        const cy = (j + 0.5) * GRID - (GRID * o.unitsY) / 2;
-        cellCenters.push([cx, cy]);
-        solids.push(
-          s.t(
-            loftRoundedRect(w, cx, cy, BASE_TOP, BASE_TOP, BASE_TOP_RADIUS, [
-              { z: 0, inset: BASE_PROFILE_DEPTH },
-              { z: BASE_PROFILE.chamfer1, inset: BASE_PROFILE.chamfer2 },
-              { z: BASE_PROFILE.chamfer1 + BASE_PROFILE.vertical, inset: BASE_PROFILE.chamfer2 },
-              { z: BASE_PROFILE_HEIGHT, inset: 0 },
-              { z: BASE_PROFILE_HEIGHT + 0.25, inset: 0 },
-            ]),
-          ),
-        );
-      }
-    }
+    // 1. Base profile under every grid cell (sized to the cell, for partial edge cells); none for flat bins.
+    const feet = buildFeet(w, s, o, cells);
+    const gap = GRID - BASE_TOP;
+    const totalX = sum(cells.x);
+    const totalY = sum(cells.y);
 
-    // 2. Infill block (floor + dividers), with compartments cut out.
-    const block = s.t(extrudePolygon(w, outerRing, BASE_PROFILE_HEIGHT, topInfill));
-    const cutters = compartmentCutters(w, s, o, W, D, zFloor, topInfill);
-    solids.push(cutters.length ? s.t(block.subtract(s.t(w.Manifold.union(cutters)))) : block);
+    // 2. Infill block (floor + dividers), with compartments (or item pockets) cut out.
+    let block = s.t(extrudePolygon(w, outerRing, flat ? 0 : stretched ? STRETCH_Z : BASE_PROFILE_HEIGHT, topInfill));
+    if (stretched && !flat) {
+      // The overhang starts at STRETCH_Z, clear of the baseplate; over the feet the block starts as usual.
+      const feetRing = roundedRectRing(fx - (totalX - gap) / 2, fy - (totalY - gap) / 2, fx + (totalX - gap) / 2, fy + (totalY - gap) / 2, BASE_TOP_RADIUS);
+      block = s.t(w.Manifold.union([block, s.t(extrudePolygon(w, feetRing, BASE_PROFILE_HEIGHT, STRETCH_Z + 0.5))]));
+    }
+    // Lite / efficient bases: compartments go down into the feet (clipped to the foot pockets below).
+    // Removable-divider slots, filled compartments and rails need solid floor under them, so those bins keep the full floor.
+    const hollowCut = hollow && !keepsFullFloor(o, cells) && !accessoryNeedsFloor(o);
+    const cutFloor = hollowCut ? hollowFloor(o.base) : zFloor;
+    const interior = toolCuts
+      ? { cut: cutoutCutters(w, s, o, W, D, topInfill), add: [] as Manifold[] }
+      : pockets
+        ? { cut: pocketCutters(w, s, o, W, D, zFloor, topInfill), add: [] as Manifold[] }
+        : interiorCuts(w, s, o, W, D, cutFloor, topInfill);
+    let cut = interior.cut.length ? s.t(w.Manifold.union(interior.cut)) : null;
+    // Finger slides: leave a quarter-round along the chosen walls uncut.
+    const slides = cut && !pockets && !toolCuts ? fingerSlides(w, s, o, W, D, cutFloor, Math.min(topInfill - cutFloor - 0.5, 40)) : [];
+    if (cut && slides.length) cut = s.t(cut.subtract(s.t(w.Manifold.union(slides))));
+    if (cut && hollowCut) {
+      const keep = holeBosses(w, s, o, sites, zFloor - 0.05);
+      if (fx || fy) {
+        // clipToHollow works around the feet's center: shift there and back.
+        const toFeet = (m: Manifold) => s.t(m.translate([-fx, -fy, 0]));
+        const clipped = clipToHollow(w, s, o.base, cells, W + 2 * Math.abs(fx), D + 2 * Math.abs(fy), zFloor, toFeet(cut), keep.map(toFeet));
+        cut = s.t(clipped.translate([fx, fy, 0]));
+      } else cut = clipToHollow(w, s, o.base, cells, W, D, zFloor, cut, keep);
+    }
+    // Pockets and tool cutouts of filled compartments.
+    if (interior.after?.length) cut = s.t(w.Manifold.union(cut ? [cut, ...interior.after] : interior.after));
+    solids.push(cut ? s.t(block.subtract(cut)) : block, ...interior.add);
+    if (cut && hollowCut && feet.length) solids.push(s.t(s.t(w.Manifold.union(feet)).subtract(cut)));
+    else solids.push(...feet);
 
     // 3. Outer wall + stacking lip (unioned after the compartments so they never cut into it).
     const wallBottom = BASE_PROFILE_HEIGHT + 0.75;
     const top = binTotalHeight(o);
-    const cavityKnots = o.lip
-      ? [
-          { z: wallBottom + 0.5, inset: WALL },
-          { z: H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL), inset: WALL },
-          { z: H - LIP_SUPPORT_HEIGHT, inset: LIP_DEPTH },
-          { z: H, inset: LIP_DEPTH },
-          { z: H + LIP_PROFILE.chamfer1, inset: LIP_PROFILE.chamfer2 },
-          { z: H + LIP_PROFILE.chamfer1 + LIP_PROFILE.vertical, inset: LIP_PROFILE.chamfer2 },
-          { z: H + LIP_HEIGHT, inset: 0 },
-          { z: H + LIP_HEIGHT + 1, inset: -1 },
-        ]
-      : [
-          { z: wallBottom + 0.5, inset: WALL },
-          { z: H + 1, inset: WALL },
-        ];
+    // A floor below the wall's bottom (flat, lite) needs the wall open underneath.
+    const cavityKnots = lipCavityKnots(o, H, wallBottom, flat || (hollowCut && cut) ? wallBottom - 0.5 : wallBottom + 0.5);
     const shell = s.t(extrudePolygon(w, outerRing, wallBottom, top));
-    const cavity = s.t(loftRoundedRect(w, 0, 0, W, D, BASE_TOP_RADIUS, cavityKnots));
+    let cavity = s.t(loftRoundedRect(w, 0, 0, W, D, BASE_TOP_RADIUS, cavityKnots));
+    // A stretched lip no longer lines up with the grid, so it gets no notches at the cell lines.
+    const notches = o.lip && o.lipNotches && !stretched ? lipNotches(w, s, o, cells, W, D, H, top) : null;
+    if (notches) cavity = s.t(cavity.subtract(notches));
     solids.push(s.t(shell.subtract(cavity)));
+    // Tray ledges, sliding-lid band, rail ribs (accessories.ts); their grooves and cuts go with the wall cutouts.
+    const acc = binAccessoryGeometry(w, s, o, W, D);
+    solids.push(...acc.add);
 
     let bin = s.t(w.Manifold.union(solids));
+    // Label text / label-plate recesses on the tabs (labels.ts), and text on the front wall (frontLabel.ts).
+    const front = frontLabelGeometry(w, s, o, W, D, frontFaceBottom(o, cells));
+    const labels = tabLabelGeometry(w, s, o, labelTabs(o, W, D, cutFloor, topInfill), H, W, D, front);
+    bin = labels.apply(bin);
+    // A QR code on the front wall (qrFront.ts plans it, qrSolid.ts builds it).
+    const qr = frontQrGeometry(w, s, o, W, D, frontFaceBottom(o, cells));
+    let qrInlay: Manifold | null = null;
+    ({ body: bin, inlay: qrInlay } = applyQrParts(w, s, bin, qr));
+
+    // Wall cutouts, down to just above the floor (or the pocket fill).
+    const cutLow = pockets ? Math.max(zFloor + 1, pocketLayout(o, W, D, zFloor, topInfill).fillTop + 0.5) : toolCuts ? topInfill + 0.5 : zFloor + 1;
+    const cutouts = wallCutouts(w, s, o, W, D, top, cutLow);
+    // Hex pattern: from above the floor to below the lip's support.
+    const patternTop = !o.lip ? H - 1 : o.lipStyle === 'reduced' ? H : H - LIP_SUPPORT_HEIGHT - (LIP_DEPTH - WALL) - 0.5;
+    cutouts.push(...wallPattern(w, s, o, W, D, top, cutLow + 1, patternTop, [front.keepOut, qr.keepOut].filter((k) => !!k)));
+    cutouts.push(...acc.cut);
+    if (cutouts.length) {
+      const cu = s.t(w.Manifold.union(cutouts));
+      bin = s.t(bin.subtract(cu));
+      labels.clip(cu);
+      if (qrInlay) qrInlay = s.t(qrInlay.subtract(cu));
+    }
+    bin = acc.finish(bin);
 
     // 4. Magnet / screw holes in the bottom.
-    const holes: Manifold[] = [];
-    if (o.holes !== 'none') {
-      for (const [cx, cy] of cellCenters) {
-        for (const [dx, dy] of [
-          [-1, -1],
-          [1, -1],
-          [1, 1],
-          [-1, 1],
-        ]) {
-          const hx = cx + dx * HOLE_OFFSET;
-          const hy = cy + dy * HOLE_OFFSET;
-          if (o.holes === 'magnets' || o.holes === 'both')
-            holes.push(s.t(cylinderAt(w, hx, hy, -1, MAGNET_HOLE_DEPTH, MAGNET_HOLE_DIAMETER / 2)));
-          if (o.holes === 'screws' || o.holes === 'both')
-            holes.push(s.t(cylinderAt(w, hx, hy, -1, SCREW_HOLE_DEPTH, SCREW_HOLE_DIAMETER / 2, SCREW_HOLE_DIAMETER / 2, 24)));
-        }
-      }
-    }
+    const holes = holeCutters(w, s, o, sites);
     if (holes.length) bin = s.t(bin.subtract(s.t(w.Manifold.union(holes))));
 
     assertValid(bin, 'bin');
-    return toMeshData(bin);
+    // Two-colour shadow board: a filament-2 floor in each tool pocket (shadowBoard.ts).
+    return shadowOverlay(w, s, o, W, D, topInfill, withQrInlay(labels.finish(toMeshData(bin)), qrInlay));
   } finally {
     s.dispose();
   }
 }
 
+const HOLE_STYLES: readonly HoleStyle[] = ['none', 'magnets', 'screws', 'both', 'refined'];
+
 export function sanitizeBin(o: BinOptions): BinOptions {
   const int = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(Number(v) || lo)));
+  const heightUnits = int(o.heightUnits, MIN_HEIGHT_UNITS, 30);
+  const lip = o.lip === undefined ? true : !!o.lip;
   return {
     ...o,
-    unitsX: int(o.unitsX, 1, 12),
-    unitsY: int(o.unitsY, 1, 12),
-    heightUnits: int(o.heightUnits, MIN_HEIGHT_UNITS, 30),
+    // Cells: up to 12 u, which is 24 cells on a half-grid drawer (the UI keeps full-grid bins to 12).
+    unitsX: int(o.unitsX, 1, MAX_CELLS),
+    unitsY: int(o.unitsY, 1, MAX_CELLS),
+    heightUnits,
+    lip,
+    holes: HOLE_STYLES.includes(o.holes) ? o.holes : 'none',
     divX: int(o.divX, 1, 12),
     divY: int(o.divY, 1, 12),
     scoop: Math.min(1, Math.max(0, Number(o.scoop) || 0)),
+    layout: sanitizeLayout(o.layout),
+    ...sanitizeVariants({ ...o, heightUnits, lip }),
+    ...sanitizeLabelOptions(o),
+    ...sanitizeAccessoryOptions(o),
+    ...sanitizeInsertOptions(o),
+    ...sanitizeQrOptions(o),
+    cutouts: sanitizeCutouts(o.cutouts),
+    cutoutStyle: sanitizeCutoutStyle(o.cutoutStyle),
+    ...sanitizeContainerFields(o),
   };
 }
 
-function compartmentCutters(
-  w: Wasm,
-  s: Scope,
-  o: BinOptions,
-  W: number,
-  D: number,
-  zFloor: number,
-  topInfill: number,
-): Manifold[] {
-  const innerH = topInfill - zFloor;
-  if (innerH < 0.5) return [];
-  const eps = 0.01;
-  const ix0 = -W / 2 + WALL;
-  const iy0 = -D / 2 + WALL;
-  const innerW = W - 2 * WALL;
-  const innerD = D - 2 * WALL;
-  const cw = (innerW - (o.divX - 1) * DIVIDER) / o.divX;
-  const cd = (innerD - (o.divY - 1) * DIVIDER) / o.divY;
-  if (cw < 2 || cd < 2) throw new Error('Too many compartments for this bin size.');
+// ---------------------------------------------------------------------------
+// Divider layouts (src/lib/dividers, geometry in ./compartments.ts)
+// ---------------------------------------------------------------------------
 
-  const zTop = topInfill + 1;
-  const rc = Math.min(INNER_RADIUS, cw / 2 - 0.05, cd / 2 - 0.05);
-  const cutters: Manifold[] = [];
-  for (let i = 0; i < o.divX; i++) {
-    for (let j = 0; j < o.divY; j++) {
-      const x0 = ix0 + i * (cw + DIVIDER) - eps;
-      const x1 = x0 + cw + 2 * eps;
-      const y0 = iy0 + j * (cd + DIVIDER) - eps;
-      const y1 = y0 + cd + 2 * eps;
-      const r = rc + eps;
-      let cutter: Manifold;
-      const rf = Math.min(r, innerH / 2 - 0.05);
-      if (o.fillet && rf > 0.3) {
-        // Rounded bottom edges: hull of corner spheres and the top outline.
-        const pts: (Manifold | Vec3)[] = [];
-        for (const [sx, sy] of [
-          [x0 + rf, y0 + rf],
-          [x1 - rf, y0 + rf],
-          [x1 - rf, y1 - rf],
-          [x0 + rf, y1 - rf],
-        ]) {
-          pts.push(s.t(w.Manifold.sphere(rf, 24).translate([sx, sy, zFloor + rf])));
-        }
-        pts.push(...ringAt(roundedRectRing(x0, y0, x1, y1, r), zTop));
-        cutter = s.t(w.Manifold.hull(pts));
-      } else {
-        cutter = s.t(extrudePolygon(w, roundedRectRing(x0, y0, x1, y1, r), zFloor, zTop));
-      }
+/** Inner cavity size (bin size − 2 × WALL). */
+export function binInnerSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null) {
+  const { w, d } = binSize(o, cells);
+  return { w: w - 2 * WALL, d: d - 2 * WALL };
+}
 
-      // Scoop: a concave ramp on the front (-Y) wall for scooping out small parts.
-      if (o.scoop > 0) {
-        const R = Math.max(2, o.scoop * Math.min(innerH * 0.85, cd * 0.6));
-        const fill = s.t(boxAt(w, x0 - 1, y0 - 1, zFloor - 1, x1 + 1, y0 + R, zFloor + R));
-        const cyl = s.t(
-          w.Manifold.cylinder(x1 - x0 + 4, R, R, 64)
-            .rotate([0, 90, 0])
-            .translate([x0 - 2, y0 + R, zFloor + R]),
-        );
-        cutter = s.t(cutter.subtract(s.t(fill.subtract(cyl))));
-      }
+/**
+ * The bin's dividers resolved to cavity mm (origin at the cavity's front-left
+ * corner). Without a layout this is the uniform divX × divY split.
+ */
+export function binLayout(o: BinOptions, cells?: Partial<BinCells> | null): ResolvedLayout {
+  const { w, d } = binInnerSize(o, cells);
+  return resolveLayout(o.layout ?? uniformLayout(o.divX, o.divY), w, d);
+}
 
-      // Label tab: a shelf on the back (+Y) wall, angled underneath so it prints without support.
-      if (o.label !== 'none') {
-        const tan = Math.tan((TAB_SUPPORT_ANGLE_DEG * Math.PI) / 180);
-        let td = Math.min(TAB_DEPTH, cd * 0.45);
-        if (tan * td + TAB_TIP_HEIGHT > innerH - 1) td = (innerH - 1 - TAB_TIP_HEIGHT) / tan;
-        if (td >= 4) {
-          const th = tan * td + TAB_TIP_HEIGHT;
-          const tw = o.label === 'full' ? cw + 4 * eps : Math.min(cw, TAB_WIDTH_NOMINAL);
-          let tx0: number;
-          if (o.label === 'full') tx0 = x0 - eps;
-          else if (o.label === 'left') tx0 = x0 - eps;
-          else if (o.label === 'right') tx0 = x1 + eps - tw;
-          else tx0 = (x0 + x1) / 2 - tw / 2;
-          const tx1 = tx0 + tw;
-          const yb = y1 + 2 * eps;
-          const yf = y1 - td;
-          const pts: Vec3[] = [];
-          for (const x of [tx0, tx1]) {
-            pts.push([x, yb, topInfill - th], [x, yb, zTop + 0.5], [x, yf, zTop + 0.5], [x, yf, topInfill - TAB_TIP_HEIGHT]);
-          }
-          cutter = s.t(cutter.subtract(s.t(w.Manifold.hull(pts))));
-        }
-      }
-      cutters.push(cutter);
-    }
+/**
+ * Slide-in plates needed for the bin's removable dividers (one per wall
+ * segment; walls crossing a removable wall split it). `cells` are the bin's
+ * cell pitches, as for binSize / buildBin.
+ */
+export function removableInserts(opts: BinOptions, cells?: Partial<BinCells> | null): DividerInsert[] {
+  const o = sanitizeBin(opts);
+  if (!o.layout || o.interior !== 'compartments') return [];
+  const H = binBodyHeight(o);
+  const { w: W, d: D } = binSize(o, cells);
+  const topInfill = accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H);
+  return insertsFor(binLayout(o, cells), o.lip, binFloorZ(o), topInfill);
+}
+
+export { buildDividerInsert, insertKey, type DividerInsert };
+
+// ---------------------------------------------------------------------------
+// Label tabs, text and plates (geometry in ./labels.ts)
+// ---------------------------------------------------------------------------
+
+/** The flat tops of the bin's label tabs (bin-centered mm), as buildBin makes them. */
+export function binLabelTabs(opts: BinOptions, cells?: Partial<BinCells> | null): LabelTab[] {
+  const o = sanitizeBin(opts);
+  const { w: W, d: D } = binSize(o, cells);
+  const H = binBodyHeight(o);
+  const topInfill = accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H);
+  // Same floor buildBin cuts the compartments from.
+  const hollowCut = isHollowBase(o.base) && o.interior !== 'pockets' && !keepsFullFloor(o, cells) && !accessoryNeedsFloor(o);
+  return labelTabs(o, W, D, hollowCut ? hollowFloor(o.base) : binFloorZ(o), topInfill);
+}
+
+/** Floor the compartments are cut from, as buildBin cuts them: a hollow (lite / efficient) base's pocket bottom, or the bin's floor. */
+export function binCutFloor(opts: BinOptions, cells?: Partial<BinCells> | null): number {
+  const o = sanitizeBin(opts);
+  const hollowCut = isHollowBase(o.base) && o.interior === 'compartments' && !keepsFullFloor(o, cells) && !accessoryNeedsFloor(o);
+  return hollowCut ? hollowFloor(o.base) : binFloorZ(o);
+}
+
+/**
+ * Bins whose compartments can't reach down into hollow (lite / efficient) feet:
+ * removable-divider slots and filled compartments need the full floor.
+ */
+function keepsFullFloor(o: BinOptions, cells?: Partial<BinCells> | null): boolean {
+  if (o.layout?.walls.some((wall) => wall.removable)) return true;
+  return !!o.layout?.comps && o.interior === 'compartments' && hasFilledCompartment(o, binLayout(o, cells));
+}
+
+/**
+ * The pocket grid of each rect of a 'pockets' compartment of the bin's layout
+ * (bin-centered mm), as buildBin cuts it; [] for any other compartment.
+ */
+export function binCompartmentPockets(opts: BinOptions, cells: Partial<BinCells> | null | undefined, c: Compartment): PocketLayout[] {
+  const o = sanitizeBin(opts);
+  const { w, d } = binInnerSize(o, cells);
+  const H = binBodyHeight(o);
+  return compartmentPocketLayouts(o, c, w, d, binFloorZ(o), o.lip ? H - LIP_SUPPORT_HEIGHT : H);
+}
+
+/** The tabs' sockets and plates (labels.ts), as buildBin cuts them. */
+function binTabPlates(o: BinOptions, cells?: Partial<BinCells> | null) {
+  if (!o.labelPlates) return [];
+  return planTabLabels(o, binLabelTabs(o, cells), binBodyHeight(o), binSize(o, cells).w).flatMap((l) => (l.plate ? [l.plate] : []));
+}
+
+/**
+ * Swappable label plates the bin needs, to print with it (one per tab when
+ * `labelPlates` is on; Cullenect / Pred labels only with `labelPrint`).
+ */
+export function binLabelPlates(opts: BinOptions, cells?: Partial<BinCells> | null): LabelPlate[] {
+  const o = sanitizeBin(opts);
+  if (o.labelFormat !== 'gridfit' && !o.labelPrint) return [];
+  return binTabPlates(o, cells).map((p) => p.plate);
+}
+
+/**
+ * Where each label plate sits when pressed into its socket, in binLabelPlates
+ * order: its min corner relative to the bin mesh's front-left-bottom corner.
+ */
+export function binLabelPlatePlaces(opts: BinOptions, cells?: Partial<BinCells> | null): { x: number; y: number; z: number }[] {
+  const o = sanitizeBin(opts);
+  if (o.labelFormat !== 'gridfit' && !o.labelPrint) return [];
+  const { w: W, d: D } = binSize(o, cells);
+  return binTabPlates(o, cells).map((p) => ({ x: p.at.x + W / 2, y: p.at.y + D / 2, z: p.at.z }));
+}
+
+/** Label text of each tab, in tab order (blank tabs left out). */
+export function binLabelTexts(opts: BinOptions, cells?: Partial<BinCells> | null): string[] {
+  const o = sanitizeBin(opts);
+  if (
+    !labelKeyParts(o).some((p) => p.startsWith('T"') || p.startsWith('TT')) &&
+    !Object.values(o.layout?.comps ?? {}).some((c) => c.labelText?.trim())
+  ) {
+    return [];
   }
-  return cutters;
+  return binLabelTabs(o, cells)
+    .map((t) => compartmentLabelText(o, t.key))
+    .filter(Boolean);
+}
+
+/** Where the front face starts: above the feet (or the stretch overhang); the bottom for flat bins. */
+function frontFaceBottom(o: BinOptions, cells: BinCells): number {
+  if (o.base === 'flat') return 0;
+  return hasStretch(cells.stretch) ? Math.max(STRETCH_Z, BASE_PROFILE_HEIGHT) : BASE_PROFILE_HEIGHT;
+}
+
+/** The bin's front label as buildBin puts it on (frontLabel.ts), or null. Not for containers. */
+export function binFrontLabel(opts: BinOptions, cells?: Partial<BinCells> | null): FrontLabelPlan | null {
+  const o = sanitizeBin(opts);
+  if (activeContainer(o) || o.frontLabel === 'none') return null;
+  const c = binCells(o, cells);
+  const { w: W, d: D } = binSize(o, c);
+  return planFrontLabel(o, W, D, frontFaceBottom(o, c));
+}
+
+/** The bin's QR code on its front wall as buildBin puts it on (qrFront.ts), or null when it's elsewhere. Not for containers. */
+export function binFrontQr(opts: BinOptions, cells?: Partial<BinCells> | null): FrontQrPlan | null {
+  const o = sanitizeBin(opts);
+  if (activeContainer(o) || o.qr !== 'front') return null;
+  const c = binCells(o, cells);
+  const { w: W, d: D } = binSize(o, c);
+  return planFrontQr(o, W, D, frontFaceBottom(o, c));
+}
+
+/**
+ * True when the bin's mesh may carry text on filament 2: inlaid tab text (not
+ * on plates), or a two-tone / inlaid front label. Planning can't lay out text,
+ * so a label too small to print still counts.
+ */
+export function binUsesInlay(opts: BinOptions, cells?: Partial<BinCells> | null): boolean {
+  const o = sanitizeBin(opts);
+  if (activeContainer(o)) return false;
+  const texts = binLabelTexts(o, cells);
+  // With label plates the text is on the plates (unless a tab is too small for one).
+  if (o.labelStyle === 'inlaid' && texts.length && (!o.labelPlates || binTabPlates(o, cells).length < texts.length)) return true;
+  const c = binCells(o, cells);
+  const { w: W, d: D } = binSize(o, c);
+  // An inlaid QR code on the front wall (qrFront.ts).
+  if (o.qr === 'front' && qrInlaid(o) && planFrontQr(o, W, D, frontFaceBottom(o, c))?.spot) return true;
+  if (o.frontLabel === 'none') return false;
+  return frontLabelInlay(o, W, D, frontFaceBottom(o, c));
 }

@@ -24,30 +24,25 @@ const EPS = 1e-6;
  * Candidate cut positions along one axis. Cuts normally fall on cell boundaries
  * (the middle of a wall), so every receptacle stays whole. Margins are only cut
  * when allowed or when a margin is too big to share a piece with any cell.
+ * `bounds` are the cell boundaries (n + 1 values).
  */
-export function axisCuts(
-  origin: number,
-  n: number,
-  pitch: number,
-  total: number,
-  maxLen: number,
-  splitMargins: boolean,
-): number[] {
+export function axisCuts(bounds: number[], total: number, maxLen: number, splitMargins: boolean): number[] {
+  const n = bounds.length - 1;
   const cuts = new Set<number>();
-  for (let k = 1; k < n; k++) cuts.add(round(origin + k * pitch));
-  const marginStart = origin;
-  const marginEnd = total - (origin + n * pitch);
-  const addMarginCuts = (a: number, b: number, len: number) => {
+  for (let k = 1; k < n; k++) cuts.add(round(bounds[k]));
+  const start = bounds[0];
+  const end = bounds[n];
+  const addMarginCuts = (a: number, b: number, len: number, cell: number) => {
     // a..b is the margin span. Add the grid-edge cut, then even subdivisions if needed.
     if (len < 0.5) return;
-    const forced = len + pitch > maxLen || n === 0;
+    const forced = len + cell > maxLen || n === 0;
     if (!splitMargins && !forced) return;
     cuts.add(round(a === 0 ? b : a));
     const parts = Math.ceil(len / Math.max(maxLen, 1));
     for (let i = 1; i < parts; i++) cuts.add(round(a + (len * i) / parts));
   };
-  addMarginCuts(0, marginStart, marginStart);
-  addMarginCuts(origin + n * pitch, total, marginEnd);
+  addMarginCuts(0, start, start, n ? bounds[1] - bounds[0] : 0);
+  addMarginCuts(end, total, total - end, n ? bounds[n] - bounds[n - 1] : 0);
   return [...cuts].filter((c) => c > EPS && c < total - EPS).sort((a, b) => a - b);
 }
 
@@ -121,10 +116,14 @@ export function balanceScore(p: AxisPartition): number {
 
 export function makePieces(layout: GridLayout, xs: AxisPartition, ys: AxisPartition): PieceDef[] {
   const pieces: PieceDef[] = [];
-  const cellRange = (a: number, b: number, origin: number, pitch: number, n: number) => {
-    const c0 = Math.max(0, Math.min(n, Math.round((a - origin) / pitch)));
-    const c1 = Math.max(0, Math.min(n, Math.round((b - origin) / pitch)));
-    return [c0, Math.max(c0, c1)];
+  // Cells wholly inside [a, b]: cuts only fall on cell boundaries or in the margins.
+  const cellRange = (a: number, b: number, bounds: number[]) => {
+    const n = bounds.length - 1;
+    let c0 = 0;
+    while (c0 < n && bounds[c0] < a - 1e-4) c0++;
+    let c1 = n;
+    while (c1 > c0 && bounds[c1] > b + 1e-4) c1--;
+    return [c0, c1];
   };
   const cols = xs.length - 1;
   const rows = ys.length - 1;
@@ -134,8 +133,8 @@ export function makePieces(layout: GridLayout, xs: AxisPartition, ys: AxisPartit
       const x1 = xs[c + 1];
       const y0 = ys[r];
       const y1 = ys[r + 1];
-      const [cx0, cx1] = cellRange(x0, x1, layout.originX, layout.pitchX, layout.nx);
-      const [cy0, cy1] = cellRange(y0, y1, layout.originY, layout.pitchY, layout.ny);
+      const [cx0, cx1] = cellRange(x0, x1, layout.xs);
+      const [cy0, cy1] = cellRange(y0, y1, layout.ys);
       pieces.push({
         id: r * cols + c + 1,
         col: c,

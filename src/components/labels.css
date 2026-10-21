@@ -1,0 +1,154 @@
+/* ==========================================================================
+   Label icons and previews (LabelIconPicker.tsx, LabelFields.tsx)
+   ========================================================================== */
+
+.label-text-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.label-text-row > .input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.lp-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+.lp-picker-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 33px;
+  padding: 0 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lp-picker-button:hover,
+.lp-picker-button.active {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.lp-picker-button .lp-icon {
+  fill: currentColor;
+  height: 12px;
+  width: auto !important;
+}
+.lp-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  width: 268px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 10px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.lp-group + .lp-group {
+  margin-top: 6px;
+}
+.lp-group-name {
+  color: var(--faint);
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+.lp-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.lp-grid button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 6px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+}
+.lp-grid button:hover {
+  border-color: var(--accent);
+}
+.lp-grid .lp-icon {
+  fill: var(--text);
+  height: 18px;
+}
+.lp-grid .lp-text-button {
+  font-size: 15px;
+  line-height: 1;
+}
+.lp-help {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.lp-help code {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.lp-preview {
+  margin-top: 6px;
+}
+.lp-preview svg {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+}
+.lp-face-preview svg {
+  max-width: 320px;
+}
+.lp-face {
+  fill: var(--panel-3);
+  stroke: var(--border-strong);
+  stroke-width: 0.3;
+}
+.lp-ink {
+  fill: var(--accent);
+}
+.lp-band {
+  fill: rgba(255, 255, 255, 0.05);
+}
+.lp-zone {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 0.25;
+  stroke-dasharray: 1 1;
+}
+.lp-warn {
+  color: var(--danger);
+  font-size: 11.5px;
+  margin-top: 3px;
+}
+
+.lp-contents-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lp-contents-row .segmented button {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.label-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
