@@ -359,9 +359,9 @@ describe('pocket grid', () => {
     expect(filled - vol(o)).toBeCloseTo(n * polygon * 12, -1);
   });
 
-  it('every preset fits at least one pocket in a 1×1 bin and builds', () => {
+  it('every preset fits at least one pocket in a 1×1 bin (2×1 for the widest) and builds', () => {
     for (const p of POCKET_PRESETS) {
-      const o = { interior: 'pockets' as const, heightUnits: 5, ...presetFields(p) };
+      const o = { interior: 'pockets' as const, heightUnits: 5, unitsX: p.w > 36 ? 2 : 1, ...presetFields(p) };
       expect(area(o).centers.length, p.id).toBeGreaterThan(0);
       const c = check(buildBin(w, bin(o)));
       expect(c.status, p.id).toBe('NoError');

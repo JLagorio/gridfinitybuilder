@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { useUnits } from '../state/store';
-import { Field, LengthInput, Segmented, Select, Slider, Stepper, Toggle } from './fields';
+import { Field, LengthInput, Segmented, Slider, Stepper, Toggle } from './fields';
+import { PocketSettings } from './PocketFields';
 import { binSize, binTotalHeight, MIN_HEIGHT_UNITS, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { binBodyHeight, binFloorZ, heightMmFor, heightMmRange, WALLS, type HeightMode, type Wall, type WallMask } from '../lib/geometry/variants';
-import { POCKET_PRESETS, findPocketPreset, pocketLayout, presetFields } from '../lib/geometry/pockets';
+import { pocketLayout } from '../lib/geometry/pockets';
 import { LID_HEIGHT } from '../lib/geometry/lid';
 import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
 
@@ -61,22 +63,13 @@ export function HeightField({ opts, onChange, cells }: Props & { cells?: BinCell
 
 /** Compartments or a pocket grid ("item holder"). */
 export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinCells }) {
-  const { fmt } = useUnits();
   const pockets = opts.interior === 'pockets';
-  const custom = (p: Partial<BinOptions>) => onChange({ ...p, pocketPreset: 'custom' });
-  let summary = '';
-  if (pockets) {
+  const layout = useMemo(() => {
+    if (!pockets) return null;
     const { w, d } = binSize(opts, cells);
     const body = binBodyHeight(opts);
-    const zFloor = binFloorZ(opts);
-    const topInfill = opts.lip ? body - LIP_SUPPORT_HEIGHT : body;
-    const L = pocketLayout(opts, w, d, zFloor, topInfill);
-    summary = `${L.centers.length} pocket${L.centers.length === 1 ? '' : 's'}, ${fmt(L.depth)} deep`;
-    if (L.depth < opts.pocketDepth - 0.01) summary += ` (the bin is too short for ${fmt(opts.pocketDepth)})`;
-    summary += '. Compartment, scoop and label settings are not used.';
-  }
-  const preset = findPocketPreset(opts.pocketPreset) ? opts.pocketPreset : 'custom';
-  const sizeLabel = opts.pocketShape === 'round' ? 'Diameter' : opts.pocketShape === 'hex' ? 'Across flats' : 'Size X';
+    return pocketLayout(opts, w, d, binFloorZ(opts), opts.lip ? body - LIP_SUPPORT_HEIGHT : body);
+  }, [pockets, opts, cells]);
   return (
     <>
       <Segmented
@@ -92,44 +85,7 @@ export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinC
       />
       {pockets && (
         <div className="indent">
-          <Select
-            label="Holds"
-            value={preset}
-            options={[
-              ...POCKET_PRESETS.map((p) => ({
-                value: p.id,
-                label: p.label,
-                group: ['aa', 'aaa', '18650', 'cr2032'].includes(p.id) ? 'Batteries' : ['sd', 'microsd'].includes(p.id) ? 'Memory cards' : 'Bits and screws',
-              })),
-              { value: 'custom', label: 'Custom' },
-            ]}
-            onChange={(id) => {
-              const p = findPocketPreset(id);
-              onChange(p ? presetFields(p) : { pocketPreset: 'custom' });
-            }}
-          />
-          <Segmented
-            label="Pocket shape"
-            value={opts.pocketShape}
-            options={[
-              { value: 'round', label: 'Round' },
-              { value: 'square', label: 'Square' },
-              { value: 'hex', label: 'Hex' },
-            ]}
-            onChange={(pocketShape) => custom({ pocketShape })}
-          />
-          <div className="row2">
-            <LengthInput label={sizeLabel} value={opts.pocketW} min={1} max={200} onChange={(pocketW) => custom({ pocketW })} />
-            {opts.pocketShape === 'square' && (
-              <LengthInput label="Size Y" value={opts.pocketD} min={1} max={200} onChange={(pocketD) => custom({ pocketD })} />
-            )}
-          </div>
-          <div className="row3">
-            <LengthInput label="Depth" value={opts.pocketDepth} min={1} max={200} onChange={(pocketDepth) => custom({ pocketDepth })} />
-            <LengthInput label="Spacing" value={opts.pocketSpacing} min={0.8} max={20} onChange={(pocketSpacing) => custom({ pocketSpacing })} />
-            <LengthInput label="Chamfer" value={opts.pocketChamfer} min={0} max={5} onChange={(pocketChamfer) => custom({ pocketChamfer })} />
-          </div>
-          <div className="field-hint">{summary}</div>
+          <PocketSettings value={opts} onChange={onChange} layout={layout} note="Compartment, scoop and label settings are not used." />
         </div>
       )}
     </>

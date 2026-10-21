@@ -30,6 +30,18 @@ export type HeightMode = 'units' | 'internal' | 'external';
 /** 'cutouts': filled solid with library tools cut in as pockets (cutouts.ts; BinOptions.cutouts). */
 export type InteriorMode = 'compartments' | 'pockets' | 'cutouts';
 export type PocketShape = 'round' | 'square' | 'hex';
+/**
+ * Pocket bottoms, all cut from the top so they print without supports:
+ * - flat
+ * - round: a rounded bottom (half-sphere-ish, or rounded edges on wide square pockets) so small parts slide out
+ * - cone: a 118° point, like a drill tip, for bits and screws
+ * - stepped: a narrower bore below a ledge, for items with a collar
+ */
+export type PocketFloor = 'flat' | 'round' | 'cone' | 'stepped';
+/** Finger access: a rounded groove along each row of pockets, or a thumb notch in front of each pocket. */
+export type PocketGrip = 'none' | 'groove' | 'notch';
+/** How a graduated set writes each size: not at all, in mm, or in inch fractions (to 1/64). */
+export type PocketSizeLabels = 'none' | 'mm' | 'inch';
 /** Which outer walls: any of the letters f (front, −Y), b (back), l (left, −X), r (right). '' = none. */
 export type WallMask = string;
 
@@ -79,6 +91,31 @@ export interface BinVariantOptions {
   pocketSpacing: number;
   /** 45° chamfer on pocket mouths. */
   pocketChamfer: number;
+  /** Pocket bottom shape. */
+  pocketFloor: PocketFloor;
+  /** Stepped bottoms: width of the narrower bore (the pocket's shape, scaled down), in mm. */
+  pocketStepW: number;
+  /** Stepped bottoms: how much of the pocket's depth the bore takes, in mm. */
+  pocketStepDepth: number;
+  /** Lean the pockets back this many degrees so items tip toward the front (−Y). Depth is measured along the lean. */
+  pocketTilt: number;
+  pocketGrip: PocketGrip;
+  /** A magnet recess under each pocket's floor; the floor rises so 0.6 mm stays under it. */
+  pocketMagnet: boolean;
+  /** Magnet size in mm (the recess adds press-fit clearance). */
+  pocketMagnetD: number;
+  pocketMagnetH: number;
+  /**
+   * Graduated set (drill index, sockets, hex keys): one pocket per item size, in mm
+   * before clearance, packed in rows smallest first. Empty = a uniform grid of pocketW.
+   */
+  pocketSizes: number[];
+  /** Graduated set: label per size ('' = write the size). Sockets are named by size, not by their outside diameter. */
+  pocketSizeNames: string[];
+  /** Graduated set: engrave each size in front of its pocket. */
+  pocketSizeLabels: PocketSizeLabels;
+  /** Graduated set: added to each item size, in mm. */
+  pocketClearance: number;
   /** Print a stacking lid with this bin. Only used when the bin has a lip. */
   lid: boolean;
 }
@@ -109,8 +146,32 @@ export const DEFAULT_VARIANTS: BinVariantOptions = {
   pocketDepth: 20,
   pocketSpacing: 2,
   pocketChamfer: 1,
+  pocketFloor: 'flat',
+  pocketStepW: 6,
+  pocketStepDepth: 5,
+  pocketTilt: 0,
+  pocketGrip: 'none',
+  pocketMagnet: false,
+  pocketMagnetD: 6,
+  pocketMagnetH: 2,
+  pocketSizes: [],
+  pocketSizeNames: [],
+  pocketSizeLabels: 'mm',
+  pocketClearance: 0.4,
   lid: false,
 };
+
+/** Every `pocket…` option: what a pocket grid needs, wherever it is cut (whole bin or one compartment). */
+export type PocketKey = Extract<keyof BinVariantOptions, `pocket${string}`>;
+export type PocketFields = Pick<BinVariantOptions, PocketKey>;
+export const POCKET_KEYS = Object.keys(DEFAULT_VARIANTS).filter((k) => k.startsWith('pocket')) as PocketKey[];
+
+/** The pocket options of a bin (or of anything carrying them). */
+export function pocketFields(o: Partial<PocketFields>): Partial<PocketFields> {
+  const out: Partial<Record<PocketKey, unknown>> = {};
+  for (const k of POCKET_KEYS) if (o[k] !== undefined) out[k] = o[k];
+  return out as Partial<PocketFields>;
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -131,6 +192,13 @@ const LIP_STYLES: readonly LipStyle[] = ['normal', 'reduced'];
 const HEIGHT_MODES: readonly HeightMode[] = ['units', 'internal', 'external'];
 const INTERIORS: readonly InteriorMode[] = ['compartments', 'pockets', 'cutouts'];
 const POCKET_SHAPES: readonly PocketShape[] = ['round', 'square', 'hex'];
+const POCKET_FLOORS: readonly PocketFloor[] = ['flat', 'round', 'cone', 'stepped'];
+const POCKET_GRIPS: readonly PocketGrip[] = ['none', 'groove', 'notch'];
+const POCKET_SIZE_LABELS: readonly PocketSizeLabels[] = ['none', 'mm', 'inch'];
+/** Most pockets a graduated set may hold. */
+export const MAX_POCKET_SIZES = 100;
+/** Steepest pocket lean, degrees. */
+export const MAX_POCKET_TILT = 45;
 export const WALLS = ['f', 'b', 'l', 'r'] as const;
 export type Wall = (typeof WALLS)[number];
 
@@ -219,6 +287,22 @@ export function sanitizeVariants(o: Partial<BinVariantOptions> & { heightUnits: 
     patternSize: round2(num(o.patternSize, 3, 30, d.patternSize)),
     patternWeb: round2(num(o.patternWeb, 1.2, 10, d.patternWeb)),
     interior: pick(o.interior, INTERIORS, d.interior),
+    ...sanitizePocketFields(o),
+    lid: !!(o.lid ?? d.lid),
+  };
+}
+
+/** Clamp the pocket options (a bin's, or a compartment's own); unknown values fall back to the defaults. */
+export function sanitizePocketFields(o: Partial<PocketFields>): PocketFields {
+  const d = DEFAULT_VARIANTS;
+  const rawNames: unknown[] = Array.isArray(o.pocketSizeNames) ? o.pocketSizeNames : [];
+  const pairs = (Array.isArray(o.pocketSizes) ? o.pocketSizes : [])
+    .map((v, i) => [Number(v), rawNames[i]] as const)
+    .filter(([v]) => Number.isFinite(v) && v > 0)
+    .slice(0, MAX_POCKET_SIZES);
+  const sizes = pairs.map(([v]) => round2(Math.min(200, Math.max(0.5, v))));
+  const names = pairs.map(([, n]) => (typeof n === 'string' ? n.trim().slice(0, 12).trim() : ''));
+  return {
     pocketPreset: typeof o.pocketPreset === 'string' && o.pocketPreset ? o.pocketPreset.slice(0, 40) : d.pocketPreset,
     pocketShape: pick(o.pocketShape, POCKET_SHAPES, d.pocketShape),
     pocketW: round2(num(o.pocketW, 1, 200, d.pocketW)),
@@ -226,8 +310,37 @@ export function sanitizeVariants(o: Partial<BinVariantOptions> & { heightUnits: 
     pocketDepth: round2(num(o.pocketDepth, 1, 200, d.pocketDepth)),
     pocketSpacing: round2(num(o.pocketSpacing, 0.8, 20, d.pocketSpacing)),
     pocketChamfer: round2(num(o.pocketChamfer, 0, 5, d.pocketChamfer)),
-    lid: !!(o.lid ?? d.lid),
+    pocketFloor: pick(o.pocketFloor, POCKET_FLOORS, d.pocketFloor),
+    pocketStepW: round2(num(o.pocketStepW, 0.5, 200, d.pocketStepW)),
+    pocketStepDepth: round2(num(o.pocketStepDepth, 0.5, 200, d.pocketStepDepth)),
+    pocketTilt: round2(num(o.pocketTilt, 0, MAX_POCKET_TILT, d.pocketTilt)),
+    pocketGrip: pick(o.pocketGrip, POCKET_GRIPS, d.pocketGrip),
+    pocketMagnet: !!(o.pocketMagnet ?? d.pocketMagnet),
+    pocketMagnetD: round2(num(o.pocketMagnetD, 1, 30, d.pocketMagnetD)),
+    pocketMagnetH: round2(num(o.pocketMagnetH, 0.5, 20, d.pocketMagnetH)),
+    pocketSizes: sizes,
+    pocketSizeNames: names.some(Boolean) ? names : [],
+    pocketSizeLabels: pick(o.pocketSizeLabels, POCKET_SIZE_LABELS, d.pocketSizeLabels),
+    pocketClearance: round2(num(o.pocketClearance, 0, 5, d.pocketClearance)),
   };
+}
+
+/**
+ * Mesh-key part for a pocket grid. Options left at their defaults add nothing,
+ * so grids saved before they existed keep their keys.
+ */
+export function pocketKeyPart(o: PocketFields): string {
+  const size = o.pocketShape === 'square' ? `${o.pocketW}x${o.pocketD}` : String(o.pocketW);
+  let k = `P${o.pocketShape}${size}d${o.pocketDepth}s${o.pocketSpacing}c${o.pocketChamfer}`;
+  if (o.pocketFloor !== 'flat') k += `f${o.pocketFloor}${o.pocketFloor === 'stepped' ? `${o.pocketStepW}x${o.pocketStepDepth}` : ''}`;
+  if (o.pocketTilt > 0) k += `t${o.pocketTilt}`;
+  if (o.pocketGrip !== 'none') k += `g${o.pocketGrip}`;
+  if (o.pocketMagnet) k += `m${o.pocketMagnetD}x${o.pocketMagnetH}`;
+  if (o.pocketSizes.length) {
+    k += `z${o.pocketSizes.join('/')}k${o.pocketClearance}l${o.pocketSizeLabels}`;
+    if (o.pocketSizeLabels !== 'none' && o.pocketSizeNames.length) k += `n${JSON.stringify(o.pocketSizeNames)}`;
+  }
+  return k;
 }
 
 /** Height part of a bin's mesh key: units when the wall height is a whole number of units, else mm. */
@@ -261,10 +374,7 @@ export function variantKeyParts(o: KeyInput): string[] {
   if (o.cutoutWalls) p.push(`W${o.cutoutWalls}${o.cutoutWidth}x${o.cutoutDepth}`);
   if (o.slideWalls && o.interior === 'compartments') p.push(`S${o.slideWalls}${o.slideRadius}`);
   if (o.patternWalls) p.push(`X${o.patternWalls}${o.patternSize}w${o.patternWeb}`);
-  if (o.interior === 'pockets') {
-    const size = o.pocketShape === 'square' ? `${o.pocketW}x${o.pocketD}` : String(o.pocketW);
-    p.push(`P${o.pocketShape}${size}d${o.pocketDepth}s${o.pocketSpacing}c${o.pocketChamfer}`);
-  }
+  if (o.interior === 'pockets') p.push(pocketKeyPart(o));
   return p;
 }
 
