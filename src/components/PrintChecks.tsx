@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { history, printDrawers, useStore, useUnits } from '../state/store';
 import { Section, Segmented } from './fields';
-import { useLabelFont } from './LabelIconPicker';
+import { useLabelFont } from './labelFont';
+import { geometry } from '../worker/client';
 import { formatLength } from '../lib/units';
 import { DEFAULT_NOZZLE, NOZZLES } from '../lib/layout/plan';
 import { nozzleOf, placedBinChecks, projectChecks, worstSeverity, type CheckFix, type CheckSeverity, type FoundCheck, type PrintCheck } from '../lib/printability';
@@ -91,7 +92,9 @@ export function BinChecksNotice({ bin, layout }: { bin: PlacedBin; layout: GridL
 
 /** Worst check per bin of the active drawer, for the marks on the bin grid. */
 export function useBinCheckMarks(layout: GridLayout, bins: PlacedBin[]): ReadonlyMap<string, CheckSeverity> {
-  const font = useLabelFont();
+  // The marks' text checks need the label font only with bins, and it can wait until the first view is up.
+  const firstView = useSyncExternalStore((cb) => geometry.subscribe(cb), () => geometry.firstViewIn);
+  const font = useLabelFont(firstView && bins.length > 0);
   const nozzle = useStore((s) => nozzleOf(s.setup));
   return useMemo(() => {
     const out = new Map<string, CheckSeverity>();

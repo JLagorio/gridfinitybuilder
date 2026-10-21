@@ -36,6 +36,17 @@ class GeometryClient {
   private busy = false;
   private listeners = new Set<() => void>();
   private version = 0;
+  private shownFirst!: () => void;
+  private firstMeshIn = false;
+  private firstShown = false;
+  /**
+   * Settles once the first mesh the screen asked for is in (or failed), or
+   * there was nothing to build, and the page has drawn it and gone idle.
+   * What the first view doesn't need (the other tabs, the label font, the
+   * offline copy) waits for it, so it doesn't share the network with the
+   * WASM or hold up drawing that mesh.
+   */
+  readonly firstView = new Promise<void>((resolve) => (this.shownFirst = resolve));
 
   constructor() {
     this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
@@ -69,6 +80,25 @@ class GeometryClient {
     return this.version;
   }
 
+  /** Whether `firstView` has settled. */
+  get firstViewIn() {
+    return this.firstShown;
+  }
+
+  private markFirstView() {
+    if (this.firstMeshIn) return;
+    this.firstMeshIn = true;
+    // After the frame that shows it, when the page has nothing else to do (or in a second at most).
+    const idle = (fn: () => void) => (typeof requestIdleCallback === 'function' ? requestIdleCallback(fn, { timeout: 1000 }) : setTimeout(fn, 200));
+    requestAnimationFrame(() =>
+      idle(() => {
+        this.firstShown = true;
+        this.shownFirst();
+        this.emit();
+      }),
+    );
+  }
+
   private emit() {
     this.version++;
     for (const l of this.listeners) l();
@@ -95,7 +125,10 @@ class GeometryClient {
   private async pump() {
     if (this.busy) return;
     const next = this.wanted.find((s) => !this.meshes.has(s.key) && !this.errors.has(s.key));
-    if (!next) return;
+    if (!next) {
+      this.markFirstView();
+      return;
+    }
     this.busy = true;
     this.emit();
     try {
@@ -114,6 +147,7 @@ class GeometryClient {
     }
     this.busy = false;
     this.emit();
+    this.markFirstView();
     void this.pump();
   }
 

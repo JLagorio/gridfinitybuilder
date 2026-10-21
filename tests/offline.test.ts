@@ -70,8 +70,10 @@ function runWorker(entries: PrecacheEntry[], net: { online: boolean; files: Reco
     };
   };
   const fetched: string[] = [];
+  const modes: string[] = [];
   const fetch = async (req: Request | { url: string }) => {
     fetched.push(req.url);
+    if (req instanceof Request) modes.push(req.cache);
     if (net.hang) return new Promise<Response>(() => {});
     if (!net.online) throw new TypeError('Failed to fetch');
     const path = new URL(req.url).pathname.replace('/app/', '') || './';
@@ -108,6 +110,7 @@ function runWorker(entries: PrecacheEntry[], net: { online: boolean; files: Reco
   return {
     store,
     fetched,
+    modes,
     skipped: () => skipped,
     install: () => emit('install', {}),
     activate: () => emit('activate', {}),
@@ -134,6 +137,13 @@ describe('service worker', () => {
     expect(cached).toHaveLength(entries.length);
     expect(cached.every((k) => /\?__rev=[0-9a-f]{12}$/.test(k))).toBe(true);
     expect(sw.fetched.sort()).toEqual(entries.map((e) => new URL(e.url, 'https://example.test/app/').href).sort());
+  });
+
+  it('checks each file with the server instead of downloading what the page just loaded again', async () => {
+    const sw = runWorker(entries, { online: true, files });
+    await sw.install();
+    // "no-cache" revalidates: an unchanged file comes back as a 304 from the browser's HTTP cache.
+    expect(sw.modes).toEqual(entries.map(() => 'no-cache'));
   });
 
   it('works offline: the page, the chunks, the WASM and the printer settings come from the cache', async () => {
@@ -214,14 +224,16 @@ describe('build', () => {
   const out = mkdtempSync(join(tmpdir(), 'gridfit-build-'));
   afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-  it('writes sw.js listing every file the build produced (worker, WASM, fonts, printer settings)', async () => {
+  it('writes sw.js listing every file the build produced (lazy chunks, worker, WASM, fonts, printer settings)', async () => {
     await build({ root, logLevel: 'silent', build: { outDir: out, emptyOutDir: true } });
     const src = readFileSync(join(out, SW_FILE), 'utf8');
     const list = JSON.parse(src.match(/const PRECACHE = (\[.*?\]);/)![1]) as [string, string][];
     const urls = list.map(([u]) => u);
     const built = listFiles(out).filter((f) => !skipFile(f)).map((f) => (f === 'index.html' ? './' : f));
     expect(urls.sort()).toEqual(built.sort());
-    for (const want of [/^assets\/index-.*\.js$/, /^assets\/index-.*\.css$/, /^assets\/geometry\.worker-.*\.js$/, /^assets\/manifold-.*\.wasm$/, /^fonts\/RobotoCondensed-Bold\.ttf$/, /^bambu\/p2s\.json$/, /^manifest\.webmanifest$/, /^icons\/icon-512\.png$/]) {
+    // The code-split parts (README: Development) are saved too, so every tab, dialog and export works offline.
+    const lazy = [/^assets\/BinPanel-.*\.js$/, /^assets\/PrintPanel-.*\.js$/, /^assets\/TraceDialog-.*\.js$/, /^assets\/three-.*\.js$/, /^assets\/meshes-.*\.js$/, /^assets\/writers-.*\.js$/];
+    for (const want of [...lazy, /^assets\/index-.*\.js$/, /^assets\/index-.*\.css$/, /^assets\/geometry\.worker-.*\.js$/, /^assets\/manifold-.*\.wasm$/, /^fonts\/RobotoCondensed-Bold\.ttf$/, /^bambu\/p2s\.json$/, /^manifest\.webmanifest$/, /^icons\/icon-512\.png$/]) {
       expect(urls.some((u) => want.test(u)), String(want)).toBe(true);
     }
   });

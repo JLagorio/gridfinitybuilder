@@ -13,15 +13,20 @@ export const useAppUpdate = create<AppUpdate>(() => ({ waiting: null }));
 
 let reloadAsked = false;
 
-export function registerServiceWorker() {
+/**
+ * Register once the page has loaded and `after` has settled: installing saves
+ * every file of the build, which shouldn't share the network with what the
+ * first view still needs (main.tsx waits for its first mesh).
+ */
+export function registerServiceWorker(after: Promise<unknown> = Promise.resolve()) {
   if (!('serviceWorker' in navigator)) return;
   if (!import.meta.env.PROD) {
     // One left over from a preview build on this address would serve old files to `vite dev`.
     void navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => void r.unregister()));
     return;
   }
-  if (document.readyState === 'complete') void start();
-  else window.addEventListener('load', () => void start(), { once: true });
+  const loaded = document.readyState === 'complete' ? Promise.resolve() : new Promise((r) => window.addEventListener('load', r, { once: true }));
+  void Promise.all([loaded, after.catch(() => {})]).then(start);
 }
 
 async function start() {

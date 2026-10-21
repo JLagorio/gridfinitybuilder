@@ -4,7 +4,9 @@
  * (scripts/pwa.ts); `vite dev` never registers it.
  *
  * - Install: every file of this build goes into the cache. Files an earlier version
- *   already cached with the same content are kept, not fetched again.
+ *   already cached with the same content are kept, not fetched again. The rest are
+ *   checked with the server, so what the page has just downloaded isn't downloaded
+ *   again (an unchanged file answers 304 from the browser's HTTP cache).
  * - Pages: from the network when it answers, so an online visit always gets the
  *   latest deploy; the cached page when offline (or when the network is too slow).
  * - The build's other files: from the cache.
@@ -42,7 +44,7 @@ async function precache() {
     entries
       .filter((e) => !have.has(e.key))
       .map(async (e) => {
-        const res = await fetch(new Request(e.url, { cache: 'reload' }));
+        const res = await fetch(new Request(e.url, { cache: 'no-cache' }));
         if (!res.ok) throw new Error(`Gridfit offline cache: ${e.url} answered ${res.status}`);
         // A redirected response can't answer a page request; store a plain copy.
         await cache.put(e.key, res.redirected ? new Response(await res.blob(), { headers: res.headers }) : res);

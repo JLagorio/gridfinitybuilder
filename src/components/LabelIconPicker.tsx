@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { CONTENTS_FRAGMENT, ICONS, iconShape, type IconDef } from '../lib/geometry/labelIcons';
-import { FONT_URL_PATH, hasFont, registerFont } from '../lib/geometry/text';
 import { fitText, labelLines, type Box } from '../lib/geometry/labels';
 import { fillContents } from '../lib/geometry/labelContents';
 import type { Contour } from '../lib/geometry/font';
+import { useLabelFont } from './labelFont';
 import './labels.css';
 
 /**
@@ -12,21 +12,8 @@ import './labels.css';
  * font, same fitting, same icons).
  */
 
-// The same font the worker uses for the geometry.
-let fontLoad: Promise<void> | null = null;
-export function useLabelFont(): boolean {
-  const [ok, setOk] = useState(hasFont());
-  useEffect(() => {
-    if (ok) return;
-    fontLoad ??= fetch(`${import.meta.env.BASE_URL}${FONT_URL_PATH}`)
-      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
-      .then((b) => {
-        if (!hasFont()) registerFont(b);
-      });
-    fontLoad.then(() => setOk(true)).catch(() => {});
-  }, [ok]);
-  return ok;
-}
+// Still exported from here, for imports that predate labelFont.ts.
+export { useLabelFont };
 
 /** SVG path data for contours (y up), shifted by (dx, dy). */
 export function contoursPath(cs: Contour[], dx = 0, dy = 0): string {
