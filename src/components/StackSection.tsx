@@ -51,7 +51,7 @@ export function StackSection({ job, bin }: { job: PrintJob; bin: PlacedBin }) {
   const unstack = () => setMsg(unstackBin(bin.id) ? null : 'No free spot on the floor for it: clear some room first.');
 
   return (
-    <Section title="Stacking">
+    <Section title="Stacking" find="stack" set={col.length > 1}>
       {col.length > 1 && (
         <>
           <div className="stack-levels" role="group" aria-label="Levels of this stack">

@@ -96,6 +96,8 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
     <>
       <Section
         title="Tool library"
+        find="tools"
+        set={tools.length > 0 || (!!sel && (sel.opts.interior === 'cutouts' || usesToolCompartments(sel.opts)))}
         aside={
           binPane !== 'cutouts' && sel ? (
             <button className="link" onClick={() => setUI({ binPane: 'cutouts' })}>
@@ -194,6 +196,8 @@ function PocketSettings({ binId, style, count }: { binId: string; style: CutoutS
   return (
     <Section
       title={`Pockets in this bin (${count})`}
+      find="tools"
+      set
       aside={
         <button
           className="link danger"

@@ -1,5 +1,5 @@
 import { history, useStore, useUnits } from '../state/store';
-import { LengthInput, NumberInput, Section, Segmented, Stepper, TextInput, Toggle } from './fields';
+import { Group, LengthInput, NumberInput, Section, Segmented, Stepper, TextInput, Toggle } from './fields';
 import { CASE, HINGE_CLEARANCE, sanitizeCase, type CaseOptions } from '../lib/geometry/case';
 import { sanitizeWall, type WallOptions } from '../lib/geometry/wallmount';
 import { SPACER, sanitizeSpacers, type SpacerOptions } from '../lib/geometry/spacers';
@@ -32,7 +32,7 @@ export function EnclosureSection({ job }: { job: PrintJob }) {
   };
 
   return (
-    <Section title="Drawer, case or wall">
+    <Section title="Drawer, case or wall" find="enclosure">
       <Segmented
         label="The grid goes in"
         value={kind}
@@ -111,8 +111,11 @@ function CaseFields({ opts: c, onChange, info, box }: { opts: CaseOptions; onCha
       />
       <TextInput label="Lid label" value={c.label} placeholder="e.g. DRILL BITS" onChange={(label) => onChange({ label })} hint="Debossed in the lid; shrinks to fit." />
       {c.label.trim() && <NumberInput label="Label size" value={c.labelSize} min={4} max={40} step={1} onChange={(labelSize) => onChange({ labelSize })} hint="Capital height." />}
-      <details className="advanced">
-        <summary>Hinges and latches</summary>
+      <Group
+        title="Hinges and latches"
+        status={c.hinges || c.latches ? `${c.hinges || 'auto'} hinges · ${c.latches || 'auto'} latches` : 'automatic'}
+        active={!!(c.hinges || c.latches)}
+      >
         <div className="row2">
           <Stepper label="Hinges" value={c.hinges} min={0} max={6} onChange={(hinges) => onChange({ hinges })} />
           <Stepper label="Latches" value={c.latches} min={0} max={6} onChange={(latches) => onChange({ latches })} />
@@ -121,7 +124,7 @@ function CaseFields({ opts: c, onChange, info, box }: { opts: CaseOptions; onCha
           0 = automatic. Each hinge is two body knuckles and one lid knuckle on a printed snap pin ({HINGE_CLEARANCE} mm play); each latch is a flexing arm on
           the lid that hooks under a ridge on the body.
         </div>
-      </details>
+      </Group>
       {box && info && (
         <div className="summary">
           <dl>

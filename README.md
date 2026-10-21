@@ -19,6 +19,13 @@ A project holds **all your drawers**. Switch between them, add, duplicate, renam
 
 Lengths are stored in mm. The **mm / in** switch in the top bar changes what every length field shows and accepts. Inches show as fractions (1/8 to 1/32, or decimals), and you can type `20 1/8`, `20-1/8"`, `1' 8 1/8"`, `44.5mm` or `51cm` in either mode.
 
+**The side panels** (Drawer, Bins, Print) each start with two things:
+
+- **Find a setting:** type what you're after and the panel shows only the matching settings, with the groups they're in opened. It knows other words for them too: *magnet*, *screw*, *lip*, *label*, *scoop*, *pocket*, *divider*, *wall*, *lid*, *feet*, *stack*, *nozzle*, *reprint*… Esc or × puts the panel back as it was. When the setting isn't there for this bin, it says when it is (*Stretch into the gap shows when one bin is selected…*).
+- **Basic / All:** Basic shows the settings most bins and drawers need, plus anything you've set away from its default; All shows every setting. A line at the end of a section names what Basic leaves out. The choice is remembered in this browser (not in the project).
+
+Folding groups say what's set in them, start open when anything in them isn't the default, and carry a dot while folded.
+
 1. **Drawer & baseplate.**
    - **Drawer:**
      - **Size:** enter the inside width and depth. Drawers are rarely square, so add width or depth measurements taken at other spots; the smallest is used.
@@ -29,7 +36,8 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **Carry case:** walls sized to the tallest bin, a lid on snap-pin hinges, flexing latches, a fold-down or fixed handle, and feet. It splits into bed-sized pieces like a baseplate. The 3D view shows it with the lid closed, open or off.
      - **Wall grid:** countersunk holes or keyhole slots every few cells, an optional French cleat (with a printed wall cleat) and a ledge along the bottom. Bins stay on with magnets in both the bins and the plate.
    - **Half grid** (21 mm): the baseplate gets 21 mm receptacles and every bin stands on 21 mm half feet, so bins come in half units (1.5 × 2.5 u) and sit at any half-cell offset. Sizes still show in 42 mm units. Turning it on or off converts the drawer's bins in one undo step. Magnet holes go in the corners of each 42 mm unit, as in Gridfinity Extended.
-   - **Blocked cells:** click or drag on the cell map to mark cells where slide hardware or a bump gets in the way. They get no receptacle (filled flat, or cut out of the plate) and bins can't go there.
+   - **Blocked cells:** open *Blocked cells* under Grid and click or drag on the cell map to mark cells where slide hardware or a bump gets in the way. They get no receptacle (filled flat, or cut out of the plate) and bins can't go there.
+   - The **Grid** section holds the leftover space and blocked cells, and in All settings the grid's position, the fit clearance and the half grid.
    - **Baseplate options:**
      - **Style:** open frame (least filament), weighted (gridfinity-rebuilt weight pockets), skeletonized, or solid floor.
      - **Magnet pockets:** top- or bottom-loaded, push-out holes, crush ribs, chamfered mouth, pry slot.
@@ -84,7 +92,8 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **two-colour shadow boards:** tool pockets get a thin floor in filament 2, so a missing tool stands out
      - **What's in it:** a list of what the bin holds, per bin or per compartment. It's for finding things and for the drawer map, and doesn't change the print.
 
-     The base, lip and wall groups fold away. Each says what's set, and starts open when anything in it isn't the default.
+     The panel goes in that order: the bin (type, size, height), **Inside** (compartments, pocket grid or tool cutouts, with the compartment tools), **Scoop & label**, **Options** (base & holes, lip & lid, walls, trays, cups), **What's in it**, stacking and stretching, then **This bin** (duplicate, delete, download it on its own). With nothing selected, the drawer's **Layout** (draw, fill, clear) comes first and the settings are for new bins.
+   - **Start from** a preset: *Screws & small parts* (three compartments with scoops and labels), *Batteries* (an AA pocket grid, tall enough), *Deep bin* (one tall compartment, as tall as the drawer allows), *Tool tray* (low, a long slot and two compartments) or *Label everything* (label tabs, or a front label, with the text from *What's in it*). One click sets the selected bins, or new bins when none is selected, as one undo step. A preset only sets what it's about: the size, base, holes and lip stay, and a bin too tall for the printer is made smaller to fit.
    - **Templates** save a bin's settings by name. Apply one to the selected bins or to new bins, in any drawer.
 
    **Compartments.**
@@ -165,7 +174,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
 
    **Find (⌘/Ctrl+K or /)** searches every drawer: what's in the bins, labels, compartment labels, tool names. Pick a result to jump to its drawer and bin.
 
-3. **Print plates.**
+3. **Print plates.** The panel goes: the printers, print checks, the exports, the plates, then the baseplate split, bill of materials, test-fit kit, drawer map and the project file.
    - **Printer:** pick it. The Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles.
    - **Nozzle:** 0.4 mm unless you pick 0.2, 0.6 or 0.8. The print checks measure walls, text and fits against it (Bambu projects stay set up for the 0.4 mm nozzle; pick yours in Bambu Studio).
    - **Print checks:** before the exports, a list of what won't print well in everything being printed, from the settings alone:
@@ -278,8 +287,10 @@ src/lib/project.ts  ties it together: planJob() / planPrint() for several drawer
 src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search;
                     printed.ts what's been printed (part fingerprints), for reprinting only what changed
 src/lib/printability.ts  print checks: rule-based warnings from the options and the nozzle (cheap, no geometry)
+src/lib/panelSearch.ts   "Find a setting" in the side panels: a keyword search over each panel's index (components/panelIndex.ts)
+src/lib/templates.ts     bin templates and the built-in presets ("Start from")
 src/lib/stacking.ts bins stacked on bins: columns, rules, heights
-src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
+src/state/          zustand store, undo history (history.ts), multi-bin selection, templates and presets, the panels' Basic / All view
 src/worker/         geometry Web Worker + client with a mesh queue/cache
 src/components/     React UI (three.js viewer, 2D bin layout editor, panels; touch.tsx: touch helpers)
 src/pwa/            offline use: the service worker and its registration

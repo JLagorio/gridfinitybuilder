@@ -2,12 +2,12 @@
  * Sidebar fields for the drawer unit container (geometry in
  * src/lib/geometry/containers/drawers.ts).
  */
-import { useState, type ReactNode } from 'react';
 import { useUnits } from '../../state/store';
-import { LengthInput, Segmented, Stepper, Toggle } from '../fields';
+import { Group, LengthInput, Segmented, Stepper, Toggle } from '../fields';
 import { LabelTextField } from '../LabelFields';
 import { sanitizeBin } from '../../lib/geometry/bin';
 import {
+  DEFAULT_DRAWER_UNIT,
   DRAWER_UNIT,
   drawerUnitNotes,
   planDrawerUnit,
@@ -38,20 +38,6 @@ const LABEL_STYLES: { value: DrawerLabelStyle; label: string; title: string }[] 
 ];
 
 const SIZES = Array.from({ length: DRAWER_UNIT.maxRowSize }, (_, i) => ({ value: i + 1, label: `${i + 1}×` }));
-
-function Group({ title, status, open, children }: { title: string; status: string; open: boolean; children: ReactNode }) {
-  // Decided once (the panel is keyed by bin), so editing inside doesn't snap it shut.
-  const [initial] = useState(open);
-  return (
-    <details className="advanced option-group" open={initial || undefined}>
-      <summary>
-        <span>{title}</span>
-        <small>{status}</small>
-      </summary>
-      {children}
-    </details>
-  );
-}
 
 function pullHint(pull: DrawerPull, fmt: (mm: number) => string): string {
   const reach = DRAWER_UNIT.reach[pull];
@@ -121,7 +107,7 @@ function DrawerUnitFields({ bin, value: o, onChange, cells }: ContainerFieldsPro
         />
       </div>
       {o.rows > 1 && (
-        <Group title="Drawer heights" status={even ? 'even' : rowSizes.join(' : ')} open={!even}>
+        <Group title="Drawer heights" status={even ? 'even' : rowSizes.join(' : ')} active={!even}>
           <div className="field-hint">Each row&apos;s share of the height, top row first: 1×, 1×, 2× makes the bottom drawers twice as deep.</div>
           {rowSizes.map((v, i) => {
             const inside = rowInside(i);
@@ -175,7 +161,11 @@ function DrawerUnitFields({ bin, value: o, onChange, cells }: ContainerFieldsPro
           ))}
         </div>
       )}
-      <Group title="Walls & fit" status={`${thin(o.shell)} walls · ${thin(o.clearance)} gap`} open={false}>
+      <Group
+        title="Walls & fit"
+        status={`${thin(o.shell)} walls · ${thin(o.clearance)} gap`}
+        active={o.shell !== DEFAULT_DRAWER_UNIT.shell || o.clearance !== DEFAULT_DRAWER_UNIT.clearance}
+      >
         <LengthInput
           label="Chest walls"
           value={o.shell}

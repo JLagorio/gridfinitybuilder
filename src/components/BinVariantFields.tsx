@@ -8,6 +8,7 @@ import { pocketLayout } from '../lib/geometry/pockets';
 import { LID_HEIGHT } from '../lib/geometry/lid';
 import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
 import { LidTopFields, ShadowFloorField } from './InsertFields';
+import { Find } from './findContext';
 
 type Props = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -28,16 +29,18 @@ export function HeightField({ opts, onChange, cells }: Props & { cells?: BinCell
   const range = mode === 'units' ? null : heightMmRange(opts, mode);
   return (
     <>
-      <Segmented
-        label="Height given as"
-        value={mode}
-        options={[
-          { value: 'units', label: '7 mm units', title: 'Gridfinity height units, not counting the lip' },
-          { value: 'internal', label: 'Inside', title: 'Usable depth from the floor to the top of the wall' },
-          { value: 'external', label: 'Overall', title: 'Overall height including the lip' },
-        ]}
-        onChange={setMode}
-      />
+      <Find id="height-mode" set={mode !== 'units'}>
+        <Segmented
+          label="Height given as"
+          value={mode}
+          options={[
+            { value: 'units', label: '7 mm units', title: 'Gridfinity height units, not counting the lip' },
+            { value: 'internal', label: 'Inside', title: 'Usable depth from the floor to the top of the wall' },
+            { value: 'external', label: 'Overall', title: 'Overall height including the lip' },
+          ]}
+          onChange={setMode}
+        />
+      </Find>
       {range ? (
         <LengthInput
           label={mode === 'internal' ? 'Inside depth' : 'Overall height'}
@@ -73,22 +76,29 @@ export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinC
   }, [pockets, opts, cells]);
   return (
     <>
-      <Segmented
-        label="Inside"
-        value={opts.interior}
-        options={[
-          { value: 'compartments', label: 'Compartments' },
-          { value: 'pockets', label: 'Pocket grid', title: 'Fill the bin and cut a grid of pockets for batteries, bits, cards…' },
-          { value: 'cutouts', label: 'Tool cutouts', title: 'Fill the bin and cut pockets shaped like your tools (Tool library below)' },
-        ]}
-        onChange={(interior) => onChange({ interior })}
-        hint={opts.interior === 'cutouts' ? 'Lay the tools out in the Tool cutouts pane; pocket settings are in the Tool library section.' : undefined}
-      />
-      <ShadowFloorField opts={opts} onChange={onChange} />
+      <Find id="interior">
+        {/* Under the Inside heading, which names it. */}
+        <Segmented
+          ariaLabel="Inside"
+          value={opts.interior}
+          options={[
+            { value: 'compartments', label: 'Compartments' },
+            { value: 'pockets', label: 'Pocket grid', title: 'Fill the bin and cut a grid of pockets for batteries, bits, cards…' },
+            { value: 'cutouts', label: 'Tool cutouts', title: 'Fill the bin and cut pockets shaped like your tools (Tool library below)' },
+          ]}
+          onChange={(interior) => onChange({ interior })}
+          hint={opts.interior === 'cutouts' ? 'Lay the tools out in the Tool cutouts pane. Their pocket settings are in the Tool library.' : undefined}
+        />
+      </Find>
+      <Find id="shadow" set={opts.shadowFloor}>
+        <ShadowFloorField opts={opts} onChange={onChange} />
+      </Find>
       {pockets && (
-        <div className="indent">
-          <PocketSettings value={opts} onChange={onChange} layout={layout} note="Compartment, scoop and label settings are not used." />
-        </div>
+        <Find id="pockets">
+          <div className="indent">
+            <PocketSettings value={opts} onChange={onChange} layout={layout} note="Compartment, scoop and label settings are not used." find />
+          </div>
+        </Find>
       )}
     </>
   );
@@ -181,39 +191,47 @@ export function LipFields({ opts, onChange, cells }: Props & { cells?: BinCells 
   const { fmt } = useUnits();
   return (
     <>
-      <Segmented
-        label="Stacking lip"
-        value={opts.lip ? opts.lipStyle : 'none'}
-        options={[
-          { value: 'normal', label: 'Normal' },
-          { value: 'reduced', label: 'Reduced', title: 'No lower chamfer or support: more room inside, still stackable' },
-          { value: 'none', label: 'None' },
-        ]}
-        onChange={(v) => onChange(v === 'none' ? { lip: false } : { lip: true, lipStyle: v })}
-        hint={opts.lip && opts.lipStyle === 'reduced' ? 'Gridfinity Extended’s reduced lip: a wider opening, still stackable.' : undefined}
-      />
+      <Find id="lip-style">
+        <Segmented
+          label="Stacking lip"
+          value={opts.lip ? opts.lipStyle : 'none'}
+          options={[
+            { value: 'normal', label: 'Normal' },
+            { value: 'reduced', label: 'Reduced', title: 'No lower chamfer or support: more room inside, still stackable' },
+            { value: 'none', label: 'None' },
+          ]}
+          onChange={(v) => onChange(v === 'none' ? { lip: false } : { lip: true, lipStyle: v })}
+          hint={opts.lip && opts.lipStyle === 'reduced' ? 'Gridfinity Extended’s reduced lip: a wider opening, still stackable.' : undefined}
+        />
+      </Find>
       {opts.lip ? (
         <div className="indent">
-          <Toggle
-            label="Anti-slide notches"
-            checked={opts.lipNotches}
-            onChange={(lipNotches) => onChange({ lipNotches })}
-            hint="On bins wider than one cell: cusps at the cell lines keep smaller bins stacked on top from sliding."
-          />
-          <Toggle
-            label="Stacking lid"
-            checked={opts.lid}
-            onChange={(lid) => onChange({ lid })}
-            hint={opts.lid ? undefined : `Prints a ${fmt(LID_HEIGHT)} lid that sits in the lip; another bin stacks on top of it, or its top is a pocket grid.`}
-          />
-          {opts.lid && (
-            <div className="indent">
-              <LidTopFields opts={opts} onChange={onChange} cells={cells} />
-            </div>
-          )}
+          <Find id="lip-style">
+            <Toggle
+              label="Anti-slide notches"
+              checked={opts.lipNotches}
+              onChange={(lipNotches) => onChange({ lipNotches })}
+              hint="On bins wider than one cell: cusps at the cell lines keep smaller bins stacked on top from sliding."
+            />
+          </Find>
+          <Find id="lid">
+            <Toggle
+              label="Stacking lid"
+              checked={opts.lid}
+              onChange={(lid) => onChange({ lid })}
+              hint={opts.lid ? undefined : `Prints a ${fmt(LID_HEIGHT)} lid that sits in the lip. Another bin stacks on it, or its top is a pocket grid.`}
+            />
+            {opts.lid && (
+              <div className="indent">
+                <LidTopFields opts={opts} onChange={onChange} cells={cells} />
+              </div>
+            )}
+          </Find>
         </div>
       ) : (
-        <div className="field-hint">Lids need a stacking lip.</div>
+        <Find id="lid">
+          <div className="field-hint">Lids need a stacking lip.</div>
+        </Find>
       )}
     </>
   );
@@ -240,49 +258,55 @@ function WallPicker({ label, value, onChange, hint }: { label: string; value: Wa
 export function WallFields({ opts, onChange }: Props) {
   return (
     <>
-      <WallPicker
-        label="Wall cutouts"
-        value={opts.cutoutWalls}
-        onChange={(cutoutWalls) => onChange({ cutoutWalls })}
-        hint={opts.cutoutWalls ? undefined : 'A rounded notch from the top of a wall, to reach in from the side.'}
-      />
-      {opts.cutoutWalls && (
-        <div className="indent row2">
-          <Slider
-            label="Width"
-            value={opts.cutoutWidth}
-            min={0.1}
-            max={1}
-            step={0.05}
-            format={(v) => `${Math.round(v * 100)}%`}
-            onChange={(cutoutWidth) => onChange({ cutoutWidth })}
-          />
-          <LengthInput label="Depth from top" value={opts.cutoutDepth} min={1} max={200} onChange={(cutoutDepth) => onChange({ cutoutDepth })} />
-        </div>
-      )}
-      <WallPicker
-        label="Finger slides"
-        value={opts.slideWalls}
-        onChange={(slideWalls) => onChange({ slideWalls })}
-        hint={opts.slideWalls ? undefined : 'A curved ramp where the floor meets the wall, along the whole wall.'}
-      />
-      {opts.slideWalls && (
-        <div className="indent">
-          <LengthInput label="Slide radius" value={opts.slideRadius} min={1} max={40} onChange={(slideRadius) => onChange({ slideRadius })} />
-        </div>
-      )}
-      <WallPicker
-        label="Hex wall pattern"
-        value={opts.patternWalls}
-        onChange={(patternWalls) => onChange({ patternWalls })}
-        hint={opts.patternWalls ? undefined : 'Hexagonal holes through the walls save plastic on tall bins.'}
-      />
-      {opts.patternWalls && (
-        <div className="indent row2">
-          <LengthInput label="Hole size" value={opts.patternSize} min={3} max={30} onChange={(patternSize) => onChange({ patternSize })} />
-          <LengthInput label="Web" value={opts.patternWeb} min={1.2} max={10} onChange={(patternWeb) => onChange({ patternWeb })} />
-        </div>
-      )}
+      <Find id="wall-cutouts">
+        <WallPicker
+          label="Wall cutouts"
+          value={opts.cutoutWalls}
+          onChange={(cutoutWalls) => onChange({ cutoutWalls })}
+          hint={opts.cutoutWalls ? undefined : 'A rounded notch from the top of a wall, to reach in from the side.'}
+        />
+        {opts.cutoutWalls && (
+          <div className="indent row2">
+            <Slider
+              label="Width"
+              value={opts.cutoutWidth}
+              min={0.1}
+              max={1}
+              step={0.05}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onChange={(cutoutWidth) => onChange({ cutoutWidth })}
+            />
+            <LengthInput label="Depth from top" value={opts.cutoutDepth} min={1} max={200} onChange={(cutoutDepth) => onChange({ cutoutDepth })} />
+          </div>
+        )}
+      </Find>
+      <Find id="wall-slides">
+        <WallPicker
+          label="Finger slides"
+          value={opts.slideWalls}
+          onChange={(slideWalls) => onChange({ slideWalls })}
+          hint={opts.slideWalls ? undefined : 'A curved ramp where the floor meets the wall, along the whole wall.'}
+        />
+        {opts.slideWalls && (
+          <div className="indent">
+            <LengthInput label="Slide radius" value={opts.slideRadius} min={1} max={40} onChange={(slideRadius) => onChange({ slideRadius })} />
+          </div>
+        )}
+      </Find>
+      <Find id="wall-hex">
+        <WallPicker
+          label="Hex wall pattern"
+          value={opts.patternWalls}
+          onChange={(patternWalls) => onChange({ patternWalls })}
+          hint={opts.patternWalls ? undefined : 'Hexagonal holes through the walls save plastic on tall bins.'}
+        />
+        {opts.patternWalls && (
+          <div className="indent row2">
+            <LengthInput label="Hole size" value={opts.patternSize} min={3} max={30} onChange={(patternSize) => onChange({ patternSize })} />
+            <LengthInput label="Web" value={opts.patternWeb} min={1.2} max={10} onChange={(patternWeb) => onChange({ patternWeb })} />
+          </div>
+        )}
+      </Find>
     </>
   );
 }
