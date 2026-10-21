@@ -158,7 +158,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const layoutCache = new Map<string, ReturnType<typeof pocketLayout>>();
 
 function pocketsAt(opts: BinOptions, cells: BinCells) {
-  const key = JSON.stringify([POCKET_KEYS.map((k) => opts[k]), opts.unitsX, opts.unitsY, opts.heightUnits, opts.lip, opts.base, cells]);
+  // The item height doesn't move the pockets.
+  const key = JSON.stringify([POCKET_KEYS.filter((k) => k !== 'pocketItemH').map((k) => opts[k]), opts.unitsX, opts.unitsY, opts.heightUnits, opts.lip, opts.base, cells]);
   let L = layoutCache.get(key);
   if (!L) {
     const { w, d } = binSize(opts, cells);

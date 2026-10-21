@@ -319,6 +319,12 @@ describe('rounds standing in their pockets', () => {
     expect(expectFixed(ammo('ammo-9mm', { heightUnits: 3, lip: false }), 'item-height').fix?.label).toBe('Make it 6u');
     // Shotshells on a flat base.
     expect(expectFixed(ammo('ammo-12ga', { heightUnits: 4, base: 'flat' }), 'item-height').message).toMatch(/^Shells stick out/);
+    // Pockets edited away from the preset keep the height, and the check.
+    const edited = expectFixed(ammo('ammo-9mm', { heightUnits: 3, pocketPreset: 'custom', pocketSpacing: 2.5 }), 'item-height');
+    expect(edited).toMatchObject({ severity: 'info', fix: { label: 'Make it 6u' } });
+    expect(edited.message).toMatch(/^Items stick out 11\.69 mm above the rim/);
+    // Turned off: no check.
+    expect(item(ammo('ammo-9mm', { heightUnits: 3, pocketItemH: -1 }))).toBeUndefined();
   });
 
   it('holding up a lid or a stacked bin is a problem', () => {

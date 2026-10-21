@@ -396,10 +396,14 @@ export function findPocketPreset(id: string): PocketPreset | undefined {
   return POCKET_PRESETS.find((p) => p.id === id);
 }
 
-/** The option fields a preset sets. Lean, finger access and magnets are left as they are. */
+/**
+ * The option fields a preset sets. Lean, finger access and magnets are left as
+ * they are. Its item height too (0 when it has none), replacing the one before.
+ */
 export function presetFields(p: PocketPreset): Partial<PocketFields> {
   return {
     pocketPreset: p.id,
+    pocketItemH: p.itemH ?? 0,
     pocketShape: p.shape,
     pocketW: p.w,
     pocketD: p.d ?? p.w,
@@ -412,6 +416,15 @@ export function presetFields(p: PocketPreset): Partial<PocketFields> {
     pocketSizeNames: p.names ?? [],
     ...(p.sizes ? { pocketSizeLabels: p.labels ?? 'mm', pocketClearance: p.clearance ?? 0.4 } : {}),
   };
+}
+
+/**
+ * A hand edit to what the pockets hold (size, depth, spacing…): they are no
+ * longer the preset, but they keep holding items as tall as before (written
+ * out, so a compartment's own settings keep the height it showed).
+ */
+export function customEdit(o: Pick<PocketFields, 'pocketSizes' | 'pocketItemH'>, patch: Partial<PocketFields>): Partial<PocketFields> {
+  return { ...patch, pocketPreset: o.pocketSizes.length > 0 ? CUSTOM_SET : 'custom', pocketItemH: o.pocketItemH };
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +449,8 @@ export const FIT_DEFAULTS = {
 
 /**
  * Pocket options that hold an item: the pocket is the item plus `clearance`,
- * as deep as `share` of its height, with a chamfer and spacing that suit its size.
+ * as deep as `share` of its height, with a chamfer and spacing that suit its
+ * size. The item's height goes with them, for the height note and check.
  */
 export function fitItem(item: PocketItem, clearance: number = FIT_DEFAULTS.clearance, share: number = FIT_DEFAULTS.share): Partial<PocketFields> {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -447,6 +461,7 @@ export function fitItem(item: PocketItem, clearance: number = FIT_DEFAULTS.clear
   const small = Math.min(w, d);
   return {
     pocketPreset: 'custom',
+    pocketItemH: round2(clamp(item.height, 1, 400)),
     pocketShape: item.shape,
     pocketW: w,
     pocketD: d,

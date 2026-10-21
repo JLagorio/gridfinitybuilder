@@ -46,8 +46,8 @@ import {
 } from './spec';
 import { CORNER_SEGMENTS, boxAt, extrudePolygon, ringAt, roundedRectRing, type CornerRadii } from './shapes';
 import type { BinOptions, LabelStyle } from './bin';
-import { binBodyHeight, binFloorZ, lipRise } from './variants';
-import { pocketFill, regionPocketCutters, regionPocketLayout, type PocketLayout, type PocketRegion } from './pockets';
+import { binBodyHeight, binFloorZ, lipRise, pocketItemHOf } from './variants';
+import { findPocketPreset, pocketFill, regionPocketCutters, regionPocketLayout, type PocketLayout, type PocketRegion } from './pockets';
 import { cutoutCutters, cutoutKeyPart } from './cutouts';
 import {
   MAX_TIERS,
@@ -326,10 +326,19 @@ export function compartmentInside(co: CompartmentOptions | null | undefined): Co
 /** Every pocket field. */
 export type PocketSettings = Required<CompartmentPockets>;
 
-/** A 'pockets' compartment's pocket settings: every pocket field of the bin, then its own. */
+/**
+ * A 'pockets' compartment's pocket settings: every pocket field of the bin,
+ * then its own. A preset of its own without an item height (saved before it
+ * had one) brings that preset's, not the bin's.
+ */
 export function compartmentPocketOpts(o: BinOptions, co?: CompartmentOptions | null): PocketSettings {
   const own = Object.entries(co?.pockets ?? {}).filter(([, v]) => v !== undefined && v !== null);
-  return { ...Object.fromEntries(Object.entries(o).filter(([k]) => k.startsWith('pocket'))), ...Object.fromEntries(own) } as PocketSettings;
+  const out = { ...Object.fromEntries(Object.entries(o).filter(([k]) => k.startsWith('pocket'))), ...Object.fromEntries(own) } as PocketSettings;
+  const mine = co?.pockets;
+  if (mine?.pocketPreset && findPocketPreset(mine.pocketPreset) && (mine.pocketItemH === undefined || mine.pocketItemH === null)) {
+    out.pocketItemH = pocketItemHOf({ pocketPreset: mine.pocketPreset });
+  }
+  return out;
 }
 
 export interface FloorShapeSpec {
@@ -413,8 +422,9 @@ export function insideKeyParts(o: BinOptions, live: Set<string>): string[] {
   );
   const p: string[] = [];
   if (used.has('pockets')) {
+    // The preset and the item height are UI only.
     const fields = Object.entries(o)
-      .filter(([k]) => k.startsWith('pocket') && k !== 'pocketPreset')
+      .filter(([k]) => k.startsWith('pocket') && k !== 'pocketPreset' && k !== 'pocketItemH')
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([k, v]) => `${k.slice(6)}${typeof v === 'object' ? JSON.stringify(v) : v}`);
     p.push(`Ip{${fields.join(',')}}`);

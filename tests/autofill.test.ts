@@ -401,7 +401,10 @@ describe('ammunition', () => {
     expect(f.ok).toBe(true);
     expect(f.cap).toBeGreaterThanOrEqual(100);
     expect(f.holds).toBe('100 of 100');
-    expect(f.opts).toMatchObject({ interior: 'pockets', pocketPreset: 'ammo-9mm', heightUnits: 6, labelText: '9mm' });
+    expect(f.opts).toMatchObject({ interior: 'pockets', pocketPreset: 'ammo-9mm', pocketItemH: 29.69, heightUnits: 6, labelText: '9mm' });
+    // Other pocket grids from a list carry no height.
+    const [aa] = propose('12 AA batteries', ctx, []).proposals;
+    expect(filled(aa).opts.pocketItemH).toBe(0);
     expect(f.contents).toBe('100 rounds 9mm');
     expect(p.cluster).toBe('Ammunition');
     expect(p.reason).toBe('Cartridge block for 100 rounds of 9mm Luger (9×19), tall enough for a lid over them.');

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BIN, binLayout, binTotalHeight, sanitizeBin, type BinOptions } from '../src/lib/geometry/bin';
-import { AMMO, CARTRIDGES, POCKET_PRESETS, findCartridge, findPocketPreset, itemNoun, presetFields } from '../src/lib/geometry/pocketPresets';
-import { binBodyHeight, binFloorZ } from '../src/lib/geometry/variants';
+import { DEFAULT_BIN, binKey as binKeyOf, binLayout, binTotalHeight, sanitizeBin, type BinOptions } from '../src/lib/geometry/bin';
+import { AMMO, CARTRIDGES, POCKET_PRESETS, customEdit, findCartridge, findPocketPreset, fitItem, itemNoun, presetFields } from '../src/lib/geometry/pocketPresets';
+import { binBodyHeight, binFloorZ, pocketItemHOf, sanitizePocketFields } from '../src/lib/geometry/variants';
+import { compartmentPocketOpts } from '../src/lib/geometry/compartments';
+import { lidPocketOpts } from '../src/lib/geometry/pocketLid';
+import { binChecks } from '../src/lib/printability';
 import { LID_SEAT_DROP, lidStackHeight } from '../src/lib/geometry/lid';
 import { setCompartmentOptions, uniformLayout } from '../src/lib/dividers';
 import {
@@ -197,5 +200,102 @@ describe('how tall the bin has to be', () => {
     // With the lid on, a bin stands taller.
     expect(standingBinHeight(lid)).toBeGreaterThan(binTotalHeight(lid));
     expect(standingBinHeight(lid, { stretch: { left: 5, right: 0, front: 0, back: 0 } })).toBe(binTotalHeight(lid));
+  });
+});
+
+describe('the item height goes with the pockets', () => {
+  const nine = () => presetFields(findPocketPreset('ammo-9mm')!);
+  /** An edit made in the Holds settings: the pockets are no longer the preset. */
+  const edit = (o: BinOptions, patch: Partial<BinOptions>) => bin({ ...o, ...patch, pocketPreset: 'custom' });
+  const note = (o: BinOptions) => standingNoteFor(o, null, 'bin', undefined, fmt);
+
+  it('picking a preset sets it, and one without a height clears it', () => {
+    const o = pockets('ammo-9mm', { unitsX: 2, heightUnits: 3 });
+    expect(o.pocketItemH).toBe(29.69);
+    expect(bin({ ...o, ...presetFields(findPocketPreset('aa')!) }).pocketItemH).toBe(0);
+    expect(bin({ ...o, ...presetFields(findPocketPreset('ammo-308')!) }).pocketItemH).toBe(71.37);
+    expect(bin({ ...o, ...presetFields(findPocketPreset('drills-10')!) }).pocketItemH).toBe(0);
+    expect(pocketItemHOf({})).toBe(0);
+  });
+
+  it('is kept when the pockets are edited, so the note and the check stay', () => {
+    const o = pockets('ammo-9mm', { unitsX: 2, heightUnits: 3 });
+    const wider = edit(o, { pocketSpacing: 2.5, pocketDepth: 12 });
+    expect(wider).toMatchObject({ pocketPreset: 'custom', pocketItemH: 29.69 });
+    expect(note(wider)).toBe(
+      'Items stand 29.69 mm tall, their tips 36.69 mm above the bin’s bottom, 11.69 mm above the rim. Make the bin 5u to keep them under it, or 6u for a lid or a bin stacked on top.',
+    );
+    const c = binChecks(wider).find((x) => x.rule === 'item-height');
+    expect(c).toMatchObject({ severity: 'info', fix: { label: 'Make it 6u' } });
+    // Picking Custom size keeps it too.
+    expect(bin({ ...o, pocketPreset: 'custom', pocketSizes: [] }).pocketItemH).toBe(29.69);
+  });
+
+  it('can be changed, or cleared, without leaving the preset', () => {
+    const o = pockets('ammo-9mm', { unitsX: 2, heightUnits: 5 });
+    const longer = bin({ ...o, pocketItemH: 33 });
+    expect(longer.pocketPreset).toBe('ammo-9mm');
+    expect(standingGrids(longer)[0]).toMatchObject({ itemH: 33, noun: 'rounds' });
+    // 7 + 33 = 40 mm: above the 39 mm rim.
+    expect(binChecks(longer).map((x) => x.rule)).toContain('item-height');
+    const cleared = bin({ ...o, pocketItemH: -1 });
+    expect(cleared.pocketPreset).toBe('ammo-9mm');
+    expect(standingGrids(cleared)).toEqual([]);
+    expect(note(cleared)).toBeUndefined();
+    expect(binChecks(bin({ ...cleared, lid: true })).map((x) => x.rule)).not.toContain('item-height');
+    // Cleared stays cleared when saved and opened again.
+    expect(bin(JSON.parse(JSON.stringify(cleared))).pocketItemH).toBe(-1);
+    // 0 is the preset's, filled in.
+    expect(bin({ ...o, pocketItemH: 0 }).pocketItemH).toBe(29.69);
+  });
+
+  it('falls back to the preset for bins saved before it existed', () => {
+    const saved = JSON.parse(JSON.stringify(pockets('ammo-308', { unitsX: 2, unitsY: 2, heightUnits: 6 })));
+    delete saved.pocketItemH;
+    // Edited after opening, it keeps the height it was given.
+    expect(bin({ ...bin({ ...DEFAULT_BIN, ...saved }), pocketPreset: 'custom', pocketSpacing: 3 }).pocketItemH).toBe(71.37);
+    // As the store opens it: over the defaults.
+    const opened = bin({ ...DEFAULT_BIN, ...saved });
+    expect(opened.pocketItemH).toBe(71.37);
+    expect(standingGrids(opened)[0]).toMatchObject({ itemH: 71.37, noun: 'rounds' });
+    // A compartment's or a lid's own preset brings its own height, not the bin's.
+    const split = { unitsX: 3, unitsY: 2, heightUnits: 6, layout: uniformLayout(2, 1) };
+    const key = binLayout(bin(split)).compartments[0].key;
+    const { pocketItemH: _drop, ...old } = presetFields(findPocketPreset('ammo-308')!);
+    const layout = setCompartmentOptions(split.layout, key, { inside: 'pockets', pockets: old });
+    expect(standingGrids(bin({ ...split, layout }))[0]).toMatchObject({ where: 'compartment', itemH: 71.37 });
+    const cleared = setCompartmentOptions(split.layout, key, { inside: 'pockets', pockets: { ...old, pocketItemH: -1 } });
+    expect(standingGrids(bin({ ...split, layout: cleared }))).toEqual([]);
+    const lid = bin({ unitsX: 2, heightUnits: 4, lid: true, lidStyle: 'pockets', lidPockets: old });
+    expect(lidPocketOpts(lid).pocketItemH).toBe(71.37);
+  });
+
+  it('a compartment that takes the bin’s pockets keeps their height when its own are edited', () => {
+    const split = { unitsX: 3, unitsY: 2, heightUnits: 3, layout: uniformLayout(2, 1), ...nine() };
+    const key = binLayout(bin(split)).compartments[0].key;
+    const inherit = bin({ ...split, layout: setCompartmentOptions(split.layout, key, { inside: 'pockets' }) });
+    const shown = sanitizePocketFields(compartmentPocketOpts(inherit, inherit.layout!.comps![key]));
+    expect(shown.pocketItemH).toBe(29.69);
+    // What the Holds settings write as the compartment’s own when its spacing changes.
+    const own = customEdit(shown, { pocketSpacing: 2.5 });
+    expect(own).toEqual({ pocketSpacing: 2.5, pocketPreset: 'custom', pocketItemH: 29.69 });
+    const edited = bin({ ...inherit, layout: setCompartmentOptions(inherit.layout!, key, { inside: 'pockets', pockets: own }) });
+    expect(standingGrids(edited)[0]).toMatchObject({ where: 'compartment', itemH: 29.69, noun: 'items' });
+    // A graduated set stays a set.
+    expect(customEdit({ pocketSizes: [1, 2], pocketItemH: 0 }, { pocketClearance: 0.6 })).toMatchObject({ pocketPreset: 'custom-set' });
+  });
+
+  it('Fit an item carries the measured height', () => {
+    const f = fitItem({ shape: 'round', w: 12, height: 60 });
+    expect(f).toMatchObject({ pocketPreset: 'custom', pocketItemH: 60 });
+    const o = bin({ interior: 'pockets', unitsX: 2, heightUnits: 4, ...f });
+    expect(standingGrids(o)[0]).toMatchObject({ itemH: 60, noun: 'items' });
+    expect(note(o)).toMatch(/^Items stand 60 mm tall, their tips 67 mm above the bin’s bottom/);
+  });
+
+  it('changes no mesh key', () => {
+    const o = pockets('ammo-9mm', { unitsX: 2, heightUnits: 6 });
+    for (const h of [-1, 0, 12, 200]) expect(binKeyOf(bin({ ...o, pocketItemH: h }))).toBe(binKeyOf(o));
+    expect(nine().pocketItemH).toBe(29.69);
   });
 });

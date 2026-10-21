@@ -21,7 +21,7 @@
  * need the label font: without it (on the main thread before it has loaded)
  * they are left out rather than guessed.
  *
- * Rounds (and anything else whose pocket preset says how tall it stands,
+ * Rounds (and anything else whose pocket grid carries an item height,
  * itemHeight.ts) that stick out of the bin, or would hold up its lid, a bin
  * stacked on it, or the drawer: placed bins know the room above them, what is
  * stacked on them and the printers they print on (placeChecks), so a fix that
@@ -46,7 +46,6 @@ import {
 } from './geometry/bin';
 import { binBodyHeight } from './geometry/variants';
 import { MAX_HEIGHT_UNITS, standingBinHeight, standingGrids, tipLimits, unitsToCover, unitsUnderRim, type StandingGrid } from './geometry/itemHeight';
-import { itemNoun } from './geometry/pocketPresets';
 import { BASE_PROFILE_DEPTH, BASE_TOP, BOWTIE_CLEARANCE, GRID, LIP_SUPPORT_HEIGHT, PUZZLE, WALL } from './geometry/spec';
 import { LABEL_TEXT, capFor, fitText, labelLines, planTabLabels, plateTextBox, type Box, type LabelTextStyle } from './geometry/labels';
 import { labelPlainText } from './geometry/labelIcons';
@@ -593,7 +592,7 @@ function standingChecks(o: BinOptions, cells: BinCells, x: Ctx, at: Place): Prin
   if (!grids.length) return [];
   const out: PrintCheck[] = [];
   const room = at.room ?? Infinity;
-  const stand = (s: StandingGrid) => `${capital(itemNoun(s.preset))} stand ${x.fmt(s.itemH)} tall`;
+  const stand = (s: StandingGrid) => `${capital(s.noun)} stand ${x.fmt(s.itemH)} tall`;
   const s = insideTop(grids);
   if (s) {
     const { seat, rim } = tipLimits(o);
@@ -623,7 +622,7 @@ function standingChecks(o: BinOptions, cells: BinCells, x: Ctx, at: Place): Prin
         rule: 'item-height',
         severity: 'info',
         part: 'Pockets',
-        message: `${capital(itemNoun(s.preset))} stick out ${x.fmt(s.top - rim)} above the rim: they stand ${x.fmt(s.itemH)} tall, their tips ${x.fmt(s.top)} above the bin’s bottom.${r.why}`,
+        message: `${capital(s.noun)} stick out ${x.fmt(s.top - rim)} above the rim: they stand ${x.fmt(s.itemH)} tall, their tips ${x.fmt(s.top)} above the bin’s bottom.${r.why}`,
         ...(r.fix ? { fix: r.fix } : {}),
       });
     }

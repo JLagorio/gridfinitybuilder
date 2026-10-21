@@ -1,8 +1,12 @@
 /**
- * Items that stand far taller than their pockets are deep (cartridges: presets
- * with an `itemH`, pocketPresets.ts): where their tips reach, and how tall the
- * bin has to be for them. An item stands on its pocket's floor, so its tip is
- * the floor plus its height, whatever the bin's height. What it has to clear:
+ * Items that stand far taller than their pockets are deep (cartridges): where
+ * their tips reach, and how tall the bin has to be for them. A pocket grid
+ * carries its items' height (`pocketItemH`), set by a preset that has one
+ * (pocketPresets.ts `itemH`) or by Fit an item, kept when the pockets are
+ * edited, and -1 when the user turns it off; bins saved before it existed get
+ * their preset's when sanitized (variants.ts pocketItemHOf). An item stands on
+ * its pocket's floor, so its tip is the floor plus its height, whatever the
+ * bin's height. What it has to clear:
  *
  * - a stacking lid, a pocket-grid lid or a bin stacked on top: their feet sit
  *   LID_SEAT_DROP (0.35 mm) below where the bin's lip starts (lid.ts), so the
@@ -14,7 +18,7 @@
  * (templates.ts) and Fill from a list (autofill/size.ts) all use these.
  */
 import { MIN_HEIGHT_UNITS, binCells, binCompartmentPockets, binLayout, binSize, binTotalHeight, sanitizeBin, type BinCells, type BinOptions } from './bin';
-import { binBodyHeight, binFloorZ, lipRise } from './variants';
+import { binBodyHeight, binFloorZ, lipRise, sanitizePocketFields } from './variants';
 import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from './spec';
 import { accessoryInfillTop } from './accessories';
 import { compartmentInside, compartmentPocketOpts } from './compartments';
@@ -30,12 +34,15 @@ const DEG = Math.PI / 180;
 /** Tallest bin, 7 mm units (sanitizeBin). */
 export const MAX_HEIGHT_UNITS = 30;
 
-/** A pocket grid of the bin whose preset says how tall its items stand. */
+/** A pocket grid of the bin that says how tall its items stand. */
 export interface StandingGrid {
   /** The bin's own grid, a pocket compartment's (`key`), or the pocket-grid lid's. */
   where: 'bin' | 'compartment' | 'lid';
   key?: string;
-  preset: PocketPreset;
+  /** Its preset, unless the pockets were edited (custom). */
+  preset?: PocketPreset;
+  /** What its items are called: "rounds", "shells", or "items". */
+  noun: string;
   /** How tall one item stands, mm. */
   itemH: number;
   /** The highest tip, mm above the bin's bottom (on a lid: with the lid on the bin). */
@@ -45,6 +52,12 @@ export interface StandingGrid {
 /** How tall a preset's items stand, by preset id (0 when it doesn't say). */
 export function presetItemH(id: string): number {
   return findPocketPreset(id)?.itemH ?? 0;
+}
+
+/** A grid's preset (if it is still one) and what its items are called. */
+function named(id: string): { preset?: PocketPreset; noun: string } {
+  const preset = findPocketPreset(id);
+  return preset ? { preset, noun: itemNoun(preset) } : { noun: 'items' };
 }
 
 /** The highest tip of items `itemH` tall standing in a laid-out grid (leaning ones lean with their pockets); null when nothing fits. */
@@ -60,30 +73,31 @@ export function standingGrids(opts: BinOptions, cellsIn?: Partial<BinCells> | nu
   const cells = binCells(o, cellsIn);
   const out: StandingGrid[] = [];
   const H = binBodyHeight(o);
-  if (o.interior === 'pockets') {
-    const p = findPocketPreset(o.pocketPreset);
-    if (p?.itemH) {
-      const { w: W, d: D } = binSize(o, cells);
-      // As buildBin lays them out.
-      const top = tipOf(pocketLayout(o, W, D, binFloorZ(o), accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H)), p.itemH);
-      if (top !== null) out.push({ where: 'bin', preset: p, itemH: p.itemH, top });
-    }
+  // sanitizeBin has filled in the item height (the preset's, for bins saved before it; -1 when turned off).
+  const itemH = o.pocketItemH;
+  if (o.interior === 'pockets' && itemH > 0) {
+    const { w: W, d: D } = binSize(o, cells);
+    // As buildBin lays them out.
+    const top = tipOf(pocketLayout(o, W, D, binFloorZ(o), accessoryInfillTop(o, W, D, o.lip ? H - LIP_SUPPORT_HEIGHT : H)), itemH);
+    if (top !== null) out.push({ where: 'bin', ...named(o.pocketPreset), itemH, top });
   }
   if (o.interior === 'compartments' && o.layout?.comps) {
     for (const c of binLayout(o, cells).compartments) {
       const co = o.layout.comps[c.key];
       if (compartmentInside(co) !== 'pockets') continue;
-      const p = findPocketPreset(compartmentPocketOpts(o, co).pocketPreset);
-      if (!p?.itemH) continue;
-      const tops = binCompartmentPockets(o, cells, c).flatMap((L) => tipOf(L, p.itemH!) ?? []);
-      if (tops.length) out.push({ where: 'compartment', key: c.key, preset: p, itemH: p.itemH, top: Math.max(...tops) });
+      const f = sanitizePocketFields(compartmentPocketOpts(o, co));
+      const h = f.pocketItemH;
+      if (!(h > 0)) continue;
+      const tops = binCompartmentPockets(o, cells, c).flatMap((L) => tipOf(L, h) ?? []);
+      if (tops.length) out.push({ where: 'compartment', key: c.key, ...named(f.pocketPreset), itemH: h, top: Math.max(...tops) });
     }
   }
   // Stretched bins get no lid (project.ts).
   if (hasLid(o) && isPocketLid(o) && !hasStretch(cells.stretch)) {
-    const p = findPocketPreset(lidPocketOpts(o).pocketPreset);
-    const top = p?.itemH ? tipOf(pocketLidLayout(o, cells), p.itemH) : null;
-    if (p?.itemH && top !== null) out.push({ where: 'lid', preset: p, itemH: p.itemH, top: H - LID_SEAT_DROP + top });
+    const f = lidPocketOpts(o);
+    const h = f.pocketItemH;
+    const top = h > 0 ? tipOf(pocketLidLayout(o, cells), h) : null;
+    if (top !== null) out.push({ where: 'lid', ...named(f.pocketPreset), itemH: h, top: H - LID_SEAT_DROP + top });
   }
   return out;
 }
@@ -128,7 +142,7 @@ const capital = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
  */
 export function standingNote(s: StandingGrid, opts: BinOptions, fmt: (mm: number) => string): string {
   const o = sanitizeBin(opts);
-  const stand = `${capital(itemNoun(s.preset))} stand ${fmt(s.itemH)} tall`;
+  const stand = `${capital(s.noun)} stand ${fmt(s.itemH)} tall`;
   if (s.where === 'lid') return `${stand}: on the closed bin they reach ${fmt(s.top)}.`;
   const reach = `${stand}, their tips ${fmt(s.top)} above the bin’s bottom`;
   const { seat, rim } = tipLimits(o);
