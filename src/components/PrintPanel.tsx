@@ -2,7 +2,8 @@ import { Fragment, useMemo, useRef, useState } from 'react';
 import { allDrawers, history, printDrawers, projectFile, selectedIds, useStore, useUnits } from '../state/store';
 import { LengthInput, Section, Segmented, Toggle } from './fields';
 import { Combobox } from './combobox';
-import { findPrinter } from '../lib/printers';
+import { bedExclusion, findPrinter, type BedRect } from '../lib/printers';
+import { bedText, usableBed } from '../lib/bedfit';
 import { assemblyMaps, jobForPrinter, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
 import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
@@ -178,7 +179,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           value={setup.plateMargin}
           max={40}
           onChange={(plateMargin) => store.setSetup({ plateMargin })}
-          hint={`Usable bed ${fmt(Math.max(0, setup.bedW - 2 * setup.plateMargin))} × ${fmt(Math.max(0, setup.bedD - 2 * setup.plateMargin))}`}
+          hint={`Usable bed ${bedText(usableBed({ ...setup, bedW: Math.max(setup.bedW, 2 * setup.plateMargin), bedD: Math.max(setup.bedD, 2 * setup.plateMargin) }), fmt)}`}
         />
       </Find>
     </>
@@ -400,7 +401,13 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               )}
               <div className={`plate-card ${ui.plate === i ? 'active' : ''}`}>
                 <button className="plate-thumb" onClick={() => store.setUI({ plate: i })} title="Show this plate">
-                  <PlateThumb job={job} plate={i} bedW={printers[pl.printer ?? 0]?.bedW ?? setup.bedW} bedD={printers[pl.printer ?? 0]?.bedD ?? setup.bedD} />
+                  <PlateThumb
+                    job={job}
+                    plate={i}
+                    bedW={printers[pl.printer ?? 0]?.bedW ?? setup.bedW}
+                    bedD={printers[pl.printer ?? 0]?.bedD ?? setup.bedD}
+                    exclude={bedExclusion(printers[pl.printer ?? 0]?.printerId ?? setup.printerId)}
+                  />
                 </button>
                 <div className="plate-meta">
                   <b>
@@ -473,9 +480,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               </>
             )}
             <dt>{setup.printers ? `Split for the ${names[baseAt]}` : 'Usable bed'}</dt>
-            <dd>
-              {fmt(printers[baseAt].bedW - 2 * printers[baseAt].plateMargin)} × {fmt(printers[baseAt].bedD - 2 * printers[baseAt].plateMargin)}
-            </dd>
+            <dd>{bedText(usableBed({ ...printers[baseAt], spacing: setup.spacing }), fmt)}</dd>
           </dl>
         </div>
       </Section>
@@ -553,11 +558,25 @@ function PrinterHeading({ job, printer, seconds }: { job: PrintJob; printer: num
   );
 }
 
-function PlateThumb({ job, plate, bedW, bedD }: { job: PrintJob; plate: number; bedW: number; bedD: number }) {
+/** A plate's parts on its bed, front at the bottom; the areas the printer keeps free (printers.ts `exclude`) hatched. */
+function PlateThumb({ job, plate, bedW, bedD, exclude }: { job: PrintJob; plate: number; bedW: number; bedD: number; exclude: readonly BedRect[] }) {
   const pl = job.plates[plate];
   return (
     <svg viewBox={`0 0 ${bedW} ${bedD}`} className="thumb">
       <rect x={0} y={0} width={bedW} height={bedD} className="thumb-bed" />
+      {exclude.length > 0 && (
+        <defs>
+          <pattern id="thumb-hatch" width={10} height={10} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width={10} height={10} className="thumb-exclude" />
+            <line x1={5} y1={0} x2={5} y2={10} className="thumb-hatch" />
+          </pattern>
+        </defs>
+      )}
+      {exclude.map((e, k) => (
+        <rect key={k} x={e.x} y={bedD - e.y - e.d} width={e.w} height={e.d} fill="url(#thumb-hatch)">
+          <title>Kept free by the printer: Bambu Studio won’t slice a part here</title>
+        </rect>
+      ))}
       {pl.placements.map((p) => {
         const part = job.parts[p.key];
         const w = p.rotated ? p.d : p.w;

@@ -24,7 +24,7 @@ Manifold's slicer at the middle of every 0.2 mm layer, like a slicer does.
 | Islands | error `island` | A region of a layer that touches nothing in the layer below starts in mid-air. |
 | Overhangs | warning `overhang` | Past a 30° slope, what a layer puts down beyond the one below: held along one edge (a ledge) it may reach 3 mm; held between edges (a bridge) 30 mm, a 60 mm span, as long as drawer-unit shelves may be. |
 | Thin walls | warning `thin` | Erode each layer by just under 0.4 mm and grow it back: what goes is thinner than two 0.4 mm lines. Reported when it lasts at least 1 mm up the part, so the tips of chamfers and lips (a few layers) don't count. The width is measured where it is thinnest. |
-| Printer fit | error `bed-fit` | Footprint and height within the usable bed, either way round (`partOvershoot`, `src/lib/bedfit.ts`). |
+| Printer fit | error `bed-fit` | Footprint and height within the usable bed, either way round, and clear of the printer's exclusion area (the X1 / P1 front-left corner: beside it or behind it) (`partOvershoot`, `src/lib/bedfit.ts`). |
 | Overlays | error `overlay` | Inlaid text and shadow floors (filament-2 bodies) are closed, don't overlap the body, and are checked together with it. |
 
 ### PrusaSlicer

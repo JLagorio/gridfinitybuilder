@@ -4,7 +4,7 @@ import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from
 import { asDrawer, binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
 import { plateOrigin } from './lib/export/bambu';
-import { findPrinter } from './lib/printers';
+import { bedExclusion, findPrinter } from './lib/printers';
 import { geometry } from './worker/client';
 import { Viewer, type SceneBed, type SceneItem } from './components/Viewer';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -231,7 +231,8 @@ function platesScene(job: PrintJob, plate: number, setup: PrintSetup): Scene {
     const pl = job.plates[pi];
     const pr = printers[pl.printer ?? 0] ?? printers[0];
     const on = job.printers ? ` · ${job.printers[pl.printer ?? 0]}` : '';
-    beds.push({ x: ox, y: oy, w: pr.bedW, d: pr.bedD, label: `${pi + 1}  ${pl.name}${on}` });
+    const exclude = bedExclusion(pr.printerId);
+    beds.push({ x: ox, y: oy, w: pr.bedW, d: pr.bedD, label: `${pi + 1}  ${pl.name}${on}`, ...(exclude.length ? { exclude } : {}) });
     for (const p of pl.placements) {
       const part = job.parts[p.key];
       items.push({

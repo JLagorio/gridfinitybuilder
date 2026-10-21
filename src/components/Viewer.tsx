@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { geometry } from '../worker/client';
 import type { MeshData } from '../lib/geometry/kernel';
+import type { BedRect } from '../lib/printers';
 import { useUnits } from '../state/store';
 import { isMod, isTyping, keyLetter } from './shortcuts';
 import { isTouch, tapSlop } from './touch';
@@ -61,6 +62,8 @@ export interface SceneBed {
   w: number;
   d: number;
   label: string;
+  /** Areas the printer keeps free (printers.ts `exclude`), on the bed: drawn hatched. */
+  exclude?: readonly BedRect[];
 }
 
 export interface ViewerProps {
@@ -770,7 +773,7 @@ function createContext(
       }
     }
 
-    const bedKey = beds.map((b) => `${b.x},${b.y},${b.w},${b.d},${b.label}`).join('|');
+    const bedKey = beds.map((b) => `${b.x},${b.y},${b.w},${b.d},${b.label},${JSON.stringify(b.exclude ?? [])}`).join('|');
     if (bedKey !== lastBedKey) {
       lastBedKey = bedKey;
       disposeTree(bedGroup);
@@ -1282,6 +1285,29 @@ function makeBed(b: SceneBed) {
     c.moveTo(0, y);
     c.lineTo(canvas.width, y);
     c.stroke();
+  }
+  // The areas the printer keeps free, hatched (canvas top = back of the bed).
+  const k = canvas.width / b.w;
+  for (const e of b.exclude ?? []) {
+    const x0 = e.x * k;
+    const y0 = (b.d - e.y - e.d) * k;
+    const w = e.w * k;
+    const h = e.d * k;
+    c.save();
+    c.beginPath();
+    c.rect(x0, y0, w, h);
+    c.clip();
+    c.fillStyle = 'rgba(240,97,106,0.12)';
+    c.fillRect(x0, y0, w, h);
+    c.strokeStyle = 'rgba(240,97,106,0.6)';
+    c.lineWidth = Math.max(1, k * 1.2);
+    for (let t = -h; t < w; t += k * 4) {
+      c.beginPath();
+      c.moveTo(x0 + t, y0 + h);
+      c.lineTo(x0 + t + h, y0);
+      c.stroke();
+    }
+    c.restore();
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

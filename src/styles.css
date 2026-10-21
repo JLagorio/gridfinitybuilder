@@ -923,6 +923,15 @@ details.advanced[open] > .field-hint {
   fill: #1a1305;
   font-weight: 700;
 }
+/* Where the printer keeps the bed free (Bambu X1 / P1 front-left corner): hatched. */
+.thumb-exclude {
+  fill: #2a2f38;
+}
+.thumb-hatch {
+  stroke: var(--danger);
+  stroke-opacity: 0.7;
+  stroke-width: 4;
+}
 .plate-meta {
   display: flex;
   flex-direction: column;
