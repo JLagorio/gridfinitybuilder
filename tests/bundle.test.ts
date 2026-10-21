@@ -13,9 +13,11 @@ import { build, type Rolldown } from 'vite';
 const root = resolve(__dirname, '..');
 /**
  * The app's own JS on the first screen (the entry and what it imports, minus the React and three.js
- * chunks), bytes. It was ~460 kB when the split was made; everything in one chunk was 1.5 MB.
+ * chunks), bytes, as this test builds it (development JSX, so more than `npm run build` writes).
+ * It was ~460 kB when the split was made (everything in one chunk was 1.5 MB), ~520 kB by the time
+ * the native selects gave way to hand-drawn pick lists (components/select.tsx), ~529 kB after.
  */
-const FIRST_SCREEN_BUDGET = 520_000;
+const FIRST_SCREEN_BUDGET = 540_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
