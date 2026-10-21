@@ -479,10 +479,13 @@ export function snapPoint(r: ResolvedLayout, x: number, y: number, o: PointSnapO
   let line: { x: number; y: number; d: number; kind: PointSnapKind; label: string } | null = null;
   for (const l of lines) {
     for (let i = 0; i + 1 < l.p.length; i++) {
-      let q = project(l.p[i], l.p[i + 1], x, y);
-      // Keep the alignment when the line runs across it.
-      if (axis === '90°' && Math.abs(l.p[i + 1][0] - l.p[i][0]) > 1e-9) q = [px, l.p[i][1] + ((px - l.p[i][0]) * (l.p[i + 1][1] - l.p[i][1])) / (l.p[i + 1][0] - l.p[i][0])];
-      else if (axis === '0°' && Math.abs(l.p[i + 1][1] - l.p[i][1]) > 1e-9) q = [l.p[i][0] + ((py - l.p[i][1]) * (l.p[i + 1][0] - l.p[i][0])) / (l.p[i + 1][1] - l.p[i][1]), py];
+      const [p0, p1] = [l.p[i], l.p[i + 1]];
+      let q = project(p0, p1, x, y);
+      // Keep the alignment when the line runs across it (where it crosses the segment).
+      if (axis === '90°' && Math.abs(p1[0] - p0[0]) > 1e-9) q = [px, p0[1] + ((px - p0[0]) * (p1[1] - p0[1])) / (p1[0] - p0[0])];
+      else if (axis === '0°' && Math.abs(p1[1] - p0[1]) > 1e-9) q = [p0[0] + ((py - p0[1]) * (p1[0] - p0[0])) / (p1[1] - p0[1]), py];
+      const on = project(p0, p1, q[0], q[1]);
+      if (Math.hypot(on[0] - q[0], on[1] - q[1]) > 1e-6) continue;
       const d = Math.hypot(q[0] - x, q[1] - y);
       if (d <= tol && (!line || d < line.d) && q[0] >= -1e-9 && q[0] <= W + 1e-9 && q[1] >= -1e-9 && q[1] <= D + 1e-9) {
         line = { x: q[0], y: q[1], d, kind: l.kind, label: axis ? `${l.label} · ${axis}` : l.label };

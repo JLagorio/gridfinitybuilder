@@ -288,8 +288,11 @@ describe('free walls', () => {
     expect(c.kind).toBe('angle');
     expect(c.label).toBe('15°');
     expect(Math.atan2(c.y - 10, c.x - 10)).toBeCloseTo(Math.PI / 12, 9);
-    // Lining up with the other end.
+    // Lining up with the other end, and where that line meets a wall (only where the wall is).
     expect(snapPoint(r, 10.6, 30, { ...o, from: [10, 10] })).toMatchObject({ x: 10, y: 30, label: '90°' });
+    const t = resolveIn({ walls: [v('x1', 0.5), h('y1', 0.5, { end: 'x1' })] }, s);
+    expect(snapPoint(t, 15.3, s.d / 2 + 0.8, { ...o, from: [15, 10] })).toMatchObject({ x: 15, y: expect.closeTo(s.d / 2, 9), label: 'on wall · 90°' });
+    expect(snapPoint(t, 60.3, s.d / 2 + 0.8, { ...o, from: [60, 10] })).toMatchObject({ x: 60, kind: 'axis' });
   });
 });
 
