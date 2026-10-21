@@ -53,7 +53,8 @@ export function CutoutEditor({ job }: { job: PrintJob }) {
   const bins = useStore((s) => s.bins);
   const selectedId = useStore((s) => s.ui.selectedBinId);
   const setUI = useStore((s) => s.setUI);
-  const bin = bins.find((b) => b.id === selectedId);
+  // Bins from elsewhere (lib/external.ts) get no pockets.
+  const bin = bins.find((b) => b.id === selectedId && !b.external);
   if (!bin) {
     return (
       <div className="cutout-empty">
@@ -62,7 +63,7 @@ export function CutoutEditor({ job }: { job: PrintJob }) {
         </p>
         {bins.length > 0 && (
           <div className="cutout-bin-list">
-            {bins.map((b) => (
+            {bins.filter((b) => !b.external).map((b) => (
               <button key={b.id} onClick={() => setUI({ selectedBinId: b.id })}>
                 {binLabel(b.opts)}
               </button>

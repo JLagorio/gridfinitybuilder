@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useStore } from '../state/store';
 import { isContainer } from '../lib/geometry/containers';
 import { Segmented } from './fields';
+import { ExternalBinHeaderButton } from './ExternalBins';
 
 /**
  * The Bins tab's left pane: which editor it shows. Kept apart from the editors
@@ -12,8 +13,8 @@ import { Segmented } from './fields';
 export function BinPaneHeader() {
   const pane = useStore((s) => s.ui.binPane ?? 'drawer');
   const setUI = useStore((s) => s.setUI);
-  // Drawer units, parts boxes, … have no compartments to edit.
-  const exists = useStore((s) => !!s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts)));
+  // Drawer units, parts boxes, … and bins from elsewhere (lib/external.ts) have no compartments to edit.
+  const exists = useStore((s) => !!s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts) && !b.external));
   // Leave the compartment view when the bin is deselected, so picking a bin on the grid doesn't jump away from it.
   useEffect(() => {
     if (!exists && pane === 'compartments') setUI({ binPane: 'drawer' });
@@ -29,6 +30,7 @@ export function BinPaneHeader() {
             ? 'Tool cutouts — drag tools into the bin'
             : 'Compartments — click inside the bin to add a wall'}
       </div>
+      {showing === 'drawer' && <ExternalBinHeaderButton />}
       <Segmented
         value={showing}
         options={[
@@ -45,6 +47,6 @@ export function BinPaneHeader() {
 /** The bin whose compartments the left pane shows, or null for the drawer grid. */
 export function useInteriorPane(): string | null {
   return useStore((s) =>
-    s.ui.binPane === 'compartments' && s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts)) ? s.ui.selectedBinId : null,
+    s.ui.binPane === 'compartments' && s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts) && !b.external) ? s.ui.selectedBinId : null,
   );
 }

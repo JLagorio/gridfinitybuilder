@@ -51,6 +51,8 @@ export interface SceneItem {
   lift?: boolean | number;
   /** Context that isn't printed (a baseplate you have, "Just bins"): see-through and neutral, never picked. `color` is ignored. */
   ghost?: boolean;
+  /** Drawn as a see-through box in this colour, never as a mesh: a bin you already have (lib/external.ts). */
+  boxColor?: string;
 }
 
 export interface SceneBed {
@@ -518,6 +520,21 @@ function createContext(
   const placeholderEdge = new THREE.LineBasicMaterial({ color: 0x8a93a3, transparent: true, opacity: 0.5 });
   const unitBox = new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5);
   const unitBoxEdges = new THREE.EdgesGeometry(unitBox);
+  // Bins from elsewhere without a mesh: a see-through box in their own colour.
+  const ghostMats = new Map<string, { face: THREE.MeshBasicMaterial; edge: THREE.LineBasicMaterial }>();
+  function ghostMaterial(color: string) {
+    let g = ghostMats.get(color);
+    if (!g) {
+      g = {
+        face: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, depthWrite: false }),
+        edge: new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }),
+      };
+      ghostMats.set(color, g);
+    }
+    g.face.clippingPlanes = clipping();
+    g.edge.clippingPlanes = clipping();
+    return g;
+  }
 
   // ---- section: one clipping plane on every model material, capped with the stencil buffer ----
   // Each model is drawn twice more into the stencil (back faces +1, front faces -1, both clipped):
@@ -732,9 +749,10 @@ function createContext(
           if (tools.section) addStencil(obj, o.mesh);
         }
       } else {
-        const ph = new THREE.Mesh(unitBox, placeholderMat);
+        const box = it.boxColor ? ghostMaterial(it.selected ? SELECT_COLOR : it.boxColor) : null;
+        const ph = new THREE.Mesh(unitBox, box?.face ?? placeholderMat);
         ph.scale.set(it.w, it.d, Math.max(it.h, 1));
-        const phe = new THREE.LineSegments(unitBoxEdges, placeholderEdge);
+        const phe = new THREE.LineSegments(unitBoxEdges, box?.edge ?? placeholderEdge);
         phe.scale.copy(ph.scale);
         ph.userData.id = it.pickable ? it.id : null;
         obj.add(ph, phe);
@@ -1189,6 +1207,10 @@ function createContext(
       }
       for (const m of [...mats.values(), ...xrayMats.values()]) m.dispose();
       for (const m of [edgeMat, xrayEdgeMat, placeholderMat, placeholderEdge, stencilBack, stencilFront, capMat, planeOutlineMat, planeFillMat, ghostMat, ghostEdgeMat]) m.dispose();
+      for (const g of ghostMats.values()) {
+        g.face.dispose();
+        g.edge.dispose();
+      }
       for (const g of [unitBox, unitBoxEdges, unitPlane, planeOutlineGeo]) g.dispose();
       hatch.dispose();
       disposeTree(bedGroup);

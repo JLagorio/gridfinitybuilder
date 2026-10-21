@@ -59,7 +59,8 @@ function setBinOpts(binIds: string[], next: (b: PlacedBin) => BinOptions): Apply
     report.shrunk++;
     return shrinkToBed(layout, out, bed);
   };
-  const bins = s.bins.map((b) => (set.has(b.id) ? apply(b) : b));
+  // Bins from elsewhere (lib/external.ts) have none of these settings.
+  const bins = s.bins.map((b) => (set.has(b.id) && !b.external ? apply(b) : b));
   if (report.changed) useStore.setState({ bins: alignStacks(bins) });
   return report;
 }

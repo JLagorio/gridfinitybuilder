@@ -21,7 +21,9 @@ export type WorkerRequest =
   /** Solid volume (mm³) of each mesh, building any that aren't cached. */
   | { id: number; type: 'volumes'; specs: MeshSpec[] }
   /** Layer-by-layer slice data for the print-time estimate (estimate.ts). */
-  | { id: number; type: 'print-stats'; specs: MeshSpec[] };
+  | { id: number; type: 'print-stats'; specs: MeshSpec[] }
+  /** An imported bin's mesh (imported/registry.ts), sent before the first request that needs it; no answer. */
+  | { id: number; type: 'put-mesh'; hash: string; mesh: MeshData };
 
 export type WorkerResponse =
   | { id: number; type: 'mesh'; mesh: MeshData; volume?: number }

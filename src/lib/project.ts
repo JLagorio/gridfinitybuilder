@@ -82,6 +82,8 @@ import {
   type PieceEnclosure,
 } from './enclosures';
 import { stackPlaces, stackWarnings } from './stacking';
+import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
+import { buildImported, type ImportedSpec } from './imported/registry';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
 export interface PlacedBin {
@@ -107,6 +109,11 @@ export interface PlacedBin {
    * that bin's footprint. Unset = on the baseplate.
    */
   on?: string;
+  /**
+   * A bin Gridfit doesn't build (external.ts): one you already have, or an
+   * imported STL/3MF mesh. `opts` then holds only its footprint and height.
+   */
+  external?: ExternalBin;
 }
 
 /** One drawer's design. */
@@ -164,7 +171,9 @@ export type MeshSpec =
   /** An extra part of a drawer unit, parts box, … (containers/). */
   | { kind: 'container'; key: string; type: ContainerType; spec: unknown }
   /** Case lid, hinge pin, handle, foot, spacer strip, wall cleat (enclosures.ts); `view` poses it for the drawer view. */
-  | { kind: 'enclosure'; key: string; part: EnclosurePart; view?: EnclosureView };
+  | { kind: 'enclosure'; key: string; part: EnclosurePart; view?: EnclosureView }
+  /** An imported bin's mesh, as it is (external.ts, imported/registry.ts). */
+  | ImportedSpec;
 
 export interface JobPart {
   key: string;
@@ -184,6 +193,8 @@ export interface JobPart {
   assembled?: { x: number; y: number; z: number };
   /** Container parts: the placed bin they belong to. */
   bin?: string;
+  /** Mesh key the 3D view shows instead of `meshKey` (a big imported mesh, decimated). */
+  preview?: string;
 }
 
 export interface JobPlate {
@@ -315,6 +326,8 @@ export function lidSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { k
  * coordinates, for the assembled drawer: the feet sit on the bin's cells.
  */
 export function binOrigin(layout: GridLayout, b: PlacedBin): { x: number; y: number } {
+  // Bins from elsewhere sit centred on their cells (external.ts).
+  if (b.external) return externalBox(layout, b);
   const st = stretchOf(binCellsAt(layout, b)?.stretch);
   const inset = (GRID - BASE_TOP) / 2;
   return {
@@ -532,6 +545,21 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     }
     for (const b of d.bins) {
       const key = `${prefix}bin:${b.id}`;
+      // Bins from elsewhere (external.ts) are never built; an imported mesh that prints goes on the plates as it is.
+      if (b.external) {
+        const name = b.external.name ? `“${b.external.name}”` : `Bin ${externalSize(b, layout.halfGrid)}`;
+        const mesh = b.external.mesh && meshSize(b.external.mesh);
+        if ((mesh?.h ?? binTotalHeight(b.opts)) > room + 1e-6) warn(`${name} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+        const view = importedSpec(b, true);
+        if (view) meshes[view.key] = view;
+        const spec = printsMesh(b) ? importedSpec(b) : null;
+        if (spec && mesh) {
+          meshes[spec.key] = spec;
+          parts[key] = { key, name: `${label}${name} (imported)`, kind: 'bin', meshKey: spec.key, ...mesh, drawer: d.id, ...(view && view.key !== spec.key ? { preview: view.key } : {}) };
+          if (include.bins) binItems.push({ key, w: mesh.w, d: mesh.d });
+        }
+        continue;
+      }
       const spec = binSpec(layout, b);
       const { w, d: dd } = binSize(b.opts, spec.cells);
       const h = binTotalHeight(b.opts);
@@ -759,6 +787,7 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'label') return buildLabelPlate(w, spec.plate);
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
   if (spec.kind === 'insertPart') return buildInsertPart(w, spec.part);
+  if (spec.kind === 'imported') return buildImported(spec);
   if (spec.kind === 'container') {
     const def = containerDef(spec.type);
     if (!def?.buildPart) throw new Error(`No part builder for container type “${spec.type}”.`);

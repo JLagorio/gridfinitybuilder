@@ -16,6 +16,8 @@ import { LevelSwitcher, StackBadge, useStackLevels } from './StackLevels';
 import { isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
 import { LayoutTouchBar } from './LayoutTouchBar';
 import { useGridLayers } from './gridLayers';
+import { externalBox, isOwned } from '../lib/external';
+import './externalBins.css';
 
 interface Props {
   layout: GridLayout;
@@ -286,6 +288,9 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
 
   if (!nx || !ny) return <div className="editor-empty">The drawer is smaller than one grid cell.</div>;
 
+  // Bins from elsewhere (lib/external.ts): hatched in their colour when you have them, tinted when they print.
+  const extColors = [...new Set(bins.map((b) => (levels.view(b).bin ?? b).external?.color).filter(Boolean))] as string[];
+
   return (
     <div className="grid-editor">
       <LevelSwitcher levels={levels} />
@@ -316,6 +321,13 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
             </pattern>
           </defs>
         )}
+        <defs>
+          {extColors.map((c, i) => (
+            <pattern key={c} id={`${hatch}-x${i}`} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+              <line x1={0} y1={0} x2={0} y2={6} style={{ stroke: c, strokeWidth: 1.8, strokeOpacity: 0.6 }} />
+            </pattern>
+          ))}
+        </defs>
         {layout.mask?.map((k) => {
           const [i, j] = k.split(',').map(Number);
           return <rect key={`m${k}`} className="ge-blocked" {...cellRectSvg({ x: i, y: j, w: 1, d: 1 }, 1.5)} rx={3.5} fill={`url(#${hatch})`} />;
@@ -335,11 +347,20 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
           const tooBig = !!bed && placedOvershoot(layout, shown, bed) > 1e-6;
           const fs = Math.min(10, (Math.min(feet.width, feet.height) / 4) | 0) || 6;
           const mark = marks?.get(shown.id);
+          const ext = shown.external;
+          // An imported mesh's own footprint, centred on its cells.
+          const meshBox = ext?.mesh ? externalBox(layout, shown) : null;
           return (
-            <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''} ${stack.bin ? '' : 'under'}`}>
+            <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''} ${stack.bin ? '' : 'under'} ${ext ? `external ${isOwned(shown) ? 'owned' : 'prints'}` : ''}`}>
               <rect {...r} rx={3.75}>
                 {tooBig ? <title>Too big for {bed && bedCount(bed) > 1 ? 'every printer' : 'the printer'}: select it to shrink it</title> : mark && <title>Select it to see its print checks</title>}
               </rect>
+              {ext && (
+                <rect {...r} rx={3.75} className="ge-ext" style={{ fill: isOwned(shown) ? `url(#${hatch}-x${extColors.indexOf(ext.color)})` : ext.color, stroke: ext.color }} />
+              )}
+              {meshBox && (
+                <rect className="ge-ext-mesh" x={meshBox.x} y={sy(meshBox.y + meshBox.d)} width={meshBox.w} height={meshBox.d} rx={3} style={{ stroke: ext!.color }} />
+              )}
               {stretched && <rect {...feet} rx={3.75} fill="none" strokeDasharray="3 2" opacity={0.6} pointerEvents="none" />}
               {dividerLines(layout, shown).map((l, k) => (
                 <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />

@@ -790,23 +790,43 @@ export interface StepAssembly {
 /** B-reps are worth keeping between files of one export (the same bin on several plates). */
 export type BodyCache = Map<string, StepBody[]>;
 
+/**
+ * Imported bins (external.ts) go in like Gridfit's own meshes, as faceted
+ * solids, when they're closed; an open mesh can't be a STEP solid, so it's
+ * left out (as is one the B-rep conversion can't close after all). The 3MF,
+ * Bambu and STL exports have them all.
+ */
+export const isImportedKey = (meshKey: string) => meshKey.startsWith('imported|');
+
+/** True for an imported mesh STEP leaves out (not a closed solid). */
+export function stepSkips(job: Pick<PrintJob, 'meshes'>, meshKey: string): boolean {
+  const spec = job.meshes[meshKey];
+  return spec?.kind === 'imported' && !!spec.open;
+}
+
 /** Placed parts as one assembly; parts with the same mesh share one product. */
 export function assemblySTEP(asm: StepAssembly, getMesh: MeshLookup, cache: BodyCache = new Map()): string {
   const parts: StepPart[] = [];
   const index = new Map<string, number>();
-  const instances: StepInstance[] = asm.items.map((it) => {
+  const instances: StepInstance[] = asm.items.flatMap((it) => {
     let i = index.get(it.meshKey);
     if (i === undefined) {
       let bodies = cache.get(it.meshKey);
       if (!bodies) {
-        bodies = meshBodies(it.name, getMesh(it.meshKey));
+        try {
+          bodies = meshBodies(it.name, getMesh(it.meshKey));
+        } catch (e) {
+          if (!isImportedKey(it.meshKey)) throw e;
+          bodies = [];
+        }
         cache.set(it.meshKey, bodies);
       }
+      if (!bodies.length || bodies.every((b) => !b.shells.length)) return [];
       i = parts.length;
       parts.push({ name: it.name, bodies });
       index.set(it.meshKey, i);
     }
-    return { part: i, name: it.name, transform: it.transform };
+    return [{ part: i, name: it.name, transform: it.transform }];
   });
   return writeStep({ name: asm.name, parts, instances, fileName: `${slug(asm.name)}.step` });
 }
@@ -821,10 +841,12 @@ export function plateAssembly(job: PrintJob, plateIndex: number): StepAssembly {
   const pl = job.plates[plateIndex];
   return {
     name: pl.name,
-    items: pl.placements.map((p) => {
-      const part = job.parts[p.key];
-      return { name: part.name, meshKey: part.meshKey, transform: placeTransform(p.x, p.y, p.rotated, part.d) };
-    }),
+    items: pl.placements
+      .filter((p) => !stepSkips(job, job.parts[p.key].meshKey))
+      .map((p) => {
+        const part = job.parts[p.key];
+        return { name: part.name, meshKey: part.meshKey, transform: placeTransform(p.x, p.y, p.rotated, part.d) };
+      }),
   };
 }
 
@@ -879,7 +901,7 @@ export function drawerAssemblies(job: PrintJob, drawers: AssemblyDrawer[]): Step
     const items: StepItem[] = [];
     const add = (key: string, x: number, y: number, z: number) => {
       const part = job.parts[key];
-      if (part) items.push({ name: part.name, meshKey: part.meshKey, transform: translate(x, y, z) });
+      if (part && !stepSkips(job, part.meshKey)) items.push({ name: part.name, meshKey: part.meshKey, transform: translate(x, y, z) });
     };
     if (!dj.haveBaseplate) for (const p of dj.plan.pieces) add(`${prefix}piece:${p.id}`, p.x0, p.y0, 0);
     if (doc) {

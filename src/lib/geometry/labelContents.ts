@@ -88,13 +88,14 @@ export function resolveContentLabels(opts: BinOptions, src: ContentsSource): Bin
   return out;
 }
 
-/** A placed bin's label text with `{contents}` filled in from what's in it. */
-export function labelCaptionText(b: { opts: Pick<BinOptions, 'labelText'> } & ContentsSource): string {
+/** A placed bin's label text with `{contents}` filled in from what's in it. A bin from elsewhere (external.ts) goes by its name. */
+export function labelCaptionText(b: { opts: Pick<BinOptions, 'labelText'>; external?: { name: string } } & ContentsSource): string {
+  if (b.external) return b.external.name;
   const t = b.opts.labelText ?? '';
   return hasContentsFragment(t) ? fillContents(t, b.contents) : t;
 }
 
 /** First line of a placed bin's label as printed, in plain words (icons by name), for captions. '' = none. */
-export function labelCaption(b: { opts: Pick<BinOptions, 'labelText'> } & ContentsSource): string {
+export function labelCaption(b: { opts: Pick<BinOptions, 'labelText'>; external?: { name: string } } & ContentsSource): string {
   return labelPlainText(labelLines(labelCaptionText(b))).split('\n')[0] ?? '';
 }
