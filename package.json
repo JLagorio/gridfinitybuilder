@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "sample": "tsx scripts/generate-sample.ts"
+    "sample": "tsx scripts/generate-sample.ts",
+    "sampler": "tsx scripts/sampler.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",
