@@ -5,7 +5,7 @@ import { binLabel, type BinCells, type BinOptions } from '../lib/geometry/bin';
 import { hasLid } from '../lib/geometry/lid';
 import { canPlace, withBlocked } from '../lib/bins';
 import { binCellsAt, binSpec, binStretched, binUnitsText, lidSpec, type PlacedBin, type PrintJob } from '../lib/project';
-import { MAX_CELLS, MAX_STRETCH, STRETCH_SIDES, STRETCH_Z, hasStretch, stretchOf } from '../lib/geometry/placement';
+import { MAX_CELLS, MAX_STRETCH, STRETCH_SIDES, STRETCH_Z, hasStretch, stretchOf, type BinStretch } from '../lib/geometry/placement';
 import { STRETCH_LABEL, autoStretch, effectiveStretch, stretchRoom } from '../lib/layout/stretch';
 import type { GridLayout } from '../lib/layout/drawer';
 import { HalfStepper } from './DrawerPanel';
@@ -23,6 +23,9 @@ import { binTotalHeight, binCells } from '../lib/geometry/bin';
 import { activeContainer, containerDefs, type ContainerKind } from '../lib/geometry/containers';
 import { containerFields } from './containers';
 import { Select } from './fields';
+import { bedOvershoot, bedProblem, fitStretch, maxUnitsAlong, placedOvershoot, shrinkToBed, usableBed, type Bed } from '../lib/bedfit';
+import { findPrinter } from '../lib/printers';
+import { sanitizeBin } from '../lib/geometry/bin';
 
 function BinFields({
   opts,
@@ -32,6 +35,8 @@ function BinFields({
   cells,
   contents,
   half,
+  maxX,
+  maxY,
 }: {
   opts: BinOptions;
   onChange: (p: Partial<BinOptions>) => void;
@@ -43,20 +48,25 @@ function BinFields({
   contents?: ReactNode;
   /** Half-grid drawer: sizes count 21 mm cells, shown in u (cells / 2). */
   half?: boolean;
+  /** Most cells across / deep that still fit the print bed (bedfit.ts). */
+  maxX?: number;
+  maxY?: number;
 }) {
+  const capX = Math.min(half ? MAX_CELLS : 12, maxX ?? Infinity);
+  const capY = Math.min(half ? MAX_CELLS : 12, maxY ?? Infinity);
   return (
     <>
       {sizeEditable && (
         <>
           {half ? (
             <div className="row2">
-              <HalfStepper label="Width" cells={opts.unitsX} max={MAX_CELLS} suffix="u" onChange={(unitsX) => onChange({ unitsX })} />
-              <HalfStepper label="Depth" cells={opts.unitsY} max={MAX_CELLS} suffix="u" onChange={(unitsY) => onChange({ unitsY })} />
+              <HalfStepper label="Width" cells={opts.unitsX} max={capX} suffix="u" onChange={(unitsX) => onChange({ unitsX })} />
+              <HalfStepper label="Depth" cells={opts.unitsY} max={capY} suffix="u" onChange={(unitsY) => onChange({ unitsY })} />
             </div>
           ) : (
             <div className="row2">
-              <Stepper label="Width" value={opts.unitsX} min={1} max={12} suffix="u" onChange={(unitsX) => onChange({ unitsX })} />
-              <Stepper label="Depth" value={opts.unitsY} min={1} max={12} suffix="u" onChange={(unitsY) => onChange({ unitsY })} />
+              <Stepper label="Width" value={opts.unitsX} min={1} max={capX} suffix="u" onChange={(unitsX) => onChange({ unitsX })} />
+              <Stepper label="Depth" value={opts.unitsY} min={1} max={capY} suffix="u" onChange={(unitsY) => onChange({ unitsY })} />
             </div>
           )}
           {sizeError && <div className="field-error">{sizeError}</div>}
@@ -228,6 +238,9 @@ function wallStatus(o: BinOptions) {
  */
 function StretchSection({ layout, bin }: { layout: GridLayout; bin: PlacedBin }) {
   const updateBin = useStore((s) => s.updateBin);
+  const bed = usableBed(useStore((s) => s.setup));
+  // No more stretch than the print bed takes (bedfit.ts).
+  const stretchTo = (want: Partial<BinStretch> | null) => updateBin(bin.id, { stretch: fitStretch(layout, bin, want, bed) });
   const { fmt } = useUnits();
   const room = stretchRoom(layout, bin);
   const eff = stretchOf(effectiveStretch(layout, bin));
@@ -236,7 +249,7 @@ function StretchSection({ layout, bin }: { layout: GridLayout; bin: PlacedBin })
   const m = layout.margins;
   // Nothing to offer when the grid fills the drawer (or the margins are cells).
   if (!open.length && !hasStretch(bin.stretch) && !STRETCH_SIDES.some((k) => m[k] >= 0.5)) return null;
-  const set = (k: (typeof STRETCH_SIDES)[number], mm: number) => updateBin(bin.id, { stretch: { ...want, [k]: Math.min(Math.max(0, mm), room[k]) } });
+  const set = (k: (typeof STRETCH_SIDES)[number], mm: number) => stretchTo({ ...want, [k]: Math.min(Math.max(0, mm), room[k]) });
   const parked = STRETCH_SIDES.filter((k) => want[k] > 0 && room[k] === 0);
   const stretched = hasStretch(effectiveStretch(layout, bin));
   return (
@@ -245,7 +258,7 @@ function StretchSection({ layout, bin }: { layout: GridLayout; bin: PlacedBin })
       aside={
         open.length > 0 && (
           <span className="button-row">
-            <button className="link" onClick={() => updateBin(bin.id, { stretch: autoStretch(layout, bin) ?? null })} title="Reach the edge of the baseplate on every side that touches the grid edge">
+            <button className="link" onClick={() => stretchTo(autoStretch(layout, bin) ?? null)} title="Reach the edge of the baseplate on every side that touches the grid edge (as far as the print bed allows)">
               Auto
             </button>
             {hasStretch(bin.stretch) && (
@@ -300,6 +313,10 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const setUI = useStore((s) => s.setUI);
   const [sizeError, setSizeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const setup = useStore((s) => s.setup);
+  const { fmt } = useUnits();
+  const bed = usableBed(setup);
+  const printerName = findPrinter(setup.printerId)?.name ?? 'this printer';
   const sel = bins.find((b) => b.id === selectedId) ?? null;
   // With several bins selected, the panel shows the primary one and edits apply to all.
   const selIds = useSelectedIds();
@@ -309,6 +326,12 @@ export function BinPanel({ job }: { job: PrintJob }) {
 
   const changeSelected = (p: Partial<BinOptions>) => {
     if (!sel) return;
+    // The store refuses edits that push a bin past the print bed; say why here.
+    const next = { ...sel, opts: sanitizeBin({ ...sel.opts, ...p }) };
+    if (placedOvershoot(job.layout, next, bed) > placedOvershoot(job.layout, sel, bed) + 1e-6) {
+      setSizeError(`${bedProblem(next.opts, binCellsAt(job.layout, next), bed, (mm) => fmt(mm)) ?? 'Too big for the printer.'} (${printerName})`);
+      return;
+    }
     if (p.unitsX !== undefined || p.unitsY !== undefined) {
       const r = { x: sel.x, y: sel.y, w: p.unitsX ?? sel.opts.unitsX, d: p.unitsY ?? sel.opts.unitsY };
       if (!canPlace(withBlocked(bins, job.layout.mask), r, nx, ny, sel.id)) {
@@ -318,6 +341,18 @@ export function BinPanel({ job }: { job: PrintJob }) {
     }
     setSizeError(null);
     for (const id of many ? selIds : [sel.id]) updateBin(id, { opts: p });
+  };
+
+  // New bins: their settings must leave a 1 × 1 bin that the printer takes (height, a container's parts).
+  const changeNew = (p: Partial<BinOptions>) => {
+    const next = sanitizeBin({ ...newBin, ...p, unitsX: 1, unitsY: 1 });
+    const one = sanitizeBin({ ...newBin, unitsX: 1, unitsY: 1 });
+    if (bedOvershoot(next, null, bed) > bedOvershoot(one, null, bed) + 1e-6) {
+      setSizeError(`${bedProblem(next, null, bed, (mm) => fmt(mm)) ?? 'Too big for the printer.'} (${printerName})`);
+      return;
+    }
+    setSizeError(null);
+    setNewBin(p);
   };
 
   const downloadSelected = async (format: '3mf' | 'stl' | 'step' = '3mf') => {
@@ -364,6 +399,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           }
         >
           {many && <p className="muted small">Showing the first bin's settings. Changes apply to all {selIds.length}.</p>}
+          {!many && <TooBigNotice bin={sel} layout={job.layout} bed={bed} printerName={printerName} />}
           <BinFields
             key={sel.id}
             opts={sel.opts}
@@ -373,6 +409,8 @@ export function BinPanel({ job }: { job: PrintJob }) {
             cells={binCellsAt(job.layout, sel)}
             contents={!many && <BinContentsFields bin={sel} grid={job.layout} onLabel={(labelText) => changeSelected({ labelText })} />}
             half={half}
+            maxX={maxUnitsAlong(job.layout, sel, 'x', bed, half ? MAX_CELLS : 12)}
+            maxY={maxUnitsAlong(job.layout, sel, 'y', bed, half ? MAX_CELLS : 12)}
           />
           <div className="button-row">
             <button onClick={() => duplicateSelection()}>Duplicate</button>
@@ -403,7 +441,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
           <p className="muted small">
             Drag across empty cells on the grid to draw a bin. Click a bin to edit it, drag it to move, press Delete to remove.
           </p>
-          <BinFields opts={newBin} onChange={setNewBin} sizeEditable={false} half={half} />
+          <BinFields opts={newBin} onChange={changeNew} sizeEditable={false} sizeError={sizeError} half={half} />
         </Section>
       )}
       {sel && !many && <StretchSection key={`stretch-${sel.id}`} layout={job.layout} bin={sel} />}
@@ -441,5 +479,28 @@ export function BinPanel({ job }: { job: PrintJob }) {
         )}
       </Section>
     </>
+  );
+}
+
+/** A bin that doesn't fit the printer (e.g. after picking a smaller one): what's wrong, and a one-click fix. */
+function TooBigNotice({ bin, layout, bed, printerName }: { bin: PlacedBin; layout: GridLayout; bed: Bed; printerName: string }) {
+  const { fmt } = useUnits();
+  const updateBin = useStore((s) => s.updateBin);
+  const problem = bedProblem(bin.opts, binCellsAt(layout, bin), bed, (mm) => fmt(mm));
+  if (!problem) return null;
+  const shrink = () => {
+    const fit = shrinkToBed(layout, bin, bed);
+    updateBin(bin.id, {
+      opts: { unitsX: fit.opts.unitsX, unitsY: fit.opts.unitsY, heightUnits: fit.opts.heightUnits, heightMode: fit.opts.heightMode },
+      ...(fit.stretch !== bin.stretch ? { stretch: fit.stretch ?? null } : {}),
+    });
+  };
+  return (
+    <div className="field-error too-big" role="alert">
+      <b>Too big for the {printerName}.</b> {problem} It won’t be printed until it fits.{' '}
+      <button className="link" onClick={shrink}>
+        Shrink to fit
+      </button>
+    </div>
   );
 }

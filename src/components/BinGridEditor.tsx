@@ -8,6 +8,8 @@ import { effectiveStretch } from '../lib/layout/stretch';
 import { binRect, canPlace, occupancy, onBlocked, outOfBounds, withBlocked, type CellRect } from '../lib/bins';
 import { HANDLES, MAX_BIN_UNITS, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
 import { useLayoutShortcuts } from './useLayoutShortcuts';
+import { placedOvershoot, rectFitsBed, type Bed } from '../lib/bedfit';
+import type { BinOptions } from '../lib/geometry/bin';
 import { dividerLines } from './dividerLines';
 
 interface Props {
@@ -22,6 +24,10 @@ interface Props {
   onMoveBins: (ids: string[], dx: number, dy: number) => void;
   /** Give a bin a new position and footprint. */
   onResize: (id: string, r: CellRect) => void;
+  /** What the printer takes (bedfit.ts): drawing and resizing stop there, and bins past it are marked. */
+  bed?: Bed;
+  /** Settings new bins are drawn with (their height and type count against the bed too). */
+  newBin?: BinOptions;
 }
 
 type Pt = [number, number];
@@ -58,7 +64,7 @@ function heightCaption(o: PlacedBin['opts']): string {
  * or drag from outside the grid to box-select, drag a selected bin to move the
  * whole selection, drag a handle to resize. Keyboard: see useLayoutShortcuts.
  */
-export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize }: Props) {
+export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, onMoveBins, onResize, bed, newBin }: Props) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hover, setHover] = useState<[number, number] | null>(null);
@@ -139,18 +145,30 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
     : [];
   const selected = new Set(drag?.kind === 'marquee' ? [...drag.base, ...marqueeHits] : selectedIds);
 
-  const ghosts: { r: CellRect; ok: boolean }[] = (() => {
+  const ghosts: { r: CellRect; ok: boolean; limit?: boolean }[] = (() => {
     if (!drag) return [];
     if (drag.kind === 'draw') {
-      // From the start cell toward the pointer, at most maxUnits cells.
-      const span = (a: number, b: number) => {
-        const n = Math.min(Math.abs(b - a) + 1, maxUnits);
+      // From the start cell toward the pointer, at most maxUnits cells, and no bigger than the printer takes.
+      const span = (a: number, b: number, cap: number) => {
+        const n = Math.min(Math.abs(b - a) + 1, maxUnits, cap);
         return [b >= a ? a : a - n + 1, n];
       };
-      const [x, w] = span(drag.start[0], drag.cur[0]);
-      const [y, d] = span(drag.start[1], drag.cur[1]);
-      const r = { x, y, w, d };
-      return [{ r, ok: canPlace(blocked, r, nx, ny) }];
+      let capX = Infinity;
+      let capY = Infinity;
+      let limit = false;
+      const rect = () => {
+        const [x, w] = span(drag.start[0], drag.cur[0], capX);
+        const [y, d] = span(drag.start[1], drag.cur[1], capY);
+        return { x, y, w, d };
+      };
+      let r = rect();
+      while (bed && newBin && !rectFitsBed(layout, { opts: newBin }, r, bed) && (r.w > 1 || r.d > 1)) {
+        if (r.w >= r.d) capX = r.w - 1;
+        else capY = r.d - 1;
+        r = rect();
+        limit = true;
+      }
+      return [{ r, ok: canPlace(blocked, r, nx, ny), limit }];
     }
     // Resizing stops before collisions, so its ghost is always placeable.
     if (drag.kind === 'resize') return sameRect(drag.cur, drag.from) ? [] : [{ r: drag.cur, ok: true }];
@@ -202,7 +220,9 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
     } else if (drag.kind === 'resize') {
       const target = resizeTarget(drag.from, drag.handle, nearestBoundary(xs, p[0]), nearestBoundary(ys, p[1]), maxUnits);
       const others = blocked.filter((b) => b.id !== drag.id);
-      const cur = fitResize(others, drag.from, target, nx, ny);
+      const bin = bins.find((b) => b.id === drag.id);
+      const fits = bed && bin ? (r: CellRect) => rectFitsBed(layout, bin, r, bed) : undefined;
+      const cur = fitResize(others, drag.from, target, nx, ny, fits);
       if (!sameRect(cur, drag.cur)) setDrag({ ...drag, cur });
     } else if (c) {
       if (drag.kind === 'draw') setDrag({ ...drag, cur: c });
@@ -287,10 +307,12 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
           const r = { x: feet.x - st.left, y: feet.y - st.back, width: feet.width + st.left + st.right, height: feet.height + st.front + st.back };
           const sel = selected.has(b.id);
           const bad = outOfBounds(b, nx, ny) || onBlocked(b, layout.mask);
+          // Too big for the printer (e.g. after picking a smaller one): marked until it's shrunk.
+          const tooBig = !!bed && placedOvershoot(layout, b, bed) > 1e-6;
           const fs = Math.min(10, (Math.min(feet.width, feet.height) / 4) | 0) || 6;
           return (
-            <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''}`}>
-              <rect {...r} rx={3.75} />
+            <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''}`}>
+              <rect {...r} rx={3.75}>{tooBig && <title>Too big for the printer: select it to shrink it</title>}</rect>
               {stretched && <rect {...feet} rx={3.75} fill="none" strokeDasharray="3 2" opacity={0.6} pointerEvents="none" />}
               {dividerLines(layout, b).map((l, k) => (
                 <line key={k} x1={l.x1} x2={l.x2} y1={sy(l.y1)} y2={sy(l.y2)} />
@@ -312,9 +334,19 @@ export function BinGridEditor({ layout, bins, selectedIds, onSelect, onCreate, o
             </g>
           );
         })}
-        {ghosts.map((g, i) => (
-          <rect key={i} className={`ge-ghost ${g.ok ? 'ok' : 'no'}`} {...cellRectSvg(g.r, 0.6)} rx={3.75} />
-        ))}
+        {ghosts.map((g, i) => {
+          const gr = cellRectSvg(g.r, 0.6);
+          return (
+            <g key={i}>
+              <rect className={`ge-ghost ${g.ok ? 'ok' : 'no'}`} {...gr} rx={3.75} />
+              {g.limit && (
+                <text className="ge-ghost-note" x={gr.x + gr.width / 2} y={gr.y + gr.height / 2} fontSize={6} dominantBaseline="middle" textAnchor="middle">
+                  largest that fits the print bed
+                </text>
+              )}
+            </g>
+          );
+        })}
         {marquee && (
           <rect
             className="ge-marquee"

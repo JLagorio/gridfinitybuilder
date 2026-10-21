@@ -1,6 +1,9 @@
 import type { BinOptions } from '../lib/geometry/bin';
 import { applyTemplate, makeTemplate } from '../lib/templates';
 import { useStore } from './store';
+import { computeLayout } from '../lib/layout/drawer';
+import { placedOvershoot, shrinkToBed, usableBed } from '../lib/bedfit';
+import type { PlacedBin } from '../lib/project';
 
 /** Bin template library actions. Templates live in the store, so they're saved, shared in files and undoable. */
 
@@ -34,5 +37,13 @@ export function applyTemplateToBins(id: string, binIds: string[]) {
   const t = find(id);
   if (!t || !binIds.length) return;
   const set = new Set(binIds);
-  useStore.setState({ bins: state().bins.map((b) => (set.has(b.id) ? { ...b, opts: applyTemplate(t, b.opts) } : b)) });
+  const s = state();
+  const layout = computeLayout(s.drawer);
+  const bed = usableBed(s.setup);
+  // A template's height may not fit this printer: bins it would push past the bed are cut down to fit (bedfit.ts).
+  const apply = (b: PlacedBin): PlacedBin => {
+    const next = { ...b, opts: applyTemplate(t, b.opts) };
+    return placedOvershoot(layout, next, bed) > placedOvershoot(layout, b, bed) + 1e-6 ? shrinkToBed(layout, next, bed) : next;
+  };
+  useStore.setState({ bins: s.bins.map((b) => (set.has(b.id) ? apply(b) : b)) });
 }

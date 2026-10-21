@@ -24,6 +24,7 @@ import { BASEPLATE_COLOR, BIN_COLOR, KEY_COLOR, LABEL_PLATE_COLOR, LID_COLOR, pi
 import { binBodyHeight } from './lib/geometry/variants';
 import { LID_SEAT_DROP } from './lib/geometry/lid';
 import { assembledParts } from './lib/geometry/accessories';
+import { usableBed } from './lib/bedfit';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
 import './components/workflow.css';
 
@@ -380,6 +381,8 @@ export default function App() {
                     onCreate={(r) => state.addBin(r.x, r.y, r.w, r.d)}
                     onMoveBins={moveBins}
                     onResize={resizeBin}
+                    bed={usableBed(state.setup)}
+                    newBin={state.newBin}
                   />
                 )}
               </div>

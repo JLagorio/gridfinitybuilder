@@ -47,6 +47,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Shift- or ⌘/Ctrl-click bins, or Shift-drag a box (or drag from outside the grid), to select several.
      - Drag a selection, nudge it with the arrow keys, copy and paste it (⌘C / ⌘V pastes at the cell under the pointer), duplicate it (⌘D) or delete it.
      - Drag the handles of a selected bin to resize it.
+     - **Bins always fit your printer.** Drawing, resizing, the size and height fields, stretching, templates and "Make a bin" all stop at what the bed takes (inside the edge margin, either way round) and at the printer's height. A container's own parts (a drawer unit's drawers, a box lid) count too. After switching to a smaller printer, bins that no longer fit turn red, aren't printed, and get a **Shrink to fit** button.
      - "Fill empty with 1×1" fills the rest of the drawer.
      - **Stretch into the gap:** a bin on the edge of the grid can reach over the solid margin to the drawer wall (Auto, or mm per side). Its feet stay on the grid. The stretched part starts just above the baseplate.
    - **Type:** a plain **bin**, or one of these containers, each on the same Gridfinity feet:

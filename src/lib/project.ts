@@ -451,7 +451,6 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       // Drawer units, parts boxes, … (containers/) check their height with their parts in place.
       const container = activeContainer(b.opts);
       const closed = container?.def.closedHeight?.(sanitizeBin(b.opts), container.opts) ?? h;
-      if (h > setup.maxH) warn(`Bin ${binName} is taller than the printer allows.`);
       if (closed > room + 1e-6) warn(`Bin ${binName} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
       if (include.bins) binItems.push({ key, w, d: dd });
       // Containers print their own extra parts instead of the bin's lid, plates and trays.
@@ -526,8 +525,15 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     }
   }
 
-  if (binItems.length) {
-    const packed = packPlates(binItems, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
+  // Parts taller than the printer prints are left out, like ones bigger than the bed (the editors keep new ones within both: bedfit.ts).
+  const printable = binItems.filter((it) => {
+    const p = parts[it.key];
+    if (p.h <= setup.maxH + 1e-6) return true;
+    warnings.add(`${p.name} is ${round(p.h)} mm tall, taller than the printer prints (${setup.maxH} mm), and was left out.`);
+    return false;
+  });
+  if (printable.length) {
+    const packed = packPlates(printable, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
     for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
     packed.plates.forEach((pl, i) => plates.push({ name: `Bins ${i + 1}`, group: 'bins', placements: pl.placements }));
   }

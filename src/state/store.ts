@@ -15,6 +15,7 @@ import { carryContents, cleanBinContents, sanitizeContents, withCompContents, wi
 import { cleanStretch, type BinStretch } from '../lib/geometry/placement';
 import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
+import { bedOvershoot, placedOvershoot, shrinkToBed, usableBed } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
 
 export type Tab = 'drawer' | 'bins' | 'print';
@@ -303,11 +304,16 @@ export const useStore = create<Store>()(
       setNewBin: (p) =>
         set((s) => {
           const nb = sanitizeBin({ ...s.newBin, ...p, cutouts: undefined });
+          // Settings that leave no bin the printer can take (too tall) are refused (bedfit.ts).
+          const bed = usableBed(s.setup);
+          if (bedOvershoot({ ...nb, unitsX: 1, unitsY: 1 }, null, bed) > bedOvershoot({ ...s.newBin, unitsX: 1, unitsY: 1 }, null, bed) + 1e-6) return {};
           return { newBin: nb.interior === 'cutouts' ? { ...nb, interior: 'compartments' } : nb };
         }),
       addBin: (x, y, w, d) => {
         const id = newId();
-        const bin: PlacedBin = { id, x, y, opts: sanitizeBin({ ...get().newBin, unitsX: w, unitsY: d }) };
+        // Never bigger than the printer takes (bedfit.ts): a new bin is cut down to fit.
+        const s0 = get();
+        const bin = shrinkToBed(computeLayout(s0.drawer), { id, x, y, opts: sanitizeBin({ ...s0.newBin, unitsX: w, unitsY: d }) }, usableBed(s0.setup));
         set((s) => ({ bins: [...s.bins, bin], ui: { ...s.ui, selectedBinId: id } }));
         return id;
       },
@@ -315,6 +321,8 @@ export const useStore = create<Store>()(
         set((s) => ({
           bins: s.bins.map((b) => {
             if (b.id !== id) return b;
+            const layout = computeLayout(s.drawer);
+            const bed = usableBed(s.setup);
             const next = {
               ...b,
               x: patch.x ?? b.x,
@@ -324,7 +332,9 @@ export const useStore = create<Store>()(
             const stretched = patch.stretch !== undefined ? withStretch(next, patch.stretch) : next;
             // Per-compartment contents follow their compartments when the walls change.
             const walls = b.compContents && patch.opts && WALL_KEYS.some((k) => k in patch.opts!);
-            return walls ? carryContents({ ...stretched, opts: b.opts }, stretched.opts) : stretched;
+            const out = walls ? carryContents({ ...stretched, opts: b.opts }, stretched.opts) : stretched;
+            // Never past the print bed (bedfit.ts): an edit that makes the bin overshoot it more than it already does is refused.
+            return placedOvershoot(layout, out, bed) > placedOvershoot(layout, b, bed) + 1e-6 ? b : out;
           }),
         })),
       setHalfGrid: (on) => {

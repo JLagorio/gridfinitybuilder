@@ -101,9 +101,10 @@ export function resizeTarget(r: CellRect, h: Handle, bx: number, by: number, max
 
 /**
  * Move each edge from where it was toward the target one cell at a time,
- * stopping before it would hit another bin or leave the grid.
+ * stopping before it would hit another bin or leave the grid, or (with `fits`)
+ * grow the bin past what the printer takes.
  */
-export function fitResize(others: PlacedBin[], from: CellRect, to: CellRect, nx: number, ny: number): CellRect {
+export function fitResize(others: PlacedBin[], from: CellRect, to: CellRect, nx: number, ny: number, fits?: (r: CellRect) => boolean): CellRect {
   const e = { x0: from.x, x1: from.x + from.w, y0: from.y, y1: from.y + from.d };
   const goal = { x0: to.x, x1: to.x + to.w, y0: to.y, y1: to.y + to.d };
   const rect = (v: typeof e): CellRect => ({ x: v.x0, y: v.y0, w: v.x1 - v.x0, d: v.y1 - v.y0 });
@@ -112,7 +113,7 @@ export function fitResize(others: PlacedBin[], from: CellRect, to: CellRect, nx:
       const next = { ...e, [k]: e[k] + Math.sign(goal[k] - e[k]) };
       const r = rect(next);
       const grows = r.w * r.d > rect(e).w * rect(e).d;
-      if (r.w < 1 || r.d < 1 || (grows && !canPlace(others, r, nx, ny))) break;
+      if (r.w < 1 || r.d < 1 || (grows && (!canPlace(others, r, nx, ny) || (fits && !fits(r))))) break;
       e[k] = next[k];
     }
   }
