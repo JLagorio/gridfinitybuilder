@@ -10,6 +10,9 @@ export function DrawerSwitcher() {
   const duplicateDrawer = useStore((s) => s.duplicateDrawer);
   const removeDrawer = useStore((s) => s.removeDrawer);
   const renameDrawer = useStore((s) => s.renameDrawer);
+  const setUI = useStore((s) => s.setUI);
+  // The active drawer's live settings are at the top level of the store.
+  const activeHave = useStore((s) => !!s.drawer.haveBaseplate);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const active = drawers.find((d) => d.id === activeId) ?? drawers[0];
@@ -50,7 +53,10 @@ export function DrawerSwitcher() {
                   }}
                 >
                   <span>{d.name}</span>
-                  <small>{binCount(d.id)} bins</small>
+                  <small>
+                    {binCount(d.id)} bins
+                    {(d.id === activeId ? activeHave : d.drawer.haveBaseplate) ? ' · just bins' : ''}
+                  </small>
                 </button>
               </li>
             ))}
@@ -64,6 +70,17 @@ export function DrawerSwitcher() {
               }}
             >
               New drawer
+            </button>
+            {/* One click: a drawer for a baseplate you have, sized in grid units on the Drawer tab. */}
+            <button
+              title="A new drawer for a baseplate you already have: only its bins print"
+              onClick={() => {
+                addDrawer(undefined, { haveBaseplate: true });
+                setUI({ tab: 'drawer' });
+                setOpen(false);
+              }}
+            >
+              New: just bins
             </button>
             <button
               onClick={() => {

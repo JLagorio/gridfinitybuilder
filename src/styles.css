@@ -358,6 +358,16 @@ button.wide {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* "Just bins": the grid shown is the baseplate you have (App.tsx). */
+.viewer-note {
+  font-size: 12px;
+  padding: 5px 10px;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: rgba(27, 31, 38, 0.85);
+  backdrop-filter: blur(4px);
+}
 /* Preset views (Iso / Top / Front / Side / Under), bottom right of the 3D view (in .viewer-dock) */
 .viewer-views {
   display: flex;

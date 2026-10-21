@@ -49,6 +49,8 @@ export interface SceneItem {
   pickable?: boolean;
   /** Floats up with "Lift bins" (bins and their lids above a baseplate); a number lifts it that many times as far (stacked levels). */
   lift?: boolean | number;
+  /** Context that isn't printed (a baseplate you have, "Just bins"): see-through and neutral, never picked. `color` is ignored. */
+  ghost?: boolean;
 }
 
 export interface SceneBed {
@@ -80,6 +82,9 @@ const SELECT_COLOR = '#f5a524';
 const CUT_COLOR = '#d9466f';
 const CUT_HATCH = '#9e2a4d';
 const XRAY_OPACITY = 0.14;
+/** Parts shown but not printed (SceneItem.ghost). */
+const GHOST_COLOR = '#a7b0be';
+const GHOST_OPACITY = 0.3;
 /** Measure points snap to a triangle corner this close to the pointer (CSS px). */
 const SNAP_PX = 12;
 
@@ -507,6 +512,9 @@ function createContext(
   // See-through models: brighter edges that never hide each other.
   const xrayEdgeMat = new THREE.LineBasicMaterial({ color: 0xe6ebf2, transparent: true, opacity: 0.5, depthWrite: false });
   const placeholderMat = new THREE.MeshBasicMaterial({ color: 0x8a93a3, transparent: true, opacity: 0.12 });
+  // Not printed (SceneItem.ghost): see-through, so the bins on it stay in view; its edges say where the cells are.
+  const ghostMat = new THREE.MeshStandardMaterial({ color: GHOST_COLOR, roughness: 0.62, metalness: 0.04, transparent: true, opacity: GHOST_OPACITY, depthWrite: false });
+  const ghostEdgeMat = new THREE.LineBasicMaterial({ color: 0x8a93a3, transparent: true, opacity: 0.4, depthWrite: false });
   const placeholderEdge = new THREE.LineBasicMaterial({ color: 0x8a93a3, transparent: true, opacity: 0.5 });
   const unitBox = new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5);
   const unitBoxEdges = new THREE.EdgesGeometry(unitBox);
@@ -699,7 +707,16 @@ function createContext(
         obj.userData.liftBy = liftFactor(it);
         obj.position.z = it.z + liftNow * obj.userData.liftBy;
       }
-      if (data) {
+      if (data && it.ghost) {
+        used.add(it.meshKey);
+        const g = geometryFor(it.meshKey, data);
+        ghostMat.clippingPlanes = clipping();
+        // In x-ray everything is see-through already.
+        const mesh = new THREE.Mesh(g.mesh, tools.xray ? material(GHOST_COLOR) : ghostMat);
+        mesh.userData.id = null;
+        measurables.push(mesh);
+        obj.add(mesh, new THREE.LineSegments(g.edges, tools.xray ? edges : ghostEdgeMat));
+      } else if (data) {
         used.add(it.meshKey);
         const g = geometryFor(it.meshKey, data);
         const mesh = new THREE.Mesh(g.mesh, material(it.selected ? SELECT_COLOR : it.color));
@@ -850,7 +867,7 @@ function createContext(
       planeOutline.visible = s.outline;
     } else planeSpec = null;
     sectionGroup.visible = !!s;
-    for (const m of [edgeMat, xrayEdgeMat, placeholderMat, placeholderEdge, stencilBack, stencilFront]) m.clippingPlanes = clipping();
+    for (const m of [edgeMat, xrayEdgeMat, placeholderMat, placeholderEdge, stencilBack, stencilFront, ghostMat, ghostEdgeMat]) m.clippingPlanes = clipping();
     // New materials (x-ray) or stencil passes (section on/off) mean rebuilding the scene's objects.
     if (prev.xray !== t.xray || !!prev.section !== !!s) setScene(last.items, last.beds, last.outline);
     if (t.lift !== liftTarget) {
@@ -1171,7 +1188,7 @@ function createContext(
         for (const o of g.overlays) o.mesh.dispose();
       }
       for (const m of [...mats.values(), ...xrayMats.values()]) m.dispose();
-      for (const m of [edgeMat, xrayEdgeMat, placeholderMat, placeholderEdge, stencilBack, stencilFront, capMat, planeOutlineMat, planeFillMat]) m.dispose();
+      for (const m of [edgeMat, xrayEdgeMat, placeholderMat, placeholderEdge, stencilBack, stencilFront, capMat, planeOutlineMat, planeFillMat, ghostMat, ghostEdgeMat]) m.dispose();
       for (const g of [unitBox, unitBoxEdges, unitPlane, planeOutlineGeo]) g.dispose();
       hatch.dispose();
       disposeTree(bedGroup);

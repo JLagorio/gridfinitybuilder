@@ -339,11 +339,13 @@ export function TestFitSection() {
   const pitchX = useStore((s) => s.drawer.pitchX);
   const pitchY = useStore((s) => s.drawer.pitchY);
   const halfGrid = useStore((s) => !!s.drawer.halfGrid);
+  // "Just bins": the baseplate is there already, so the kit is the bin to try in it.
+  const haveBaseplate = useStore((s) => !!s.drawer.haveBaseplate);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const kit = useMemo(
-    () => planTestFit(baseplate, newBin, setup, { x: pitchX || 42, y: pitchY || 42, halfGrid }),
-    [baseplate, newBin, setup, pitchX, pitchY, halfGrid],
+    () => planTestFit(baseplate, newBin, setup, { x: pitchX || 42, y: pitchY || 42, halfGrid }, { haveBaseplate }),
+    [baseplate, newBin, setup, pitchX, pitchY, halfGrid, haveBaseplate],
   );
   const bom = useMemo(() => billOfMaterials(kit), [kit]);
   const printer = findPrinter(setup.printerId);
@@ -374,11 +376,18 @@ export function TestFitSection() {
 
   return (
     <Section title="Test-fit kit">
-      <p className="muted small">
-        Print this first to check the fit: a {halfGrid ? '3 × 3 half-cell' : '2 × 2'} baseplate sample
-        {kit.connectors.length ? ` in two pieces with ${kit.connectors.length} connector key` : ''} using this drawer's baseplate
-        settings, and one {bin} bin with the new-bin settings{magnets ? `. Needs ${magnets} magnets` : ''}.
-      </p>
+      {haveBaseplate ? (
+        <p className="muted small">
+          Print this first to check the fit in the baseplate you have: one {bin} bin with the new-bin settings{magnets ? `. Needs ${magnets} magnets` : ''}.
+          No baseplate sample: this drawer prints just bins.
+        </p>
+      ) : (
+        <p className="muted small">
+          Print this first to check the fit: a {halfGrid ? '3 × 3 half-cell' : '2 × 2'} baseplate sample
+          {kit.connectors.length ? ` in two pieces with ${kit.connectors.length} connector key` : ''} using this drawer's baseplate
+          settings, and one {bin} bin with the new-bin settings{magnets ? `. Needs ${magnets} magnets` : ''}.
+        </p>
+      )}
       {kit.warnings.map((w) => (
         <div key={w} className="field-error">
           {w}

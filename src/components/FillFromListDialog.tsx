@@ -114,7 +114,7 @@ export function FillFromListDialog({ layout, onClose }: { layout: GridLayout; on
               onChange={setReplace}
               hint={replace && bins.length ? `The ${bins.length} bin${bins.length === 1 ? '' : 's'} in this drawer go.` : 'Off: the new bins go around the ones already there.'}
             />
-            {!Number.isFinite(plan.room) && drawer.mode === 'drawer' && !drawer.enclosure && (
+            {!Number.isFinite(plan.room) && (drawer.mode === 'drawer' || drawer.haveBaseplate) && !drawer.enclosure && (
               <p className="field-hint">Set the drawer’s inside height (Drawer tab) to keep every bin low enough for it.</p>
             )}
           </div>
@@ -188,7 +188,7 @@ export function FillFromListDialog({ layout, onClose }: { layout: GridLayout; on
                         label={plan.extra.length === 1 ? 'Put them in a new drawer like this one' : `Put them in ${plan.extra.length} new drawers like this one`}
                         checked={extraDrawers}
                         onChange={setExtraDrawers}
-                        hint="Same size and baseplate, added after this drawer."
+                        hint={drawer.haveBaseplate ? 'Same size and baseplate, added after this drawer, and just bins like it.' : 'Same size and baseplate, added after this drawer.'}
                       />
                     )}
                   </div>

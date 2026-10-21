@@ -14,8 +14,10 @@ const root = resolve(__dirname, '..');
 /**
  * The app's own JS on the first screen (the entry and what it imports, minus the React and three.js
  * chunks), bytes. It was ~460 kB when the split was made; everything in one chunk was 1.5 MB.
+ * Raised from 520 kB for "Just bins" (the Drawer panel's choice and the not-printed grid in the
+ * 3D view are on the first screen): it was at 519.6 kB, and is ~524 kB with it.
  */
-const FIRST_SCREEN_BUDGET = 520_000;
+const FIRST_SCREEN_BUDGET = 530_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;

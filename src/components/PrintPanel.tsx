@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { allDrawers, printDrawers, projectFile, useStore, useUnits } from '../state/store';
+import { allDrawers, printDrawers, projectFile, selectedIds, useStore, useUnits } from '../state/store';
 import { LengthInput, Section, Segmented, Select, Toggle } from './fields';
 import { findPrinter } from '../lib/printers';
 import { assemblyMaps, jobForPrinter, plateContents, usesSecondFilament, type PrintJob } from '../lib/project';
@@ -20,6 +20,7 @@ import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { PRINT_INDEX } from './panelIndex';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
+import { HaveBaseplateNotes, NothingToPrint } from './PrintWhat';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -43,10 +44,16 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const drawers = allDrawers(store);
   const printing = printDrawers(store);
   const multi = job.drawers.length > 1;
+  // Just the bins selected on the Bins tab (store PrintScope 'selected').
+  const selected = store.printScope === 'selected';
+  const nSelected = selectedIds(ui).filter((id) => store.bins.some((b) => b.id === id)).length;
   const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const stamp = multi ? `${job.drawers.length}-drawers` : slug(printing[0]?.name ?? '') || `${job.layout.nx}x${job.layout.ny}`;
-  const nPieces = job.drawers.reduce((t, d) => t + d.plan.pieces.length, 0);
+  const stamp = (multi ? `${job.drawers.length}-drawers` : slug(printing[0]?.name ?? '') || `${job.layout.nx}x${job.layout.ny}`) + (selected ? '-selected-bins' : '');
+  // Pieces of a baseplate you have ("Just bins") are only drawn, never printed.
+  const nPieces = job.drawers.reduce((t, d) => t + (d.haveBaseplate ? 0 : d.plan.pieces.length), 0);
   const nBins = printing.reduce((t, d) => t + d.bins.length, 0);
+  const allHave = printing.every((d) => d.drawer.haveBaseplate);
+  const someHave = printing.filter((d) => d.drawer.haveBaseplate);
   // Several printers (fleet.ts): each gets its own project, with its plates and settings.
   const printers = jobPrinters(setup);
   const names = printerNames(setup);
@@ -165,15 +172,20 @@ export function PrintPanel({ job }: { job: PrintJob }) {
 
   return (
     <FindPanel index={PRINT_INDEX} placeholder="Find a setting…">
-      {drawers.length > 1 && (
-        <Section title="Drawers to print" find="print-drawers">
+      {(drawers.length > 1 || nSelected > 0 || selected) && (
+        <Section title={drawers.length > 1 ? 'Drawers to print' : 'What to print'} find="print-drawers">
           <Segmented
-            ariaLabel="Drawers to print"
+            ariaLabel={drawers.length > 1 ? 'Drawers to print' : 'What to print'}
             value={store.printScope}
             options={[
               { value: 'active', label: 'This drawer' },
-              { value: 'all', label: `All ${drawers.length}` },
-              { value: 'pick', label: 'Choose' },
+              ...(drawers.length > 1
+                ? [
+                    { value: 'all' as const, label: `All ${drawers.length}` },
+                    { value: 'pick' as const, label: 'Choose' },
+                  ]
+                : []),
+              { value: 'selected', label: `Selected bins (${nSelected})`, title: 'Just the bins selected on the Bins tab, without the baseplate' },
             ]}
             onChange={(scope) =>
               store.setPrintScope(scope, scope === 'pick' && !store.printPick.length ? [store.activeDrawerId] : undefined)
@@ -196,10 +208,19 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               ))}
             </div>
           )}
-          <p className="muted small">
-            Each drawer's baseplate prints on its own plates. Bins from every drawer share plates, and their names say which
-            drawer they're for.
-          </p>
+          {selected ? (
+            <p className="muted small">
+              Only the bins selected on the Bins tab print, with their lids and inserts, and no baseplate. Select more there with Shift-click,
+              or Shift-drag around them.
+            </p>
+          ) : (
+            drawers.length > 1 && (
+              <p className="muted small">
+                Each drawer's baseplate prints on its own plates. Bins from every drawer share plates, and their names say which
+                drawer they're for.
+              </p>
+            )
+          )}
         </Section>
       )}
       <Section title={setup.printers ? 'Printers' : 'Printer'} find="printers">
@@ -238,7 +259,21 @@ export function PrintPanel({ job }: { job: PrintJob }) {
 
       <Section title="Export" find="export">
         <Find id="export-what">
-          <Toggle label="Baseplate" checked={include.baseplate} onChange={(v) => store.setInclude({ baseplate: v })} />
+          <HaveBaseplateNotes drawers={printing} selected={selected} />
+          <Toggle
+            label="Baseplate"
+            checked={include.baseplate}
+            onChange={(v) => store.setInclude({ baseplate: v })}
+            hint={
+              selected
+                ? 'Not with the selected bins.'
+                : allHave
+                  ? 'No difference here: no baseplate prints (see above).'
+                  : someHave.length
+                    ? `Not for ${someHave.map((d) => d.name).join(', ')}: you have ${someHave.length > 1 ? 'theirs' : 'its'}.`
+                    : undefined
+            }
+          />
           <Toggle
             label={`Bins (${nBins})`}
             checked={include.bins}
@@ -254,6 +289,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             {w}
           </div>
         ))}
+        <NothingToPrint plates={job.plates.length} leftOut={job.leftOut?.length ?? 0} drawers={printing} include={include} selected={selected} />
         {twoColour && (
           <Find id="label-colour">
             <div className="field label-colour">
@@ -369,9 +405,11 @@ export function PrintPanel({ job }: { job: PrintJob }) {
             </Fragment>
           ))}
         </div>
-        <MoreInAll ids={[['split', splitSet]]} />
+        <MoreInAll ids={nPieces ? [['split', splitSet]] : []} />
       </Section>
 
+      {/* Nothing to split when no baseplate prints (you have them, or just the selected bins). */}
+      {nPieces > 0 && (
       <Section title="Baseplate split" find="split" set={splitSet}>
         <Segmented
           label="Strategy"
@@ -403,9 +441,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
               job.drawers.map((d) => (
                 <div key={d.id} className="dl-row">
                   <dt>{d.name}</dt>
-                  <dd>
-                    {d.plan.cols} × {d.plan.rows} pieces
-                  </dd>
+                  <dd>{d.haveBaseplate ? 'not printed' : `${d.plan.cols} × ${d.plan.rows} pieces`}</dd>
                 </div>
               ))
             ) : (
@@ -423,6 +459,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
           </dl>
         </div>
       </Section>
+      )}
 
       <Find id="bom">
         <BomSection job={job} stamp={stamp} estimate={estimate} />

@@ -218,7 +218,7 @@ export const BIN_INDEX: FindEntry[] = [
     id: 'actions',
     title: 'This bin',
     when: 'when a bin is selected',
-    words: ['duplicate', 'copy', 'delete', 'remove', 'use for new bins', 'download', 'export', '3mf', 'stl', 'step', 'cad', 'lid'],
+    words: ['duplicate', 'copy', 'delete', 'remove', 'use for new bins', 'download', 'export', '3mf', 'stl', 'step', 'cad', 'lid', 'print these', 'print selected', 'just these'],
   },
   // TemplatesSection.tsx
   { id: 'templates', title: 'Templates', basic: false, words: ['template', 'save', 'reuse', 'apply', 'preset', 'saved settings', 'favourite', 'favorite'] },
@@ -241,6 +241,14 @@ export const DRAWER_INDEX: FindEntry[] = [
     title: 'Drawer',
     words: [],
     children: [
+      {
+        id: 'print-what',
+        title: 'Print for this drawer',
+        words: [
+          'just bins', 'bins only', 'only bins', 'already have', 'have the plate', 'have a baseplate', 'own', 'existing baseplate', 'bought',
+          'skip baseplate', 'no baseplate', 'without baseplate', 'reprint bins', 'baseplate and bins', 'not printed',
+        ],
+      },
       { id: 'drawer-name', title: 'Name', words: ['name', 'rename', 'title'] },
       { id: 'drawer-size', title: 'Size', words: ['size', 'width', 'depth', 'measure', 'inside', 'grid units', 'size from', 'not square', 'samples'] },
       { id: 'drawer-height', title: 'Inside height', words: ['height', 'tall', 'deep', 'tallest bin', 'clearance above'] },
@@ -297,7 +305,12 @@ export const DRAWER_INDEX: FindEntry[] = [
 // ---------------------------------------------------------------------------
 
 export const PRINT_INDEX: FindEntry[] = [
-  { id: 'print-drawers', title: 'Drawers to print', when: 'with several drawers', words: ['drawers', 'all drawers', 'this drawer', 'choose', 'which'] },
+  {
+    id: 'print-drawers',
+    title: 'What to print',
+    when: 'with several drawers, or bins selected on the Bins tab',
+    words: ['drawers', 'all drawers', 'this drawer', 'choose', 'which', 'selected bins', 'just these', 'only selected', 'these bins', 'some bins'],
+  },
   {
     id: 'printers',
     title: 'Printer',
@@ -320,7 +333,11 @@ export const PRINT_INDEX: FindEntry[] = [
     title: 'Export',
     words: [],
     children: [
-      { id: 'export-what', title: 'Baseplate and bins', words: ['include', 'baseplate', 'bins', 'leave out'] },
+      {
+        id: 'export-what',
+        title: 'Baseplate and bins',
+        words: ['include', 'baseplate', 'bins', 'leave out', 'just bins', 'bins only', 'already have', 'skip baseplate', 'not printed', 'nothing to print'],
+      },
       { id: 'label-colour', title: 'Label filament', when: 'with inlaid labels or two-colour pocket floors', words: ['colour', 'color', 'second filament', 'slot 2', 'ams', 'inlaid', 'two colour'] },
       {
         id: 'export-files',
