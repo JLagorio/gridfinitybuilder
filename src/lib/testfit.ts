@@ -13,9 +13,26 @@ import { binSpec, pieceMeshKey, type JobPart, type MeshSpec, type PrintJob } fro
  * the new-bin settings. With connectors on, the sample is split down the
  * middle so one key crosses the seam (a 2 × 1 sample has no wall crossing its
  * seam, so it would get no key). Planned like a normal job, so every exporter works.
+ *
+ * On a half grid (`pitch.halfGrid`) the sample is 3 × 3 half cells (1.5 × 1.5 u)
+ * and the bin is 1 × 1 u on 2 × 2 half feet, so it can be tried at a half-cell offset too.
  */
-export function planTestFit(baseplate: BaseplateOptions, bin: BinOptions, setup: PrintSetup, pitch = { x: 42, y: 42 }): PrintJob {
-  const layout = computeLayout({ ...DEFAULT_DRAWER, mode: 'grid', gridX: 2, gridY: 2, pitchX: pitch.x, pitchY: pitch.y });
+export function planTestFit(
+  baseplate: BaseplateOptions,
+  bin: BinOptions,
+  setup: PrintSetup,
+  pitch: { x: number; y: number; halfGrid?: boolean } = { x: 42, y: 42 },
+): PrintJob {
+  const half = !!pitch.halfGrid;
+  const layout = computeLayout({
+    ...DEFAULT_DRAWER,
+    mode: 'grid',
+    gridX: half ? 1.5 : 2,
+    gridY: half ? 1.5 : 2,
+    pitchX: pitch.x,
+    pitchY: pitch.y,
+    ...(half ? { halfGrid: true } : {}),
+  });
   const split = baseplate.connector !== 'none';
   const pieces = makePieces(layout, split ? [0, layout.xs[1], layout.plateW] : [0, layout.plateW], [0, layout.plateD]);
   const sites = connectorSites(layout, pieces, baseplate);
@@ -57,13 +74,14 @@ export function planTestFit(baseplate: BaseplateOptions, bin: BinOptions, setup:
       ),
     );
   }
-  const testBin = { id: 'test-bin', x: 0, y: 0, opts: sanitizeBin({ ...bin, unitsX: 1, unitsY: 1 }) };
+  const n = half ? 2 : 1;
+  const testBin = { id: 'test-bin', x: 0, y: 0, opts: sanitizeBin({ ...bin, unitsX: n, unitsY: n }) };
   const spec = binSpec(layout, testBin);
   const size = binSize(testBin.opts, spec.cells);
   add(
     {
       key: `bin:${testBin.id}`,
-      name: `Test-fit bin ${binLabel(testBin.opts)}`,
+      name: `Test-fit bin ${binLabel(testBin.opts, spec.cells)}`,
       kind: 'bin',
       meshKey: spec.key,
       w: size.w,

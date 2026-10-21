@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { printDrawers, projectOf, selectedIds, useStore, type Tab } from './state/store';
 import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
-import { planJob, planPrint, type MeshSpec, type PrintJob } from './lib/project';
-import { cellEdge } from './lib/layout/drawer';
+import { binOrigin, planJob, planPrint, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
-import { BASE_TOP, GRID } from './lib/geometry/spec';
 import { plateOrigin } from './lib/export/bambu';
 import { findPrinter } from './lib/printers';
 import { geometry } from './worker/client';
@@ -57,15 +55,16 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
   });
   if (withBins) {
     const seat = binSeatHeight(state.baseplate);
-    const inset = (GRID - BASE_TOP) / 2;
     for (const b of state.bins) {
       const part = job.parts[`bin:${b.id}`];
       if (!part) continue;
+      // The mesh's front-left corner: its feet sit on the bin's cells, a stretched body reaches past them.
+      const at = binOrigin(job.layout, b);
       items.push({
         id: b.id,
         meshKey: part.meshKey,
-        x: cellEdge(job.layout.xs, b.x, job.layout.pitchX) + inset,
-        y: cellEdge(job.layout.ys, b.y, job.layout.pitchY) + inset,
+        x: at.x,
+        y: at.y,
         z: seat,
         w: part.w,
         d: part.d,
@@ -80,8 +79,8 @@ function drawerScene(job: PrintJob, explode: boolean, withBins: boolean, state: 
         items.push({
           id: `${b.id}:lid`,
           meshKey: lid.meshKey,
-          x: cellEdge(job.layout.xs, b.x, job.layout.pitchX) + inset,
-          y: cellEdge(job.layout.ys, b.y, job.layout.pitchY) + inset,
+          x: at.x,
+          y: at.y,
           z: seat + binBodyHeight(b.opts) - LID_SEAT_DROP,
           w: lid.w,
           d: lid.d,

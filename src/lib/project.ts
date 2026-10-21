@@ -35,8 +35,11 @@ import {
   type ConnectorSite,
 } from './geometry/connectors';
 import { pieceIsVoid } from './geometry/mask';
+import { hasStretch, stretchOf, type BinStretch } from './geometry/placement';
+import { BASE_TOP, GRID } from './geometry/spec';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
-import { DEFAULT_DRAWER, cellSizes, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
+import { DEFAULT_DRAWER, cellEdge, cellSizes, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
+import { effectiveStretch } from './layout/stretch';
 import { packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
 import {
   DEFAULT_SETUP,
@@ -59,6 +62,12 @@ export interface PlacedBin {
   x: number;
   y: number;
   opts: BinOptions;
+  /**
+   * How far the body reaches over the solid margin toward the drawer wall, mm
+   * per side. Only sides touching the grid edge stretch, up to the plate edge
+   * (layout/stretch.ts); the rest is kept but ignored.
+   */
+  stretch?: Partial<BinStretch>;
 }
 
 /** One drawer's design. */
@@ -165,13 +174,20 @@ export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOp
   return `piece|${JSON.stringify([layout, piece.x0, piece.y0, piece.x1, piece.y1, piece.cells, piece.outer, o, connectors, id])}`;
 }
 
-/** Cell sizes under a bin, or undefined when it only covers full cells. */
+/**
+ * What the bin's place gives its geometry: the cell sizes under it, the
+ * half-grid flag and its stretch over the margin. Undefined for a classic bin
+ * on full cells.
+ */
 export function binCellsAt(layout: GridLayout, b: PlacedBin): BinCells | undefined {
-  const cells = {
+  const cells: BinCells = {
     x: cellSizes(layout.xs, b.x, b.opts.unitsX, layout.pitchX),
     y: cellSizes(layout.ys, b.y, b.opts.unitsY, layout.pitchY),
   };
-  return fullCells(cells) ? undefined : cells;
+  if (layout.halfGrid) cells.half = true;
+  const stretch = effectiveStretch(layout, b);
+  if (stretch) cells.stretch = stretch;
+  return fullCells(cells) && !cells.half && !cells.stretch ? undefined : cells;
 }
 
 /** The mesh spec for a placed bin. */
@@ -180,10 +196,35 @@ export function binSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { k
   return { kind: 'bin', key: `bin|${binKey(b.opts, cells)}`, opts: b.opts, cells };
 }
 
-/** The mesh spec for a placed bin's stacking lid (lids depend only on the footprint). */
+/** True when the bin's body reaches over the margin where it is. */
+export function binStretched(layout: GridLayout, b: PlacedBin): boolean {
+  return hasStretch(binCellsAt(layout, b)?.stretch);
+}
+
+/** The mesh spec for a placed bin's stacking lid (lids depend only on the footprint; stretched bins get none). */
 export function lidSpec(layout: GridLayout, b: PlacedBin): Extract<MeshSpec, { kind: 'lid' }> {
-  const cells = binCellsAt(layout, b);
+  const at = binCellsAt(layout, b);
+  const cells = at && { x: at.x, y: at.y };
   return { kind: 'lid', key: `lid|${lidKey(b.opts, cells)}`, opts: b.opts, cells };
+}
+
+/**
+ * Front-left corner of the bin's mesh (its body, stretch included) in plate
+ * coordinates, for the assembled drawer: the feet sit on the bin's cells.
+ */
+export function binOrigin(layout: GridLayout, b: PlacedBin): { x: number; y: number } {
+  const st = stretchOf(binCellsAt(layout, b)?.stretch);
+  const inset = (GRID - BASE_TOP) / 2;
+  return {
+    x: cellEdge(layout.xs, b.x, layout.pitchX) + inset - st.left,
+    y: cellEdge(layout.ys, b.y, layout.pitchY) + inset - st.front,
+  };
+}
+
+/** A bin's footprint in grid units ("1.5×2" on a half grid). */
+export function binUnitsText(layout: Pick<GridLayout, 'halfGrid'>, o: Pick<BinOptions, 'unitsX' | 'unitsY'>): string {
+  const u = (n: number) => (layout.halfGrid ? n / 2 : n);
+  return `${u(o.unitsX)}×${u(o.unitsY)}`;
 }
 
 /** Everything about the print except the geometry itself. Cheap; safe to call on every edit. */
@@ -274,22 +315,26 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
       meshes[spec.key] = spec;
       const texts = [...new Set(binLabelTexts(b.opts, spec.cells))];
       const caption = texts.length ? ` “${texts.slice(0, 3).join(' · ').replace(/\n/g, ' ')}${texts.length > 3 ? ' …' : ''}”` : '';
-      parts[key] = { key, name: `${label}Bin ${binLabel(b.opts)}${caption}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
-      if (h > setup.maxH) warn(`Bin ${binLabel(b.opts)} is taller than the printer allows.`);
-      if (h > room + 1e-6) warn(`Bin ${binLabel(b.opts)} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+      const binName = binLabel(b.opts, spec.cells);
+      parts[key] = { key, name: `${label}Bin ${binName}${caption}`, kind: 'bin', meshKey: spec.key, w, d: dd, h, drawer: d.id };
+      if (h > setup.maxH) warn(`Bin ${binName} is taller than the printer allows.`);
+      if (h > room + 1e-6) warn(`Bin ${binName} is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
       if (include.bins) binItems.push({ key, w, d: dd });
-      if (hasLid(b.opts)) {
+      // A stretched lip isn't the grid's shape, so a lid (feet per cell) wouldn't seat in it.
+      const stretched = hasStretch(spec.cells?.stretch);
+      if (hasLid(b.opts) && stretched) warn(`Bin ${binName} is stretched over the margin, so it gets no lid.`);
+      if (hasLid(b.opts) && !stretched) {
         const lid = lidSpec(layout, b);
         const lidPart = `${prefix}lid:${b.id}`;
         const size = lidSize(b.opts, lid.cells);
         meshes[lid.key] = lid;
-        parts[lidPart] = { key: lidPart, name: `${label}Lid for bin ${binLabel(b.opts)}`, kind: 'lid', meshKey: lid.key, ...size, drawer: d.id };
+        parts[lidPart] = { key: lidPart, name: `${label}Lid for bin ${binName}`, kind: 'lid', meshKey: lid.key, ...size, drawer: d.id };
         const stack = lidStackHeight(b.opts);
-        if (h <= room + 1e-6 && stack > room + 1e-6) warn(`Bin ${binLabel(b.opts)} with its lid is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
+        if (h <= room + 1e-6 && stack > room + 1e-6) warn(`Bin ${binName} with its lid is taller than the drawer (${round(room)} mm of room above the baseplate floor).`);
         if (include.bins) binItems.push({ key: lidPart, w: size.w, d: size.d });
       }
       // Removable divider plates and swappable label plates print with the bins.
-      const owner = `bin ${b.opts.unitsX}×${b.opts.unitsY}`;
+      const owner = `bin ${binUnitsText(layout, b.opts)}`;
       removableInserts(b.opts, spec.cells).forEach((ins, i) => {
         const meshKey = insertKey(ins);
         meshes[meshKey] = { kind: 'divider', key: meshKey, insert: ins };

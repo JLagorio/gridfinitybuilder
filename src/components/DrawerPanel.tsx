@@ -1,13 +1,53 @@
-import { useStore, useUnits } from '../state/store';
+import { useState } from 'react';
+import { history, useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, Stepper, TextInput, Toggle } from './fields';
 import { baseplateFloor, baseplateHeight, binSeatHeight, screwPlacement, type BaseplateStyle } from '../lib/geometry/baseplate';
 import { PIN, SCREW_JOIN, WEIGHTED } from '../lib/geometry/spec';
 import { CellMaskEditor } from './CellMaskEditor';
-import { effectiveSize } from '../lib/layout/drawer';
+import { effectiveSize, type EdgeFill } from '../lib/layout/drawer';
+import { unitsAcross } from '../lib/layout/halfgrid';
 import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
+
+/** What a style becomes on a half grid, where its per-cell features don't fit 21 mm cells. */
+const HALF_STYLE_HINT: Partial<Record<BaseplateStyle, string>> = {
+  weighted: 'The weight pockets don’t fit 21 mm half cells, so on this half grid it is the thick floor without them.',
+  skeletonized: 'The corner bosses don’t fit 21 mm half cells, so on this half grid it is open under every cell, like a frame.',
+};
+
+/**
+ * A ± stepper over half steps (half-grid sizes in u): the value shown is in
+ * u, and each click moves one 21 mm cell.
+ */
+export function HalfStepper({
+  label,
+  cells,
+  max,
+  onChange,
+  suffix,
+}: {
+  label: string;
+  /** Value in cells (half units). */
+  cells: number;
+  /** Most cells. */
+  max: number;
+  onChange: (cells: number) => void;
+  suffix?: string;
+}) {
+  // Stepper steps by 1: read its new value as a direction and move one cell.
+  return (
+    <Stepper
+      label={label}
+      value={cells / 2}
+      min={0.5}
+      max={max / 2}
+      suffix={suffix}
+      onChange={(v) => onChange(Math.min(max, Math.max(1, cells + Math.sign(v - cells / 2))))}
+    />
+  );
+}
 
 const STYLE_HINT: Record<BaseplateStyle, string> = {
   frame: 'Open bottom: least filament. Magnets or screws add a floor.',
@@ -52,6 +92,9 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   const active = useStore((s) => s.drawers.find((d) => d.id === s.activeDrawerId));
   const renameDrawer = useStore((s) => s.renameDrawer);
   const setDrawer = useStore((s) => s.setDrawer);
+  const setHalfGrid = useStore((s) => s.setHalfGrid);
+  const binCount = useStore((s) => s.bins.length);
+  const [gridNote, setGridNote] = useState<string | null>(null);
   const setBp = useStore((s) => s.setBaseplate);
   const setUI = useStore((s) => s.setUI);
   const { units, fmt } = useUnits();
@@ -65,6 +108,23 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
   const maxLip = maxBinUnits(room, true);
   const maxFlat = maxBinUnits(room, false);
   const nBlocked = L.mask?.length ?? 0;
+  const half = !!drawer.halfGrid;
+  // On a half grid the cells already are half cells, so 'half' leaves the margin solid.
+  const fill: EdgeFill = half && drawer.fill === 'half' ? 'solid' : drawer.fill;
+  const across = unitsAcross(L);
+  const toggleHalf = (on: boolean) => {
+    // Its own undo step, even right after another edit.
+    history.checkpoint();
+    const n = setHalfGrid(on);
+    history.checkpoint();
+    setGridNote(
+      n
+        ? `${n} bin${n === 1 ? '' : 's'} changed size or moved to fit the ${on ? 'half' : 'whole-unit'} grid.`
+        : binCount
+          ? `Bins converted: ${on ? 'each 1 u is now 2 × 2 half cells' : 'back to whole units'}.`
+          : null,
+    );
+  };
   const sp = screwPlacement(bp);
   const screwHint = !bp.screws
     ? 'Countersunk holes to screw the plate down.'
@@ -99,6 +159,17 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             { value: 'grid', label: 'Grid units' },
           ]}
           onChange={(mode) => setDrawer({ mode })}
+        />
+        <Toggle
+          label="Half grid (21 mm)"
+          checked={half}
+          onChange={toggleHalf}
+          hint={
+            gridNote ??
+            (half
+              ? 'Cells, receptacles and bin feet are 21 mm: bins come in half units (1.5 × 2.5 u) and sit at any half-cell offset. A 1 × 1 u bin stands on 2 × 2 half feet.'
+              : 'Gridfinity Extended’s half pitch: 21 mm cells, so bins can be sized and placed in half units. Bins already drawn are converted.')
+          }
         />
         {drawer.mode === 'drawer' ? (
           <>
@@ -168,22 +239,23 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             />
             <Segmented
               label="Leftover space"
-              value={drawer.fill}
+              value={fill}
               options={[
                 { value: 'solid', label: 'Solid', title: 'Fill the gap around the grid with solid plastic' },
-                { value: 'half', label: 'Half cells', title: 'Add a row of 21 mm half cells where the gap allows' },
+                // On a half grid every cell is a half cell already.
+                ...(half ? [] : [{ value: 'half' as const, label: 'Half cells', title: 'Add a row of 21 mm half cells where the gap allows' }]),
                 { value: 'fit', label: 'Partial cells', title: 'Turn each gap into a row of narrower cells, so bins can use the space' },
               ]}
               onChange={(fill) => setDrawer({ fill })}
               hint={
-                drawer.fill === 'solid'
-                  ? 'Partial cells use the gap for bins with narrower feet. Push the grid to one side to get one wide row instead of two thin ones.'
+                fill === 'solid'
+                  ? 'Partial cells use the gap for bins with narrower feet, or stretch a bin over it (Bins tab). Push the grid to one side to get one wide row instead of two thin ones.'
                   : partialX.length + partialY.length
                     ? `Partial cells: ${[...new Set([...partialX, ...partialY].map((v) => fmt(v)))].join(', ')}. Bins drawn on them get matching feet.`
-                    : `No gap is wide enough (${drawer.fill === 'half' ? fmt(21) : `at least ${fmt(drawer.minFill)}`}). Push the grid to one side to combine the gaps.`
+                    : `No gap is wide enough (${fill === 'half' ? fmt(21) : `at least ${fmt(drawer.minFill)}`}). Push the grid to one side to combine the gaps.`
               }
             />
-            {drawer.fill === 'fit' && (
+            {fill === 'fit' && (
               <LengthInput
                 label="Narrowest partial cell"
                 value={drawer.minFill}
@@ -194,6 +266,11 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
               />
             )}
           </>
+        ) : half ? (
+          <div className="row2">
+            <HalfStepper label="Units wide" cells={Math.round(drawer.gridX * 2)} max={80} onChange={(c) => setDrawer({ gridX: c / 2 })} />
+            <HalfStepper label="Units deep" cells={Math.round(drawer.gridY * 2)} max={80} onChange={(c) => setDrawer({ gridY: c / 2 })} />
+          </div>
         ) : (
           <div className="row2">
             <Stepper label="Units wide" value={drawer.gridX} min={1} max={40} onChange={(gridX) => setDrawer({ gridX })} />
@@ -202,7 +279,15 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
         )}
         <div className="summary">
           <div className="summary-big">
-            {L.nx} × {L.ny} <small>grid</small>
+            {half ? (
+              <>
+                {across.x} × {across.y} <small>u · {L.nx} × {L.ny} half cells</small>
+              </>
+            ) : (
+              <>
+                {L.nx} × {L.ny} <small>grid</small>
+              </>
+            )}
           </div>
           <dl>
             <dt>Baseplate</dt>
@@ -275,13 +360,19 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
             { value: 'solid', label: 'Solid', title: 'Closed floor' },
           ]}
           onChange={(style) => setBp({ style })}
-          hint={STYLE_HINT[bp.style]}
+          hint={half && HALF_STYLE_HINT[bp.style] ? `${STYLE_HINT[bp.style]} ${HALF_STYLE_HINT[bp.style]}` : STYLE_HINT[bp.style]}
         />
         <Toggle
           label="Magnet pockets"
           checked={bp.magnets}
           onChange={(magnets) => setBp({ magnets })}
-          hint="4 pockets per cell so magnet bins snap in (none in partial edge cells)."
+          hint={
+            half
+              ? bp.magnets
+                ? '21 mm half cells have no room for 4 corner magnets, so none are cut on this half grid: turn this off to drop the floor they need. Bins keep their own magnets (one per half foot).'
+                : 'Not on a half grid: 21 mm cells have no room for the 4 corner magnets.'
+              : '4 pockets per cell so magnet bins snap in (none in partial edge cells).'
+          }
         />
         {bp.magnets && (
           <div className="indent">

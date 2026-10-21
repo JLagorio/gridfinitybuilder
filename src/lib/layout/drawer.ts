@@ -38,6 +38,13 @@ export interface DrawerInput {
   mask?: string[];
   /** Blocked cells are filled flat ('solid') or cut out of the plate ('void'). */
   maskStyle?: MaskStyle;
+  /**
+   * Half-grid (Gridfinity Extended's half pitch): cells, receptacles and bin
+   * feet are half a pitch (21 mm), so bins come in half units and sit at any
+   * half-cell offset. Bin positions and sizes count these cells; `gridX` /
+   * `gridY` stay in full units (half steps allowed). Missing = off.
+   */
+  halfGrid?: boolean;
 }
 
 export type MaskStyle = 'solid' | 'void';
@@ -72,9 +79,11 @@ export interface GridLayout {
   plateD: number;
   nx: number;
   ny: number;
-  /** Nominal pitch (full cells). */
+  /** Nominal pitch (full cells): the drawer's pitch, halved on a half grid. */
   pitchX: number;
   pitchY: number;
+  /** Half-grid drawer (see DrawerInput.halfGrid); only present when on, so classic layouts are unchanged. */
+  halfGrid?: true;
   /** Front-left corner of cell (0, 0) in plate coordinates. */
   originX: number;
   originY: number;
@@ -121,21 +130,28 @@ function axisBounds(origin: number, n: number, pitch: number, before: number, af
 
 /** Width of the edge-fill cell for a margin, or 0 to leave it solid. */
 function fillCell(margin: number, d: DrawerInput, pitch: number): number {
-  if (d.fill === 'half') return margin + EPS >= pitch / 2 ? pitch / 2 : 0;
+  // On a half grid the cells already are half cells: 'half' leaves the margin solid.
+  if (d.fill === 'half') return !d.halfGrid && margin + EPS >= pitch / 2 ? pitch / 2 : 0;
   if (d.fill === 'fit') return margin + EPS >= Math.max(d.minFill, 8) ? margin : 0;
   return 0;
 }
 
 export function computeLayout(d: DrawerInput): GridLayout {
-  return withMask(computeGrid(d), d);
+  const l = withMask(computeGrid(d), d);
+  return d.halfGrid ? { ...l, halfGrid: true } : l;
 }
 
+/** Cells per full unit: 2 on a half grid. */
+export const cellsPerUnit = (d: Pick<DrawerInput, 'halfGrid'> | Pick<GridLayout, 'halfGrid'>) => (d.halfGrid ? 2 : 1);
+
 function computeGrid(d: DrawerInput): GridLayout {
-  const pitchX = d.pitchX > 0 ? d.pitchX : GRID;
-  const pitchY = d.pitchY > 0 ? d.pitchY : GRID;
+  const per = cellsPerUnit(d);
+  const pitchX = (d.pitchX > 0 ? d.pitchX : GRID) / per;
+  const pitchY = (d.pitchY > 0 ? d.pitchY : GRID) / per;
   if (d.mode === 'grid') {
-    const nx = Math.max(1, Math.floor(d.gridX));
-    const ny = Math.max(1, Math.floor(d.gridY));
+    // gridX / gridY are full units; a half grid takes half units too.
+    const nx = Math.max(1, Math.floor(d.gridX * per + EPS));
+    const ny = Math.max(1, Math.floor(d.gridY * per + EPS));
     return {
       plateW: nx * pitchX,
       plateD: ny * pitchY,

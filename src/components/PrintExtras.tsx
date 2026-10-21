@@ -135,16 +135,17 @@ export function TestFitSection() {
   const setup = useStore((s) => s.setup);
   const pitchX = useStore((s) => s.drawer.pitchX);
   const pitchY = useStore((s) => s.drawer.pitchY);
+  const halfGrid = useStore((s) => !!s.drawer.halfGrid);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const kit = useMemo(
-    () => planTestFit(baseplate, newBin, setup, { x: pitchX || 42, y: pitchY || 42 }),
-    [baseplate, newBin, setup, pitchX, pitchY],
+    () => planTestFit(baseplate, newBin, setup, { x: pitchX || 42, y: pitchY || 42, halfGrid }),
+    [baseplate, newBin, setup, pitchX, pitchY, halfGrid],
   );
   const bom = useMemo(() => billOfMaterials(kit), [kit]);
   const printer = findPrinter(setup.printerId);
   const magnets = bom.hardware.filter((h) => h.item.startsWith('Magnets')).reduce((t, h) => t + h.count, 0);
-  const bin = binLabel(sanitizeBin({ ...newBin, unitsX: 1, unitsY: 1 }));
+  const bin = halfGrid ? binLabel(sanitizeBin({ ...newBin, unitsX: 2, unitsY: 2 }), { half: true }) : binLabel(sanitizeBin({ ...newBin, unitsX: 1, unitsY: 1 }));
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setError(null);
@@ -171,7 +172,7 @@ export function TestFitSection() {
   return (
     <Section title="Test-fit kit">
       <p className="muted small">
-        Print this first to check the fit: a 2 × 2 baseplate sample
+        Print this first to check the fit: a {halfGrid ? '3 × 3 half-cell' : '2 × 2'} baseplate sample
         {kit.connectors.length ? ` in two pieces with ${kit.connectors.length} connector key` : ''} using this drawer's baseplate
         settings, and one {bin} bin with the new-bin settings{magnets ? `. Needs ${magnets} magnets` : ''}.
       </p>

@@ -12,7 +12,8 @@ import {
   type Pt,
   type Rect,
 } from './geometry/cutouts';
-import { BASE_HEIGHT, GRID, HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from './geometry/spec';
+import { BASE_HEIGHT, HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from './geometry/spec';
+import { HALF_PITCH } from './geometry/placement';
 import { cellSizes, type GridLayout } from './layout/drawer';
 import { binFloorZ, type BaseStyle, type LipStyle } from './geometry/variants';
 import { boundariesWithin, boundaryDistance, bounds, dedupe, polygonsIntersect, signedArea, simplifyClosed } from './trace/polygon';
@@ -161,10 +162,11 @@ export function heightUnitsFor(depth: number, lip: boolean, extraDepth = 0, floo
   return Math.max(MIN_HEIGHT_UNITS, Math.ceil(need / HEIGHT_UNIT - 1e-9));
 }
 
-/** Grid units needed along one axis for `extent` mm of pockets. */
-function unitsFor(extent: number, lip: boolean, margin: number, lipStyle: LipStyle = 'normal'): number {
+/** Grid units (cells: 21 mm ones on a half grid) needed along one axis for `extent` mm of pockets. */
+function unitsFor(extent: number, lip: boolean, margin: number, lipStyle: LipStyle = 'normal', half = false): number {
   for (let n = 1; n < 100; n++) {
-    const a = cutoutArea(binSize({ unitsX: n, unitsY: 1 }).w, 10, lip, lipStyle);
+    const cells = half ? { x: Array<number>(n).fill(HALF_PITCH) } : undefined;
+    const a = cutoutArea(binSize({ unitsX: n, unitsY: 1 }, cells).w, 10, lip, lipStyle);
     if (a.x1 - a.x0 - 2 * margin >= extent - 1e-6) return n;
   }
   return 100;
@@ -202,6 +204,9 @@ export interface BinFit {
   fits: boolean;
 }
 
+/** fitBinForTools on a half-grid drawer: sizes in 21 mm cells (12 u = 24 cells). */
+export type FitGrid = { half?: boolean };
+
 /**
  * The smallest bin holding these tools with `margin` mm of material around
  * the pockets: one tool at its best rotation, or several side by side in a
@@ -209,7 +214,7 @@ export interface BinFit {
  */
 export function fitBinForTools(
   tools: Tool[],
-  o: { lip: boolean; lipStyle?: LipStyle; base?: BaseStyle; extraDepth?: number; margin?: number; gap?: number } = { lip: true },
+  o: { lip: boolean; lipStyle?: LipStyle; base?: BaseStyle; extraDepth?: number; margin?: number; gap?: number } & FitGrid = { lip: true },
 ): BinFit {
   const margin = o.margin ?? FIT_MARGIN;
   const gap = o.gap ?? FIT_GAP;
@@ -221,8 +226,8 @@ export function fitBinForTools(
     const sizes = tools.map((t, i) => pocketSize(t, rots[i]));
     const along = sizes.reduce((s, z) => s + (dir === 'col' ? z.d : z.w), 0) + gap * (tools.length - 1);
     const across = Math.max(...sizes.map((z) => (dir === 'col' ? z.w : z.d)));
-    const ux = unitsFor(dir === 'col' ? across : along, o.lip, margin, o.lipStyle);
-    const uy = unitsFor(dir === 'col' ? along : across, o.lip, margin, o.lipStyle);
+    const ux = unitsFor(dir === 'col' ? across : along, o.lip, margin, o.lipStyle, o.half);
+    const uy = unitsFor(dir === 'col' ? along : across, o.lip, margin, o.lipStyle, o.half);
     // Lay the pockets out centered in the bin.
     let pos = -along / 2;
     const cutouts = tools.map((t, i) => {
@@ -243,26 +248,40 @@ export function fitBinForTools(
     arrange('col');
   }
   const best = layouts.reduce((a, b) => (b.ux * b.uy < a.ux * a.uy || (b.ux * b.uy === a.ux * a.uy && Math.max(b.ux, b.uy) < Math.max(a.ux, a.uy)) ? b : a));
-  return { unitsX: best.ux, unitsY: best.uy, heightUnits, cutouts: best.cutouts, fits: best.ux <= 12 && best.uy <= 12 };
+  const max = o.half ? 24 : 12;
+  return { unitsX: best.ux, unitsY: best.uy, heightUnits, cutouts: best.cutouts, fits: best.ux <= max && best.uy <= max };
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
-/** First free spot for a w × d bin, preferring spots on full grid cells. */
+/**
+ * First free spot for a w × d bin, preferring spots on full grid cells (and on
+ * a half grid, spots on whole 42 mm units, where magnets line up).
+ */
 export function firstFreeSpot(layout: GridLayout, placed: PlacedBin[], w: number, d: number): { x: number; y: number } | null {
   const { nx, ny } = layout;
   // Blocked cells count as taken.
   const bins = withBlocked(placed, layout.mask);
+  // Half grid: whole units start an even number of cells after the first full cell.
+  const first = (b: number[], p: number) => (b.length > 1 && b[1] - b[0] < p - 1e-6 ? 1 : 0);
+  const fx = first(layout.xs, layout.pitchX);
+  const fy = first(layout.ys, layout.pitchY);
+  const aligned = (i: number, j: number) => !layout.halfGrid || ((i - fx) % 2 === 0 && (j - fy) % 2 === 0);
   let fallback: { x: number; y: number } | null = null;
+  let full: { x: number; y: number } | null = null;
   for (let j = 0; j + d <= ny; j++) {
     for (let i = 0; i + w <= nx; i++) {
       if (!canPlace(bins, { x: i, y: j, w, d }, nx, ny)) continue;
-      const full = [...cellSizes(layout.xs, i, w, layout.pitchX), ...cellSizes(layout.ys, j, d, layout.pitchY)].every((v) => Math.abs(v - GRID) < 1e-6);
-      if (full) return { x: i, y: j };
+      const onFull = [
+        ...cellSizes(layout.xs, i, w, layout.pitchX).map((v) => Math.abs(v - layout.pitchX) < 1e-6),
+        ...cellSizes(layout.ys, j, d, layout.pitchY).map((v) => Math.abs(v - layout.pitchY) < 1e-6),
+      ].every(Boolean);
+      if (onFull && aligned(i, j)) return { x: i, y: j };
+      if (onFull) full ??= { x: i, y: j };
       fallback ??= { x: i, y: j };
     }
   }
-  return fallback;
+  return full ?? fallback;
 }
 
 /** Bin options for "make a bin for these tools" (merged over the new-bin defaults). */

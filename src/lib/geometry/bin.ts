@@ -39,6 +39,17 @@ import {
   type LabelPlate,
 } from './labels';
 import { cutoutCutters, cutoutKeyPart, sanitizeCutouts, sanitizeCutoutStyle, type BinCutout, type CutoutStyle } from './cutouts';
+import {
+  MAX_CELLS,
+  STRETCH_Z,
+  cleanStretch,
+  halfHoleSites,
+  hasStretch,
+  stretchKey,
+  stretchOf,
+  stretchOffset,
+  type BinStretch,
+} from './placement';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
@@ -94,11 +105,19 @@ export const MIN_HEIGHT_UNITS = 2;
 export interface BinCells {
   x: number[];
   y: number[];
+  /** On a half-grid drawer: 21 mm cells are whole feet, one hole each (placement.ts). */
+  half?: boolean;
+  /** How far the body reaches past the feet, from the bin's place by the drawer wall (placement.ts). */
+  stretch?: BinStretch;
 }
 
 export function binCells(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null): BinCells {
   const fit = (arr: number[] | undefined, n: number) => Array.from({ length: n }, (_, k) => (arr?.[k] && arr[k] > 0 ? arr[k] : GRID));
-  return { x: fit(cells?.x, o.unitsX), y: fit(cells?.y, o.unitsY) };
+  const out: BinCells = { x: fit(cells?.x, o.unitsX), y: fit(cells?.y, o.unitsY) };
+  if (cells?.half) out.half = true;
+  const stretch = cleanStretch(cells?.stretch);
+  if (stretch) out.stretch = stretch;
+  return out;
 }
 
 /** True when every cell is a full grid cell (the common case). */
@@ -108,9 +127,20 @@ export function fullCells(c: BinCells | null | undefined): boolean {
 
 const sum = (a: number[]) => a.reduce((t, v) => t + v, 0);
 
+/** Outside size of the body: the feet's footprint, plus any stretch (placement.ts). */
 export function binSize(o: Pick<BinOptions, 'unitsX' | 'unitsY'>, cells?: Partial<BinCells> | null) {
   const c = binCells(o, cells);
-  return { w: sum(c.x) - (GRID - BASE_TOP), d: sum(c.y) - (GRID - BASE_TOP) };
+  const st = stretchOf(c.stretch);
+  return { w: sum(c.x) - (GRID - BASE_TOP) + st.left + st.right, d: sum(c.y) - (GRID - BASE_TOP) + st.front + st.back };
+}
+
+/** Magnet / screw hole sites, bin-centered, as buildBin cuts them. */
+export function binHoleSites(o: Pick<BinOptions, 'unitsX' | 'unitsY' | 'holes' | 'holeCorners' | 'base'>, cellsIn?: Partial<BinCells> | null) {
+  if (o.base === 'flat' || o.holes === 'none') return [];
+  const cells = binCells(o, cellsIn);
+  const { fx, fy } = stretchOffset(cells.stretch);
+  const sites = cells.half ? halfHoleSites(cells, !!o.holeCorners) : holeSites(cells, !!o.holeCorners);
+  return fx || fy ? sites.map((p) => ({ ...p, x: p.x + fx, y: p.y + fy })) : sites;
 }
 
 /** Overall height including the lip. */
@@ -122,8 +152,11 @@ export function binTotalHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'> & Part
 export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string {
   const c = binCells(o, cells);
   const cellPart = fullCells(c) ? [] : [`c${c.x.join('/')}x${c.y.join('/')}`];
+  // Placement (placement.ts): half-grid holes, stretched body.
+  const placePart = [...(c.half ? ['h'] : []), ...(c.stretch ? [stretchKey(c.stretch)] : [])];
   return [
     ...cellPart,
+    ...placePart,
     o.unitsX,
     o.unitsY,
     heightKey(o),
@@ -141,9 +174,11 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
   ].join('-');
 }
 
-export function binLabel(o: BinOptions): string {
+/** "3×2×4u …". On a half grid (`cells.half`) the footprint is given in 42 mm units: 1.5×1. */
+export function binLabel(o: BinOptions, cells?: Partial<BinCells> | null): string {
   const h = o.heightMode && o.heightMode !== 'units' ? `${Math.round(binTotalHeight(o) * 10) / 10}mm` : `${o.heightUnits}u`;
-  const parts = [`${o.unitsX}×${o.unitsY}×${h}`];
+  const u = (n: number) => (cells?.half ? n / 2 : n);
+  const parts = [`${u(o.unitsX)}×${u(o.unitsY)}×${h}`];
   const tools = o.cutouts?.length ?? 0;
   if (o.interior === 'cutouts') parts.push(`${tools} tool pocket${tools === 1 ? '' : 's'}`);
   else if (o.interior === 'pockets') parts.push('pockets');
@@ -171,8 +206,11 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const pockets = o.interior === 'pockets';
     const toolCuts = o.interior === 'cutouts';
     const hollow = isHollowBase(o.base) && !pockets && !toolCuts;
-    // Holes only fit in full cells (flat bins have no feet to hold them).
-    const sites = flat || o.holes === 'none' ? [] : holeSites(cells, o.holeCorners);
+    // Holes only fit in full cells (flat bins have no feet to hold them); half-grid feet get one each.
+    const sites = binHoleSites(o, cells);
+    // Stretched bins (placement.ts): W × D is the body; the feet sit off its center by (fx, fy).
+    const stretched = hasStretch(cells.stretch);
+    const { fx, fy } = stretchOffset(cells.stretch);
 
     const solids: Manifold[] = [];
 
@@ -181,8 +219,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const gap = GRID - BASE_TOP;
     const totalX = sum(cells.x);
     const totalY = sum(cells.y);
-    for (let i = 0, x0 = -totalX / 2; i < o.unitsX && !flat; x0 += cells.x[i], i++) {
-      for (let j = 0, y0 = -totalY / 2; j < o.unitsY; y0 += cells.y[j], j++) {
+    for (let i = 0, x0 = fx - totalX / 2; i < o.unitsX && !flat; x0 += cells.x[i], i++) {
+      for (let j = 0, y0 = fy - totalY / 2; j < o.unitsY; y0 += cells.y[j], j++) {
         const cw = cells.x[i];
         const cd = cells.y[j];
         const cx = x0 + cw / 2;
@@ -202,7 +240,12 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     }
 
     // 2. Infill block (floor + dividers), with compartments (or item pockets) cut out.
-    const block = s.t(extrudePolygon(w, outerRing, flat ? 0 : BASE_PROFILE_HEIGHT, topInfill));
+    let block = s.t(extrudePolygon(w, outerRing, flat ? 0 : stretched ? STRETCH_Z : BASE_PROFILE_HEIGHT, topInfill));
+    if (stretched && !flat) {
+      // The overhang starts at STRETCH_Z, clear of the baseplate; over the feet the block starts as usual.
+      const feetRing = roundedRectRing(fx - (totalX - gap) / 2, fy - (totalY - gap) / 2, fx + (totalX - gap) / 2, fy + (totalY - gap) / 2, BASE_TOP_RADIUS);
+      block = s.t(w.Manifold.union([block, s.t(extrudePolygon(w, feetRing, BASE_PROFILE_HEIGHT, STRETCH_Z + 0.5))]));
+    }
     // Lite / efficient bases: compartments go down into the feet (clipped to the foot pockets below).
     // Removable-divider slots need solid floor under them, so those bins keep the full floor.
     const hollowCut = hollow && !o.layout?.walls.some((wall) => wall.removable);
@@ -216,7 +259,15 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     // Finger slides: leave a quarter-round along the chosen walls uncut.
     const slides = cut && !pockets && !toolCuts ? fingerSlides(w, s, o, W, D, cutFloor, Math.min(topInfill - cutFloor - 0.5, 40)) : [];
     if (cut && slides.length) cut = s.t(cut.subtract(s.t(w.Manifold.union(slides))));
-    if (cut && hollowCut) cut = clipToHollow(w, s, o.base, cells, W, D, zFloor, cut, holeBosses(w, s, o, sites, zFloor - 0.05));
+    if (cut && hollowCut) {
+      const keep = holeBosses(w, s, o, sites, zFloor - 0.05);
+      if (fx || fy) {
+        // clipToHollow works around the feet's center: shift there and back.
+        const toFeet = (m: Manifold) => s.t(m.translate([-fx, -fy, 0]));
+        const clipped = clipToHollow(w, s, o.base, cells, W + 2 * Math.abs(fx), D + 2 * Math.abs(fy), zFloor, toFeet(cut), keep.map(toFeet));
+        cut = s.t(clipped.translate([fx, fy, 0]));
+      } else cut = clipToHollow(w, s, o.base, cells, W, D, zFloor, cut, keep);
+    }
     solids.push(cut ? s.t(block.subtract(cut)) : block, ...interior.add);
     if (cut && hollowCut && feet.length) solids.push(s.t(s.t(w.Manifold.union(feet)).subtract(cut)));
     else solids.push(...feet);
@@ -228,7 +279,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     const cavityKnots = lipCavityKnots(o, H, wallBottom, flat || (hollowCut && cut) ? wallBottom - 0.5 : wallBottom + 0.5);
     const shell = s.t(extrudePolygon(w, outerRing, wallBottom, top));
     let cavity = s.t(loftRoundedRect(w, 0, 0, W, D, BASE_TOP_RADIUS, cavityKnots));
-    const notches = o.lip && o.lipNotches ? lipNotches(w, s, o, cells, W, D, H, top) : null;
+    // A stretched lip no longer lines up with the grid, so it gets no notches at the cell lines.
+    const notches = o.lip && o.lipNotches && !stretched ? lipNotches(w, s, o, cells, W, D, H, top) : null;
     if (notches) cavity = s.t(cavity.subtract(notches));
     solids.push(s.t(shell.subtract(cavity)));
 
@@ -268,8 +320,9 @@ export function sanitizeBin(o: BinOptions): BinOptions {
   const lip = o.lip === undefined ? true : !!o.lip;
   return {
     ...o,
-    unitsX: int(o.unitsX, 1, 12),
-    unitsY: int(o.unitsY, 1, 12),
+    // Cells: up to 12 u, which is 24 cells on a half-grid drawer (the UI keeps full-grid bins to 12).
+    unitsX: int(o.unitsX, 1, MAX_CELLS),
+    unitsY: int(o.unitsY, 1, MAX_CELLS),
     heightUnits,
     lip,
     holes: HOLE_STYLES.includes(o.holes) ? o.holes : 'none',
