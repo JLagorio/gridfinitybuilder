@@ -29,6 +29,12 @@ import type { PrintJob } from './project';
  *   1.20, 4×4 with magnets 0.82, 3×3 weighted 0.92, a plate of 12 bins 1.05,
  *   a mixed plate with label plates 1.06. Bambu Studio slices a little
  *   differently, so expect ±25 % against it.
+ *
+ * The volume those lines lay down (`PlateEstimate.extruded`) is the BOM's
+ * filament once a plate is sliced. Grams of PLA, model ÷ slicer:
+ *   1×1×3u bin 0.99 (10.4 g), 1×1×6u 1.01, 1×1×10u 1.02, 2×2×6u with a label
+ *   1.05, a plate of 12 bins 1.00, frame baseplate 5×5 0.95, 4×4 with
+ *   magnets 0.95.
  */
 
 /** Bambu Studio "0.20 mm Standard" with Bambu PLA Basic, as the estimate assumes. */
@@ -372,7 +378,8 @@ function partLayer(s: MeshPrintStats, k: number, mo: Motion, footprint: number, 
       moveTime(solid(bridge, P.width.bridge), line, mo.bridge.v, mo.bridge.a, P.width.bridge) +
       moveTime(solid(skin - topSkin - bridge, P.width.solid), line, mo.solid.v, mo.solid.a, P.width.solid);
     into.infill += moveTime((sparse * P.infill * M.infillLength) / P.width.sparse, sparseLine, mo.sparse.v, mo.sparse.a);
-    vol = (wallArea + skin + sparse * P.infill) * h;
+    // The same lines as the time: skin overlapping the walls, infill with its anchors.
+    vol = (wallArea + skin * M.skinLength + sparse * P.infill * M.infillLength) * h;
   }
   // Getting there: a hop to each island (the first from the previous part), between wall loops, and between
   // pieces of infill that holes split up.
@@ -399,7 +406,7 @@ export interface PlateEstimate {
   swaps: number;
   /** Filament flushed and printed into the prime tower for the swaps, g. */
   wasteGrams: number;
-  /** Extruded volume the estimate lays down, mm³ (a cross-check on the filament figure). */
+  /** Extruded volume the estimate lays down, mm³: the BOM's filament figure once the plate is sliced. */
   extruded: number;
   breakdown: TimeBreakdown;
 }

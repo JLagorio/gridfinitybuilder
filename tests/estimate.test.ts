@@ -19,10 +19,11 @@ import {
   type MeshPrintStats,
 } from '../src/lib/estimate';
 import { PRINTERS, findPrinter } from '../src/lib/printers';
-import { DEFAULT_SETUP, cleanSetup, type PrintSetup } from '../src/lib/layout/plan';
-import { billOfMaterials, bomCsv, bomText } from '../src/lib/bom';
+import { DEFAULT_SETUP, cleanSetup, planBaseplate, type PrintSetup } from '../src/lib/layout/plan';
+import { billOfMaterials, bomCsv, bomText, filamentFor } from '../src/lib/bom';
 import { DEFAULT_PROJECT, buildMesh, planJob, type PlacedBin, type PrintJob } from '../src/lib/project';
-import { DEFAULT_DRAWER } from '../src/lib/layout/drawer';
+import { DEFAULT_DRAWER, computeLayout } from '../src/lib/layout/drawer';
+import { DEFAULT_BASEPLATE, buildBaseplatePiece, type BaseplateOptions } from '../src/lib/geometry/baseplate';
 import { printedVolume } from '../src/lib/geometry/volume';
 import { useStore } from '../src/state/store';
 
@@ -142,9 +143,29 @@ describe('print-time estimate', () => {
     expect(est.layers).toBeGreaterThan(100);
     const b = est.breakdown;
     expect(b.walls + b.skin + b.infill + b.travel + b.cooling + b.swaps).toBeCloseTo(est.printSeconds, 6);
-    // Extruded about what the filament estimate says.
-    expect(est.extruded / printedVolume(binMesh())).toBeGreaterThan(0.7);
-    expect(est.extruded / printedVolume(binMesh())).toBeLessThan(1.15);
+  });
+
+  // PrusaSlicer 2.7 set up like 0.20 mm Standard, as for the times: grams of PLA.
+  it('extrudes about the filament the slicer does (±10 %), tall thin-walled bins and baseplates included', () => {
+    const grams = (m: MeshData, size: number) => filamentFor(estimatePlate([{ stats: sliceStats(m), w: size, d: size }], X1C).extruded).grams;
+    const plate = (n: number, o: Partial<BaseplateOptions> = {}) => {
+      const layout = computeLayout({ ...DEFAULT_DRAWER, mode: 'grid', gridX: n, gridY: n });
+      const plan = planBaseplate(layout, { ...DEFAULT_SETUP, bedW: 400, bedD: 400 });
+      return buildBaseplatePiece(w, layout, plan.pieces[0], { ...DEFAULT_BASEPLATE, ...o });
+    };
+    const cases: [string, MeshData, number, number][] = [
+      ['1×1×3u', binMesh(), 41.5, 10.4],
+      ['1×1×6u', binMesh({ heightUnits: 6 }), 41.5, 14.0],
+      ['1×1×10u', binMesh({ heightUnits: 10 }), 41.5, 18.8],
+      ['2×2×6u label', binMesh({ unitsX: 2, unitsY: 2, heightUnits: 6, label: 'full' }), 83.5, 44.8],
+      ['5×5 frame baseplate', plate(5), 210, 35.0],
+      ['4×4 baseplate, magnets', plate(4, { magnets: true }), 168, 82.7],
+    ];
+    for (const [name, m, size, want] of cases) {
+      const got = grams(m, size);
+      expect(got, name).toBeGreaterThan(want * 0.9);
+      expect(got, name).toBeLessThan(want * 1.1);
+    }
   });
 
   it('grows with the part', () => {
@@ -275,6 +296,14 @@ describe('cost', () => {
       });
       expect(b.total.seconds).toBeCloseTo(b.plates.reduce((t, p) => t + p.seconds!, 0), 6);
       expect(b.total.cost!.total).toBeCloseTo(b.plates.reduce((t, p) => t + p.cost!.total, 0), 9);
+      // Sliced plates: filament is what the estimate extrudes, and the total adds them up.
+      b.plates.forEach((p, i) => {
+        expect(p.sliced).toBe(true);
+        expect(p.volume).toBeCloseTo(plates[i]!.extruded, 6);
+        expect(p.grams).toBeCloseTo(filamentFor(plates[i]!.extruded).grams, 9);
+      });
+      expect(b.total.sliced).toBe(true);
+      expect(b.total.grams).toBeCloseTo(b.plates.reduce((t, p) => t + p.grams!, 0), 9);
       // The bins plate has the inlaid bin: swaps, purge, and filament 2 at its price.
       const bins = b.plates.find((p) => p.name.startsWith('Bins'))!;
       expect(bins.swaps).toBeGreaterThan(0);
@@ -285,15 +314,19 @@ describe('cost', () => {
         printer: 'x',
       });
       expect(cheaper.total.cost!.filament).toBeLessThan(b.total.cost!.filament);
+      // One price for both filaments: the cost is the BOM's grams (and the purge) at that price.
+      expect(cheaper.total.cost!.filament).toBeCloseTo(((cheaper.total.grams! + cheaper.total.wasteGrams!) * 25) / 1000, 9);
 
       const csv = bomCsv(b);
       const head = csv.split('\n')[0].split(',');
       expect(head).toEqual(['Section', 'Item', 'Quantity', 'Printed volume (cm³)', 'Filament (g)', 'Filament (m)', 'Print time (min)', 'Cost (€)', 'Notes']);
       const total = csv.split('\n').find((l) => l.startsWith('Total,'))!.split(',');
+      expect(Number(total[4])).toBeCloseTo(b.total.grams!, 1);
       expect(Number(total[6])).toBe(Math.round(b.total.seconds! / 60));
       expect(Number(total[7])).toBeCloseTo(b.total.cost!.total, 2);
       expect(csv).toContain('Cost,Electricity');
       const text = bomText(b);
+      expect(text).toContain(`Filament total: ${Math.round(b.total.grams!)} g`);
       expect(text).toContain(`Print time total: about ${formatDuration(b.total.seconds!)}`);
       expect(text).toContain(`Cost total: ${formatMoney(b.total.cost!.total, '€')}`);
       expect(text).toContain('filament swaps');
@@ -304,6 +337,19 @@ describe('cost', () => {
       const partial = billOfMaterials(job, (k) => volumes.get(k), { plates: job.plates.map(() => null), setup: DEFAULT_SETUP, printer: 'x' });
       expect(partial.plates.every((p) => p.seconds === null && p.cost === null)).toBe(true);
       expect(partial.total.seconds).toBeNull();
+      // Until then the filament is the meshes' quick figure.
+      const quick = (i: number) => job.plates[i].placements.reduce((t, p) => t + volumes.get(job.parts[p.key].meshKey)!, 0);
+      partial.plates.forEach((p, i) => {
+        expect(p.sliced).toBe(false);
+        expect(p.volume).toBeCloseTo(quick(i), 6);
+      });
+      // A plate switches over when it's sliced; the others keep the quick figure.
+      const plates = estimateJob(job, (k) => stats.get(k), 'x1c');
+      const mixed = billOfMaterials(job, (k) => volumes.get(k), { plates: [plates[0], ...plates.slice(1).map(() => null)], setup: DEFAULT_SETUP, printer: 'x' });
+      expect(mixed.plates[0].volume).toBeCloseTo(plates[0]!.extruded, 6);
+      expect(mixed.plates.slice(1).map((p) => p.volume)).toEqual(partial.plates.slice(1).map((p) => p.volume));
+      expect(mixed.total.volume).toBeCloseTo(mixed.plates.reduce((t, p) => t + p.volume!, 0), 6);
+      expect(mixed.total.sliced).toBe(false);
       expect(bomText(partial)).toContain('not estimated yet');
       const plain = billOfMaterials(job, (k) => volumes.get(k));
       expect(plain.estimate).toBeUndefined();

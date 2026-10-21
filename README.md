@@ -157,7 +157,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **Save / Open project** as a `.gridfit.json` file; it also autosaves in the browser. **Copy share link** puts the whole project, compressed, in the link itself (nothing is uploaded).
    - **Bill of materials:**
      - Counts magnets, screws, nuts or inserts, filament pins, connector keys, parts and plates. Partial and blocked cells get no holes.
-     - Estimates filament per plate the way a slicer would print it (Bambu's 0.20 mm Standard: about 0.85 mm of walls and top/bottom layers solid, 15 % infill inside) for 1.75 mm PLA at 1.24 g/cm³. Expect ±15 %.
+     - Estimates filament per plate from the same sliced layers as the print time (Bambu's 0.20 mm Standard: 2 walls, 5 top and 3 bottom layers, 15 % infill) for 1.75 mm PLA at 1.24 g/cm³. Expect ±10 %. Until a plate's parts are sliced it shows a quicker guess from the part surfaces, which runs high on tall bins.
      - **Print time** per plate and in total for the selected printer, from a slice of each part at 0.20 mm (checked against a slicer; expect ±25 %).
      - **Cost** from your filament price per kg (a second price for two-colour parts) and, optionally, electricity.
      - TPU non-slip pads (an option under Baseplate) print on their own plate.

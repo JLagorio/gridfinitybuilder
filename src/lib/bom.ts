@@ -3,15 +3,15 @@ import { lowSideOf } from './geometry/connectors';
 import { maskSet } from './geometry/mask';
 import { binHoleSites } from './geometry/bin';
 import { BP_PROFILE_DEPTH, GRID, PIN, SCREW_JOIN } from './geometry/spec';
-import { PRINT_ESTIMATE } from './geometry/volume';
 import type { MeshSpec, PrintJob } from './project';
 import type { PrintSetup } from './layout/plan';
-import { currencySymbol, formatDuration, formatMoney, plateCost, type CostBreakdown, type PlateEstimate } from './estimate';
+import { STANDARD_PROCESS, currencySymbol, formatDuration, formatMoney, plateCost, type CostBreakdown, type PlateEstimate } from './estimate';
 import { enclosurePartHardware, type EnclosurePartKind } from './enclosures';
 
 /**
  * Bill of materials for a print job: hardware to buy, parts and plates, and a
- * filament estimate from the mesh volumes.
+ * filament estimate per plate: what the print-time estimate extrudes once the
+ * plate's parts are sliced, a quick guess from the mesh volumes until then.
  *
  * Hardware is counted from what's on the plates, using the same rules as the
  * geometry: four magnet (or screw) holes per full cell, none in partial edge
@@ -37,10 +37,15 @@ export interface HardwareLine {
 export interface PlateBom {
   name: string;
   parts: number;
-  /** Printed (extruded) volume of the parts, mm³; null until every mesh has been measured. */
+  /**
+   * Printed (extruded) volume of the parts, mm³: from the sliced layers once the
+   * plate is sliced, else the meshes' quick `printedVolume`; null until one of them is known.
+   */
   volume: number | null;
   grams: number | null;
   meters: number | null;
+  /** True when the filament figures come from the sliced layers (for the total: every plate's do). */
+  sliced?: boolean;
   /** Estimated print time with the start sequence, s; null until the plate's parts are sliced (or without an estimate). */
   seconds?: number | null;
   /** Filament swaps for two-colour parts, and the filament they purge, g. */
@@ -76,7 +81,7 @@ export interface Bom {
 
 /** Time and cost inputs for billOfMaterials. */
 export interface BomEstimate {
-  /** Per-plate estimates (estimate.ts estimateJob), null where the parts aren't sliced yet. */
+  /** Per-plate estimates (estimate.ts estimateJob), null where the parts aren't sliced yet. Their extruded volume replaces `volumes`. */
   plates: (PlateEstimate | null)[];
   /** Volume of a mesh's filament-2 bodies (inlaid text), mm³, when known. */
   overlayVolume?: (meshKey: string) => number | undefined;
@@ -86,9 +91,9 @@ export interface BomEstimate {
 }
 
 /**
- * Filament for an extruded volume. The worker measures each mesh as a slicer
- * would print it (`printedVolume`: solid skin, 15 % infill inside), so this
- * is just density and filament cross-section.
+ * Filament for an extruded volume. The volumes are already as printed (walls
+ * and skin solid, infill at its density), so this is just density and
+ * filament cross-section.
  */
 export function filamentFor(volumeMm3: number) {
   const printed = volumeMm3;
@@ -159,8 +164,10 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
 }
 
 /**
- * The job's bill of materials. `volumes` maps mesh keys to solid volumes (mm³);
- * plates with unmeasured meshes get null filament figures.
+ * The job's bill of materials. A plate's filament is its estimate's extruded
+ * volume once its parts are sliced; until then the sum of `volumes` (mesh key
+ * to printed volume, mm³), or null while a mesh is unmeasured. Grams, metres,
+ * cost, the total and the exports all follow from that one volume.
  */
 export function billOfMaterials(
   job: PrintJob,
@@ -196,9 +203,10 @@ export function billOfMaterials(
       volume = volume === null || v === undefined ? null : volume + v;
       second += estimate?.overlayVolume?.(part.meshKey) ?? 0;
     }
-    const out: PlateBom = { name: pl.name, parts: pl.placements.length, ...plateFilament(volume) };
+    const est = estimate?.plates[plateIndex] ?? null;
+    if (est) volume = est.extruded;
+    const out: PlateBom = { name: pl.name, parts: pl.placements.length, ...plateFilament(volume), sliced: !!est };
     if (estimate) {
-      const est = estimate.plates[plateIndex] ?? null;
       out.seconds = est?.seconds ?? null;
       out.swaps = est?.swaps ?? 0;
       out.wasteGrams = est?.wasteGrams ?? 0;
@@ -216,6 +224,7 @@ export function billOfMaterials(
     name: 'Total',
     parts: plates.reduce((t, p) => t + p.parts, 0),
     ...plateFilament(known ? plates.reduce((t, p) => t + p.volume!, 0) : null),
+    sliced: plates.length > 0 && plates.every((p) => p.sliced),
   };
   const bom: Bom = { hardware: [...hardware.values()], parts, plates, total };
   if (estimate) {
@@ -367,5 +376,10 @@ export function enclosureCounts(b: Bom): [EnclosurePartKind, number][] {
 }
 
 export function filamentNote() {
-  return `${FILAMENT_DIAMETER} mm PLA at ${PLA_DENSITY} g/cm³: walls and top/bottom layers solid (${PRINT_ESTIMATE.shell} mm), ${Math.round(PRINT_ESTIMATE.infill * 100)} % infill inside, like Bambu's 0.20 mm Standard. Expect ±15 %`;
+  const P = STANDARD_PROCESS;
+  return (
+    `${FILAMENT_DIAMETER} mm PLA at ${PLA_DENSITY} g/cm³, from each plate's sliced layers like the print time ` +
+    `(Bambu's 0.20 mm Standard: ${P.wallLoops} walls, ${P.topLayers} top and ${P.bottomLayers} bottom layers, ${Math.round(P.infill * 100)} % infill). ` +
+    `Expect ±10 %; before a plate is sliced, a quicker guess from the part surfaces that runs high on tall bins`
+  );
 }
