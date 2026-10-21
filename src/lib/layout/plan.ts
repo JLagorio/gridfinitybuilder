@@ -1,5 +1,6 @@
 import type { GridLayout } from './drawer';
 import { packPlates, type PackItem, type PlateLayout } from './pack';
+import { cleanPrinters, type PrinterSetup } from './fleet';
 
 export type { PlateLayout };
 import {
@@ -42,6 +43,13 @@ export interface PrintSetup {
   printerWatts?: number;
   /** Nozzle diameter, mm (one of NOZZLES); unset: DEFAULT_NOZZLE. The print checks size lines and fits by it. */
   nozzle?: number;
+  /**
+   * More printers that share the job (fleet.ts); the fields above are the
+   * first one's. Unset: just the one printer.
+   */
+  printers?: PrinterSetup[];
+  /** The printer the baseplate is split for and printed on (0 = the first); unset: the biggest, and its plates may go to any printer that takes them. */
+  baseplatePrinter?: number;
 }
 
 /** Nozzle sizes the printer section offers, mm. */
@@ -82,6 +90,12 @@ export function cleanSetup(saved: Partial<PrintSetup> | null | undefined, base: 
   else s.printerWatts = watts;
   // Only a size the field offers is kept; the default stays unset, like projects saved before it existed.
   if (!NOZZLES.some((n) => n === s.nozzle) || s.nozzle === DEFAULT_NOZZLE) delete s.nozzle;
+  // More printers (fleet.ts): only kept when there are some, so older setups stay as they were.
+  const printers = cleanPrinters(s.printers);
+  if (printers) s.printers = printers;
+  else delete s.printers;
+  const bp = s.baseplatePrinter;
+  if (!printers || !(typeof bp === 'number' && Number.isInteger(bp) && bp >= 0 && bp <= printers.length)) delete s.baseplatePrinter;
   return s;
 }
 
@@ -209,6 +223,8 @@ export function assemblyMap(
   plateOffset = 0,
   /** Extra assembly notes (joints without keys). */
   steps: string[] = [],
+  /** What to call each of `plan.plates` ("Plate 3 (Bambu Lab A1 mini)"), when they aren't numbered from `plateOffset` in turn. */
+  plateNames?: string[],
 ): string {
   const lines: string[] = [];
   lines.push('BASEPLATE ASSEMBLY MAP');
@@ -246,7 +262,7 @@ export function assemblyMap(
     lines.push(`Piece ${p.id}: ${cw} × ${cd} cells, ${fmt(p.x1 - p.x0)} × ${fmt(p.y1 - p.y0)} mm`);
   }
   plan.plates.forEach((pl, i) => {
-    lines.push(`Plate ${plateOffset + i + 1}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
+    lines.push(`${plateNames?.[i] ?? `Plate ${plateOffset + i + 1}`}: ${pl.placements.map((pp) => pp.key.replace('piece:', 'piece ')).join(', ')}`);
   });
   if (connectorKeys) lines.push('', ...connectorSteps(connectorKeys));
   if (steps.length) lines.push('', ...steps);

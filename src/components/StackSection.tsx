@@ -5,7 +5,7 @@ import { binLabel } from '../lib/geometry/bin';
 import { labelCaption } from '../lib/geometry/labelContents';
 import { binCellsAt, type PlacedBin, type PrintJob } from '../lib/project';
 import { binForStack, columnHeight, stackProblem, stacksOf } from '../lib/stacking';
-import { usableBed } from '../lib/bedfit';
+import { usableBeds } from '../lib/bedfit';
 import { roomForStack, stackBin, unstackBin } from '../state/stacks';
 import './stackLevels.css';
 
@@ -33,7 +33,7 @@ export function StackSection({ job, bin }: { job: PrintJob; bin: PlacedBin }) {
   const room = job.drawers[0]?.room ?? Infinity;
   const height = columnHeight(layout, col);
   // What "Stack a bin on this" adds, on the top of the stack (an auto-height carry case grows to fit it).
-  const next = binForStack(layout, bins, bin, newBin, usableBed(setup), roomForStack(drawer, room), wall);
+  const next = binForStack(layout, bins, bin, newBin, usableBeds(setup), roomForStack(drawer, room), wall);
   const onTop = top.id === bin.id;
   const weak = col.slice(0, -1).flatMap((b, i) => {
     const why = stackProblem(layout, b, wall);

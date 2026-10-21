@@ -4,7 +4,7 @@ import { binSeatHeight, type BaseplateOptions } from '../geometry/baseplate';
 import { binBodyHeight } from '../geometry/variants';
 import { LID_SEAT_DROP } from '../geometry/lid';
 import { assembledParts } from '../geometry/accessories';
-import { assemblyMaps, binOrigin, type MeshLookup, type PlacedBin, type PrintJob } from '../project';
+import { assemblyMaps, binOrigin, printerFolder, type MeshLookup, type PlacedBin, type PrintJob } from '../project';
 import { placeTransform, type Mat12 } from './threemf';
 import { stackPlaces } from '../stacking';
 
@@ -837,7 +837,7 @@ export function exportPlatesStepZip(job: PrintJob, getMesh: MeshLookup): Uint8Ar
   const cache: BodyCache = new Map();
   const files: Record<string, Uint8Array | [Uint8Array, { level: 0 | 6 }]> = {};
   job.plates.forEach((pl, i) => {
-    files[`${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.step`] = [exportPlateSTEP(job, i, getMesh, cache), { level: 6 }];
+    files[`${printerFolder(job, pl)}${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.step`] = [exportPlateSTEP(job, i, getMesh, cache), { level: 6 }];
   });
   for (const [name, text] of Object.entries(assemblyMaps(job))) files[name] = strToU8(text);
   return zipSync(files);

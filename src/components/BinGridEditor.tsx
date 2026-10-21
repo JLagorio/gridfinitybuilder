@@ -8,7 +8,7 @@ import { effectiveStretch } from '../lib/layout/stretch';
 import { binRect, canPlace, occupancy, onBlocked, outOfBounds, withBlocked, type CellRect } from '../lib/bins';
 import { HANDLES, MAX_BIN_UNITS, canMoveGroup, fitResize, nearestBoundary, resizeTarget, type Handle } from '../lib/binLayout';
 import { useLayoutShortcuts } from './useLayoutShortcuts';
-import { placedOvershoot, rectFitsBed, type Bed } from '../lib/bedfit';
+import { bedCount, placedOvershoot, rectFitsBed, type Beds } from '../lib/bedfit';
 import type { BinOptions } from '../lib/geometry/bin';
 import type { CheckSeverity } from '../lib/printability';
 import { dividerLines } from './dividerLines';
@@ -27,11 +27,13 @@ interface Props {
   /** Give a bin a new position and footprint. */
   onResize: (id: string, r: CellRect) => void;
   /** What the printer takes (bedfit.ts): drawing and resizing stop there, and bins past it are marked. */
-  bed?: Bed;
+  bed?: Beds;
   /** Settings new bins are drawn with (their height and type count against the bed too). */
   newBin?: BinOptions;
   /** Bins with print checks (printability.ts), by id: marked with a small dot. */
   marks?: ReadonlyMap<string, CheckSeverity>;
+  /** Bins marked as printed, or printed before and changed since (printed.ts), by id. */
+  printed?: Record<string, 'printed' | 'changed'>;
 }
 
 type Pt = [number, number];
@@ -68,7 +70,7 @@ function heightCaption(o: PlacedBin['opts']): string {
  * or drag from outside the grid to box-select, drag a selected bin to move the
  * whole selection, drag a handle to resize. Keyboard: see useLayoutShortcuts.
  */
-export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection, onSelect: select, onCreate, onMoveBins, onResize, bed, newBin, marks }: Props) {
+export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection, onSelect: select, onCreate, onMoveBins, onResize, bed, newBin, marks, printed }: Props) {
   // Stacked bins (StackLevels.tsx): the grid lays out floor bins and shows one level of their stacks.
   const levels = useStackLevels(drawerBins, selection, select);
   const { bins, selectedIds, onSelect } = levels;
@@ -325,7 +327,7 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
           return (
             <g key={b.id} className={`ge-bin ${sel ? 'selected' : ''} ${bad ? 'bad' : ''} ${tooBig ? 'too-big' : ''} ${stack.bin ? '' : 'under'}`}>
               <rect {...r} rx={3.75}>
-                {tooBig ? <title>Too big for the printer: select it to shrink it</title> : mark && <title>Select it to see its print checks</title>}
+                {tooBig ? <title>Too big for {bed && bedCount(bed) > 1 ? 'every printer' : 'the printer'}: select it to shrink it</title> : mark && <title>Select it to see its print checks</title>}
               </rect>
               {stretched && <rect {...feet} rx={3.75} fill="none" strokeDasharray="3 2" opacity={0.6} pointerEvents="none" />}
               {dividerLines(layout, shown).map((l, k) => (
@@ -334,6 +336,13 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
               <text x={r.x + r.width / 2} y={r.y + r.height / 2} fontSize={fs} dominantBaseline="middle" textAnchor="middle">
                 {heightCaption(shown.opts)}
               </text>
+              {printed?.[shown.id] && (
+                // Printed already, or printed and changed since (printed.ts); top left, clear of the stack badge and check dot.
+                <text className={`ge-printed ${printed[shown.id]}`} x={r.x + 3} y={r.y + 3} fontSize={fs * 0.8} dominantBaseline="hanging" textAnchor="start">
+                  {printed[shown.id] === 'printed' ? '✓' : '●'}
+                  <title>{printed[shown.id] === 'printed' ? 'Printed' : 'Changed since it was printed'}</title>
+                </text>
+              )}
               {(() => {
                 // What's in the bin, from its label text (first line as printed, cut to fit).
                 const t = labelCaption(shown);

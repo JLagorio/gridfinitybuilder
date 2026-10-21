@@ -12,7 +12,7 @@ import { binFloorZ } from '../geometry/variants';
 import { HEIGHT_UNIT } from '../geometry/spec';
 import { MAX_CELLS } from '../geometry/placement';
 import { maxBinUnits } from '../bins';
-import { usableBed } from '../bedfit';
+import { usableBed, usableBeds } from '../bedfit';
 import { binCellsAt, type PlacedBin } from '../project';
 import { formatLength, MM_PER_IN, type Units } from '../units';
 import type { DrawerInput, GridLayout } from '../layout/drawer';
@@ -35,7 +35,7 @@ export interface FillContext {
   layout: GridLayout;
   drawer: DrawerInput;
   baseplate: BaseplateOptions;
-  setup: Pick<PrintSetup, 'bedW' | 'bedD' | 'plateMargin' | 'maxH'>;
+  setup: Pick<PrintSetup, 'bedW' | 'bedD' | 'plateMargin' | 'maxH'> & Partial<Pick<PrintSetup, 'printerId' | 'printers'>>;
   /** The drawer's bins now. */
   bins: PlacedBin[];
   /** The tool library. */
@@ -102,11 +102,12 @@ const round = (v: number) => (v >= 10 ? String(Math.round(v)) : String(Math.roun
 export function sizeContext(c: FillContext): SizeContext {
   const units = c.units ?? 'mm';
   const base = startOpts(c.newBin);
-  const bed = usableBed(c.setup);
+  // With several printers a bin only has to fit one of them (bedfit.ts).
+  const bed = c.setup.printers?.length ? usableBeds(c.setup as PrintSetup) : [usableBed(c.setup)];
   const room = drawerRoom(c.drawer, c.baseplate);
   // Tallest bin the printer takes, and the drawer.
   let printerH = 1;
-  while (printerH < 30 && binTotalHeight({ ...base, heightUnits: printerH + 1 }) <= bed.h + 1e-6) printerH++;
+  while (printerH < 30 && binTotalHeight({ ...base, heightUnits: printerH + 1 }) <= Math.max(...bed.map((b) => b.h)) + 1e-6) printerH++;
   const drawerH = Number.isFinite(room) ? maxBinUnits(room, base.lip) : Infinity;
   const half = !!c.layout.halfGrid;
   const cap = half ? MAX_CELLS : 12;

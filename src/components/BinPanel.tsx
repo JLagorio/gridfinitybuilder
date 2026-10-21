@@ -23,7 +23,7 @@ import { binTotalHeight, binCells } from '../lib/geometry/bin';
 import { activeContainer, containerDefs, type ContainerKind } from '../lib/geometry/containers';
 import { containerFields } from './containers';
 import { Select } from './fields';
-import { bedOvershoot, bedProblem, fitStretch, maxUnitsAlong, placedOvershoot, shrinkToBed, usableBed, type Bed } from '../lib/bedfit';
+import { bedCount, bedOvershoot, bedProblem, fitStretch, maxUnitsAlong, placedOvershoot, shrinkToBed, usableBeds, type Beds } from '../lib/bedfit';
 import { findPrinter } from '../lib/printers';
 import { sanitizeBin } from '../lib/geometry/bin';
 import { BinChecksNotice } from './PrintChecks';
@@ -241,7 +241,7 @@ function wallStatus(o: BinOptions) {
  */
 function StretchSection({ layout, bin }: { layout: GridLayout; bin: PlacedBin }) {
   const updateBin = useStore((s) => s.updateBin);
-  const bed = usableBed(useStore((s) => s.setup));
+  const bed = usableBeds(useStore((s) => s.setup));
   // No more stretch than the print bed takes (bedfit.ts).
   const stretchTo = (want: Partial<BinStretch> | null) => updateBin(bin.id, { stretch: fitStretch(layout, bin, want, bed) });
   const { fmt } = useUnits();
@@ -318,8 +318,9 @@ export function BinPanel({ job }: { job: PrintJob }) {
   const [busy, setBusy] = useState(false);
   const setup = useStore((s) => s.setup);
   const { fmt } = useUnits();
-  const bed = usableBed(setup);
-  const printerName = findPrinter(setup.printerId)?.name ?? 'this printer';
+  const bed = usableBeds(setup);
+  // With several printers, the messages name the one that comes closest.
+  const printerName = bedCount(bed) > 1 ? '' : (findPrinter(setup.printerId)?.name ?? 'this printer');
   const sel = bins.find((b) => b.id === selectedId) ?? null;
   // With several bins selected, the panel shows the primary one and edits apply to all.
   const selIds = useSelectedIds();
@@ -332,7 +333,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     // The store refuses edits that push a bin past the print bed; say why here.
     const next = { ...sel, opts: sanitizeBin({ ...sel.opts, ...p }) };
     if (placedOvershoot(job.layout, next, bed) > placedOvershoot(job.layout, sel, bed) + 1e-6) {
-      setSizeError(`${bedProblem(next.opts, binCellsAt(job.layout, next), bed, (mm) => fmt(mm)) ?? 'Too big for the printer.'} (${printerName})`);
+      setSizeError(`${bedProblem(next.opts, binCellsAt(job.layout, next), bed, (mm) => fmt(mm)) ?? 'Too big for the printer.'}${printerName ? ` (${printerName})` : ''}`);
       return;
     }
     if (p.unitsX !== undefined || p.unitsY !== undefined) {
@@ -351,7 +352,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     const next = sanitizeBin({ ...newBin, ...p, unitsX: 1, unitsY: 1 });
     const one = sanitizeBin({ ...newBin, unitsX: 1, unitsY: 1 });
     if (bedOvershoot(next, null, bed) > bedOvershoot(one, null, bed) + 1e-6) {
-      setSizeError(`${bedProblem(next, null, bed, (mm) => fmt(mm)) ?? 'Too big for the printer.'} (${printerName})`);
+      setSizeError(`${bedProblem(next, null, bed, (mm) => fmt(mm)) ?? 'Too big for the printer.'}${printerName ? ` (${printerName})` : ''}`);
       return;
     }
     setSizeError(null);
@@ -489,7 +490,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
 }
 
 /** A bin that doesn't fit the printer (e.g. after picking a smaller one): what's wrong, and a one-click fix. */
-function TooBigNotice({ bin, layout, bed, printerName }: { bin: PlacedBin; layout: GridLayout; bed: Bed; printerName: string }) {
+function TooBigNotice({ bin, layout, bed, printerName }: { bin: PlacedBin; layout: GridLayout; bed: Beds; printerName: string }) {
   const { fmt } = useUnits();
   const updateBin = useStore((s) => s.updateBin);
   const problem = bedProblem(bin.opts, binCellsAt(layout, bin), bed, (mm) => fmt(mm));
@@ -503,7 +504,7 @@ function TooBigNotice({ bin, layout, bed, printerName }: { bin: PlacedBin; layou
   };
   return (
     <div className="field-error too-big" role="alert">
-      <b>Too big for the {printerName}.</b> {problem} It won’t be printed until it fits.{' '}
+      <b>Too big for {printerName ? `the ${printerName}` : 'every printer'}.</b> {problem} It won’t be printed until it fits.{' '}
       <button className="link" onClick={shrink}>
         Shrink to fit
       </button>

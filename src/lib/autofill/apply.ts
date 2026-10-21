@@ -5,7 +5,7 @@
 import { canPlace, newId, withBlocked } from '../bins';
 import { sanitizeBin } from '../geometry/bin';
 import { cleanBinContents } from '../inventory';
-import { shrinkToBed, type Bed } from '../bedfit';
+import { shrinkToBed, type Beds } from '../bedfit';
 import type { GridLayout } from '../layout/drawer';
 import type { PlacedBin } from '../project';
 
@@ -17,7 +17,7 @@ export type NewBin = Omit<PlacedBin, 'id'>;
  * the printer takes (bedfit.ts); one that would overlap a bin or a blocked
  * cell, or stick out of the grid, is left out.
  */
-export function mergeBins(layout: GridLayout, bins: PlacedBin[], add: NewBin[], bed: Bed): { bins: PlacedBin[]; added: string[] } {
+export function mergeBins(layout: GridLayout, bins: PlacedBin[], add: NewBin[], bed: Beds): { bins: PlacedBin[]; added: string[] } {
   const out = [...bins];
   const added: string[] = [];
   for (const b of add) {

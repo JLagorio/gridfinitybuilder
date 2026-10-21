@@ -47,7 +47,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Shift- or ⌘/Ctrl-click bins, or Shift-drag a box (or drag from outside the grid), to select several.
      - Drag a selection, nudge it with the arrow keys, copy and paste it (⌘C / ⌘V pastes at the cell under the pointer), duplicate it (⌘D) or delete it.
      - Drag the handles of a selected bin to resize it.
-     - **Bins always fit your printer.** Drawing, resizing, the size and height fields, stretching, templates, "Make a bin" and "Fill from a list" all stop at what the bed takes (inside the edge margin, either way round) and at the printer's height. A container's own parts (a drawer unit's drawers, a box lid) count too. After switching to a smaller printer, bins that no longer fit turn red, aren't printed, and get a **Shrink to fit** button.
+     - **Bins always fit your printer.** Drawing, resizing, the size and height fields, stretching, templates, "Make a bin" and "Fill from a list" all stop at what the bed takes (inside the edge margin, either way round) and at the printer's height. A container's own parts (a drawer unit's drawers, a box lid) count too. With two or more printers, a bin can be as big as the biggest one takes, and each of its parts only has to fit one of them; the messages name the printer that comes closest. After switching to a smaller printer (or removing the big one), bins that no longer fit turn red, aren't printed, and get a **Shrink to fit** button.
      - "Fill empty with 1×1" fills the rest of the drawer; "Fill from a list…" proposes bins for what you want to store (see below).
      - **Stretch into the gap:** a bin on the edge of the grid can reach over the solid margin to the drawer wall (Auto, or mm per side). Its feet stay on the grid. The stretched part starts just above the baseplate.
      - **Stack bins** for a second layer in a deep drawer, as many levels high as fits:
@@ -173,11 +173,20 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - **prints, but worse:** raised text under 3 mm, walls between pockets, hex struts, grid inserts and drawer walls under two nozzle lines, big hex holes, magnet + screw holes without printable tops, compartments too narrow and deep to reach into, wide bridges, an untrimmed baseplate ridge, and fits that are tight for a big nozzle (divider slots, the sliding lid's click, hinges, puzzle tabs and keys)
      - Most have a one-click fix ("Make them 1.2 mm", "Turn on printable hole tops"). Click a bin's name to select it, switching drawer if needed.
      - The selected bin shows its own checks above its settings, and bins with any get a small dot on the bin grid (yellow: likely to fail; blue: a tip).
+   - **Two or more printers:** **Add a printer** for a big one and a small one, or two of the same. Each has its own model, bed, edge margin and height (and power draw for the cost), and can be removed again.
+     - **Baseplate prints on** the biggest printer, split for its bed, or on the printer you pick, split for that one. Left to the biggest, a baseplate plate can still go to another printer that takes it.
+     - Everything else is shared out so the whole job is done soonest: Gridfit balances each printer's estimated print time (the sliced estimate once the parts are sliced, a quick guess from their size before). A part that only one printer takes goes to that printer.
+     - Plates are listed printer by printer, and each plate says which printer it's for.
    - **Split and pack:** Gridfit splits each baseplate on cell boundaries, so every receptacle stays whole. Each drawer's baseplate gets its own plates (named after the drawer). Bins, lids, removable dividers and label plates from every printed drawer share plates.
+   - **Reprint only what changed:** for a big project printed over weeks, then tweaked.
+     - **Mark as printed** on a plate (or **Mark all as printed**) records what came off the printer. Printed plates get a tick, and so do printed bins in the bin layout; a bin changed since it was printed gets a dot.
+     - Parts are known by their geometry, counted per print: three identical bins are three prints of the same part, so any of them stands in for another. Moving a bin to another cell (of the same size) isn't a change; resizing it or changing its options is. Each drawer keeps its own prints: printing a drawer on its own never leaves out a bin because another drawer has an identical one.
+     - **Only what's changed** leaves out what's printed already and packs the rest onto fresh plates. It says how many parts it leaves out ("14 parts already printed are left out").
+     - **Forget printed** clears the record. The record is saved with the project, in project files and in share links, and marking is undoable.
    - **Exports:**
-     - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected (plus a second filament for inlaid labels). Open it and press **Slice all plates**.
-     - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus an assembly map per drawer showing which piece goes where.
-     - **Plates as STL (.zip):** one binary STL per plate, parts already arranged.
+     - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected (plus a second filament for inlaid labels). Open it and press **Slice all plates**. With several printers there is one project per printer, each with its own plates and settings.
+     - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus an assembly map per drawer showing which piece goes where (and, with several printers, on which printer's plate). With several printers, each printer's plates are in a folder of their own.
+     - **Plates as STL (.zip):** one binary STL per plate, parts already arranged, in a folder per printer when there are several.
      - **STEP** for CAD (Fusion 360, FreeCAD, Onshape): the selected bin, one plate, all plates (.zip), or each drawer assembled. Flat areas become single faces.
      - Any single plate or bin, as 3MF or STL.
      - **Test-fit kit:** a small baseplate sample with your joints and magnets, plus one 1 × 1 bin, on one plate. Use it to check the fit before printing everything.
@@ -186,6 +195,7 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
      - Counts magnets, screws, nuts or inserts, filament pins, connector keys, parts and plates. Partial and blocked cells get no holes.
      - Estimates filament per plate from the same sliced layers as the print time (Bambu's 0.20 mm Standard: 2 walls, 5 top and 3 bottom layers, 15 % infill) for 1.75 mm PLA at 1.24 g/cm³. Expect ±10 %. Until a plate's parts are sliced it shows a quicker guess from the part surfaces, which runs high on tall bins.
      - **Print time** per plate and in total for the selected printer, from a slice of each part at 0.20 mm (checked against a slicer; expect ±25 %).
+     - With several printers: each plate timed on its own printer, time, filament and cost per printer and in total, and **All done in**: when the slowest printer finishes, since they print at the same time.
      - **Cost** from your filament price per kg (a second price for two-colour parts) and, optionally, electricity.
      - TPU non-slip pads (an option under Baseplate) print on their own plate.
      - Downloads as CSV or text.
@@ -241,14 +251,15 @@ npx tsx scripts/build-bambu-settings.ts
 ```
 src/lib/geometry/   spec constants, shape helpers, baseplate + bin generators (Manifold), label text
                     (a small TrueType reader; Roboto Condensed Bold, OFL, ships in public/fonts)
-src/lib/layout/     drawer → grid fit, bed splitting, plate packing
+src/lib/layout/     drawer → grid fit, bed splitting, plate packing; fleet.ts several printers and sharing parts out
 src/lib/dividers/   bin interior layouts: walls → compartments, edits, snapping (pure TS)
 src/lib/trace/      photo → tool outline (perspective, threshold, contours) and SVG/DXF import (pure TS)
 src/lib/autofill/   "Fill from a list": list parser, item matching, bin sizing, grouping, packing (pure TS)
 src/lib/geometry/containers/  drawer units, parts boxes, hoppers, tool racks, dispensers (a registry of container types)
 src/lib/export/     plain 3MF, Bambu Studio project, binary STL and STEP writers; estimate.ts print time and cost
 src/lib/project.ts  ties it together: planJob() / planPrint() for several drawers (cheap, no geometry) + exporters
-src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search
+src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts share links; inventory.ts contents and search;
+                    printed.ts what's been printed (part fingerprints), for reprinting only what changed
 src/lib/printability.ts  print checks: rule-based warnings from the options and the nozzle (cheap, no geometry)
 src/lib/stacking.ts bins stacked on bins: columns, rules, heights
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates

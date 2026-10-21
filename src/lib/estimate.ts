@@ -463,14 +463,18 @@ export function estimatePlate(parts: EstimatePart[], motion: PrinterMotion = DEF
   };
 }
 
-/** Per-plate estimates for a job; null for plates with parts not sliced yet. */
+/**
+ * Per-plate estimates for a job; null for plates with parts not sliced yet.
+ * With several printers, `printerId` lists them and each plate is timed on its own (JobPlate.printer).
+ */
 export function estimateJob(
   job: PrintJob,
   stats: (meshKey: string) => MeshPrintStats | undefined,
-  printerId: string,
+  printerId: string | readonly string[],
 ): (PlateEstimate | null)[] {
-  const motion = findPrinter(printerId).motion ?? DEFAULT_MOTION;
+  const motions = (typeof printerId === 'string' ? [printerId] : printerId).map((id) => findPrinter(id).motion ?? DEFAULT_MOTION);
   return job.plates.map((pl) => {
+    const motion = motions[pl.printer ?? 0] ?? motions[0];
     const parts: EstimatePart[] = [];
     for (const p of pl.placements) {
       const part = job.parts[p.key];

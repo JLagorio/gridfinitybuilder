@@ -37,7 +37,7 @@ import { isPocketLid } from './geometry/pocketLid';
 import { lipRise } from './geometry/variants';
 import type { GridLayout } from './layout/drawer';
 import { binCellsAt, binStretched, type PlacedBin } from './project';
-import { bedOvershoot, placedOvershoot, type Bed } from './bedfit';
+import { bedOvershoot, placedOvershoot, type Beds } from './bedfit';
 import { carryContents } from './inventory';
 import { newId } from './bins';
 
@@ -317,7 +317,7 @@ export function stackWarnings(layout: GridLayout, bins: readonly PlacedBin[], ro
  * other bins in its column take its new place, cells and stretch. If any of
  * them would then fit the print bed worse than before, nothing changes.
  */
-export function followFootprint(prev: PlacedBin[], next: PlacedBin[], id: string, layout: GridLayout, bed: Bed): PlacedBin[] {
+export function followFootprint(prev: PlacedBin[], next: PlacedBin[], id: string, layout: GridLayout, bed: Beds): PlacedBin[] {
   const was = prev.find((b) => b.id === id);
   const now = next.find((b) => b.id === id);
   if (!was || !now || sameFootprint(was, now)) return next;
@@ -338,7 +338,7 @@ export function binForStack(
   bins: readonly PlacedBin[],
   below: PlacedBin,
   newBin: BinOptions,
-  bed: Bed,
+  bed: Beds,
   room = Infinity,
   wall = false,
 ): { bin: PlacedBin; error?: undefined } | { bin?: undefined; error: string } {

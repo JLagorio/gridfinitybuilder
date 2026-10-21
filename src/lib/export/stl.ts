@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from 'fflate';
 import type { MeshData } from '../geometry/kernel';
-import { assemblyMaps, type MeshLookup, type PrintJob } from '../project';
+import { assemblyMaps, printerFolder, type MeshLookup, type PrintJob } from '../project';
 import { placeTransform, type Mat12 } from './threemf';
 
 export interface StlItem {
@@ -83,7 +83,7 @@ export function exportPlateSTL(job: PrintJob, plateIndex: number, getMesh: MeshL
 export function exportPlatesStlZip(job: PrintJob, getMesh: MeshLookup): Uint8Array {
   const files: Record<string, Uint8Array | [Uint8Array, { level: 0 | 6 }]> = {};
   job.plates.forEach((pl, i) => {
-    files[`${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.stl`] = [exportPlateSTL(job, i, getMesh), { level: 6 }];
+    files[`${printerFolder(job, pl)}${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.stl`] = [exportPlateSTL(job, i, getMesh), { level: 6 }];
   });
   for (const [name, text] of Object.entries(assemblyMaps(job))) files[name] = strToU8(text);
   return zipSync(files);

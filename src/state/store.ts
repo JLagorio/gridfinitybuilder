@@ -15,10 +15,11 @@ import { carryContents, cleanBinContents, sanitizeContents, withCompContents, wi
 import { cleanStretch, type BinStretch } from '../lib/geometry/placement';
 import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
-import { bedOvershoot, placedOvershoot, shrinkToBed, usableBed } from '../lib/bedfit';
+import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
+import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -70,6 +71,10 @@ export interface Store extends ProjectState {
   templates: BinTemplate[];
   /** Tool library (traced / imported outlines), shared by every drawer. */
   tools: Tool[];
+  /** What has been printed, by part fingerprint (lib/printed.ts; marked through state/printed.ts). */
+  printed: PrintedRecord;
+  /** Print only what isn't printed yet. */
+  onlyChanged: boolean;
   /** Add a tool (outline in mm, any winding/origin; it's normalized). Returns its id. */
   addTool(t: Partial<Tool> & Pick<Tool, 'outline'>): string;
   /** Change a tool; its copies in placed bins follow. */
@@ -279,6 +284,8 @@ function persisted(s: Store) {
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,
+    printed: s.printed,
+    onlyChanged: s.onlyChanged,
     // View-only state (selection, spread pieces, shown plate) starts fresh on every load.
     ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1 },
   };
@@ -289,6 +296,8 @@ const DEFAULT_WORKSPACE = {
   activeDrawerId: FIRST_DRAWER_ID,
   printScope: 'active' as PrintScope,
   printPick: [] as string[],
+  printed: NO_PRINTS,
+  onlyChanged: false,
 };
 
 export const useStore = create<Store>()(
@@ -324,7 +333,7 @@ export const useStore = create<Store>()(
         set((s) => {
           const nb = sanitizeBin({ ...s.newBin, ...p, cutouts: undefined });
           // Settings that leave no bin the printer can take (too tall) are refused (bedfit.ts).
-          const bed = usableBed(s.setup);
+          const bed = usableBeds(s.setup);
           if (bedOvershoot({ ...nb, unitsX: 1, unitsY: 1 }, null, bed) > bedOvershoot({ ...s.newBin, unitsX: 1, unitsY: 1 }, null, bed) + 1e-6) return {};
           return { newBin: nb.interior === 'cutouts' ? { ...nb, interior: 'compartments' } : nb };
         }),
@@ -332,7 +341,7 @@ export const useStore = create<Store>()(
         const id = newId();
         // Never bigger than the printer takes (bedfit.ts): a new bin is cut down to fit.
         const s0 = get();
-        const bin = shrinkToBed(computeLayout(s0.drawer), { id, x, y, opts: sanitizeBin({ ...s0.newBin, unitsX: w, unitsY: d }) }, usableBed(s0.setup));
+        const bin = shrinkToBed(computeLayout(s0.drawer), { id, x, y, opts: sanitizeBin({ ...s0.newBin, unitsX: w, unitsY: d }) }, usableBeds(s0.setup));
         set((s) => ({ bins: [...s.bins, bin], ui: { ...s.ui, selectedBinId: id } }));
         return id;
       },
@@ -342,7 +351,7 @@ export const useStore = create<Store>()(
           bins: followFootprint(s.bins, s.bins.map((b) => {
             if (b.id !== id) return b;
             const layout = computeLayout(s.drawer);
-            const bed = usableBed(s.setup);
+            const bed = usableBeds(s.setup);
             const next = {
               ...b,
               x: patch.x ?? b.x,
@@ -355,7 +364,7 @@ export const useStore = create<Store>()(
             const out = walls ? carryContents({ ...stretched, opts: b.opts }, stretched.opts) : stretched;
             // Never past the print bed (bedfit.ts): an edit that makes the bin overshoot it more than it already does is refused.
             return placedOvershoot(layout, out, bed) > placedOvershoot(layout, b, bed) + 1e-6 ? b : out;
-          }), id, computeLayout(s.drawer), usableBed(s.setup)),
+          }), id, computeLayout(s.drawer), usableBeds(s.setup)),
         })),
       setHalfGrid: (on) => {
         const s = get();
@@ -412,7 +421,7 @@ export const useStore = create<Store>()(
       addBins: (add, o = {}) => {
         const s = get();
         const layout = computeLayout(s.drawer);
-        const bed = usableBed(s.setup);
+        const bed = usableBeds(s.setup);
         const r = mergeBins(layout, o.replace ? [] : s.bins, add, bed);
         const docs = synced(s);
         const names = docs.map((d) => d.name);
@@ -645,6 +654,8 @@ export const useStore = create<Store>()(
           templates: mergeTemplates(s.templates, cleanTemplates(p.templates)),
           // Like templates: the file's tools join the library (same id = the file's version).
           tools: mergeTools(s.tools, cleanTools(p.tools)),
+          printed: cleanPrinted(p.printed),
+          onlyChanged: p.onlyChanged === true,
           ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
@@ -680,6 +691,8 @@ export const useStore = create<Store>()(
           printPick: p.printPick ?? current.printPick,
           templates: cleanTemplates(p.templates ?? current.templates),
           tools: cleanTools(p.tools ?? current.tools),
+          printed: cleanPrinted(p.printed ?? current.printed),
+          onlyChanged: (p.onlyChanged ?? current.onlyChanged) === true,
           // Saved before view state stopped being persisted: never come back with pieces spread apart.
           ui: { ...current.ui, ...p.ui, explode: false, plate: -1 },
         };
@@ -701,6 +714,8 @@ export function projectFile(s: Store) {
     printPick: s.printPick,
     templates: s.templates,
     tools: s.tools,
+    printed: s.printed,
+    onlyChanged: s.onlyChanged,
   };
 }
 

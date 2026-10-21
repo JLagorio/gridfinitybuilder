@@ -17,7 +17,7 @@ import { BASE_TOP, DIVIDER, GRID, HEIGHT_UNIT, LIP_SUPPORT_HEIGHT, WALL } from '
 import { cutoutArea, pocketBox, type BinCutout } from '../geometry/cutouts';
 import { channelLayout, magazineLayout, sanitizeDispenser, tapeLayout, type DispenserOptions } from '../geometry/containers/dispenser';
 import { EDGE, resolveLayout, type CompartmentOptions, type DividerLayout, type DividerWall } from '../dividers';
-import { bedOvershoot, type Bed } from '../bedfit';
+import { bedOvershoot, partOvershoot, type Beds } from '../bedfit';
 import { fitBinForTools, type BinFit, type Tool } from '../tools';
 import { normalizeText, type ListItem } from './parse';
 import type { Holder } from './match';
@@ -77,7 +77,7 @@ export interface SizeContext {
   /** Most cells along X and Y: the drawer's grid, at most 12 u. */
   maxX: number;
   maxY: number;
-  bed: Bed;
+  bed: Beds;
   /** Tallest bin the drawer takes, 7 mm units. */
   maxH: number;
   /** Room above the baseplate, mm (Infinity when the drawer's height isn't set). */
@@ -395,7 +395,7 @@ function heightAt(p: Proposal, ux: number, uy: number, ctx: SizeContext, hs: num
 function mayFit(p: Proposal, ux: number, uy: number, ctx: SizeContext): boolean {
   const cells = cellsFor(ctx, ux, uy);
   const outer = binSize({ unitsX: ux, unitsY: uy }, cells);
-  if (Math.min(Math.max(outer.w - ctx.bed.w, outer.d - ctx.bed.d), Math.max(outer.d - ctx.bed.w, outer.w - ctx.bed.d)) > EPS) return false;
+  if (partOvershoot(outer.w, outer.d, 0, ctx.bed) > EPS) return false;
   const { w, d } = binInnerSize({ unitsX: ux, unitsY: uy }, cells);
   const s = p.spec;
   const area = w * d;

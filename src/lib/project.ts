@@ -58,7 +58,7 @@ import { BASE_TOP, GRID } from './geometry/spec';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
 import { DEFAULT_DRAWER, cellEdge, cellSizes, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
 import { effectiveStretch } from './layout/stretch';
-import { packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
+import { fitsOnBed, packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
 import {
   DEFAULT_SETUP,
   assemblyMap,
@@ -72,7 +72,9 @@ import {
 import type { PieceDef } from './layout/split';
 import { writeBambuProject, type BambuPlate } from './export/bambu';
 import { placeTransform, write3MF, type ExportObject } from './export/threemf';
-import { findPrinter } from './printers';
+import { DEFAULT_MOTION, findPrinter } from './printers';
+import { baseplatePicked, baseplatePrinter, jobPrinters, printerNames, printerSetup, roughSeconds, shareOut, usableArea, type ShareItem } from './layout/fleet';
+import { coveredParts, hasPrints, type PrintedRecord } from './printed';
 import {
   buildEnclosurePart,
   buildEnclosurePiece,
@@ -192,6 +194,8 @@ export interface JobPlate {
   name: string;
   group: 'baseplate' | 'bins';
   placements: Placement[];
+  /** The printer it's for, with several (fleet.ts jobPrinters); unset: the first. */
+  printer?: number;
 }
 
 /** One drawer's baseplate within a print job. */
@@ -213,6 +217,8 @@ export interface DrawerJob {
   enclosure?: EnclosureScene;
   /** Room for bins above the baseplate floor, mm (Infinity when the height isn't known). */
   room?: number;
+  /** The assembly map's name for each of `plan.plates` when they aren't together from `plateOffset` (several printers). */
+  plateNames?: string[];
 }
 
 export interface PrintJob {
@@ -228,6 +234,22 @@ export interface PrintJob {
   meshes: Record<string, MeshSpec>;
   plates: JobPlate[];
   warnings: string[];
+  /** Printer names, by `JobPlate.printer`, when the job is for several printers. */
+  printers?: string[];
+  /** Parts on the plates that are printed already (printed.ts); set when planned with a print record. */
+  printed?: string[];
+  /** Parts left out because they're printed already ("only what's changed"). */
+  leftOut?: string[];
+}
+
+/** What else planPrint can take into account. */
+export interface PlanPrintOptions {
+  /** What has been printed (printed.ts): the job's `printed` says which parts it covers. */
+  printed?: PrintedRecord;
+  /** Leave out the parts `printed` covers and pack only the rest. */
+  onlyChanged?: boolean;
+  /** A part's print seconds on printer `i` (start sequence left out) once it's sliced, for sharing parts out between printers. */
+  seconds?: (part: JobPart, printer: number) => number | undefined;
 }
 
 export function pieceMeshKey(layout: GridLayout, piece: PieceDef, o: BaseplateOptions, connectors: ConnectorSite[] = []) {
@@ -302,8 +324,34 @@ export function planJob(state: ProjectState): PrintJob {
  * Plan several drawers at once. Each drawer's baseplate gets its own plates;
  * bins from every drawer share plates. With one drawer, part keys are plain
  * (`piece:3`, `bin:<id>`); with several they're prefixed with the drawer id.
+ *
+ * With several printers (fleet.ts) the baseplate is split for one of them and
+ * every plate is for one printer. With a print record, the job says which
+ * parts it covers; with `onlyChanged` those are left out and the rest packed
+ * on their own.
  */
-export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include']): PrintJob {
+export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include'], opts: PlanPrintOptions = {}): PrintJob {
+  if (opts.onlyChanged && hasPrints(opts.printed)) {
+    // Plan everything to see what the record covers, then again without it.
+    const leftOut = planPrint(drawers, setup, include, { ...opts, onlyChanged: false }).printed ?? [];
+    if (leftOut.length) return { ...planParts(drawers, setup, include, opts, new Set(leftOut)), printed: [], leftOut };
+  }
+  const job = planParts(drawers, setup, include, opts);
+  return opts.printed ? withPrinted(job, opts.printed) : job;
+}
+
+/** The job with the parts the record covers (printed.ts). */
+export function withPrinted(job: PrintJob, rec: PrintedRecord): PrintJob {
+  return { ...job, printed: [...coveredParts(job, rec)] };
+}
+
+/** A one-drawer plan (planJob) as drawer `id`'s, like planPrint makes it: its parts say which drawer they're for. */
+export function asDrawer(job: PrintJob, id: string): PrintJob {
+  const parts = Object.fromEntries(Object.entries(job.parts).map(([k, p]) => [k, { ...p, drawer: id }]));
+  return { ...job, parts, drawers: job.drawers.map((d) => ({ ...d, id })) };
+}
+
+function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectState['include'], opts: PlanPrintOptions, skip?: Set<string>): PrintJob {
   const multi = drawers.length > 1;
   const parts: Record<string, JobPart> = {};
   const meshes: Record<string, MeshSpec> = {};
@@ -311,7 +359,13 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
   const warnings = new Set<string>();
   const drawerJobs: DrawerJob[] = [];
   const binItems: PackItem[] = [];
-  const bed = { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin };
+  // Several printers (fleet.ts): the baseplate is split for one of them; the plates are shared out at the end.
+  const printers = jobPrinters(setup);
+  const baseAt = baseplatePrinter(setup);
+  const base = printerSetup(setup, baseAt);
+  const bed = { bedW: base.bedW, bedD: base.bedD, margin: base.plateMargin };
+  // Parts printed already ("only what's changed").
+  const keep = (it: PackItem) => !skip?.has(it.key);
 
   for (const d of drawers) {
     const prefix = multi ? `${d.id}/` : '';
@@ -319,11 +373,11 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     const warn = (msg: string) => warnings.add(multi ? `${d.name}: ${msg}` : msg);
     const layout = computeLayout(d.drawer);
     // A carry case, wall grid or spacer strips plan their own floor pieces and extra parts (enclosures.ts).
-    const enc = planEnclosure(d, layout, setup);
+    const enc = planEnclosure(d, layout, base);
     const pieceLayout = enc?.pieceLayout ?? layout;
     const bpo = enc?.baseplate ?? d.baseplate;
     const protrude = pieceProtrusion(bpo);
-    const plan = enc?.plan ?? planBaseplate(layout, setup, { protrude, skip: (p) => pieceIsVoid(layout, p) });
+    let plan = enc?.plan ?? planBaseplate(layout, base, { protrude, skip: (p) => pieceIsVoid(layout, p) });
     if (plan.error && !enc) warn(plan.error);
 
     const bpH = baseplateHeight(bpo);
@@ -361,10 +415,16 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
           keys.push({ key, w: size.w, d: size.d });
         }
       }
+      // Without the pieces printed already, the rest packed again.
+      if (skip && plan.pieces.some((p) => skip.has(`${prefix}piece:${p.id}`))) {
+        const left = plan.pieces.map((p) => `piece:${p.id}`).filter((k) => !skip.has(prefix + k));
+        const items = left.map((k) => ({ key: k, w: parts[prefix + k].w, d: parts[prefix + k].d }));
+        plan = { ...plan, plates: packPlates(items, { ...bed, spacing: base.spacing, nest: base.nest }).plates };
+      }
       const piecePlates: PlateLayout[] = plan.plates.map((pl) => ({
         placements: pl.placements.map((p) => ({ ...p, key: prefix + p.key })),
       }));
-      const packed = packIntoPlates(piecePlates, keys, { ...bed, spacing: setup.spacing, nest: true });
+      const packed = packIntoPlates(piecePlates, keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
       packed.plates.forEach((pl, i) => {
         plates.push({ name: `${label}${enc?.kind === 'case' ? 'Case body' : 'Baseplate'} ${i + 1}`, group: 'baseplate', placements: pl.placements });
       });
@@ -383,8 +443,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         parts[key] = { key, name: `${label}${padPartName(p.part)}`, kind: 'pad', meshKey, w: p.part.length, d: p.part.width, h: padThickness(), drawer: d.id };
         pads.push({ key, w: p.part.length, d: p.part.width });
       });
-      if (pads.length) {
-        const packedPads = packPlates(pads, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
+      if (pads.some(keep)) {
+        const packedPads = packPlates(pads.filter(keep), { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
         packedPads.plates.forEach((pl, i) => {
           plates.push({ name: `${label}TPU pads${packedPads.plates.length > 1 ? ` ${i + 1}` : ''}`, group: 'baseplate', placements: pl.placements });
         });
@@ -404,8 +464,8 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
         if (p.part) parts[k].enclosure = p.part.kind;
         items.push({ key: k, w: p.w, d: p.d });
       }
-      if (include.baseplate && items.length) {
-        const packed = packPlates(items, { ...bed, spacing: setup.spacing, nest: true });
+      if (include.baseplate && items.some(keep)) {
+        const packed = packPlates(items.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
         const count = new Map<string, number>();
         const group = (pl: PlateLayout) => enc.parts.find((p) => prefix + p.key === pl.placements[0].key)?.group ?? 'Parts';
         const totals = new Map<string, number>();
@@ -537,14 +597,16 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     }
   }
 
+  const several = printers.length > 1;
   // Parts taller than the printer prints are left out, like ones bigger than the bed (the editors keep new ones within both: bedfit.ts).
-  const printable = binItems.filter((it) => {
+  const printable = binItems.filter(keep).filter((it) => {
     const p = parts[it.key];
-    if (p.h <= setup.maxH + 1e-6) return true;
+    if (several || p.h <= setup.maxH + 1e-6) return true;
     warnings.add(`${p.name} is ${round(p.h)} mm tall, taller than the printer prints (${setup.maxH} mm), and was left out.`);
     return false;
   });
-  if (printable.length) {
+  if (several) plates.splice(0, plates.length, ...sharePlates(setup, parts, plates, printable, drawerJobs, warnings, opts.seconds));
+  else if (printable.length) {
     const packed = packPlates(printable, { ...bed, spacing: Math.max(setup.spacing, 2), nest: true });
     for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
     packed.plates.forEach((pl, i) => plates.push({ name: `Bins ${i + 1}`, group: 'bins', placements: pl.placements }));
@@ -560,7 +622,107 @@ export function planPrint(drawers: NamedDrawer[], setup: PrintSetup, include: Pr
     meshes,
     plates,
     warnings: [...warnings],
+    ...(several ? { printers: printerNames(setup) } : {}),
   };
+}
+
+/** Where a plate's parts are: their bounding box on the bed, mm. */
+function plateBox(placements: Placement[]) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const p of placements) {
+    x0 = Math.min(x0, p.x);
+    y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x + (p.rotated ? p.d : p.w));
+    y1 = Math.max(y1, p.y + (p.rotated ? p.w : p.d));
+  }
+  return placements.length ? { x: x0, y: y0, w: x1 - x0, d: y1 - y0 } : { x: 0, y: 0, w: 0, d: 0 };
+}
+
+/**
+ * Several printers (fleet.ts). Baseplate plates stay on the printer they're
+ * split for, unless that's left to Gridfit and another printer takes the whole
+ * plate and gets the job done sooner. Bins and the rest go one by one to the
+ * printer that finishes them soonest (shareOut); a part only one printer takes
+ * goes to it. Plates come printer by printer, each one's baseplate first.
+ */
+function sharePlates(
+  setup: PrintSetup,
+  parts: Record<string, JobPart>,
+  plates: JobPlate[],
+  binItems: PackItem[],
+  drawerJobs: DrawerJob[],
+  warnings: Set<string>,
+  seconds?: PlanPrintOptions['seconds'],
+): JobPlate[] {
+  const EPS = 1e-6;
+  const printers = jobPrinters(setup);
+  const names = printerNames(setup);
+  const baseAt = baseplatePrinter(setup);
+  const pinned = baseplatePicked(setup);
+  const motions = printers.map((p) => findPrinter(p.printerId).motion ?? DEFAULT_MOTION);
+  const beds = printers.map((p) => ({ bedW: p.bedW, bedD: p.bedD, margin: p.plateMargin, spacing: Math.max(setup.spacing, 2), nest: true }));
+  const time = (key: string, k: number) => seconds?.(parts[key], k) ?? roughSeconds(parts[key], motions[k]);
+  const items: ShareItem[] = plates.map((pl, i) => {
+    const box = plateBox(pl.placements);
+    const tall = Math.max(0, ...pl.placements.map((p) => parts[p.key].h));
+    const takes = (p: (typeof printers)[number], k: number) =>
+      k === baseAt || (box.w <= p.bedW - 2 * p.plateMargin + EPS && box.d <= p.bedD - 2 * p.plateMargin + EPS && tall <= p.maxH + EPS);
+    return {
+      key: `#plate:${i}`,
+      plate: true,
+      area: 0,
+      ...(pinned ? { pinned: baseAt } : {}),
+      seconds: printers.map((p, k) => (takes(p, k) ? motions[k].prepare + pl.placements.reduce((t, q) => t + time(q.key, k), 0) : Infinity)),
+    };
+  });
+  for (const it of binItems) {
+    const h = parts[it.key].h;
+    const seconds = printers.map((p, k) => (fitsOnBed(it.w, it.d, beds[k]) && h <= p.maxH + EPS ? time(it.key, k) : Infinity));
+    items.push({ key: it.key, area: it.w * it.d, seconds });
+  }
+  const at = shareOut(items, printers.map((p, k) => ({ area: usableArea(p), prepare: motions[k].prepare })));
+  const tallest = Math.max(...printers.map((p) => p.maxH));
+  for (const it of binItems) {
+    if (at.has(it.key)) continue;
+    const p = parts[it.key];
+    warnings.add(
+      p.h > tallest + EPS
+        ? `${p.name} is ${round(p.h)} mm tall, taller than any of the printers prints (${tallest} mm), and was left out.`
+        : `${p.name} is too big for every printer and was left out.`,
+    );
+  }
+  const out: JobPlate[] = [];
+  const moved = new Map<number, number>();
+  let bins = 0;
+  printers.forEach((_, k) => {
+    plates.forEach((pl, i) => {
+      if (at.get(`#plate:${i}`) !== k) return;
+      moved.set(i, out.length);
+      if (k === baseAt) out.push({ ...pl, printer: k });
+      else {
+        // Centred on this printer's bed.
+        const box = plateBox(pl.placements);
+        const dx = (beds[k].bedW - box.w) / 2 - box.x;
+        const dy = (beds[k].bedD - box.d) / 2 - box.y;
+        out.push({ ...pl, printer: k, placements: pl.placements.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) });
+      }
+    });
+    const mine = binItems.filter((it) => at.get(it.key) === k);
+    if (!mine.length) return;
+    const packed = packPlates(mine, beds[k]);
+    packed.plates.forEach((pl) => out.push({ name: `Bins ${++bins}`, group: 'bins', placements: pl.placements, printer: k }));
+  });
+  // The assembly map names the plate (and printer) each piece's plate ended up as.
+  for (const dj of drawerJobs) {
+    if (!dj.plateCount) continue;
+    const now = Array.from({ length: dj.plateCount }, (_, i) => moved.get(dj.plateOffset + i)!);
+    dj.plateNames = dj.plan.plates.map((_, i) => `Plate ${now[i] + 1} (${names[out[now[i]].printer ?? 0]})`);
+    dj.plateOffset = Math.min(...now);
+  }
+  return out;
 }
 
 /** Build a mesh with its footprint's min corner at the origin and its bottom at z = 0. */
@@ -687,15 +849,25 @@ export function assemblyMaps(job: PrintJob): Record<string, string> {
   for (const d of job.drawers) {
     const name = job.drawers.length > 1 ? `assembly-map-${slug(d.name)}.txt` : 'assembly-map.txt';
     const head = job.drawers.length > 1 ? `${d.name}\n` : '';
-    out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset, d.steps);
+    out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset, d.steps, d.plateNames);
   }
   return out;
+}
+
+/** With several printers, the folder a plate's file goes in, after its printer ("bambu-lab-a1-mini/"); else nothing. */
+export function printerFolder(job: PrintJob, pl: JobPlate): string {
+  return job.printers ? `${slug(job.printers[pl.printer ?? 0] ?? 'printer')}/` : '';
+}
+
+/** Just the plates for printer `k` (fleet.ts), e.g. for its own Bambu Studio project. */
+export function jobForPrinter(job: PrintJob, k: number): PrintJob {
+  return { ...job, plates: job.plates.filter((pl) => (pl.printer ?? 0) === k) };
 }
 
 export function exportPlatesZip(job: PrintJob, setup: PrintSetup, getMesh: MeshLookup): Uint8Array {
   const files: Record<string, Uint8Array | [Uint8Array, { level: 0 }]> = {};
   job.plates.forEach((pl, i) => {
-    const name = `${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.3mf`;
+    const name = `${printerFolder(job, pl)}${String(i + 1).padStart(2, '0')}-${slug(pl.name)}.3mf`;
     files[name] = [exportPlate3MF(job, i, getMesh), { level: 0 }];
   });
   for (const [name, text] of Object.entries(assemblyMaps(job))) files[name] = strToU8(text);
@@ -706,10 +878,16 @@ export function exportPlatesZip(job: PrintJob, setup: PrintSetup, getMesh: MeshL
 function readme(job: PrintJob, setup: PrintSetup) {
   const printer = findPrinter(setup.printerId);
   const keys = job.drawers.reduce((t, d) => t + d.connectors.length, 0);
+  // Several printers: each with its plates, which are in a folder named after it.
+  const on = (pl: JobPlate) => (job.printers ? `, on the ${job.printers[pl.printer ?? 0]}` : '');
+  const printers = jobPrinters(setup).map((p, k) => {
+    const mine = job.plates.map((pl, i) => ((pl.printer ?? 0) === k ? i + 1 : 0)).filter(Boolean);
+    return `  ${job.printers?.[k]} (${p.bedW} × ${p.bedD} mm bed, ${p.plateMargin} mm edge margin): ${mine.length ? `plates ${mine.join(', ')}` : 'no plates'}`;
+  });
   const lines = [
     'Gridfinity drawer kit generated by Gridfit',
     '',
-    `Printer: ${printer.name} (${setup.bedW} × ${setup.bedD} mm bed, ${setup.plateMargin} mm edge margin)`,
+    ...(job.printers ? ['Printers (each one\'s plates are in a folder named after it):', ...printers] : [`Printer: ${printer.name} (${setup.bedW} × ${setup.bedD} mm bed, ${setup.plateMargin} mm edge margin)`]),
     ...job.drawers.map(
       (d) =>
         `${d.name ? `${d.name}: ` : ''}baseplate ${round(d.layout.plateW)} × ${round(d.layout.plateD)} mm, ` +
@@ -721,7 +899,7 @@ function readme(job: PrintJob, setup: PrintSetup) {
     ...(keys ? ['', ...connectorSteps(keys)] : []),
     ...job.drawers.flatMap((d) => (d.steps.length ? ['', ...(job.drawers.length > 1 ? [`${d.name}:`] : []), ...d.steps] : [])),
     '',
-    ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}): ${plateContents(job, pl).join(', ')}`),
+    ...job.plates.map((pl, i) => `Plate ${i + 1} (${pl.name}${on(pl)}): ${plateContents(job, pl).join(', ')}`),
     '',
   ];
   return lines.join('\n');

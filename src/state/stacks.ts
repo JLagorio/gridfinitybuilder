@@ -1,7 +1,7 @@
 import { computeLayout, type DrawerInput } from '../lib/layout/drawer';
 import { withBlocked } from '../lib/bins';
 import { besideGroup, findSpot, groupBounds, toClip } from '../lib/binLayout';
-import { usableBed } from '../lib/bedfit';
+import { usableBeds } from '../lib/bedfit';
 import { planJob } from '../lib/project';
 import { binForStack, binsWithAbove, columnOf } from '../lib/stacking';
 import { sanitizeCase } from '../lib/geometry/case';
@@ -33,7 +33,7 @@ export function stackBin(id: string): { id: string; error?: undefined } | { id?:
   const s = state();
   const below = s.bins.find((b) => b.id === id);
   if (!below) return { error: 'No such bin.' };
-  const r = binForStack(computeLayout(s.drawer), s.bins, below, s.newBin, usableBed(s.setup), drawerRoom(), s.drawer.enclosure === 'wall');
+  const r = binForStack(computeLayout(s.drawer), s.bins, below, s.newBin, usableBeds(s.setup), drawerRoom(), s.drawer.enclosure === 'wall');
   if (!r.bin) return { error: r.error };
   useStore.setState({ bins: [...s.bins, r.bin], ui: { ...s.ui, selectedBinId: r.bin.id, selectedBinIds: [r.bin.id] } });
   return { id: r.bin.id };
