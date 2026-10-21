@@ -216,12 +216,12 @@ function magnetPocket(w: Wasm, s: Scope, o: BaseplateOptions, floor: number, hx:
       );
     }
   } else if (c > 0) {
-    // Pocket and 45° mouth in one convex solid.
+    // Pocket and 45° mouth: a hull per pair of rings (one hull of all three would make the whole pocket a cone).
     const circle = (rr: number, z: number) => ringAt(roundedRectRing(hx - rr, hy - rr, hx + rr, hy + rr, rr, 10), z);
     const rings = top
       ? [circle(r, z0), circle(r, floor - c), circle(r + c + 0.5, floor + 0.5)]
       : [circle(r + c + 1, -1), circle(r, c), circle(r, z1)];
-    out.push(s.t(w.Manifold.hull(rings.flat())));
+    for (let i = 1; i < rings.length; i++) out.push(s.t(w.Manifold.hull([...rings[i - 1], ...rings[i]])));
   } else {
     out.push(s.t(cylinderAt(w, hx, hy, z0, z1, r)));
   }

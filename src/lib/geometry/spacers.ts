@@ -243,14 +243,17 @@ export function spacerSocketCuts(seg: Pick<SpacerSegment, 'side' | 'tabs' | 'tab
   const out: SolidDef[] = [];
   for (const at of seg.tabs) {
     for (let k = 0; k < 2; k++) {
-      const points: Vec3[] = [];
-      for (const [z, grow] of layers) {
-        for (const [u, v] of tabOutlines(grow)[k]) {
-          const [x, y] = seamToPlate(seg.side, plateW, plateD, at, u, v);
-          points.push([x, y, z]);
+      // One hull per pair of neighbouring layers: a hull of all three would taper the whole socket from the flare.
+      for (let i = 1; i < layers.length; i++) {
+        const points: Vec3[] = [];
+        for (const [z, grow] of [layers[i - 1], layers[i]]) {
+          for (const [u, v] of tabOutlines(grow)[k]) {
+            const [x, y] = seamToPlate(seg.side, plateW, plateD, at, u, v);
+            points.push([x, y, z]);
+          }
         }
+        out.push({ kind: 'hull', points });
       }
-      out.push({ kind: 'hull', points });
     }
   }
   return out;
