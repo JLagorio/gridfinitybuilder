@@ -80,14 +80,19 @@ const keysOn = (job: PrintJob, k: number) => platesOn(job, k).flatMap((pl) => pl
 
 describe('one printer, as before', () => {
   it('plans old projects exactly as before', () => {
-    // A setup saved before several printers existed. The hashes are of plans made before they did.
-    const old = cleanSetup({ ...DEFAULT_SETUP, printerId: 'p1s' });
+    // A setup saved before several printers existed. The hashes are of plans made before they did
+    // (on a P1S then; the A1 has the same bed and, unlike the P1S since, no exclusion area: printers.ts).
+    const old = cleanSetup({ ...DEFAULT_SETUP, printerId: 'a1' });
     expect('printers' in old).toBe(false);
     expect(hash(planText(planPrint(sampleDrawers(), old, include)))).toBe('d75f1bc8');
     expect(hash(planText(planPrint(sampleDrawers().slice(0, 1), old, include)))).toBe('55da3c3');
     const job = planPrint(sampleDrawers(), old, include);
     expect(job.plates.every((pl) => pl.printer === undefined)).toBe(true);
     expect(job.printers).toBeUndefined();
+    // On a P1S the same parts print, all clear of its front-left corner.
+    const p1s = planPrint(sampleDrawers(), cleanSetup({ ...DEFAULT_SETUP, printerId: 'p1s' }), include);
+    expect(p1s.plates.flatMap((pl) => pl.placements).map((p) => p.key).sort()).toEqual(job.plates.flatMap((pl) => pl.placements).map((p) => p.key).sort());
+    for (const p of p1s.plates.flatMap((pl) => pl.placements)) expect(p.x >= 18 + 3 - 1e-6 || p.y >= 28 + 3 - 1e-6).toBe(true);
   });
 
   it('opens an old project file with one printer as it was', () => {

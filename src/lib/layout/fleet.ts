@@ -11,7 +11,7 @@
  * printer (estimate.ts; `roughSeconds` until a part is sliced).
  */
 import type { PrintSetup } from './plan';
-import { DEFAULT_MOTION, findPrinter, type PrinterMotion } from '../printers';
+import { DEFAULT_MOTION, bedExclusion, findPrinter, type PrinterMotion } from '../printers';
 import { estimatePlate, type MeshPrintStats } from '../estimate';
 import type { SpiralPrint } from '../geometry/containers/vase';
 
@@ -63,9 +63,15 @@ export function printerNames(setup: Pick<PrintSetup, 'printerId' | 'printers'>):
 /** A printer's name without the brand where that's clear enough ("P2S", "A1 mini (2)"). */
 export const shortName = (name: string) => name.replace(/^Bambu Lab /, '');
 
-/** Usable bed area, mm². */
-export const usableArea = (p: Pick<PrinterSetup, 'bedW' | 'bedD' | 'plateMargin'>) =>
-  Math.max(0, p.bedW - 2 * p.plateMargin) * Math.max(0, p.bedD - 2 * p.plateMargin);
+/** Usable bed area, mm²: inside the edge margin, less the printer's exclusion areas (printers.ts) where they reach in. */
+export function usableArea(p: Pick<PrinterSetup, 'bedW' | 'bedD' | 'plateMargin'> & { printerId?: string }): number {
+  const m = p.plateMargin;
+  const W = Math.max(0, p.bedW - 2 * m);
+  const D = Math.max(0, p.bedD - 2 * m);
+  const inside = (a: number, len: number, lo: number, hi: number) => Math.max(0, Math.min(a + len, hi) - Math.max(a, lo));
+  const kept = (p.printerId ? bedExclusion(p.printerId) : []).reduce((t, e) => t + inside(e.x, e.w, m, m + W) * inside(e.y, e.d, m, m + D), 0);
+  return Math.max(0, W * D - kept);
+}
 
 /** The printer with the biggest usable bed (the first of equals). */
 export function biggestPrinter(setup: PrintSetup): number {

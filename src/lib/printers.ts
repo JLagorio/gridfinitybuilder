@@ -44,6 +44,21 @@ export interface PrinterProfile {
    * a plate only on printers that have it (layout/spiral.ts).
    */
   sequential?: SequentialClearance;
+  /**
+   * Bed areas no part may stand in, from Bambu Studio's machine profile
+   * (`bed_exclude_area`): it refuses to slice a plate with a part there. The
+   * packer keeps parts (and the part spacing) clear of them, and a part only
+   * fits the printer if it fits beside or behind them (layout/pack.ts, bedfit.ts).
+   */
+  exclude?: readonly BedRect[];
+}
+
+/** A rectangle on the bed, mm, bed front-left = 0,0 (Bambu Studio's bed coordinates). */
+export interface BedRect {
+  x: number;
+  y: number;
+  w: number;
+  d: number;
 }
 
 export interface SequentialClearance {
@@ -55,6 +70,15 @@ export interface SequentialClearance {
 
 /** X1 / P1 class "by object" clearance. */
 const X1_CLEARANCE: SequentialClearance = { radius: 68, rod: 34 };
+
+/**
+ * X1 / P1 class exclusion area: the front-left corner, 18 × 28 mm
+ * (`bed_exclude_area` ["0x0", "18x0", "18x28", "0x28"] in the X1 Carbon, X1E,
+ * P1S and P1P machine profiles, in the same bed coordinates as their
+ * `printable_area`). The other Bambu models here (P2S, A1, A1 mini, H2D, H2S)
+ * have none (`[]`).
+ */
+const X1_EXCLUDE: readonly BedRect[] = [{ x: 0, y: 0, w: 18, d: 28 }];
 
 const bambu = (
   model: string,
@@ -91,14 +115,18 @@ const generic = (id: string, name: string, brand: string, w: number, d: number, 
   motion,
 });
 
-/** Bed sizes and "by object" clearances for Bambu models come from Bambu Studio's own machine profiles (public/bambu/*.json). */
+/**
+ * Bed sizes, "by object" clearances and exclusion areas for Bambu models come
+ * from Bambu Studio's own machine profiles (public/bambu/*.json; BambuStudio
+ * resources/profiles/BBL/machine/*.json).
+ */
 export const PRINTERS: PrinterProfile[] = [
   // Newer hotend and motion system; PLA Basic runs a little faster.
   bambu('P2S', 256, 256, 256, undefined, { speed: 600, accel: 20000, flow: 25, prepare: 300, swap: 60, watts: 110 }, { radius: 72, rod: 32.5 }),
-  bambu('P1S', 256, 256, 256, undefined, { prepare: 300, watts: 100 }),
-  bambu('P1P', 256, 256, 256, undefined, { prepare: 300, watts: 90 }),
-  bambu('X1 Carbon', 256, 256, 256, 'x1c', { prepare: 360 }),
-  bambu('X1E', 256, 256, 256, undefined, { prepare: 360, watts: 130 }),
+  { ...bambu('P1S', 256, 256, 256, undefined, { prepare: 300, watts: 100 }), exclude: X1_EXCLUDE },
+  { ...bambu('P1P', 256, 256, 256, undefined, { prepare: 300, watts: 90 }), exclude: X1_EXCLUDE },
+  { ...bambu('X1 Carbon', 256, 256, 256, 'x1c', { prepare: 360 }), exclude: X1_EXCLUDE },
+  { ...bambu('X1E', 256, 256, 256, undefined, { prepare: 360, watts: 130 }), exclude: X1_EXCLUDE },
   // Bed slingers: same process, lower acceleration limits; AMS lite swaps are a little slower.
   bambu('A1', 256, 256, 256, undefined, { accel: 10000, prepare: 300, swap: 85, watts: 95 }, { radius: 73, rod: 25 }),
   bambu('A1 mini', 180, 180, 180, undefined, { accel: 10000, prepare: 240, swap: 85, watts: 70 }, { radius: 73, rod: 25 }),
@@ -119,4 +147,11 @@ export const PRINTERS: PrinterProfile[] = [
 
 export function findPrinter(id: string): PrinterProfile {
   return PRINTERS.find((p) => p.id === id) ?? PRINTERS[0];
+}
+
+const NO_AREAS: readonly BedRect[] = [];
+
+/** The printer's exclusion areas (none for a custom printer or one Gridfit doesn't know). */
+export function bedExclusion(printerId: string): readonly BedRect[] {
+  return PRINTERS.find((p) => p.id === printerId)?.exclude ?? NO_AREAS;
 }

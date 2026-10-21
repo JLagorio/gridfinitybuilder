@@ -65,7 +65,7 @@ import {
 } from './geometry/wallmount';
 import { SPACER, buildSpacerSegment, planSpacerStrips, sanitizeSpacers, spacerBounds, spacerSocketCuts, type SpacerSegment } from './geometry/spacers';
 import { spacerMargins, type DrawerInput, type GridLayout } from './layout/drawer';
-import { fitsOnBed, packPlates, type PlateLayout } from './layout/pack';
+import { fitsOnBed, packPlates, plateBed, type PlateLayout } from './layout/pack';
 import { pieceFootprint, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
 import type { PieceDef } from './layout/split';
 import type { BinOptions } from './geometry/bin';
@@ -209,7 +209,7 @@ const sizeOf = (b: Box3) => ({ w: b.max[0] - b.min[0], d: b.max[1] - b.min[1], h
 function packPieces(pieces: PieceDef[], size: (p: PieceDef) => { w: number; d: number }, setup: PrintSetup): PlateLayout[] {
   return packPlates(
     pieces.map((p) => ({ key: `piece:${p.id}`, ...size(p) })),
-    { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, spacing: setup.spacing, nest: setup.nest },
+    { ...plateBed(setup), spacing: setup.spacing, nest: setup.nest },
   ).plates;
 }
 
@@ -254,7 +254,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
       { w: w + (p.outer.left ? side : 0) + (p.outer.right ? side : 0), d: d + (p.outer.front ? CASE_REACH.lidFront : 0) + (p.outer.back ? CASE_REACH.lidBack : 0) },
     ];
   };
-  const bedFit = { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, spacing: setup.spacing, nest: true };
+  const bedFit = { ...plateBed(setup), spacing: setup.spacing, nest: true };
   const fits = (sp: BaseplatePlan) => !sp.error && sp.pieces.every((p) => reachSize(p).every((f) => fitsOnBed(f.w, f.d, bedFit)));
   // The tight reservation first; if a piece would then not fit turned either way, the most on both axes.
   let split = planBaseplate(cl, { ...setup, bedW: setup.bedW - rx, bedD: setup.bedD - ry }, { protrude });

@@ -2,7 +2,7 @@ import { baseplateHeight, type BaseplateOptions } from './geometry/baseplate';
 import { binLabel, binSize, binTotalHeight, sanitizeBin, type BinOptions } from './geometry/bin';
 import { connectorKeySize, connectorSites, jointSteps, pieceProtrusion, sitesOnPiece } from './geometry/connectors';
 import { DEFAULT_DRAWER, computeLayout } from './layout/drawer';
-import { packPlates, type PackItem } from './layout/pack';
+import { packPlates, plateBed, type PackItem } from './layout/pack';
 import { pieceFootprint, type PrintSetup } from './layout/plan';
 import { makePieces } from './layout/split';
 import { binSpec, pieceMeshKey, type JobPart, type MeshSpec, type PrintJob } from './project';
@@ -96,9 +96,7 @@ export function planTestFit(
   );
 
   const packed = packPlates(items, {
-    bedW: setup.bedW,
-    bedD: setup.bedD,
-    margin: setup.plateMargin,
+    ...plateBed(setup),
     spacing: Math.max(setup.spacing, 2),
     nest: true,
   });
