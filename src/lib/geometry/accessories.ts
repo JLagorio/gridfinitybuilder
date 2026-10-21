@@ -447,7 +447,7 @@ export function accessoryKeyParts(o: AccessoryOpts, size: { w: number; d: number
   if (!wantsTray(o) && !wantsSlideLid(o) && !wantsRails(o)) return [];
   const p = planAccessories(o, size.w, size.d);
   const out: string[] = [];
-  if (p.tray) out.push(`At${r2(p.tray.h)}n${p.tray.levels.length}`);
+  if (p.tray) out.push(`At${p.tray.h}n${p.tray.levels.length}`);
   if (p.slide) out.push('As');
   if (p.rails) out.push(`Ar${o.rails}${r2(num(o.railPitch, RAIL.minPitch, RAIL.maxPitch, DEFAULT_ACCESSORIES.railPitch))}`);
   return out;

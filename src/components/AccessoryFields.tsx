@@ -20,11 +20,11 @@ export function accessoryStatus(o: BinOptions, fmt: Fmt, cells?: BinCells): stri
   const p = planAccessories(o, w, d);
   const parts: string[] = [];
   if (o.tray) {
-    const n = p.tray?.levels.length ?? o.trayCount;
-    parts.push(`${n > 1 ? `${n} trays` : 'tray'} ${fmt(p.tray?.h ?? o.trayHeight)}${p.tray ? '' : ' (off)'}`);
+    const n = p.tray?.levels.length ?? 1;
+    parts.push(p.tray ? `${n > 1 ? `${n} trays` : 'tray'} ${fmt(p.tray.h)}` : 'tray off');
   }
-  if (o.slideLid) parts.push(`sliding lid${p.slide ? '' : ' (off)'}`);
-  if (o.rails) parts.push(`rails ${o.rails === 'xy' ? 'X + Y' : o.rails.toUpperCase()}${p.rails ? '' : ' (off)'}`);
+  if (o.slideLid) parts.push(p.slide ? 'sliding lid' : 'lid off');
+  if (o.rails) parts.push(p.rails ? `rails ${o.rails === 'xy' ? 'X+Y' : o.rails.toUpperCase()}` : 'rails off');
   return parts.length ? parts.join(' · ') : 'none';
 }
 
@@ -75,9 +75,12 @@ export function AccessoryFields({ opts, onChange, cells }: Props) {
   const plates = parts.filter((p) => p.slot === 'rail');
   let railHint = 'Thin guide ribs on opposite walls at every pitch, so loose divider plates slide in anywhere and move later.';
   if (opts.rails && rails) {
-    const counts = [rails.xs.length && `${rails.xs.length} across X`, rails.ys.length && `${rails.ys.length} along Y`].filter(Boolean).join(', ');
+    const n = (k: number) => `${k} position${k === 1 ? '' : 's'}`;
+    const counts = [rails.xs.length && `${n(rails.xs.length)} across the width`, rails.ys.length && `${rails.xs.length ? rails.ys.length : n(rails.ys.length)} along the depth`]
+      .filter(Boolean)
+      .join(' and ');
     const sizes = [...new Map(plates.map((p) => [p.meshKey, p.part as RailPlatePart])).values()].map((p) => `${fmt(p.length)} × ${fmt(p.height)}`);
-    railHint = `${counts} rail positions.${sizes.length ? ` Plates ${sizes.join(' and ')}.` : ''}`;
+    railHint = `Rails at ${counts}.${sizes.length ? ` Plates ${sizes.join(' and ')}.` : ''}`;
     if (rails.skipped) railHint += ` ${rails.skipped} position${rails.skipped === 1 ? ' is' : 's are'} left out where a divider already stands.`;
     if (rails.crossed) railHint += ' Fixed dividers in a plate’s way get a slot so it passes.';
   }
@@ -96,7 +99,7 @@ export function AccessoryFields({ opts, onChange, cells }: Props) {
               max={TRAY.maxHeight}
               onChange={(trayHeight) => onChange({ trayHeight })}
             />
-            <Stepper label="Stacked" value={opts.trayCount} min={1} max={TRAY.maxCount} onChange={(trayCount) => onChange({ trayCount })} />
+            <Stepper label="Trays" value={opts.trayCount} min={1} max={TRAY.maxCount} onChange={(trayCount) => onChange({ trayCount })} />
           </div>
           <div className="row2">
             <Stepper label="Tray columns" value={opts.trayDivX} min={1} max={TRAY.maxDiv} onChange={(trayDivX) => onChange({ trayDivX })} />
