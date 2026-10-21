@@ -441,6 +441,17 @@ button.wide {
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
+  /* Tablets and narrow windows: the top bar wraps instead of scrolling the page sideways. */
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 52px;
+    padding: 6px 14px;
+    row-gap: 6px;
+  }
+  .tabs button {
+    white-space: nowrap;
+  }
 }
 
 .grid-editor {
@@ -943,17 +954,20 @@ details.advanced[open] > .field-hint {
   .body {
     flex-direction: column-reverse;
   }
+  /* One screen at a time (PhoneNav.tsx); the Bins screen stacks the layout editor over the panel. */
   .sidebar {
-    height: 55%;
+    flex: 1 1 0;
+    min-height: 0;
     border-right: none;
     border-top: 1px solid var(--border);
   }
   .main {
-    min-height: 45%;
+    flex: 1.5 1 0;
+    min-height: 0;
   }
   .topbar {
     gap: 8px;
-    overflow-x: auto;
+    padding: 6px 10px;
   }
   .topbar-status .chip {
     display: none;
@@ -2988,5 +3002,313 @@ details.option-group[open] summary > span::before {
   }
   .viewer-views button {
     padding: 5px 7px;
+  }
+}
+
+/* ==========================================================================
+   Phone and tablet: touch editing, the phone tab bar, the update banner
+   (touch.tsx, PhoneNav.tsx, UpdateBanner.tsx)
+   ========================================================================== */
+
+/* Drawing surfaces: no long-press callouts or tap flashes. */
+.grid-editor svg,
+.ie-canvas svg,
+.co-canvas svg,
+.cell-mask,
+.trace-stage > svg,
+.viewer canvas,
+.phone-nav button {
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* On-screen stand-ins for Shift and Alt (touch screens only) */
+.touch-toggles {
+  display: flex;
+  gap: 6px;
+}
+.touch-toggle {
+  font-size: 12px;
+  padding: 4px 10px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.touch-toggle.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.ge-touch-bar {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ge-touch-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.ge-touch-actions button {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.phone-nav {
+  display: none;
+}
+
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 7px 7px 7px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+}
+.update-banner button {
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+.update-banner .link {
+  padding: 5px 6px;
+  color: var(--muted);
+}
+
+/* Fingers: bigger buttons where they're small, and no zoom when a field takes focus (iOS zooms below 16 px). */
+@media (pointer: coarse) {
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+  .sidebar {
+    overscroll-behavior: contain;
+  }
+  .grid-editor {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .grid-editor svg {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+  .viewer-toolbar button,
+  .viewer-views button {
+    padding: 8px 11px;
+  }
+  .vt-small,
+  .vt-seg button,
+  .pane-head .segmented button,
+  .ie-toolbar .segmented button {
+    padding: 6px 10px;
+  }
+  .touch-toggle {
+    padding: 6px 12px;
+  }
+  /* A tap leaves :hover behind on touch screens; keep the toggles reading on / off. */
+  .touch-toggle:hover:not(:disabled) {
+    background: var(--panel-2);
+    border-color: var(--border-strong);
+  }
+  .touch-toggle.on:hover:not(:disabled) {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Phones: one screen at a time, switched from the tab bar at the bottom. */
+@media (max-width: 760px) {
+  @supports (height: 100dvh) {
+    .app {
+      height: 100dvh;
+    }
+  }
+  .tabs,
+  .brand span,
+  .drawer-current-label,
+  .pane-head .pane-title {
+    display: none;
+  }
+  .drawer-current {
+    max-width: 150px;
+  }
+  .topbar,
+  .topbar-status {
+    gap: 6px;
+  }
+  /* Just the spinner while meshes build, so the bar doesn't jump. */
+  .building {
+    font-size: 0;
+    gap: 0;
+  }
+  .pane-head {
+    justify-content: flex-start;
+    padding: 6px 10px 0;
+  }
+  .grid-editor,
+  .interior-editor {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  /* The compartment tools scroll sideways in one row, so the bin keeps the room. */
+  .ie-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .ie-toolbar > * {
+    flex-shrink: 0;
+  }
+  .ie-status {
+    display: none;
+  }
+  .ie-hint {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Tool cutouts: the selected pocket's buttons in one row too. */
+  .co-bar,
+  .co-palette,
+  .co-canvas {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .co-foot {
+    padding: 0 10px 8px;
+  }
+  .co-sel {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .co-sel > * {
+    flex-shrink: 0;
+  }
+  .co-sel > .muted {
+    display: none;
+  }
+  .co-actions {
+    flex-wrap: nowrap;
+    margin-left: 0;
+  }
+  .phone-nav {
+    display: flex;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .phone-nav button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    border: none;
+    border-radius: 0;
+    background: none;
+    padding: 7px 4px 6px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .phone-nav button:hover:not(:disabled) {
+    background: none;
+  }
+  .phone-nav button.active {
+    color: var(--accent);
+  }
+  /* Drawer and Print: the panel alone. Bins: the layout editor over the panel. 3D: the 3D view alone. */
+  .app:not(.phone-3d) .main-drawer,
+  .app:not(.phone-3d) .main-print,
+  .app:not(.phone-3d) .main-bins .pane-3d,
+  .app.phone-3d .main-bins .pane-2d,
+  .app.phone-3d .sidebar {
+    display: none;
+  }
+  .main-bins .split {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .main-bins .pane-2d {
+    border-bottom: none;
+  }
+  .toast {
+    max-width: calc(100% - 24px);
+  }
+  /* Find opens across the top of the screen. */
+  .find-box.open .find-input {
+    position: fixed;
+    top: 8px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+  .find-results {
+    position: fixed;
+    top: 46px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+  /* Dialogs fill the screen. */
+  .modal-backdrop,
+  .overlay {
+    padding: 0;
+  }
+  .modal,
+  .overlay-card {
+    border: none;
+    border-radius: 0;
+  }
+  .trace-dialog {
+    width: 100%;
+    height: 100%;
+  }
+  .overlay-card {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    height: 100%;
+    padding: 12px 14px 16px;
+  }
+  .trace-stage {
+    border-radius: 0;
+  }
+  .modal-head {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .update-banner {
+    bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+}
+/* A phone on its side: the panel beside the layout editor, not under it. */
+@media (max-width: 760px) and (orientation: landscape) {
+  .body {
+    flex-direction: row;
+  }
+  .sidebar {
+    border-top: none;
+    border-right: 1px solid var(--border);
+  }
+}
+/* No keyboard on a phone: no shortcut list. */
+@media (max-width: 760px) and (pointer: coarse) {
+  .help-button {
+    display: none;
   }
 }

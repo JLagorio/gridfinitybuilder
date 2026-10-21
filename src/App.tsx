@@ -32,6 +32,8 @@ import { binPrintMarks } from './lib/printed';
 import { usePrintJob } from './components/usePrintJob';
 import { enclosureSceneItems, shiftItems, type LidView } from './components/enclosureScene';
 import { stackPlaces } from './lib/stacking';
+import { PhoneNav, usePhoneView } from './components/PhoneNav';
+import { useCoarsePointer } from './components/touch';
 import './components/workflow.css';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -279,6 +281,8 @@ export default function App() {
   const printer = findPrinter(state.setup.printerId);
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
+  const coarse = useCoarsePointer();
+  const phone3d = usePhoneView((s) => s.view3d);
 
   // Its own boundary, so a 3D problem never blanks the panels and editors.
   const viewer = (
@@ -290,7 +294,11 @@ export default function App() {
         fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
         fitIds={focusing ? [ui.selectedBinId!] : undefined}
         onPick={ui.tab === 'bins' ? (id) => state.setUI({ selectedBinId: id }) : undefined}
-        hint={`Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? ' · click a bin to select' : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`}
+        hint={
+          coarse
+            ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? ' · tap a bin to select it' : ''}`
+            : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? ' · click a bin to select' : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
+        }
       >
         {ui.tab === 'bins' && (
           <div className="viewer-tools">
@@ -320,7 +328,7 @@ export default function App() {
   );
 
   return (
-    <div className="app">
+    <div className={`app${phone3d ? ' phone-3d' : ''}`}>
       <header className="topbar">
         <div className="brand">
           <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden>
@@ -410,6 +418,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <PhoneNav />
     </div>
   );
 }

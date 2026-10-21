@@ -203,6 +203,22 @@ Lengths are stored in mm. The **mm / in** switch in the top bar changes what eve
 
 Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl+Y). Press **?** for all keyboard shortcuts.
 
+### Phone, tablet and offline
+
+- **Touch:** every editor works with a finger.
+  - Drag to draw, move and resize bins; handles get bigger on touch screens.
+  - Tap to add a compartment wall, then drag it into place.
+  - Drag tools in the bin, and the trace dialog's paper corners.
+  - Double-tap where a mouse double-clicks (finger notches).
+- **No keyboard:** buttons stand in for the keys.
+  - The drawer layout has **Select several** (Shift), **Duplicate** and **Delete**.
+  - The compartment editor has **Flip** (Shift) and **No snap** (Alt).
+- **3D view:** drag to orbit, pinch to zoom, drag with two fingers to pan.
+- **On a phone** a tab bar at the bottom switches between Drawer, Bins, 3D and Print. 3D shows the step you're on, full screen.
+- **Install it:** use your browser's *Install app* or *Add to Home Screen*.
+- **Offline:** after the first visit Gridfit opens and works without a connection: layouts, meshes, exports and printer settings. Share links open offline too.
+- **Updates:** when a new version is out, a note says *A new version is ready*. **Reload** switches to it, and the project stays (it autosaves).
+
 ### Split strategies
 
 - **Fewest plates** (default): tries every split that uses the minimum number of pieces and keeps the one needing the fewest print plates. Small pieces share a plate when they fit. For a 510.5 × 376.5 mm drawer on a P2S (256 mm bed, 10 mm edge margin) it needs 4 baseplate plates, against 6 when every piece prints alone.
@@ -264,8 +280,9 @@ src/lib/printability.ts  print checks: rule-based warnings from the options and 
 src/lib/stacking.ts bins stacked on bins: columns, rules, heights
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates
 src/worker/         geometry Web Worker + client with a mesh queue/cache
-src/components/     React UI (three.js viewer, 2D bin layout editor, panels)
-scripts/            CLI sample generator, Bambu settings baker
+src/components/     React UI (three.js viewer, 2D bin layout editor, panels; touch.tsx: touch helpers)
+src/pwa/            offline use: the service worker and its registration
+scripts/            CLI sample generator, Bambu settings baker, pwa.ts (writes dist/sw.js with every built file)
 tests/              vitest suites
 ```
 

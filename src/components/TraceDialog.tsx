@@ -9,6 +9,7 @@ import { parseSVG, type ImportResult } from '../lib/trace/svg';
 import { parseDXF } from '../lib/trace/dxf';
 import { bounds, pointInPolygon, signedArea } from '../lib/trace/polygon';
 import { DEFAULT_CLEARANCE, DEFAULT_TOOL_DEPTH } from '../lib/tools';
+import { fingerPx, isTouch, useCoarsePointer } from './touch';
 
 export type TraceTab = 'photo' | 'import';
 
@@ -300,13 +301,19 @@ function CornerStep({
   const [drag, setDrag] = useState<number | null>(null);
   const [loupe, setLoupe] = useState<{ at: Pt; screen: Pt } | null>(null);
   const { width: W, height: H } = photo.image;
-  const r = Math.max(W, H) / 80;
+  const coarse = useCoarsePointer();
+  // Screen px per photo px. Handles never get smaller than a fingertip on a touch screen.
+  const scale = svg.current?.getScreenCTM()?.a || 1;
+  const r = Math.max(Math.max(W, H) / 80, coarse ? 12 / scale : 0);
   const ordered = corners.length === 4 ? orderCorners(corners) : corners;
 
   const down = (e: RPointerEvent<SVGSVGElement>) => {
+    // One handle at a time: a second finger is ignored.
+    if (!e.isPrimary) return;
     const pt = svgPoint(svg.current, e);
     if (!pt) return;
-    const hit = corners.findIndex((c) => Math.hypot(c[0] - pt[0], c[1] - pt[1]) < r * 2.2);
+    const reach = Math.max(r * 2.2, isTouch(e) ? fingerPx(12, true) / scale : 0);
+    const hit = corners.findIndex((c) => Math.hypot(c[0] - pt[0], c[1] - pt[1]) < reach);
     (e.target as Element).setPointerCapture?.(e.pointerId);
     if (hit >= 0) {
       setDrag(hit);
@@ -325,14 +332,15 @@ function CornerStep({
     setLoupe({ at: pt, screen: [e.clientX, e.clientY] });
   };
   const move = (e: RPointerEvent<SVGSVGElement>) => {
-    if (drag === null) return;
+    if (drag === null || !e.isPrimary) return;
     const pt = svgPoint(svg.current, e);
     if (!pt) return;
     const c: Pt = [Math.min(W, Math.max(0, pt[0])), Math.min(H, Math.max(0, pt[1]))];
     setCorners(corners.map((q, i) => (i === drag ? c : q)));
     setLoupe({ at: c, screen: [e.clientX, e.clientY] });
   };
-  const up = () => {
+  const up = (e: RPointerEvent<SVGSVGElement>) => {
+    if (!e.isPrimary) return;
     setDrag(null);
     setLoupe(null);
   };
@@ -355,6 +363,7 @@ function CornerStep({
           onPointerMove={move}
           onPointerUp={up}
           onPointerCancel={up}
+          onContextMenu={(e) => e.preventDefault()}
           className={drag !== null ? 'dragging' : ''}
         >
           <image href={photo.url} x={0} y={0} width={W} height={H} />
@@ -389,7 +398,7 @@ function CornerStep({
           </div>
         )}
         <div className="trace-stage-hint">
-          {corners.length < 4 ? `Click corner ${corners.length + 1} of 4 of the paper` : 'Drag the handles onto the paper’s corners'}
+          {corners.length < 4 ? `${coarse ? 'Tap' : 'Click'} corner ${corners.length + 1} of 4 of the paper` : 'Drag the handles onto the paper’s corners'}
         </div>
       </div>
       <aside className="trace-side">

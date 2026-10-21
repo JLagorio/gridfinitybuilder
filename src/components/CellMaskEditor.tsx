@@ -39,7 +39,8 @@ export function CellMaskEditor({
   };
 
   const onDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    // One finger paints; a second one is ignored.
+    if (e.button !== 0 || !e.isPrimary) return;
     const k = cellAt(e);
     if (!k) return;
     svg.current?.setPointerCapture?.(e.pointerId);
@@ -47,12 +48,12 @@ export function CellMaskEditor({
     setDraft(paint({ set: start, on: !start.has(k) }, k));
   };
   const onMove = (e: React.PointerEvent) => {
-    if (!draft) return;
+    if (!draft || !e.isPrimary) return;
     const k = cellAt(e);
     if (k) setDraft(paint(draft, k));
   };
-  const onUp = () => {
-    if (!draft) return;
+  const onUp = (e: React.PointerEvent) => {
+    if (!draft || !e.isPrimary) return;
     const next = [...draft.set].sort();
     setDraft(null);
     if (next.join('|') !== [...mask].sort().join('|')) onChange(next);

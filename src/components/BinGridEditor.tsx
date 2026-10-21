@@ -13,6 +13,8 @@ import type { BinOptions } from '../lib/geometry/bin';
 import type { CheckSeverity } from '../lib/printability';
 import { dividerLines } from './dividerLines';
 import { LevelSwitcher, StackBadge, useStackLevels } from './StackLevels';
+import { isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
+import { LayoutTouchBar } from './LayoutTouchBar';
 
 interface Props {
   layout: GridLayout;
@@ -90,6 +92,9 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
   const pad = 8;
   // Bins are at most 12 u: 24 cells on a half grid.
   const maxUnits = layout.halfGrid ? MAX_CELLS : MAX_BIN_UNITS;
+  // Touch: bigger handles, and a toggle in place of Shift.
+  const coarse = useCoarsePointer();
+  const multi = useTouchModes((s) => s.multi);
 
   useLayoutEffect(() => {
     const el = svg.current;
@@ -193,11 +198,12 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
   const handleRect = drag?.kind === 'resize' ? drag.cur : !drag && single ? binRect(single) : null;
 
   const onDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    // A second finger never starts a second drag.
+    if (e.button !== 0 || !e.isPrimary) return;
     const p = plateAt(e);
     if (!p) return;
     svg.current?.setPointerCapture?.(e.pointerId);
-    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey || multi;
     const handle = (e.target as Element).closest?.('[data-handle]')?.getAttribute('data-handle') as Handle | null;
     if (handle && single) {
       const r = binRect(single);
@@ -215,11 +221,12 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
     } else if (c && !additive) {
       setDrag({ kind: 'draw', start: c, cur: c });
     } else {
-      setDrag({ kind: 'marquee', start: p, cur: p, base: additive ? selectedIds : [], tol: 4 * px });
+      setDrag({ kind: 'marquee', start: p, cur: p, base: additive ? selectedIds : [], tol: tapSlop(isTouch(e)) * px });
     }
   };
 
   const onMoveEvt = (e: React.PointerEvent) => {
+    if (!e.isPrimary) return;
     const p = plateAt(e);
     const c = cellOf(p);
     setHover(c);
@@ -239,8 +246,8 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
     }
   };
 
-  const onUp = () => {
-    if (!drag) return;
+  const onUp = (e: React.PointerEvent) => {
+    if (!drag || !e.isPrimary) return;
     if (drag.kind === 'draw') {
       if (ghosts[0]?.ok) onCreate(ghosts[0].r);
     } else if (drag.kind === 'move') {
@@ -279,6 +286,7 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
   return (
     <div className="grid-editor">
       <LevelSwitcher levels={levels} />
+      {coarse && <LayoutTouchBar selected={selectedIds.length} />}
       <svg
         ref={svg}
         viewBox={`${-pad} ${-pad} ${plateW + 2 * pad} ${plateD + 2 * pad}`}
@@ -390,7 +398,7 @@ export function BinGridEditor({ layout, bins: drawerBins, selectedIds: selection
             strokeWidth={px}
           />
         )}
-        {handleRect && <ResizeHandles r={cellRectSvg(handleRect, 0.6)} px={px} />}
+        {handleRect && <ResizeHandles r={cellRectSvg(handleRect, 0.6)} px={px} coarse={coarse} />}
         <text className="ge-caption" x={plateW / 2} y={-2} textAnchor="middle" fontSize={7}>
           back
         </text>
@@ -406,10 +414,14 @@ function box(a: Pt, b: Pt) {
   return { x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]), y0: Math.min(a[1], b[1]), y1: Math.max(a[1], b[1]) };
 }
 
-/** Edge strips and corner/edge knobs around a bin, in svg coordinates (north = back = up). */
-function ResizeHandles({ r, px }: { r: { x: number; y: number; width: number; height: number }; px: number }) {
+/**
+ * Edge strips and corner/edge knobs around a bin, in svg coordinates (north = back = up).
+ * `coarse` (a finger): bigger knobs, and finger-sized grips that sit mostly outside the
+ * bin, so even a 1×1 bin keeps room in the middle to be dragged.
+ */
+function ResizeHandles({ r, px, coarse }: { r: { x: number; y: number; width: number; height: number }; px: number; coarse?: boolean }) {
   const { x, y, width: w, height: h } = r;
-  const knob = 9 * px;
+  const knob = (coarse ? 12 : 9) * px;
   const grip = 10 * px;
   const at: Record<Handle, Pt> = {
     n: [x + w / 2, y],
@@ -427,12 +439,30 @@ function ResizeHandles({ r, px }: { r: { x: number; y: number; width: number; he
     ['e', { x: x + w - grip / 2, y, width: grip, height: h }],
     ['w', { x: x - grip / 2, y, width: grip, height: h }],
   ];
+  // Finger grips: 26 px, reaching 4 px into the bin and the rest outward.
+  const reach = 26 * px;
+  const inset = 4 * px;
+  const dir: Record<Handle, Pt> = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0], ne: [1, -1], nw: [-1, -1], se: [1, 1], sw: [-1, 1] };
+  const grips = coarse
+    ? HANDLES.map((k) => {
+        const [dx, dy] = dir[k];
+        const [cx, cy] = at[k];
+        const span = (d: number, c: number, len: number) => (d === 0 ? [c - len / 2, len] : d > 0 ? [c - inset, reach] : [c + inset - reach, reach]);
+        const [gx, gw] = span(dx, cx, dx === 0 ? w : reach);
+        const [gy, gh] = span(dy, cy, dy === 0 ? h : reach);
+        return { k, x: gx, y: gy, width: gw, height: gh };
+      })
+    : [];
   return (
     <g className="ge-handles">
+      {grips.map(({ k, ...g }) => (
+        <rect key={`grip-${k}`} className="ge-handle-strip" data-handle={k} {...g} />
+      ))}
       {strips.map(([k, s]) => (
         <rect key={`strip-${k}`} className="ge-handle-strip" data-handle={k} {...s} style={{ cursor: HANDLE_CURSOR[k] }} />
       ))}
-      {HANDLES.map((k) => (
+      {/* On a small bin a finger's knobs would crowd it: corners only (the edge grips still work). */}
+      {HANDLES.filter((k) => !coarse || k.length === 2 || (k === 'n' || k === 's' ? w : h) > 4 * knob).map((k) => (
         <rect
           key={k}
           className="ge-handle"
