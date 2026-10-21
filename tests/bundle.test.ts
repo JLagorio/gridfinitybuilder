@@ -14,10 +14,11 @@ const root = resolve(__dirname, '..');
 /**
  * The app's own JS on the first screen (the entry and what it imports, minus the React and three.js
  * chunks), bytes. It was ~460 kB when the split was made; everything in one chunk was 1.5 MB. QR
- * codes on bins added ~8 kB of planning (where a code goes, how big, the print checks); their
- * encoder and geometry only load with the mesh builders.
+ * codes on bins added ~14 kB (from 519.5 kB here): planning where a code goes and how big, its print
+ * checks, the drawer map's and settings search's share. Their encoder and geometry stay out: the
+ * encoder loads with the panels that draw codes, the geometry only with the mesh builders.
  */
-const FIRST_SCREEN_BUDGET = 530_000;
+const FIRST_SCREEN_BUDGET = 535_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
@@ -74,6 +75,8 @@ describe('bundle', () => {
       'src/lib/autofill/index.ts',
       'src/lib/bom.ts',
       'src/lib/export/step.ts',
+      'src/lib/qrEncode.ts',
+      'src/components/QrFields.tsx',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).
