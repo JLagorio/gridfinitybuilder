@@ -7,3 +7,6 @@ import './kinds/hook.ui';
 import './kinds/bin.ui';
 import './kinds/cup.ui';
 import './kinds/fitTest.ui';
+import './kinds/gridShelf.ui';
+import './kinds/gridPlate.ui';
+import './kinds/gridClip.ui';

@@ -153,11 +153,12 @@ export function binSeatHeight(o: BaseplateOptions): number {
   return baseplateFloor(o);
 }
 
-/** The receptacle for one cell. `open` cuts it through the floor (open bottom). */
-function cellCutout(w: Wasm, cx: number, cy: number, cw: number, cd: number, o: BaseplateOptions, open = false): Manifold {
-  const floor = baseplateFloor(o);
-  const z0 = floor + o.bottomClearance;
-  const bottom = open || floor <= 0 ? -1 : floor;
+/**
+ * A receptacle's profile as loft knots (inset from the cell's outline, for
+ * loftRoundedRect with BP_CELL_RADIUS): straight up from `bottom` (its floor),
+ * the profile from `z0` (the floor plus the bottom clearance), and on past the top.
+ */
+export function receptacleKnots(bottom: number, z0: number): LoftKnot[] {
   const knots: LoftKnot[] = [];
   knots.push({ z: bottom, inset: BP_PROFILE_DEPTH });
   if (z0 > bottom + 0.001) knots.push({ z: z0, inset: BP_PROFILE_DEPTH });
@@ -165,7 +166,14 @@ function cellCutout(w: Wasm, cx: number, cy: number, cw: number, cd: number, o: 
   knots.push({ z: z0 + BP_PROFILE.chamfer1 + BP_PROFILE.vertical, inset: BP_PROFILE.chamfer2 });
   knots.push({ z: z0 + BP_PROFILE_HEIGHT, inset: 0 });
   knots.push({ z: z0 + BP_PROFILE_HEIGHT + 1, inset: -1 });
-  return loftRoundedRect(w, cx, cy, cw, cd, BP_CELL_RADIUS, knots);
+  return knots;
+}
+
+/** The receptacle for one cell. `open` cuts it through the floor (open bottom). */
+function cellCutout(w: Wasm, cx: number, cy: number, cw: number, cd: number, o: BaseplateOptions, open = false): Manifold {
+  const floor = baseplateFloor(o);
+  const bottom = open || floor <= 0 ? -1 : floor;
+  return loftRoundedRect(w, cx, cy, cw, cd, BP_CELL_RADIUS, receptacleKnots(bottom, floor + o.bottomClearance));
 }
 
 /** Convex prism from a plan outline. */

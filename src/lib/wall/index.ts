@@ -8,3 +8,6 @@ import './kinds/hook';
 import './kinds/bin';
 import './kinds/cup';
 import './kinds/fitTest';
+import './kinds/gridShelf';
+import './kinds/gridPlate';
+import './kinds/gridClip';

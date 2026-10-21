@@ -11,6 +11,9 @@ import { hookBuilder } from './kinds/hook.geom';
 import { binBuilder } from './kinds/bin.geom';
 import { cupBuilder } from './kinds/cup.geom';
 import { fitTestBuilder } from './kinds/fitTest.geom';
+import { gridShelfBuilder } from './kinds/gridShelf.geom';
+import { gridPlateBuilder } from './kinds/gridPlate.geom';
+import { gridClipBuilder } from './kinds/gridClip.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -28,6 +31,9 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   bin: binBuilder as AttachmentBuilder<never>,
   cup: cupBuilder as AttachmentBuilder<never>,
   fitTest: fitTestBuilder as AttachmentBuilder<never>,
+  gridShelf: gridShelfBuilder as AttachmentBuilder<never>,
+  gridPlate: gridPlateBuilder as AttachmentBuilder<never>,
+  gridClip: gridClipBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
