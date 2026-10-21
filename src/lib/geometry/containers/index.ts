@@ -7,3 +7,5 @@ export { containerBase, containerRing } from './base';
 import './drawers';
 import './box';
 import './hopper';
+import './rack';
+import './dispenser';
