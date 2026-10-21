@@ -486,6 +486,34 @@ const byFeature = colourGroup(
   { baseplate: false, bins: true },
 );
 
+const qrByPart = colourGroup(
+  'qr-by-part',
+  'Inlaid QR codes by part: black modules (the QR code role) on white bins, a stick-on plate and a stacking lid',
+  colourSetup({ on: true, roles: { binWalls: 2, labelTabs: 2, lids: 2, labelText: 1, qrCode: 1 } }),
+  [
+    colourDrawer('drawer', [
+      colourBin('front', 0, 0, { unitsX: 2, unitsY: 1, heightUnits: 6, qr: 'front', qrContent: 'custom', qrText: 'https://example.com/bins/front' }),
+      colourBin('plate', 2, 0, { unitsX: 1, heightUnits: 3, qr: 'plate', qrContent: 'custom', qrText: 'https://example.com/bins/plate' }),
+      colourBin('lid', 3, 0, { unitsX: 1, heightUnits: 3, lid: true, qr: 'lid', qrContent: 'custom', qrText: 'https://example.com/bins/lid' }),
+    ], 4, 1),
+  ],
+  { baseplate: false, bins: true },
+);
+
+const vaseByHeight = colourGroup(
+  'vase-by-height',
+  'Vase-mode bins by height: red feet, a black wall; each on a spiral plate of its own (Bambu Studio changes colour by layer only on plates printed by layer), and a plain bin',
+  colourSetup({ on: true, strategy: 'height', roles: { binFeet: 3, binWalls: 1 } }),
+  [
+    colourDrawer('drawer', [
+      colourBin('vase', 0, 0, { unitsX: 1, container: 'vase', containers: { vase: {} } } as Partial<BinOptions>),
+      colourBin('vase2', 1, 0, { unitsX: 2, heightUnits: 4, container: 'vase', containers: { vase: { dividers: 1 } } } as Partial<BinOptions>),
+      colourBin('plain', 3, 0, { unitsX: 1 }),
+    ], 4, 1),
+  ],
+  { baseplate: false, bins: true },
+);
+
 export const SAMPLE_GROUPS: SampleGroup[] = [
   containers,
   bases,
@@ -507,6 +535,8 @@ export const SAMPLE_GROUPS: SampleGroup[] = [
   byPart,
   byHeight,
   byFeature,
+  qrByPart,
+  vaseByHeight,
 ];
 
 // ---------------------------------------------------------------------------
@@ -525,6 +555,8 @@ export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
   { file: /^compartments\/removable-tab/, what: /^overhang$/, why: 'a tab in front of a removable divider bridges its compartment, side wall to side wall' },
   { file: /pattern/, what: /Thin fragile part/, why: 'the hex wall pattern leaves 0.95 mm thick webs (Gridfinity Extended)' },
   { file: /^vase\//, what: /^thin$/, why: 'a vase-mode bin is drawn as it prints: one line of wall above the bottom layers, its dividers two lines a slit apart' },
+  { file: /^colours\/vase-by-height\/drawer\.vase/, what: /^thin$/, why: 'a vase-mode bin (as vase/): one line of wall above the bottom layers' },
+  { file: /^colours\/vase-by-height\/drawer\.vase/, what: /^thin$/, why: 'a vase-mode bin (as vase/): one line of wall above the bottom layers' },
   { file: /\.(key|lidkey|pin)-\d|spacer-(front|back)-|\.foot-/, what: /Low bed adhesion/, why: 'small or narrow part: a brim helps' },
   { file: /./, what: /Long bridging extrusions/, why: 'bridges in the design (weight pockets, keyhole slots, hole roofs, half-grid foot gaps): PrusaSlicer flags any long bridge' },
   { file: /./, what: /Floating bridge anchors/, why: 'small bridges anchored on thin features (hinge-pin holes, pocket roofs): no mid-air islands or long ledges found there' },

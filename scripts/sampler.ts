@@ -109,7 +109,9 @@ interface ColourPlateRecord {
   slots: number[];
   /** By height: where the colour changes (print_z of the first layer in the new colour). */
   changes: number[];
-  slicer?: { ok: boolean; tools: number[]; m600: number[]; messages: string[] };
+  /** A spiral plate's one vase bin: sliced in spiral vase mode. */
+  spiral?: SpiralPrint;
+  slicer?: { ok: boolean; tools: number[]; m600: number[]; messages: string[]; spiral?: SpiralReport };
 }
 
 const bed = usableBed(SAMPLE_SETUP);
@@ -172,7 +174,15 @@ for (const group of fromReport ? [] : SAMPLE_GROUPS) {
       const ch = plateChanges(group.setup!, job, i);
       const slots = new Set<number>(ch ? [ch.base, ...ch.changes.map((c) => c.slot)] : []);
       if (!ch) for (const p of pl.placements) for (const s of meshBodySlots(group.setup!, job, p.key, get(job.parts[p.key].meshKey))) slots.add(s);
-      colourPlates.push({ group: group.name, file, strategy: strategyOf(group.setup!)!, slots: [...slots].sort((a, b) => a - b), changes: (ch?.changes ?? []).map((c) => layerTop(c.z, LAYERS)) });
+      const spiral = pl.spiral && pl.placements.length === 1 ? job.parts[pl.placements[0].key].spiral : undefined;
+      colourPlates.push({
+        group: group.name,
+        file,
+        strategy: strategyOf(group.setup!)!,
+        slots: [...slots].sort((a, b) => a - b),
+        changes: (ch?.changes ?? []).map((c) => layerTop(c.z, LAYERS)),
+        ...(spiral ? { spiral } : {}),
+      });
     });
   }
   // Baseplate plates (pieces and keys as laid out) as 3MF, for a slicer that wants the whole plate.
@@ -305,7 +315,13 @@ if (slice && !fromReport) {
   for (const c of colourPlates) {
     const src = join(outDir, c.file);
     const gcode = src.replace(/\.3mf$/, '.gcode');
-    const s = await run(['--loglevel', '1', '--load', c.strategy === 'height' ? ini : mmIni, '--dont-arrange', '--export-gcode', '--output', gcode, src]);
+    // A vase bin's plate: spiral vase mode, as for the vase parts.
+    const bottom = c.spiral ? vaseBottomLayers(c.spiral.start, 0.2, 0.2) : 0;
+    const vase = c.spiral
+      ? ['--spiral-vase', '--perimeters', '1', '--top-solid-layers', '0', '--fill-density', '0%', '--bottom-solid-layers', String(bottom), '--external-perimeter-extrusion-width', String(c.spiral.line), '--perimeter-extrusion-width', String(c.spiral.line)]
+      : [];
+    const s = await run(['--loglevel', '1', '--load', c.strategy === 'height' ? ini : mmIni, ...vase, '--dont-arrange', '--export-gcode', '--output', gcode, src]);
+    const spiral = c.spiral && s.code === 0 && existsSync(gcode) ? spiralReport(readFileSync(gcode, 'utf8'), bottom) : undefined;
     const tools = new Set<number>();
     const m600: number[] = [];
     let z = 0;
@@ -330,10 +346,12 @@ if (slice && !fromReport) {
       rmSync(gcode, { force: true });
     }
     const messages = s.out.split('\n').map((l) => l.trim()).filter((l) => l && !/^\d+ => /.test(l) && !/^Slicing result exported/.test(l));
-    c.slicer = { ok: s.code === 0, tools: [...tools].sort((a, b) => a - b), m600, messages };
+    c.slicer = { ok: s.code === 0, tools: [...tools].sort((a, b) => a - b), m600, messages, ...(spiral ? { spiral } : {}) };
     const want = c.strategy === 'height' ? `M600 at ${c.changes.join(', ') || 'none'}` : `tools ${c.slots.join(', ')}`;
     const got = c.strategy === 'height' ? `M600 at ${m600.join(', ') || 'none'}` : `tools ${c.slicer.tools.join(', ')}`;
-    console.log(`${want === got && s.code === 0 ? '·' : '!'} ${c.file}: wants ${want}, sliced ${got}${messages.length ? `; ${messages.slice(0, 2).join(' | ')}` : ''}`);
+    const sp = spiral ? `, spiral vase ${spiral.continuous}/${spiral.spiral} layers continuous` : c.spiral ? ', spiral vase: no G-code' : '';
+    const good = want === got && s.code === 0 && (!c.spiral || (!!spiral && spiral.continuous === spiral.spiral));
+    console.log(`${good ? '·' : '!'} ${c.file}: wants ${want}, sliced ${got}${sp}${messages.length ? `; ${messages.slice(0, 2).join(' | ')}` : ''}`);
   }
   const queue = records.filter((r) => !r.error);
   const t1 = performance.now();
@@ -421,7 +439,8 @@ if (colourPlates.length) {
   md.push('## Multi-colour plates', '', '| Plate | Way | Slots | Colour changes | PrusaSlicer |', '|---|---|---|---|---|');
   for (const c of colourPlates) {
     const sl = c.slicer;
-    const res = !sl ? '' : c.strategy === 'height' ? `M600 at ${sl.m600.join(', ') || 'none'}` : `tools ${sl.tools.join(', ')}`;
+    const sp = sl?.spiral ? `; spiral vase, ${sl.spiral.continuous}/${sl.spiral.spiral} layers continuous` : '';
+    const res = !sl ? '' : (c.strategy === 'height' ? `M600 at ${sl.m600.join(', ') || 'none'}` : `tools ${sl.tools.join(', ')}`) + sp;
     const ok = !sl || (sl.ok && (c.strategy === 'height' ? sl.m600.join() === c.changes.join() : sl.tools.join() === c.slots.join()));
     md.push(`| \`${c.file}\` | ${c.strategy} | ${c.slots.join(', ')} | ${c.changes.join(', ')} | ${sl ? `${ok ? 'as asked' : 'differs'}: ${res}` : ''} |`);
   }

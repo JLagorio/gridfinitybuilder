@@ -135,18 +135,21 @@ job (`planPrint`, `planTestFit`) and built with `buildMesh`:
   strips (lattice with tabs, solid without);
 - **testfit:** the test-fit kit with bowtie joints and magnets, puzzle joints,
   and on a half grid with pins;
-- **colours** (12 more parts in 3 groups): the three ways to print in colour
+- **colours** (19 more parts in 5 groups): the three ways to print in colour
   (README, "Multi-colour"): by part (red baseplate with blue keys,
   colour-coded bins, white label text, colours on plates of their own), by
   height (red feet, black walls, white lip, bins of two heights) and by
   feature (feet, floor, walls, lip, dividers, label tabs and text, a drawer
-  pull, each its own volume).
+  pull, each its own volume); inlaid QR codes by part (black modules on
+  white bins, a plate and a lid); vase-mode bins by height (red feet, a
+  black wall, each on a spiral plate of its own).
 
 The colour groups also write every plate as a 3MF in its colours. With
 `--slice`, PrusaSlicer slices each: by part and by feature with a profile of
 as many extruders as the palette has slots (`prusaslicer-mm.ini`:
 single-extruder multi-material with a wipe tower, set off the plate), by
-height with the one-extruder profile. The report's "Multi-colour plates"
+height with the one-extruder profile (a vase bin's plate in spiral vase
+mode, its G-code read back as for vase/). The report's "Multi-colour plates"
 table holds the tools each plate printed with, or where its colour changes
 (M600) came, against what the plate asks for; on the last run every one was
 as asked.
