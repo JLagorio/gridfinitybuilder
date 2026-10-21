@@ -61,7 +61,7 @@ import { BASE_TOP, GRID } from './geometry/spec';
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
 import { DEFAULT_DRAWER, cellEdge, cellSizes, computeLayout, insideHeight, type DrawerInput, type GridLayout } from './layout/drawer';
 import { effectiveStretch } from './layout/stretch';
-import { fitsOnBed, packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
+import { fitsOnBed, movePlate, packIntoPlates, packPlates, plateBed, type PackItem, type PackOptions, type Placement } from './layout/pack';
 import {
   DEFAULT_SETUP,
   assemblyMap,
@@ -403,7 +403,8 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
   const printers = jobPrinters(setup);
   const baseAt = baseplatePrinter(setup);
   const base = printerSetup(setup, baseAt);
-  const bed = { bedW: base.bedW, bedD: base.bedD, margin: base.plateMargin };
+  // Its bed, edge margin and exclusion areas (printers.ts): every plate keeps clear of them.
+  const bed = plateBed(base);
   // Parts printed already ("only what's changed").
   const keep = (it: PackItem) => !skip?.has(it.key);
 
@@ -718,7 +719,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
 function vasePlates(
   items: PackItem[],
   parts: Record<string, JobPart>,
-  bed: { bedW: number; bedD: number; margin: number },
+  bed: Pick<PackOptions, 'bedW' | 'bedD' | 'margin' | 'exclude'>,
   printerId: string,
   warnings: Set<string>,
   first: number,
@@ -735,21 +736,6 @@ function vasePlates(
     spiral: true,
     ...(printer === undefined ? {} : { printer }),
   }));
-}
-
-/** Where a plate's parts are: their bounding box on the bed, mm. */
-function plateBox(placements: Placement[]) {
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const p of placements) {
-    x0 = Math.min(x0, p.x);
-    y0 = Math.min(y0, p.y);
-    x1 = Math.max(x1, p.x + (p.rotated ? p.d : p.w));
-    y1 = Math.max(y1, p.y + (p.rotated ? p.w : p.d));
-  }
-  return placements.length ? { x: x0, y: y0, w: x1 - x0, d: y1 - y0 } : { x: 0, y: 0, w: 0, d: 0 };
 }
 
 /**
@@ -774,13 +760,12 @@ function sharePlates(
   const baseAt = baseplatePrinter(setup);
   const pinned = baseplatePicked(setup);
   const motions = printers.map((p) => findPrinter(p.printerId).motion ?? DEFAULT_MOTION);
-  const beds = printers.map((p) => ({ bedW: p.bedW, bedD: p.bedD, margin: p.plateMargin, spacing: Math.max(setup.spacing, 2), nest: true }));
+  const beds = printers.map((p) => ({ ...plateBed(p), spacing: Math.max(setup.spacing, 2), nest: true }));
   const time = (key: string, k: number) => seconds?.(parts[key], k) ?? roughSeconds(parts[key], motions[k]);
   const items: ShareItem[] = plates.map((pl, i) => {
-    const box = plateBox(pl.placements);
     const tall = Math.max(0, ...pl.placements.map((p) => parts[p.key].h));
-    const takes = (p: (typeof printers)[number], k: number) =>
-      k === baseAt || (box.w <= p.bedW - 2 * p.plateMargin + EPS && box.d <= p.bedD - 2 * p.plateMargin + EPS && tall <= p.maxH + EPS);
+    // Another printer takes the whole plate when it fits its bed, clear of that printer's exclusion areas.
+    const takes = (p: (typeof printers)[number], k: number) => k === baseAt || (tall <= p.maxH + EPS && !!movePlate(pl.placements, beds[k]));
     return {
       key: `#plate:${i}`,
       plate: true,
@@ -814,13 +799,8 @@ function sharePlates(
       if (at.get(`#plate:${i}`) !== k) return;
       moved.set(i, out.length);
       if (k === baseAt) out.push({ ...pl, printer: k });
-      else {
-        // Centred on this printer's bed.
-        const box = plateBox(pl.placements);
-        const dx = (beds[k].bedW - box.w) / 2 - box.x;
-        const dy = (beds[k].bedD - box.d) / 2 - box.y;
-        out.push({ ...pl, printer: k, placements: pl.placements.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) });
-      }
+      // Centred on this printer's bed, as far as its exclusion areas let it (it takes the plate, so there is room).
+      else out.push({ ...pl, printer: k, placements: movePlate(pl.placements, beds[k]) ?? pl.placements });
     });
     const mine = binItems.filter((it) => at.get(it.key) === k);
     if (!mine.length) return;

@@ -12,6 +12,13 @@
  * (`usableBeds`): a part fits when it fits at least one of them, and how far it
  * overshoots is the least over them. Each part of a bin (its body, a lid, a
  * container's drawers) may print on a different printer.
+ *
+ * A printer that keeps part of its bed free (Bambu X1 / P1: the front-left
+ * corner, printers.ts `exclude`; Bambu Studio won't slice a part there) takes
+ * a part only where it stands clear of that area and the gap bins keep to it:
+ * beside it (the strip to its right, the bed's full depth) or behind it (the
+ * strip behind, the full width). `Bed.clear` holds those strips, as the packer
+ * finds them (layout/pack.ts clearAreas), so what fits here packs there.
  */
 import type { PrintSetup } from './layout/plan';
 import type { GridLayout } from './layout/drawer';
@@ -22,6 +29,8 @@ import { hasLid, lidSize } from './geometry/lid';
 import { binCellsAt, type PlacedBin } from './project';
 import type { BinStretch } from './geometry/placement';
 import { jobPrinters, printerNames } from './layout/fleet';
+import { binSpacing, clearAreas } from './layout/pack';
+import { bedExclusion, type BedRect } from './printers';
 import { meshSize, printsMesh } from './external';
 
 /** What the printer can take: footprint (either way round) and height, mm. */
@@ -31,6 +40,14 @@ export interface Bed {
   h: number;
   /** The printer's name, for messages (usableBeds). */
   name?: string;
+  /**
+   * With exclusion areas (printers.ts): the parts of the usable bed clear of
+   * them, the largest rectangles (layout/pack.ts clearAreas). A part fits
+   * when it fits one of them, either way round. Unset: the whole usable bed.
+   */
+  clear?: readonly { w: number; d: number }[];
+  /** Where the exclusion areas are, for messages ("front-left corner"). */
+  keepClear?: string;
 }
 
 /** One printer's bed, or every printer's: a part fits when it fits at least one of them. */
@@ -40,23 +57,61 @@ const EPS = 1e-6;
 
 const bedList = (bed: Beds): readonly Bed[] => (Array.isArray(bed) ? (bed as readonly Bed[]) : [bed as Bed]);
 
-/** The first printer's bed (with one printer, the only one). */
-export function usableBed(setup: Pick<PrintSetup, 'bedW' | 'bedD' | 'plateMargin' | 'maxH'>): Bed {
-  return { w: setup.bedW - 2 * setup.plateMargin, d: setup.bedD - 2 * setup.plateMargin, h: setup.maxH };
+/**
+ * The first printer's bed (with one printer, the only one). With its model
+ * (`printerId`) it has the model's exclusion areas, kept clear by the gap
+ * bins are packed with (the `spacing`, at least 2 mm).
+ */
+export function usableBed(setup: Pick<PrintSetup, 'bedW' | 'bedD' | 'plateMargin' | 'maxH'> & Partial<Pick<PrintSetup, 'printerId' | 'spacing'>>): Bed {
+  const bed: Bed = { w: setup.bedW - 2 * setup.plateMargin, d: setup.bedD - 2 * setup.plateMargin, h: setup.maxH };
+  const exclude = setup.printerId ? bedExclusion(setup.printerId) : [];
+  if (!exclude.length) return bed;
+  const areas = clearAreas({ bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, exclude, spacing: binSpacing(setup.spacing) });
+  return { ...bed, clear: areas.map((a) => ({ w: a.w, d: a.d })), keepClear: whereOnBed(exclude, setup.bedW, setup.bedD) };
+}
+
+/** "front-left corner", "back edge"…: where exclusion areas are on a bed. */
+function whereOnBed(areas: readonly BedRect[], bedW: number, bedD: number): string {
+  const one = (e: BedRect) => {
+    const side = e.x <= EPS ? 'left' : e.x + e.w >= bedW - EPS ? 'right' : '';
+    const end = e.y <= EPS ? 'front' : e.y + e.d >= bedD - EPS ? 'back' : '';
+    return side && end ? `${end}-${side} corner` : side || end ? `${side || end} edge` : 'middle';
+  };
+  return [...new Set(areas.map(one))].join(' and ');
 }
 
 /** Every printer's bed, named: what the editors hold bins to. */
 export function usableBeds(setup: PrintSetup): Bed[] {
   const names = printerNames(setup);
-  return jobPrinters(setup).map((p, i) => ({ ...usableBed(p), name: names[i] }));
+  return jobPrinters(setup).map((p, i) => ({ ...usableBed({ ...p, spacing: setup.spacing }), name: names[i] }));
+}
+
+/**
+ * The usable bed for hints and messages: "236 × 236", and with exclusion
+ * areas "236 × 236 (225 × 236 or 236 × 215 clear of the front-left corner)".
+ */
+export function bedText(bed: Bed, fmt: (mm: number) => string = (mm) => `${r1(mm)}`): string {
+  const size = (r: { w: number; d: number }) => `${fmt(r.w)} × ${fmt(r.d)}`;
+  if (!bed.clear) return size(bed);
+  const clear = bed.clear.length ? bed.clear.map(size).join(' or ') : 'nothing';
+  return `${size(bed)} (${clear} clear of the ${bed.keepClear ?? 'area the printer keeps free'})`;
 }
 
 /** How many printers the beds are for. */
 export const bedCount = (bed: Beds) => bedList(bed).length;
 
+/** How far a w × d footprint overshoots a rectangle, in its better orientation (≤ 0 = it fits). */
+const flatOn = (w: number, d: number, r: { w: number; d: number }) => Math.min(Math.max(w - r.w, d - r.d), Math.max(d - r.w, w - r.d));
+
+/** How far a footprint overshoots the bed: the usable bed, or with exclusion areas the part of it clear of them that it comes closest to fitting. */
+function flatOvershoot(w: number, d: number, bed: Bed): number {
+  const full = flatOn(w, d, bed);
+  if (!bed.clear) return full;
+  return Math.max(full, bed.clear.length ? Math.min(...bed.clear.map((r) => flatOn(w, d, r))) : Math.max(w, d));
+}
+
 function overshootOn(w: number, d: number, h: number, bed: Bed): number {
-  const flat = Math.min(Math.max(w - bed.w, d - bed.d), Math.max(d - bed.w, w - bed.d));
-  return Math.max(0, flat, h - bed.h);
+  return Math.max(0, flatOvershoot(w, d, bed), h - bed.h);
 }
 
 /** How far a w × d × h part overshoots the bed, mm, in its better orientation (0 = it fits); with several beds, the one it comes closest to. */
@@ -130,12 +185,19 @@ export function bedProblem(
   if (list.length > 1) return bedsProblem(bigParts(opts, cells), list, fmt);
   const bed = list[0];
   for (const p of bigParts(opts, cells)) {
-    const flat = Math.min(Math.max(p.w - bed.w, p.d - bed.d), Math.max(p.d - bed.w, p.w - bed.d));
     const what = p.name === 'bin' ? 'This bin' : `Its ${p.name}`;
-    if (flat > EPS) return `${what} is ${fmt(p.w)} × ${fmt(p.d)}: too big for the print bed, which takes ${fmt(bed.w)} × ${fmt(bed.d)} inside the edge margin.`;
+    if (flatOn(p.w, p.d, bed) > EPS) return `${what} is ${fmt(p.w)} × ${fmt(p.d)}: too big for the print bed, which takes ${fmt(bed.w)} × ${fmt(bed.d)} inside the edge margin.`;
+    if (flatOvershoot(p.w, p.d, bed) > EPS) return `${what} is ${fmt(p.w)} × ${fmt(p.d)}: ${notClear(bed, fmt)}`;
     if (p.h > bed.h + EPS) return `${what} is ${fmt(p.h)} tall: the printer prints up to ${fmt(bed.h)}.`;
   }
   return null;
+}
+
+/** Why a part that fits inside the edge margin still doesn't fit: the area the printer keeps free is in the way. */
+function notClear(bed: Bed, fmt: (mm: number) => string): string {
+  const where = bed.keepClear ?? 'area the printer keeps free';
+  const clear = bed.clear?.length ? bed.clear.map((r) => `${fmt(r.w)} × ${fmt(r.d)}`).join(' or ') : 'nothing';
+  return `it fits inside the edge margin, but not clear of the ${where} Bambu Studio keeps free (it won't slice a part there). Clear of it the bed takes ${clear}.`;
 }
 
 /** Why a part fits none of several printers: what the one it comes closest to takes. */
@@ -145,8 +207,9 @@ function bedsProblem(parts: PartSize[], beds: readonly Bed[], fmt: (mm: number) 
     const near = beds.reduce((a, b) => (overshootOn(p.w, p.d, p.h, b) < overshootOn(p.w, p.d, p.h, a) - EPS ? b : a));
     const what = p.name === 'bin' ? 'This bin' : `Its ${p.name}`;
     const name = near.name ?? 'the closest printer';
-    if (overshootOn(p.w, p.d, 0, near) > EPS)
+    if (flatOn(p.w, p.d, near) > EPS)
       return `${what} is ${fmt(p.w)} × ${fmt(p.d)}: too big for every printer. The ${name} comes closest, with ${fmt(near.w)} × ${fmt(near.d)} inside the edge margin.`;
+    if (overshootOn(p.w, p.d, 0, near) > EPS) return `${what} is ${fmt(p.w)} × ${fmt(p.d)}: too big for every printer. The ${name} comes closest: ${notClear(near, fmt)}`;
     return `${what} is ${fmt(p.h)} tall: too tall for every printer. The ${name} comes closest, printing up to ${fmt(near.h)}.`;
   }
   return null;
