@@ -3,13 +3,14 @@ import Module from 'manifold-3d';
 import { readFileSync } from 'node:fs';
 import type { MeshData, Wasm } from '../src/lib/geometry/kernel';
 import { registerFont } from '../src/lib/geometry/text';
-import { checkPart, sliceReport } from '../src/lib/geometry/printcheck';
+import { checkPart, meshTopology, sliceReport } from '../src/lib/geometry/printcheck';
 import { DEFAULT_BIN, binLabelTabs, buildBin, type BinOptions } from '../src/lib/geometry/bin';
 import { DEFAULT_BASEPLATE, buildBaseplatePiece, type BaseplateOptions } from '../src/lib/geometry/baseplate';
 import { CONNECTOR_MIN_WALL } from '../src/lib/geometry/spec';
 import { DEFAULT_DRAWER, computeLayout } from '../src/lib/layout/drawer';
 import { makePieces } from '../src/lib/layout/split';
 import { buildMesh, type PrintJob } from '../src/lib/project';
+import { writeSTL } from '../src/lib/export/stl';
 import { setWallProps, uniformLayout } from '../src/lib/dividers';
 import { SAMPLE_GROUPS, printedParts } from '../scripts/sampler-cases';
 
@@ -116,5 +117,34 @@ describe('print fixes', () => {
     expect(m.overlays).toHaveLength(1);
     const c = checkPart(w, m);
     expect(c.issues).toEqual([]);
+  });
+
+  it('STL keeps overlay bodies apart from the body, so a slicer reads closed shells', () => {
+    const m = sample('labels/inlaid.stl');
+    expect(m.overlays?.length).toBeGreaterThan(0);
+    // Weld the STL's vertices by position and drop the facets that collapse, as a slicer does.
+    const bytes = writeSTL([{ mesh: m }]);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const index = new Map<string, number>();
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let t = 0; t < dv.getUint32(80, true); t++) {
+      const tri = [0, 1, 2].map((k) => {
+        const o = 84 + t * 50 + 12 + k * 12;
+        const v = [dv.getFloat32(o, true), dv.getFloat32(o + 4, true), dv.getFloat32(o + 8, true)];
+        const key = v.join(',');
+        if (!index.has(key)) {
+          index.set(key, positions.length / 3);
+          positions.push(...v);
+        }
+        return index.get(key)!;
+      });
+      if (new Set(tri).size === 3) indices.push(...tri);
+    }
+    const t = meshTopology({ positions: new Float32Array(positions), indices: new Uint32Array(indices) });
+    expect(t.openEdges).toBe(0);
+    expect(t.badEdges).toBe(0);
+    const letters = m.overlays!.reduce((s, o) => s + meshTopology(o).components.length, 0);
+    expect(t.components).toHaveLength(1 + letters);
   });
 });
