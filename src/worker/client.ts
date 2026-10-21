@@ -1,6 +1,8 @@
 import type { MeshData } from '../lib/geometry/kernel';
 import type { MeshSpec, PrintJob } from '../lib/project';
 import type { PrintSetup } from '../lib/layout/plan';
+import type { StepAssembly } from '../lib/export/step';
+import type { MeshPrintStats } from '../lib/estimate';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = {
@@ -26,6 +28,10 @@ class GeometryClient {
   private vols = new Map<string, number>();
   private volsInFlight = new Set<string>();
   private volsFailed = new Set<string>();
+  /** Slice data for print-time estimates, by mesh key. */
+  private stats = new Map<string, MeshPrintStats>();
+  private statsInFlight = new Set<string>();
+  private statsFailed = new Set<string>();
   private wanted: MeshSpec[] = [];
   private busy = false;
   private listeners = new Set<() => void>();
@@ -139,6 +145,23 @@ class GeometryClient {
     return this.bytes(await this.call({ type: 'export-stl-single', spec, name }));
   }
 
+  async exportStepPlate(job: PrintJob, plate: number, onProgress?: Pending['onProgress']) {
+    return this.bytes(await this.call({ type: 'export-step-plate', job, plate }, onProgress));
+  }
+
+  async exportStepZip(job: PrintJob, onProgress?: Pending['onProgress']) {
+    return this.bytes(await this.call({ type: 'export-step-zip', job }, onProgress));
+  }
+
+  async exportStepSingle(spec: MeshSpec, name: string) {
+    return this.bytes(await this.call({ type: 'export-step-single', spec, name }));
+  }
+
+  /** Assembled drawers as STEP: one file, or a zip with one per drawer. */
+  async exportStepAssembly(assemblies: StepAssembly[], meshes: Record<string, MeshSpec>, onProgress?: Pending['onProgress']) {
+    return this.bytes(await this.call({ type: 'export-step-assembly', assemblies, meshes }, onProgress));
+  }
+
   /** Measured solid volume of a mesh (mm³), if known yet. */
   volume(key: string): number | undefined {
     return this.vols.get(key);
@@ -165,6 +188,35 @@ class GeometryClient {
       }
     } finally {
       for (const s of todo) this.volsInFlight.delete(s.key);
+      this.emit();
+    }
+  }
+
+  /** Slice data of a mesh for the print-time estimate, if known yet. */
+  printStats(key: string): MeshPrintStats | undefined {
+    return this.stats.get(key);
+  }
+
+  printStatsFailed(key: string) {
+    return this.statsFailed.has(key) || this.errors.has(key);
+  }
+
+  /** Slice the meshes not sliced yet (building them as needed). Listeners hear when it's done. */
+  async slice(specs: MeshSpec[], onProgress?: Pending['onProgress']) {
+    const todo = specs.filter((s) => !this.stats.has(s.key) && !this.statsInFlight.has(s.key) && !this.printStatsFailed(s.key));
+    if (!todo.length) return;
+    for (const s of todo) this.statsInFlight.add(s.key);
+    try {
+      const res = await this.call({ type: 'print-stats', specs: todo }, onProgress);
+      if (res.type === 'print-stats') {
+        for (const s of todo) {
+          const v = res.stats[s.key];
+          if (v === undefined) this.statsFailed.add(s.key);
+          else this.stats.set(s.key, v);
+        }
+      }
+    } finally {
+      for (const s of todo) this.statsInFlight.delete(s.key);
       this.emit();
     }
   }

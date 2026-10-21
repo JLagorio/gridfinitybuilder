@@ -12,6 +12,8 @@ import {
   type PrintJob,
 } from '../lib/project';
 import { exportPlateSTL, exportPlatesStlZip, writeSTL } from '../lib/export/stl';
+import { exportAssembliesSTEP, exportPlateSTEP, exportPlatesStepZip, exportSingleSTEP } from '../lib/export/step';
+import { sliceStats, type MeshPrintStats } from '../lib/estimate';
 import { printedVolume } from '../lib/geometry/volume';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 import { FONT_URL_PATH, registerFont } from '../lib/geometry/text';
@@ -35,6 +37,8 @@ const cache = new Map<string, MeshData>();
 // Volumes are measured once per mesh, when it's built, and outlive the mesh cache.
 const MAX_VOLUMES = 5000;
 const volumes = new Map<string, number>();
+// Slice data for print-time estimates, kept like the volumes.
+const printStats = new Map<string, MeshPrintStats>();
 
 function getCached(key: string) {
   const m = cache.get(key);
@@ -69,6 +73,19 @@ async function ensureJobMeshes(id: number, job: PrintJob) {
   return (key: string) => getCached(key) ?? cache.get(key)!;
 }
 
+/** Build the meshes an assembled-drawer export needs (more than the cache may hold). */
+async function ensureMeshes(id: number, specs: MeshSpec[]) {
+  // Keep every mesh of this export, even past the cache size.
+  const held = new Map<string, MeshData>();
+  let done = 0;
+  for (const spec of specs) {
+    held.set(spec.key, await meshFor(spec));
+    done++;
+    post({ id, type: 'progress', done, total: specs.length });
+  }
+  return (key: string) => held.get(key) ?? getCached(key)!;
+}
+
 function post(msg: WorkerResponse, transfer: Transferable[] = []) {
   self.postMessage(msg, transfer);
 }
@@ -101,6 +118,26 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         post({ id: req.id, type: 'volumes', volumes: out });
         break;
       }
+      case 'print-stats': {
+        const out: Record<string, MeshPrintStats> = {};
+        let done = 0;
+        for (const spec of req.specs) {
+          try {
+            let s = printStats.get(spec.key);
+            if (!s) {
+              s = sliceStats(await meshFor(spec));
+              printStats.set(spec.key, s);
+              while (printStats.size > MAX_VOLUMES) printStats.delete(printStats.keys().next().value!);
+            }
+            out[spec.key] = s;
+          } catch {
+            // Left out: the plate shows no estimate.
+          }
+          post({ id: req.id, type: 'progress', done: ++done, total: req.specs.length });
+        }
+        post({ id: req.id, type: 'print-stats', stats: out });
+        break;
+      }
       case 'export-stl-plate': {
         const get = await ensureJobMeshes(req.id, { ...req.job, plates: [req.job.plates[req.plate]] });
         const bytes = exportPlateSTL(req.job, req.plate, get);
@@ -115,6 +152,30 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       }
       case 'export-stl-single': {
         const bytes = writeSTL([{ mesh: await meshFor(req.spec) }], req.name);
+        post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'export-step-plate': {
+        const get = await ensureJobMeshes(req.id, { ...req.job, plates: [req.job.plates[req.plate]] });
+        const bytes = exportPlateSTEP(req.job, req.plate, get);
+        post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'export-step-zip': {
+        const get = await ensureJobMeshes(req.id, req.job);
+        const bytes = exportPlatesStepZip(req.job, get);
+        post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'export-step-single': {
+        const bytes = exportSingleSTEP(req.name, await meshFor(req.spec));
+        post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
+        break;
+      }
+      case 'export-step-assembly': {
+        const keys = new Set(req.assemblies.flatMap((a) => a.items.map((it) => it.meshKey)));
+        const get = await ensureMeshes(req.id, [...keys].map((k) => req.meshes[k]));
+        const bytes = exportAssembliesSTEP(req.assemblies, get);
         post({ id: req.id, type: 'bytes', bytes }, [bytes.buffer]);
         break;
       }

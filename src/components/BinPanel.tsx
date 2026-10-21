@@ -320,7 +320,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
     for (const id of many ? selIds : [sel.id]) updateBin(id, { opts: p });
   };
 
-  const downloadSelected = async (format: '3mf' | 'stl' = '3mf') => {
+  const downloadSelected = async (format: '3mf' | 'stl' | 'step' = '3mf') => {
     if (!sel) return;
     setBusy(true);
     try {
@@ -328,6 +328,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
       const name = `gridfinity-bin-${binUnitsText(job.layout, sel.opts).replace('×', 'x')}x${sel.opts.heightUnits}u`;
       const label = binLabel(sel.opts, spec.cells);
       if (format === 'stl') downloadBytes(await geometry.exportStlSingle(spec, label), `${name}.stl`, 'model/stl');
+      else if (format === 'step') downloadBytes(await geometry.exportStepSingle(spec, `Bin ${label}`), `${name}.step`, 'model/step');
       else downloadBytes(await geometry.exportSingle(spec, label), `${name}.3mf`, 'model/3mf');
     } finally {
       setBusy(false);
@@ -387,6 +388,9 @@ export function BinPanel({ job }: { job: PrintJob }) {
           </button>
           <button className="link" onClick={() => downloadSelected('stl')} disabled={busy}>
             Download as STL
+          </button>
+          <button className="link" onClick={() => downloadSelected('step')} disabled={busy} title="Flat-faced solid for CAD (Fusion 360, FreeCAD, Onshape, SolidWorks)">
+            Download as STEP (for CAD)
           </button>
           {hasLid(sel.opts) && !binStretched(job.layout, sel) && (
             <button className="link" onClick={downloadLid} disabled={busy}>

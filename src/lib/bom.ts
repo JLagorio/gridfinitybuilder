@@ -5,6 +5,8 @@ import { binHoleSites } from './geometry/bin';
 import { BP_PROFILE_DEPTH, GRID, PIN, SCREW_JOIN } from './geometry/spec';
 import { PRINT_ESTIMATE } from './geometry/volume';
 import type { MeshSpec, PrintJob } from './project';
+import type { PrintSetup } from './layout/plan';
+import { currencySymbol, formatDuration, formatMoney, plateCost, type CostBreakdown, type PlateEstimate } from './estimate';
 
 /**
  * Bill of materials for a print job: hardware to buy, parts and plates, and a
@@ -38,6 +40,13 @@ export interface PlateBom {
   volume: number | null;
   grams: number | null;
   meters: number | null;
+  /** Estimated print time with the start sequence, s; null until the plate's parts are sliced (or without an estimate). */
+  seconds?: number | null;
+  /** Filament swaps for two-colour parts, and the filament they purge, g. */
+  swaps?: number;
+  wasteGrams?: number;
+  /** Filament (and electricity) cost; null until grams and time are known. */
+  cost?: CostBreakdown | null;
 }
 
 export interface Bom {
@@ -49,6 +58,19 @@ export interface Bom {
   parts: { pieces: number; bins: number; lids: number; keys: number; dividers: number; labels: number; trays?: number; pads?: number };
   plates: PlateBom[];
   total: PlateBom;
+  /** Set when the BOM has time and cost figures. */
+  estimate?: { printer: string; currency: string; electricity: boolean };
+}
+
+/** Time and cost inputs for billOfMaterials. */
+export interface BomEstimate {
+  /** Per-plate estimates (estimate.ts estimateJob), null where the parts aren't sliced yet. */
+  plates: (PlateEstimate | null)[];
+  /** Volume of a mesh's filament-2 bodies (inlaid text), mm³, when known. */
+  overlayVolume?: (meshKey: string) => number | undefined;
+  setup: Pick<PrintSetup, 'printerId' | 'filamentPrice' | 'filamentPrice2' | 'kwhPrice' | 'printerWatts' | 'currency'>;
+  /** Printer name, for the notes. */
+  printer: string;
 }
 
 /**
@@ -127,11 +149,16 @@ function holesIn(spec: MeshSpec | undefined): { item: string; count: number; not
  * The job's bill of materials. `volumes` maps mesh keys to solid volumes (mm³);
  * plates with unmeasured meshes get null filament figures.
  */
-export function billOfMaterials(job: PrintJob, volumes: (meshKey: string) => number | undefined = () => undefined): Bom {
+export function billOfMaterials(
+  job: PrintJob,
+  volumes: (meshKey: string) => number | undefined = () => undefined,
+  estimate?: BomEstimate,
+): Bom {
   const hardware = new Map<string, HardwareLine>();
   const parts: Bom['parts'] = { pieces: 0, bins: 0, lids: 0, keys: 0, dividers: 0, labels: 0 };
-  const plates: PlateBom[] = job.plates.map((pl) => {
+  const plates: PlateBom[] = job.plates.map((pl, plateIndex) => {
     let volume: number | null = 0;
+    let second = 0;
     for (const p of pl.placements) {
       const part = job.parts[p.key];
       if (part.kind === 'piece') parts.pieces++;
@@ -149,16 +176,46 @@ export function billOfMaterials(job: PrintJob, volumes: (meshKey: string) => num
       }
       const v = volumes(part.meshKey);
       volume = volume === null || v === undefined ? null : volume + v;
+      second += estimate?.overlayVolume?.(part.meshKey) ?? 0;
     }
-    return { name: pl.name, parts: pl.placements.length, ...plateFilament(volume) };
+    const out: PlateBom = { name: pl.name, parts: pl.placements.length, ...plateFilament(volume) };
+    if (estimate) {
+      const est = estimate.plates[plateIndex] ?? null;
+      out.seconds = est?.seconds ?? null;
+      out.swaps = est?.swaps ?? 0;
+      out.wasteGrams = est?.wasteGrams ?? 0;
+      // Inlaid text prints solid, so its grams are its volume's.
+      const g2 = Math.min(out.grams ?? 0, filamentFor(second).grams);
+      out.cost =
+        est && out.grams !== null
+          ? plateCost({ main: out.grams - g2, second: g2, waste: est.wasteGrams }, est.seconds, estimate.setup)
+          : null;
+    }
+    return out;
   });
   const known = plates.every((p) => p.volume !== null);
-  const total = {
+  const total: PlateBom = {
     name: 'Total',
     parts: plates.reduce((t, p) => t + p.parts, 0),
     ...plateFilament(known ? plates.reduce((t, p) => t + p.volume!, 0) : null),
   };
-  return { hardware: [...hardware.values()], parts, plates, total };
+  const bom: Bom = { hardware: [...hardware.values()], parts, plates, total };
+  if (estimate) {
+    const sum = (f: (p: PlateBom) => number | null | undefined) =>
+      plates.every((p) => f(p) !== null && f(p) !== undefined) ? plates.reduce((t, p) => t + f(p)!, 0) : null;
+    total.seconds = sum((p) => p.seconds);
+    total.swaps = plates.reduce((t, p) => t + (p.swaps ?? 0), 0);
+    total.wasteGrams = plates.reduce((t, p) => t + (p.wasteGrams ?? 0), 0);
+    const filament = sum((p) => p.cost?.filament);
+    const energy = sum((p) => p.cost?.energy);
+    total.cost = filament === null || energy === null ? null : { filament, energy, total: filament + energy };
+    bom.estimate = {
+      printer: estimate.printer,
+      currency: currencySymbol(estimate.setup.currency),
+      electricity: !!estimate.setup.kwhPrice,
+    };
+  }
+  return bom;
 }
 
 function plateFilament(volume: number | null) {
@@ -173,24 +230,61 @@ function csvCell(v: string | number) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Spreadsheet-friendly BOM: hardware lines, then one row per plate. */
+const minutes = (p: PlateBom) => (p.seconds === null || p.seconds === undefined ? '' : String(Math.round(p.seconds / 60)));
+const money = (v: number | null | undefined) => (v === null || v === undefined ? '' : v.toFixed(2));
+
+/** Spreadsheet-friendly BOM: hardware lines, then one row per plate (with time and cost when estimated). */
 export function bomCsv(b: Bom): string {
-  const rows: (string | number)[][] = [['Section', 'Item', 'Quantity', 'Printed volume (cm³)', 'Filament (g)', 'Filament (m)', 'Notes']];
-  for (const h of b.hardware) rows.push(['Hardware', h.item, h.count, '', '', '', h.note ?? '']);
-  rows.push(['Parts', 'Baseplate pieces', b.parts.pieces, '', '', '', '']);
-  rows.push(['Parts', 'Bins', b.parts.bins, '', '', '', '']);
-  if (b.parts.lids) rows.push(['Parts', 'Lids', b.parts.lids, '', '', '', '']);
-  if (b.parts.trays) rows.push(['Parts', 'Lift-out trays', b.parts.trays, '', '', '', '']);
-  if (b.parts.keys) rows.push(['Parts', 'Connector keys', b.parts.keys, '', '', '', '']);
-  if (b.parts.dividers) rows.push(['Parts', 'Removable dividers', b.parts.dividers, '', '', '', '']);
-  if (b.parts.labels) rows.push(['Parts', 'Label plates', b.parts.labels, '', '', '', '']);
-  if (b.parts.pads) rows.push(['Parts', 'Non-slip pads (TPU)', b.parts.pads, '', '', '', 'print in TPU on their own plate; press into the recesses under the baseplate']);
+  const cost = b.estimate ? `Cost (${b.estimate.currency})` : 'Cost';
+  const rows: (string | number)[][] = [
+    ['Section', 'Item', 'Quantity', 'Printed volume (cm³)', 'Filament (g)', 'Filament (m)', 'Print time (min)', cost, 'Notes'],
+  ];
+  const blank = ['', '', '', '', ''];
+  for (const h of b.hardware) rows.push(['Hardware', h.item, h.count, ...blank, h.note ?? '']);
+  rows.push(['Parts', 'Baseplate pieces', b.parts.pieces, ...blank, '']);
+  rows.push(['Parts', 'Bins', b.parts.bins, ...blank, '']);
+  if (b.parts.lids) rows.push(['Parts', 'Lids', b.parts.lids, ...blank, '']);
+  if (b.parts.trays) rows.push(['Parts', 'Lift-out trays', b.parts.trays, ...blank, '']);
+  if (b.parts.keys) rows.push(['Parts', 'Connector keys', b.parts.keys, ...blank, '']);
+  if (b.parts.dividers) rows.push(['Parts', 'Removable dividers', b.parts.dividers, ...blank, '']);
+  if (b.parts.labels) rows.push(['Parts', 'Label plates', b.parts.labels, ...blank, '']);
+  if (b.parts.pads) rows.push(['Parts', 'Non-slip pads (TPU)', b.parts.pads, ...blank, 'print in TPU on their own plate; press into the recesses under the baseplate']);
   b.plates.forEach((p, i) => {
-    rows.push(['Plate', `${i + 1}. ${p.name}`, p.parts, r1(p.volume === null ? null : p.volume / 1000), r1(p.grams), r1(p.meters), '']);
+    rows.push([
+      'Plate',
+      `${i + 1}. ${p.name}`,
+      p.parts,
+      r1(p.volume === null ? null : p.volume / 1000),
+      r1(p.grams),
+      r1(p.meters),
+      minutes(p),
+      money(p.cost?.total),
+      p.swaps ? `${p.swaps} filament swaps, ${Math.round(p.wasteGrams ?? 0)} g purged` : '',
+    ]);
   });
   const t = b.total;
-  rows.push(['Total', `${b.plates.length} plates`, t.parts, r1(t.volume === null ? null : t.volume / 1000), r1(t.grams), r1(t.meters), filamentNote()]);
+  rows.push([
+    'Total',
+    `${b.plates.length} plates`,
+    t.parts,
+    r1(t.volume === null ? null : t.volume / 1000),
+    r1(t.grams),
+    r1(t.meters),
+    minutes(t),
+    money(t.cost?.total),
+    filamentNote(),
+  ]);
+  if (b.estimate && t.cost) {
+    rows.push(['Cost', 'Filament', '', '', '', '', '', money(t.cost.filament), '']);
+    if (b.estimate.electricity) rows.push(['Cost', 'Electricity', '', '', '', '', '', money(t.cost.energy), '']);
+  }
+  if (b.estimate) rows.push(['Note', '', '', '', '', '', '', '', estimateNote(b.estimate.printer)]);
   return rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
+}
+
+/** What the time estimate assumes. */
+export function estimateNote(printer: string) {
+  return `Print time for Bambu's 0.20 mm Standard (PLA Basic) on the ${printer}, start sequence included. Expect ±25 %`;
 }
 
 /** Plain-text BOM, for printing or pasting. */
@@ -208,8 +302,26 @@ export function bomText(b: Bom): string {
   if (b.parts.pads) lines.push(`  ${b.parts.pads} non-slip pads in TPU (their own plate; press into the recesses under the baseplate)`);
   lines.push('', `Plates (${b.plates.length})`);
   const fil = (p: PlateBom) => (p.grams === null ? 'not measured' : `${Math.round(p.grams)} g, ${r1(p.meters)} m`);
-  b.plates.forEach((p, i) => lines.push(`  ${i + 1}. ${p.name}: ${p.parts} parts, ${fil(p)}`));
-  lines.push('', `Filament total: ${fil(b.total)}`, `  ${filamentNote()}`, '');
+  const est = b.estimate;
+  const extra = (p: PlateBom) => {
+    if (!est) return '';
+    const time = p.seconds === null || p.seconds === undefined ? 'time not estimated yet' : `about ${formatDuration(p.seconds)}`;
+    const cost = p.cost ? `, ${formatMoney(p.cost.total, est.currency)}` : '';
+    return `, ${time}${cost}`;
+  };
+  b.plates.forEach((p, i) => lines.push(`  ${i + 1}. ${p.name}: ${p.parts} parts, ${fil(p)}${extra(p)}`));
+  lines.push('', `Filament total: ${fil(b.total)}`, `  ${filamentNote()}`);
+  if (est) {
+    const t = b.total;
+    lines.push('', `Print time total: ${t.seconds === null || t.seconds === undefined ? 'not estimated yet' : `about ${formatDuration(t.seconds)}`}`);
+    if (t.swaps) lines.push(`  includes ${t.swaps} filament swaps (${Math.round(t.wasteGrams ?? 0)} g purged)`);
+    lines.push(`  ${estimateNote(est.printer)}`);
+    if (t.cost) {
+      lines.push('', `Cost total: ${formatMoney(t.cost.total, est.currency)}`, `  filament ${formatMoney(t.cost.filament, est.currency)}`);
+      if (est.electricity) lines.push(`  electricity ${formatMoney(t.cost.energy, est.currency)}`);
+    }
+  }
+  lines.push('');
   return lines.join('\n');
 }
 

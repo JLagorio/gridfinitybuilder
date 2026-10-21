@@ -191,6 +191,14 @@ kbd {
 .bom-table .muted {
   color: var(--faint);
 }
+.cost-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plate-estimate {
+  font-variant-numeric: tabular-nums;
+}
 .share-status {
   flex-basis: 100%;
 }

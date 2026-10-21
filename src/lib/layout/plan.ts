@@ -30,6 +30,16 @@ export interface PrintSetup {
   nest: boolean;
   /** Colour of filament 2 (inlaid label text) in Bambu projects, #RRGGBB. */
   labelColour?: string;
+  /** Filament price per kg, in `currency`. */
+  filamentPrice?: number;
+  /** Price per kg of filament 2 (inlaid label text); unset: the same as filament 1. */
+  filamentPrice2?: number;
+  /** Currency symbol for costs; empty: guessed from the browser's language. */
+  currency?: string;
+  /** Electricity price per kWh; 0 leaves electricity out of the cost. */
+  kwhPrice?: number;
+  /** Printer power draw while printing, W; unset: the printer's typical draw. */
+  printerWatts?: number;
 }
 
 export const DEFAULT_SETUP: PrintSetup = {
@@ -42,7 +52,29 @@ export const DEFAULT_SETUP: PrintSetup = {
   splitStyle: 'auto',
   splitMargins: false,
   nest: true,
+  filamentPrice: 20,
+  currency: '',
+  kwhPrice: 0,
 };
+
+/**
+ * A saved setup with the cost fields filled in and checked (projects saved
+ * before they existed, or edited by hand). Other fields pass through.
+ */
+export function cleanSetup(saved: Partial<PrintSetup> | null | undefined, base: PrintSetup = DEFAULT_SETUP): PrintSetup {
+  const s = { ...base, ...(saved ?? {}) } as PrintSetup;
+  const price = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(v, max) : undefined);
+  s.filamentPrice = price(s.filamentPrice, 100000) ?? DEFAULT_SETUP.filamentPrice;
+  s.kwhPrice = price(s.kwhPrice, 1000) ?? 0;
+  s.currency = typeof s.currency === 'string' ? s.currency.trim().slice(0, 4) : '';
+  const p2 = price(s.filamentPrice2, 100000);
+  if (p2 === undefined) delete s.filamentPrice2;
+  else s.filamentPrice2 = p2;
+  const watts = price(s.printerWatts, 5000);
+  if (watts === undefined || watts === 0) delete s.printerWatts;
+  else s.printerWatts = watts;
+  return s;
+}
 
 export interface BaseplatePlan {
   pieces: PieceDef[];
