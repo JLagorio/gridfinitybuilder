@@ -2320,9 +2320,33 @@ details.option-group[open] summary > span::before {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
+/* ---------- parts that load on first use (lazy.tsx) ---------- */
+
+.lazy-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* In the side panel or a dialog, "Reload to update" sits in place rather than over the page. */
+.sidebar .crash-compact,
+.lazy-dialog .crash-compact {
+  position: static;
+  max-width: none;
+  margin: 0;
+  background: none;
+  border: none;
+}
+.lazy-dialog {
+  min-width: min(380px, 100%);
+}
+
 /* ==========================================================================
    Inventory: find box, "What's in it", drawer map, contents list
-   (FindBox.tsx, ContentsField.tsx, DrawerMap.tsx, InventoryList.tsx)
+   (FindBox.tsx, ContentsField.tsx, DrawerMap.tsx, DrawerMapDialog.tsx, InventoryList.tsx)
    ========================================================================== */
 
 .faint {

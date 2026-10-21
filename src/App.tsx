@@ -9,12 +9,10 @@ import { geometry } from './worker/client';
 import { Viewer, type SceneBed, type SceneItem } from './components/Viewer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DrawerPanel } from './components/DrawerPanel';
-import { BinPanel } from './components/BinPanel';
-import { PrintPanel } from './components/PrintPanel';
 import { BinGridEditor } from './components/BinGridEditor';
 import { useBinCheckMarks } from './components/PrintChecks';
-import { BinInteriorEditor, BinPaneHeader, useInteriorPane } from './components/BinInteriorEditor';
-import { CutoutEditor } from './components/CutoutEditor';
+import { BinPaneHeader, useInteriorPane } from './components/BinPaneHeader';
+import { LazyPart, lazyNamed, once, prefetch } from './components/lazy';
 import { DrawerSwitcher } from './components/DrawerSwitcher';
 import { HistoryButtons } from './components/HistoryButtons';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
@@ -35,6 +33,22 @@ import { stackPlaces } from './lib/stacking';
 import { PhoneNav, usePhoneView } from './components/PhoneNav';
 import { useCoarsePointer } from './components/touch';
 import './components/workflow.css';
+
+// The first screen is the drawer panel, the bin grid and the 3D view; the rest loads on first use (components/lazy.tsx).
+// index.html preloads the panel of the tab saved with the project (scripts/preload.ts).
+const loadBinPanel = once(() => import('./components/BinPanel'));
+const loadPrintPanel = once(() => import('./components/PrintPanel'));
+const loadInterior = once(() => import('./components/BinInteriorEditor'));
+const loadCutouts = once(() => import('./components/CutoutEditor'));
+const BinPanel = lazyNamed(loadBinPanel, 'BinPanel');
+const PrintPanel = lazyNamed(loadPrintPanel, 'PrintPanel');
+const BinInteriorEditor = lazyNamed(loadInterior, 'BinInteriorEditor');
+const CutoutEditor = lazyNamed(loadCutouts, 'CutoutEditor');
+
+/** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
+export function prefetchTabs() {
+  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts);
+}
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'drawer', label: 'Drawer & baseplate' },
@@ -380,8 +394,16 @@ export default function App() {
       <div className="body">
         <aside className="sidebar">
           {ui.tab === 'drawer' && <DrawerPanel job={job} />}
-          {ui.tab === 'bins' && <BinPanel job={viewJob} />}
-          {ui.tab === 'print' && <PrintPanel job={printJob} />}
+          {ui.tab === 'bins' && (
+            <LazyPart scope="The Bins panel">
+              <BinPanel job={viewJob} />
+            </LazyPart>
+          )}
+          {ui.tab === 'print' && (
+            <LazyPart scope="The Print panel">
+              <PrintPanel job={printJob} />
+            </LazyPart>
+          )}
         </aside>
         <main className={`main main-${ui.tab}`}>
           {ui.tab === 'bins' ? (
@@ -389,9 +411,13 @@ export default function App() {
               <div className="pane pane-2d">
                 <BinPaneHeader />
                 {ui.binPane === 'cutouts' ? (
-                  <CutoutEditor job={job} />
+                  <LazyPart scope="The tool cutouts editor">
+                    <CutoutEditor job={job} />
+                  </LazyPart>
                 ) : interiorBin ? (
-                  <BinInteriorEditor binId={interiorBin} grid={job.layout} />
+                  <LazyPart scope="The compartment editor">
+                    <BinInteriorEditor binId={interiorBin} grid={job.layout} />
+                  </LazyPart>
                 ) : (
                   <BinGridEditor
                     layout={job.layout}

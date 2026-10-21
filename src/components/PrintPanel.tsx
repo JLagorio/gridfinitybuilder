@@ -7,7 +7,6 @@ import { downloadBytes, geometry } from '../worker/client';
 import { LID_COLOR, pieceColor } from './colors';
 import { bambuSettings } from './bambuSettings';
 import { BomSection, TestFitSection, plateSummary, useJobEstimate } from './PrintExtras';
-import { drawerAssemblies } from '../lib/export/step';
 import { CopyShareLink } from './ShareLink';
 import { ContentsSection } from './InventoryList';
 import { NozzleField, PrintChecksSection } from './PrintChecks';
@@ -16,6 +15,7 @@ import { printedOn } from '../lib/printed';
 import { formatDuration } from '../lib/estimate';
 import { MorePrinters } from './PrinterFields';
 import { OnlyChangedField, PlatePrintedMark } from './PrintedMarks';
+import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 
 export function PrintPanel({ job }: { job: PrintJob }) {
   const store = useStore();
@@ -30,7 +30,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     try {
       await fn((done, total) => setProgress({ label, done, total }));
     } catch (e) {
-      setError((e as Error).message);
+      setError(isChunkError(e) ? CHUNK_ERROR_MESSAGE : (e as Error).message);
     } finally {
       setProgress(null);
     }
@@ -89,6 +89,8 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     });
   const exportAssembled = () =>
     run('Building the assembled drawer', async (p) => {
+      // The STEP writer's layout half loads with the first assembled export.
+      const { drawerAssemblies } = await import('../lib/export/step');
       const assemblies = drawerAssemblies(job, printing);
       const bytes = await geometry.exportStepAssembly(assemblies, job.meshes, p);
       if (assemblies.length > 1) downloadBytes(bytes, `gridfinity-${stamp}-assembled-step.zip`, 'application/zip');

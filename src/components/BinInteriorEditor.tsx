@@ -70,7 +70,6 @@ import { selectFreeWall } from './interiorState';
 import { LayoutActions, copyLayoutOf, dividerHeight, pasteLayoutInto } from './WallTools';
 import { isMod } from './shortcuts';
 import { CompartmentInsidePreview, useInsideBadge } from './CompartmentInsidePreview';
-import { isContainer } from '../lib/geometry/containers';
 import { stretchOf } from '../lib/geometry/placement';
 import { TouchToggle, fingerPx, isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
 
@@ -119,47 +118,6 @@ interface Editing {
   text: string;
   initial: string;
   bad?: boolean;
-}
-
-/** Left-pane header in the Bins tab: switches between the drawer grid and the compartment editor. */
-export function BinPaneHeader() {
-  const pane = useStore((s) => s.ui.binPane ?? 'drawer');
-  const setUI = useStore((s) => s.setUI);
-  // Drawer units, parts boxes, … have no compartments to edit.
-  const exists = useStore((s) => !!s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts)));
-  // Leave the compartment view when the bin is deselected, so picking a bin on the grid doesn't jump away from it.
-  useEffect(() => {
-    if (!exists && pane === 'compartments') setUI({ binPane: 'drawer' });
-  }, [exists, pane, setUI]);
-  // The tool cutouts pane (CutoutEditor.tsx) stays open without a bin; it lists bins to pick from.
-  const showing = pane === 'cutouts' ? 'cutouts' : exists && pane === 'compartments' ? 'compartments' : 'drawer';
-  return (
-    <div className="pane-head">
-      <div className="pane-title">
-        {showing === 'drawer'
-          ? 'Layout — drag to draw bins'
-          : showing === 'cutouts'
-            ? 'Tool cutouts — drag tools into the bin'
-            : 'Compartments — click inside the bin to add a wall'}
-      </div>
-      <Segmented
-        value={showing}
-        options={[
-          { value: 'drawer', label: 'Drawer layout' },
-          { value: 'compartments', label: 'Compartments', title: exists ? 'Edit the selected bin’s walls' : 'Select a bin first' },
-          { value: 'cutouts', label: 'Tool cutouts', title: 'Lay out traced tools as pockets in the selected bin' },
-        ]}
-        onChange={(v) => (v !== 'compartments' || exists) && setUI({ binPane: v })}
-      />
-    </div>
-  );
-}
-
-/** The bin whose compartments the left pane shows, or null for the drawer grid. */
-export function useInteriorPane(): string | null {
-  return useStore((s) =>
-    s.ui.binPane === 'compartments' && s.ui.selectedBinId && s.bins.some((b) => b.id === s.ui.selectedBinId && !isContainer(b.opts)) ? s.ui.selectedBinId : null,
-  );
 }
 
 /**
