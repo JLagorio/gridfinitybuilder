@@ -103,6 +103,7 @@ export function FindPanel({ index, placeholder, children }: { index: readonly Fi
           )}
         </div>
         <Segmented
+          ariaLabel="Settings shown"
           value={view}
           options={[
             { value: 'basic', label: 'Basic', title: 'The settings most bins and drawers need, plus anything you have changed' },

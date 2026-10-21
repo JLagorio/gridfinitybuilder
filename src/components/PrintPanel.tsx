@@ -139,12 +139,7 @@ export function PrintPanel({ job }: { job: PrintJob }) {
   const firstPrinter = (
     <>
       <Find id="printer-model">
-        <Select
-          label="Model"
-          value={setup.printerId}
-          options={PRINTER_OPTIONS}
-          onChange={(id) => store.setPrinter(id)}
-        />
+        <Select label="Model" value={setup.printerId} options={PRINTER_OPTIONS} onChange={(id) => store.setPrinter(id)} />
         {setup.printerId === 'custom' && (
           <div className="row3">
             <LengthInput label="Bed X" value={setup.bedW} min={80} max={1000} onChange={(bedW) => store.setSetup({ bedW })} />
