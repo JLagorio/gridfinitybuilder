@@ -303,6 +303,21 @@ describe('filled compartments', () => {
     expect(binLabelTabs(two({ inside: 'solid' }, { label: 'full' })).length).toBe(1);
   });
 
+  it('a pocket compartment can hold a graduated set (sizes survive sanitizing and reach the key)', () => {
+    const set = { pocketSizes: [3, 4, 5, 6], pocketSizeNames: [], pocketClearance: 0.3, pocketDepth: 12 };
+    const o = two({ inside: 'pockets', pockets: set });
+    const clean = sanitizeBin(o);
+    const comps = Object.values(clean.layout!.comps ?? {});
+    expect(comps.some((co) => co.pockets?.pocketSizes?.join() === '3,4,5,6')).toBe(true);
+    expect(binKey(clean)).not.toBe(binKey(sanitizeBin(two({ inside: 'pockets', pockets: { ...set, pocketSizes: [3, 4, 5] } }))));
+    const comp = binLayout(clean).compartments.find((x) => x.key === keysOf(TWO, clean.layout!)[1])!;
+    const L = binCompartmentPockets(clean, null, comp);
+    expect(L[0].pockets.map((p) => p.size)).toEqual([3, 4, 5, 6]);
+    const c = check(buildBin(w, clean));
+    expect(c.status).toBe('NoError');
+    expect(c.components).toBe(1);
+  });
+
   it('pockets fill up to the pocket depth and cut their own grid', () => {
     const pk = { pocketShape: 'round', pocketW: 10, pocketDepth: 12, pocketSpacing: 2, pocketChamfer: 0 } as const;
     const o = two({ inside: 'pockets', pockets: pk });

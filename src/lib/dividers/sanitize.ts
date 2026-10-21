@@ -108,6 +108,8 @@ function cleanPockets(v: unknown): CompartmentPockets | null {
     if (typeof c === 'number' && (typeof raw === 'number' || typeof raw === 'string') && Number.isFinite(num(raw))) out[k] = c;
     else if (typeof c === 'string' && c === raw) out[k] = c;
     else if (typeof c === 'boolean' && typeof raw === 'boolean') out[k] = c;
+    // Graduated sets: the size list and its names (cleaned together, so keep both as cleaned).
+    else if (Array.isArray(c) && Array.isArray(raw)) out[k] = c;
   }
   return Object.keys(out).length ? (out as CompartmentPockets) : null;
 }
@@ -117,7 +119,7 @@ function pocketsKey(p: CompartmentPockets): string {
   const parts = Object.entries(p)
     .filter(([k]) => k !== 'pocketPreset')
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([k, v]) => `${k.slice(6)}${v}`);
+    .map(([k, v]) => `${k.slice(6)}${typeof v === 'object' ? JSON.stringify(v) : v}`);
   return parts.length ? `{${parts.join(',')}}` : '';
 }
 

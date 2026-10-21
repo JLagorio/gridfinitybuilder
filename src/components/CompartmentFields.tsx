@@ -25,20 +25,18 @@ import {
   type Preset,
   type SplitResult,
 } from '../lib/dividers';
-import { LengthInput, Section, Segmented, Select, Slider, Stepper, Toggle } from './fields';
+import { LengthInput, Section, Segmented, Slider, Stepper, Toggle } from './fields';
 import { clearInteriorSelection, compartmentOptions, interiorOf, useBinInterior, useInteriorSelection, type BinInterior } from './interiorState';
-import type { ReactNode } from 'react';
 import { binCompartmentPockets } from '../lib/geometry/bin';
-import { binBodyHeight, binFloorZ } from '../lib/geometry/variants';
-import { POCKET_PRESETS, findPocketPreset, presetFields } from '../lib/geometry/pockets';
-import { compartmentFloorShape, compartmentPocketOpts, defaultFloorRise, type PocketSettings } from '../lib/geometry/compartments';
+import { binBodyHeight, binFloorZ, sanitizePocketFields } from '../lib/geometry/variants';
+import { PocketSettings } from './PocketFields';
+import { compartmentFloorShape, compartmentPocketOpts, defaultFloorRise } from '../lib/geometry/compartments';
 import {
   MAX_TIERS,
   MIN_TIERS,
   type Compartment,
   type CompartmentInside,
   type CompartmentOptions,
-  type CompartmentPockets,
   type FloorHigh,
 } from '../lib/dividers';
 import { FreeWallFields, WallFinishFields } from './WallTools';
@@ -482,71 +480,20 @@ function FloorShapeFields({ info, own, set }: { info: BinInterior; own: Compartm
 
 /** Pocket settings of a pocket compartment (over the bin's), with the count that fits. */
 function CompartmentPocketFields({ info, c, own, set }: { info: BinInterior; c: Compartment; own: CompartmentOptions; set: (p: CompartmentPatch) => void }) {
-  const { fmt } = useUnits();
-  const opts = compartmentPocketOpts(info.opts, own);
+  const opts = sanitizePocketFields(compartmentPocketOpts(info.opts, own));
   const layouts = binCompartmentPockets(info.opts, info.cells, c);
+  // An L-shaped compartment gets a grid per rectangle; the summary covers the first, the note the total.
   const count = layouts.reduce((t, L) => t + L.centers.length, 0);
-  const depth = layouts[0]?.depth ?? 0;
-  let summary = `${count} pocket${count === 1 ? '' : 's'}, ${fmt(depth)} deep`;
-  if (layouts.length && depth < opts.pocketDepth - 0.01) summary += ` (the bin is too short for ${fmt(opts.pocketDepth)})`;
+  const note = layouts.length > 1 ? `${count} pockets in all, across ${layouts.length} parts of this compartment.` : undefined;
   return (
     <div className="indent">
-      <PocketGridFields opts={opts} onChange={(p) => set({ pockets: { ...own.pockets, ...p } })} summary={summary} />
+      <PocketSettings value={opts} onChange={(p) => set({ pockets: { ...own.pockets, ...p } })} layout={layouts[0] ?? null} note={note} />
       {own.pockets && (
         <button className="link" onClick={() => set({ pockets: undefined })}>
           Use the bin’s pocket settings
         </button>
       )}
     </div>
-  );
-}
-
-/**
- * Compact pocket-grid settings: what it holds, shape, size, depth, spacing.
- * Takes the full pocket fields and reports changed ones, like the bin's own
- * pocket settings, so a fuller pocket editor can take its place.
- */
-export function PocketGridFields({ opts, onChange, summary }: { opts: PocketSettings; onChange: (p: CompartmentPockets) => void; summary?: ReactNode }) {
-  const custom = (p: CompartmentPockets) => onChange({ ...p, pocketPreset: 'custom' });
-  const preset = findPocketPreset(opts.pocketPreset) ? opts.pocketPreset : 'custom';
-  const sizeLabel = opts.pocketShape === 'round' ? 'Diameter' : opts.pocketShape === 'hex' ? 'Across flats' : 'Size X';
-  return (
-    <>
-      <Select
-        label="Holds"
-        value={preset}
-        options={[...POCKET_PRESETS.map((p) => ({ value: p.id, label: p.label })), { value: 'custom', label: 'Custom' }]}
-        onChange={(id) => {
-          const p = findPocketPreset(id);
-          onChange(p ? presetFields(p) : { pocketPreset: 'custom' });
-        }}
-      />
-      <Segmented
-        label="Pocket shape"
-        value={opts.pocketShape}
-        options={[
-          { value: 'round', label: 'Round' },
-          { value: 'square', label: 'Square' },
-          { value: 'hex', label: 'Hex' },
-        ]}
-        onChange={(pocketShape) => custom({ pocketShape })}
-      />
-      <div className="row2">
-        <LengthInput label={sizeLabel} value={opts.pocketW} min={1} max={200} onChange={(pocketW) => custom({ pocketW })} />
-        {opts.pocketShape === 'square' ? (
-          <LengthInput label="Size Y" value={opts.pocketD} min={1} max={200} onChange={(pocketD) => custom({ pocketD })} />
-        ) : (
-          <LengthInput label="Depth" value={opts.pocketDepth} min={1} max={200} onChange={(pocketDepth) => custom({ pocketDepth })} />
-        )}
-      </div>
-      <div className="row2">
-        {opts.pocketShape === 'square' && (
-          <LengthInput label="Depth" value={opts.pocketDepth} min={1} max={200} onChange={(pocketDepth) => custom({ pocketDepth })} />
-        )}
-        <LengthInput label="Spacing" value={opts.pocketSpacing} min={0.8} max={20} onChange={(pocketSpacing) => custom({ pocketSpacing })} />
-      </div>
-      {summary && <div className="field-hint">{summary}</div>}
-    </>
   );
 }
 
