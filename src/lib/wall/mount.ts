@@ -146,14 +146,14 @@ export function backMounts(
   const m = half + MOUNT.margin;
   let n = Math.max(1, Math.floor((w - 2 * m) / step + 1e-9) + 1);
   if (o.columns) n = Math.max(1, Math.min(n, o.columns));
-  // Parts printed on their side keep their hooks at the left (on the bed); the others centre them.
-  const x = o.left ? r3(half) : r3((w - (n - 1) * step) / 2);
+  // Parts printed on their side keep their mounts at the left, flush with the bed (a stud is a little wider than a hook); the others centre them.
+  const stud0 = mountBox('stud', [0, 0], ctx);
+  const x = o.left ? r3(Math.max(half, -stud0.x0)) : r3((w - (n - 1) * step) / 2);
   // Highest the top row's slot centre can be: its peg ends below the part's top.
   const y = r3(h - (o.top ?? MOUNT.margin) - box0.y1);
   const mounts: MountSite[] = [];
   for (let c = 0; c < n; c++) mounts.push({ di: 2 * c, dj: 0, kind });
   const rows = Math.max(1, o.rows ?? 2);
-  const stud0 = mountBox('stud', [0, 0], ctx);
   for (let r = 1; r < rows; r++) {
     // Its stud stays on the part.
     if (y - r * step + stud0.y0 < MOUNT.margin) break;

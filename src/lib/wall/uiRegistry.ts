@@ -7,7 +7,9 @@
  */
 import type { AttachmentField, AttachmentGroup } from './registry';
 
+/** The picker's groups, in the order it shows them. */
 export const GROUP_LABELS: Record<AttachmentGroup, string> = {
+  board: 'Start here',
   hooks: 'Hooks',
   storage: 'Bins & cups',
   gridfinity: 'Gridfinity',
@@ -15,9 +17,8 @@ export const GROUP_LABELS: Record<AttachmentGroup, string> = {
   shelves: 'Shelves',
   tools: 'Tools',
   devices: 'Devices',
-  board: 'On the board',
-  other: 'Other',
   power: 'Lighting and cables',
+  other: 'Other',
 };
 
 export interface AttachmentUi {

@@ -30,11 +30,12 @@ export function WallPanel({ job }: { job: PrintJob }) {
 
   // The palette, by group; a search shows every match with its group open.
   const q = query.trim().toLowerCase();
-  const groups = new Map<AttachmentGroup, AttachmentUi[]>();
+  const groups = new Map<AttachmentGroup, AttachmentUi[]>(Object.keys(GROUP_LABELS).map((g) => [g as AttachmentGroup, []]));
   for (const d of attachmentUis()) {
     if (q && !`${d.label} ${d.description} ${GROUP_LABELS[d.group]}`.toLowerCase().includes(q)) continue;
-    groups.set(d.group, [...(groups.get(d.group) ?? []), d]);
+    groups.get(d.group)?.push(d);
   }
+  for (const [g, defs] of groups) if (!defs.length) groups.delete(g);
   const toggle = (g: AttachmentGroup) =>
     setClosed((c) => {
       const n = new Set(c);

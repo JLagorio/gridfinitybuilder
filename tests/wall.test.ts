@@ -9,7 +9,7 @@ import { buildMesh, planPrint, type NamedDrawer, type PrintJob } from '../src/li
 import { DEFAULT_SKADIS, type SkadisOptions } from '../src/lib/geometry/skadis';
 import { checkPart } from '../src/lib/geometry/printcheck';
 import { attachmentDefs, type MountCtx, type PlacedAttachment } from '../src/lib/wall';
-import { MOUNT, backMounts, clipReach, clipWidth, mountBox, printedSize } from '../src/lib/wall/mount';
+import { MOUNT, backMounts, clipReach, clipWidth, mountBox, partBounds, printedSize } from '../src/lib/wall/mount';
 import { placeAttachments, slotKeys, snapAnchor } from '../src/lib/wall/plan';
 import { cleanAttachments } from '../src/lib/enclosureOptions';
 import { attachmentUi, attachmentUis } from '../src/lib/wall/ui';
@@ -79,6 +79,10 @@ describe('every attachment kind', () => {
         c.issues.filter((i) => i.severity === 'error'),
         def.type,
       ).toEqual([]);
+      // No mount pokes out past its sides: a part printed on its side lies flat on the bed.
+      const pb = partBounds(layout, CTX);
+      expect(pb.x0, def.type).toBeGreaterThanOrEqual(-1e-9);
+      expect(pb.x1, def.type).toBeLessThanOrEqual(layout.w + 1e-9);
       const b = meshBounds(mesh);
       const want = printedSize(layout, CTX);
       expect(b.max[0] - b.min[0]).toBeCloseTo(want.w, 1);
