@@ -392,7 +392,9 @@ function buildMagazine(w: Wasm, s: Scope, bin: BinOptions, o: DispenserOptions, 
       voids.push(s.t(w.Manifold.hull([...ringAt(ring, L.top - fn), ...ringAt(big, L.top + 0.02)])));
       voids.push(prismXZ(w, s, gable(x, L.colW, zLow, L.spring), L.yWall0 - 0.1, L.yCol0 + 0.1));
     }
-    if (L.slot > 0) voids.push(s.t(boxAt(w, x - L.slot / 2, L.yWall0 - 0.1, L.slotFrom, x + L.slot / 2, L.yCol0 + 0.1, zHi)));
+    // A coin tube is round: the window runs back to its middle, or the tube's curve leaves knife-edge slivers along the window's sides.
+    const slotBack = coin ? (L.yCol0 + L.yCol1) / 2 : L.yCol0 + 0.1;
+    if (L.slot > 0) voids.push(s.t(boxAt(w, x - L.slot / 2, L.yWall0 - 0.1, L.slotFrom, x + L.slot / 2, slotBack, zHi)));
     if (L.tray) {
       voids.push(s.t(boxAt(w, x - half, L.tray.y0, zLow, x + half, L.yWall0 + 0.01, zHi)));
       // A fingertip notch in the lip, narrower than the item, to roll or slide it out of the tray.

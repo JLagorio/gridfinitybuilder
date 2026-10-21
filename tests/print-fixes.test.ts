@@ -105,4 +105,8 @@ describe('print fixes', () => {
     expect(tabs.every((t) => t.y0 > 0)).toBe(true);
     expect(checkPart(w, buildBin(w, o)).ok).toBe(true);
   });
+
+  it('a coin dispenser’s window leaves no slivers along its sides', () => {
+    expect(sliceReport(w, sample('containers/dispenser-coin-window.stl')).thin).toEqual([]);
+  });
 });
