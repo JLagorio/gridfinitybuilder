@@ -279,7 +279,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       // Handled already (e.g. by the compartment editor, which owns Delete/Escape while it's open).
-      if (e.defaultPrevented || t.closest('input, textarea, select, [contenteditable]')) return;
+      if (e.defaultPrevented || t.closest('input, textarea, select, [role="combobox"], [contenteditable]')) return;
       const s = useStore.getState();
       if ((e.key === 'Delete' || e.key === 'Backspace') && s.ui.selectedBinId && s.ui.tab === 'bins') {
         removeSelection();

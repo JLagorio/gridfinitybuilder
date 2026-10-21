@@ -1,7 +1,11 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { lengthFieldText, parseLength, type Units } from '../lib/units';
+import type { PickOption } from '../lib/pickList';
 import { useUnits } from '../state/store';
 import { useFind } from './findContext';
+import { SelectButton } from './select';
+
+export type { PickOption as SelectOption } from '../lib/pickList';
 
 /**
  * A sidebar section. `find` is its id in the panel's search index
@@ -48,10 +52,13 @@ export function Group({ title, status, active = false, find, children }: { title
   );
 }
 
+/** The id of the label of the field whose control is `id` (it names pick lists, select.tsx). */
+export const labelIdOf = (id: string) => `${id}-label`;
+
 export function Field({ label, hint, children, id }: { label: string; hint?: ReactNode; children: ReactNode; id?: string }) {
   return (
     <div className="field">
-      <label className="field-label" htmlFor={id}>
+      <label className="field-label" htmlFor={id} id={id && labelIdOf(id)}>
         {label}
       </label>
       <div className="field-control">{children}</div>
@@ -342,6 +349,12 @@ export function Segmented<T extends string | number>({
   );
 }
 
+/**
+ * Pick one of a few options: a button showing the current one that opens the
+ * list (select.tsx; no native select, so it looks and works the same
+ * everywhere, keyboard and touch included). Options with a `group` are listed
+ * under it. For long lists, Combobox (combobox.tsx) filters as you type.
+ */
 export function Select<T extends string>({
   label,
   value,
@@ -351,39 +364,14 @@ export function Select<T extends string>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string; group?: string }[];
+  options: readonly PickOption<T>[];
   onChange: (v: T) => void;
   hint?: ReactNode;
 }) {
   const id = useId();
-  const groups = [...new Set(options.map((o) => o.group ?? ''))];
   return (
     <Field label={label} hint={hint} id={id}>
-      <div className="select-wrap">
-        <select id={id} value={value} onChange={(e) => onChange(e.target.value as T)}>
-          {groups.map((g) =>
-            g ? (
-              <optgroup key={g} label={g}>
-                {options
-                  .filter((o) => o.group === g)
-                  .map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-              </optgroup>
-            ) : (
-              options
-                .filter((o) => !o.group)
-                .map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))
-            ),
-          )}
-        </select>
-      </div>
+      <SelectButton id={id} labelId={labelIdOf(id)} value={value} options={options} onChange={onChange} />
     </Field>
   );
 }

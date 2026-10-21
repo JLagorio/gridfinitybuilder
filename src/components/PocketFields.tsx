@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useUnits } from '../state/store';
-import { Field, Group, LengthInput, Segmented, Select, Slider, Toggle } from './fields';
+import { Field, Group, LengthInput, Segmented, Slider, Toggle } from './fields';
+import { Combobox } from './combobox';
 import {
   CUSTOM_SET,
   FIT_DEFAULTS,
@@ -52,7 +53,7 @@ export function PocketSettings({
     <>
       {/* Search ids only for the bin's own grid: a lid's or a compartment's grid shows whole, with what it's in. */}
       <Find id={find ? 'pocket-holds' : undefined}>
-        <Select
+        <Combobox
           label="Holds"
           value={presetId}
           options={[
