@@ -42,6 +42,26 @@ no supports, on the default printer's 256 × 256 × 256 mm bed
 - Arachne's internal retries ("Detected non-planar Voronoi diagram…") are
   counted as noise, not reported.
 
+### Spiral vase
+
+Vase-mode bins (`src/lib/geometry/containers/vase.ts`, README: Vase-mode
+bins) are sliced the way they print: spiral vase on, 1 perimeter, no top
+layers, 0 % infill, bottom solid layers up to the spiral's start
+(`vaseBottomLayers`: 30 at 0.2 mm, 5 under a flat bin's 1 mm floor) and the
+external perimeter as wide as the wall line they are drawn for. The G-code is
+read back (`scripts/gcode-spiral.ts`):
+
+| Check | Finding | Rule |
+|---|---|---|
+| One spiral | `spiral: N of M layers not one continuous line` | After the bottom layers, every layer that extrudes is one line: Z rises along it and never goes back down, there is no travel or retraction between its extrusions (the retraction at the end of the print aside), and it starts where the layer before ended. |
+| Slits fold the wall | `spiral: a turn is … mm` | One turn (the middle spiral layer's length) is within 3 % of the outline plus both sides of every slit (`SpiralPrint.path`): no slit was closed by the slicer's gap closing, none skipped. |
+
+The same check found where a slit may end. Cutting slits from the back wall
+to within 1.5 line widths of the front wall split the outline into two loops
+once PrusaSlicer inset it by half a line (every layer two loops and a travel,
+no spiral, one section printed); at 1.75 lines it stayed one loop with either
+perimeter generator. The slits stop 2 lines short.
+
 ## Running it
 
 ```bash
@@ -66,7 +86,7 @@ below (`tests/print-fixes.test.ts`).
 
 ## What the sampler covers
 
-`scripts/sampler-cases.ts`, 272 parts in 15 groups, each planned like a real
+`scripts/sampler-cases.ts`, 279 parts in 16 groups, each planned like a real
 job (`planPrint`, `planTestFit`) and built with `buildMesh`:
 
 - **containers:** drawer units (notch, tab, knob and grip pulls, stops, labels
@@ -100,6 +120,10 @@ job (`planPrint`, `planTestFit`) and built with `buildMesh`:
   pattern and per compartment;
 - **placement:** half-grid bins (magnets, lite with a lid, pockets), bins on
   partial edge cells, stretched bins;
+- **vase:** vase-mode bins, sliced in spiral vase mode: 1 × 1, 2 × 1, 3 × 2
+  with two dividers, 2 × 3 with three dividers across the depth and magnets,
+  2 × 1 with refined slots and a 0.8 mm line, a flat 1 × 1 with a divider, a
+  half-grid 3 × 2 with magnets and a 0.45 mm line;
 - **baseplates:** frame, weighted, skeletonized and solid; magnets top and
   bottom with release holes, ribs, chamfers and pry slots; screws; extra floor
   and chamfer; half grid; bowtie (with keys), filament-pin, puzzle, screw-nut
@@ -149,6 +173,8 @@ These are still reported, and marked as by design in `report.md`:
   a 2-unit bin. Better than an island; a narrower compartment shortens it.
 - **Hex wall patterns** leave 0.95 mm thick webs; PrusaSlicer calls them
   "Thin fragile part". That's the Gridfinity Extended pattern.
+- **Vase-mode bins have one-line walls**: they're drawn as they print, so the
+  thin-wall check finds the wall (0.6 mm) and each divider's two lines.
 - **Small parts have "Low bed adhesion"** in PrusaSlicer: bowtie and lid keys
   (9.7 × 2.7 × 1.8 mm), hinge pins, the narrow solid spacer strips, TPU feet.
   A brim helps.
@@ -183,13 +209,14 @@ On the final code (`npm run sampler -- <dir> --slice`):
 
 | | Before the fixes | After |
 |---|---|---|
-| Parts | 268 | 272 (two removable-divider cases added) |
+| Parts | 268 | 279 (two removable-divider cases and seven vase-mode bins added) |
 | Mesh errors (invalid, loose pieces, off the bed, islands, too big) | 0 | 0 |
-| Parts with thin-wall warnings | 28 | 12, all bowtie pieces (0.65 mm, by design) |
+| Parts with thin-wall warnings | 28 | 18: 12 bowtie pieces (0.65 mm) and 6 vase-mode bins (one-line walls), by design |
 | Parts with overhang warnings | (not checked yet) | 6: 3 drawer units' shelves, 2 stretched bins, 1 removable-divider tab, all by design |
 | PrusaSlicer: not manifold | 4 (STL with overlays) | 0; every part's shell count is 1 + its overlay bodies |
-| PrusaSlicer: parts with stability notices | 47 | 36, all listed above |
-| PrusaSlicer: parts with zero-area facets removed | 151 | 153 |
+| PrusaSlicer: parts with stability notices | 47 | 37, all listed above (the half-grid vase bin's foot gaps: "Long bridging extrusions") |
+| PrusaSlicer: parts with zero-area facets removed | 151 | 159 |
+| Spiral vase: layers after the bottom layers that are one continuous spiral | — | all, in all 7 vase-mode bins (75–145 each); every turn the length of the outline and its slits, less the half line it runs inside |
 | Findings not marked as by design | — | 0 |
 
 Every part sliced without errors or warnings other than the stability

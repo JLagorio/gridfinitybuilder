@@ -444,11 +444,11 @@ function spiralLayer(s: MeshPrintStats, k: number, sp: SpiralPrint, mo: Motion, 
   const perim = s.perimeter[k];
   if (A <= 0 || perim <= 0) return { seconds: 0, volume: 0 };
   const t0 = into.walls + into.skin + into.travel;
-  const corner = perim / Math.max(1, s.contours[k] * M.wallStops);
   if ((k + 0.5) * h > sp.start) {
     into.walls += moveTime(sp.path, sp.path / M.wallStops, wall.v, wall.a);
     return { seconds: into.walls + into.skin + into.travel - t0, volume: sp.path * sp.line * h };
   }
+  const corner = perim / Math.max(1, s.contours[k] * M.wallStops);
   const first = k === 0;
   const w = first ? P.width.first : sp.line;
   const wallArea = Math.min(A, perim * w);
