@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import type { MeshData, Vec3, Wasm } from '../src/lib/geometry/kernel';
 import { meshBounds, toMeshData } from '../src/lib/geometry/kernel';
 import { registerFont } from '../src/lib/geometry/text';
-import { DEFAULT_BASEPLATE, baseplateFloor, baseplateHeight, binSeatHeight, type BaseplateOptions } from '../src/lib/geometry/baseplate';
+import { DEFAULT_BASEPLATE, baseplateFloor, baseplateHeight, binSeatHeight, buildBaseplatePiece, type BaseplateOptions } from '../src/lib/geometry/baseplate';
 import { DEFAULT_BIN, binTotalHeight, type BinOptions } from '../src/lib/geometry/bin';
 import { DEFAULT_DRAWER, computeLayout, spacerMargins, type DrawerInput } from '../src/lib/layout/drawer';
 import { DEFAULT_SETUP, type PrintSetup } from '../src/lib/layout/plan';
@@ -133,6 +133,15 @@ describe('old projects', () => {
     expect(s().drawer.fill).toBe('solid');
   });
 
+  it('builds plain pieces exactly as the baseplate builder does', () => {
+    const job = plan(drawerOf({ width: 300, depth: 200 }));
+    const spec = job.meshes[job.parts['piece:1'].meshKey] as Extract<MeshSpec, { kind: 'piece' }>;
+    const viaJob = buildMesh(w, spec);
+    const direct = buildBaseplatePiece(w, spec.layout, spec.piece, spec.opts, spec.connectors);
+    expect(viaJob.indices).toEqual(direct.indices);
+    expect(viaJob.positions.length).toBe(direct.positions.length);
+  });
+
   it('a drawer with spacer settings but another fill is a plain drawer', () => {
     const job = plan(drawerOf({ width: 400, depth: 300, spacers: { style: 'solid', tabs: true } }));
     expect(job.drawers[0].enclosure).toBeUndefined();
@@ -256,6 +265,31 @@ describe('carry case', () => {
     }
   });
 
+  it('the handle stands on its pegs clear of the lid and body', () => {
+    const lid = scene.items.find((i) => i.role === 'lid' && i.when === 'closed')!;
+    const handle = scene.items.find((i) => i.role === 'handle' && i.when === 'closed')!;
+    const hm = meshOf(job, handle.meshKey);
+    expect(check(hm).status).toBe('NoError');
+    expect(overlap(meshOf(job, lid.meshKey), [lid.x, lid.y, lid.z], hm, [handle.x, handle.y, handle.z])).toBeLessThan(1e-3);
+    expect(overlap(body(), bodyAt(), hm, [handle.x, handle.y, handle.z])).toBeLessThan(1e-3);
+    // Its grip clears the lid top by the finger room.
+    expect(handle.z + handle.h - CASE.handle.grip).toBeGreaterThan(lid.z + lid.h + CASE.handle.room - 1);
+  });
+
+  it('builds tiny and half-grid cases', () => {
+    for (const drawer of [
+      { mode: 'grid' as const, gridX: 1, gridY: 1, enclosure: 'case' as const, carryCase: { handle: 'arch' as const, feet: 'none' as const } },
+      { mode: 'grid' as const, gridX: 2.5, gridY: 1.5, halfGrid: true, enclosure: 'case' as const },
+    ]) {
+      const j = plan(drawerOf(drawer, [bin('h', 0, 0, 1, 1)]));
+      expect(j.drawers[0].enclosure!.info.hinges).toBeGreaterThanOrEqual(1);
+      for (const [key, spec] of Object.entries(j.meshes)) {
+        if (spec.kind === 'bin' || (spec.kind === 'enclosure' && spec.view)) continue;
+        expect(check(buildMesh(w, spec)).status, key).toBe('NoError');
+      }
+    }
+  });
+
   it('latches hook under ridges on the body: the closed lid cannot lift', () => {
     expect(scene.info.latches).toBeGreaterThan(0);
     // The arm hangs clear of the wall face and the ridge, with its hook tip under the ridge.
@@ -280,9 +314,11 @@ describe('carry case', () => {
 
   it('splits a case bigger than the bed into pieces that fit, with lid keys across the seams', () => {
     const setup = { ...DEFAULT_SETUP };
-    const job2 = plan(drawerOf({ mode: 'grid', gridX: 7, gridY: 3, enclosure: 'case', carryCase: { handle: 'arch' } }, [], plain({ connector: 'bowtie' })), setup);
+    // Connectors 'none': a split case still gets bowtie keys in its floor.
+    const job2 = plan(drawerOf({ mode: 'grid', gridX: 7, gridY: 3, enclosure: 'case', carryCase: { handle: 'arch' } }, [], plain()), setup);
     const sc = job2.drawers[0].enclosure!;
     expect(sc.info.pieces).toBe(2);
+    expect(sc.info.joints).toBe('bowtie');
     const usable = setup.bedW - 2 * setup.plateMargin;
     for (const p of Object.values(job2.parts)) {
       expect(Math.min(p.w, p.d), p.name).toBeLessThanOrEqual(usable + 1e-6);
@@ -378,6 +414,11 @@ describe('wall grid', () => {
   it('warns without magnets, and counts the screws', () => {
     const nm = plan(drawerOf({ mode: 'grid', gridX: 4, gridY: 3, enclosure: 'wall' }));
     expect(nm.warnings.some((m) => /magnet/i.test(m))).toBe(true);
+    // Bins without magnets in their feet are called out too.
+    const wd = { mode: 'grid' as const, gridX: 4, gridY: 3, enclosure: 'wall' as const };
+    const loose = plan(drawerOf(wd, [bin('a', 0, 0, 1, 1), bin('b', 1, 0, 1, 1, { holes: 'magnets' })], bp));
+    expect(loose.warnings.filter((m) => /1 bin has no magnets/.test(m))).toHaveLength(1);
+    expect(plan(drawerOf(wd, [bin('b', 1, 0, 1, 1, { holes: 'both' })], bp)).warnings).toEqual([]);
     const bom = billOfMaterials(job);
     expect(bom.hardware.find((h) => /wall grid/.test(h.item))?.count).toBe(4);
     expect(bom.hardware.find((h) => /French cleat/.test(h.item))?.count).toBeGreaterThanOrEqual(2);

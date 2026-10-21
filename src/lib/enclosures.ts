@@ -164,6 +164,8 @@ export interface EnclosureScene {
     hinges?: number;
     latches?: number;
     lidKeys?: number;
+    /** How a split case's floor joins. */
+    joints?: BaseplateOptions['connector'];
     /** Wall grid: mounting holes, and whether the cleat groove made it. */
     holes?: number;
     cleat?: boolean;
@@ -232,8 +234,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
   const c = sanitizeCase(d.drawer.carryCase);
   const frame = caseFrame(layout, c, d.baseplate, tallestBin(d.bins));
   const cl = frame.layout;
-  const bp = frame.baseplate;
-  const protrude = pieceProtrusion(bp);
+  const protrude = pieceProtrusion(frame.baseplate);
   const reach = Math.max(2 * CASE_REACH.lidSide, CASE_REACH.lidFront + CASE_REACH.lidBack, CASE_REACH.bodyFront + CASE_REACH.bodyBack);
   const split = planBaseplate(cl, shrunkBed(setup, reach), { protrude });
   const seams = seamsOf(split.pieces);
@@ -249,6 +250,8 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
   };
   const plan: BaseplatePlan = { ...split, plates: packPieces(split.pieces, (p) => sizeOf(bodyBox(p)), setup) };
   const many = split.pieces.length > 1;
+  // A split case needs its floor joined: bowtie keys unless another connector is picked.
+  const bp = many && frame.baseplate.connector === 'none' ? { ...frame.baseplate, connector: 'bowtie' as const } : frame.baseplate;
 
   const parts: EnclosurePartPlan[] = [];
   const views: EnclosurePlan['views'] = [];
@@ -257,9 +260,25 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
   const toPlate = (v: Vec3): Vec3 => [v[0] - off, v[1] - off, v[2]];
   for (const p of split.pieces) pieceAt[p.id] = toPlate(bodyBox(p).min);
 
+  // Nothing fits the bed: no body, so nothing else either.
+  if (!split.pieces.length) {
+    return {
+      kind: 'case',
+      pieceLayout: cl,
+      baseplate: bp,
+      plan,
+      piece: () => null,
+      parts: [],
+      views: [],
+      steps: [],
+      warnings: warnings.length ? warnings : ['The case could not be split to fit this bed.'],
+      room: Infinity,
+      scene: { kind: 'case', pieceAt, items: [], shift: { x: 0, y: 0 }, showBins: true, outline: false, seat: g.seat, info: {} },
+    };
+  }
   // Lid pieces: printed upside down; drawn closed or open.
   for (const p of split.pieces) {
-    const part: EnclosurePart = { kind: 'lid', geom: g, piece: p };
+    const part: EnclosurePart = { kind: 'lid', geom: forLid(g), piece: p };
     const meshKey = `caselid|${JSON.stringify(part)}`;
     const box = lidBounds(g, p);
     const size = sizeOf(box);
@@ -289,6 +308,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
     items.push({ id: `case-pin-${i}`, meshKey: pinMesh, x: at[0], y: at[1], z: at[2], ...s, role: 'hardware', when: 'always' });
   });
   // Handle.
+  let handleNote = '';
   if (g.handle !== 'none') {
     const usable = Math.max(setup.bedW, setup.bedD) - 2 * setup.plateMargin;
     const hs = handleSize(g);
@@ -296,7 +316,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
     const hb = handleBounds(g);
     const label = g.handle === 'arch' ? 'Handle' : 'Fold-down handle';
     for (const half of halves ? ([-1, 1] as const) : ([0] as const)) {
-      const part: EnclosurePart = { kind: 'handle', geom: g, half };
+      const part: EnclosurePart = { kind: 'handle', geom: forHandle(g), half };
       const meshKey = `casehandle|${JSON.stringify(part)}`;
       const w = halves ? hs.w / 2 + 7 : hs.w;
       parts.push({
@@ -320,7 +340,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
         items.push({ id: `case-handle-${half}-${open ? 'open' : 'closed'}`, meshKey: vk, x: at[0], y: at[1], z: at[2], ...sizeOf(b), role: 'handle', when: open ? 'open' : 'closed' });
       }
     }
-    if (halves) warnings.push('The handle is wider than the bed, so it prints in two halves that glue together at a dovetail.');
+    if (halves) handleNote = 'The handle is wider than the bed: glue its two halves together at the dovetail in the grip.';
   }
   // Printed feet.
   if (g.feet === 'printed') {
@@ -350,13 +370,14 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
   }
   if (g.W > 450 || g.D > 450 || g.lidTop > 250)
     warnings.push(`The case is ${r1(g.W)} × ${r1(g.D)} × ${r1(g.lidTop)} mm: bigger than is practical to carry. A smaller grid or several cases will be lighter and stiffer.`);
-  if (many && bp.connector === 'none') warnings.push(`The case prints in ${split.pieces.length} pieces: pick connectors (Baseplate) to join the floor.`);
   if (g.wallTop + CASE.hinge.r > setup.maxH) warnings.push('The case body is taller than the printer allows.');
 
   const steps: string[] = [];
   if (many) {
     steps.push(
-      `Case: ${split.pieces.length} body pieces and ${split.pieces.length} lid pieces, numbered alike.`,
+      `Case: ${split.pieces.length} body pieces and ${split.pieces.length} lid pieces, numbered alike.${
+        frame.baseplate.connector === 'none' ? ' The floor joins with bowtie keys (pick another connector under Baseplate).' : ''
+      }`,
       'Join the body pieces with the floor joints, and glue the wall seams for a stiff case.',
       g.lidKeys.length ? `Press the ${g.lidKeys.length} lid keys into the pockets in the ribs under the lid's seams.` : 'Glue the lid pieces along their seams.',
     );
@@ -365,6 +386,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
     `Hinges: close the lid, line up the knuckles and push a pin through each of the ${g.hinges.length} hinges until its barbs click past the far knuckle.`,
     `Latches: ${g.latches.length}. Press the lid down and the hooks click under the ridges; pull the tab out to open.`,
   );
+  if (handleNote) steps.push(handleNote);
   if (g.handle !== 'none') steps.push(`Handle: spread the bail and snap it over the ${g.handle === 'arch' ? 'diamond pegs (it stays upright)' : 'round pegs (it folds down)'} on the lid's sides.`);
   if (g.feet === 'bumpers') steps.push('Feet: stick four 10 mm rubber bumpers into the recesses under the corners.');
   if (g.feet === 'printed') steps.push('Feet: press (or glue) the four printed feet into the recesses under the corners. TPU grips best.');
@@ -379,7 +401,7 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
       const size = sizeOf(b);
       const feet = g.footAt.filter(([x, y]) => x > p.x0 && x < p.x1 && y > p.y0 && y < p.y1).length;
       const hardware = g.feet === 'bumpers' && feet ? [{ item: 'Rubber bumpers 10 mm, self-adhesive (case feet)', count: feet }] : undefined;
-      const enclosure: PieceEnclosure = { kind: 'case', geom: g, origin: b.min, cuts: [], ...(hardware ? { hardware } : {}) };
+      const enclosure: PieceEnclosure = { kind: 'case', geom: forBody(g), origin: b.min, cuts: [], ...(hardware ? { hardware } : {}) };
       return { enclosure, ...size, name: many ? `Case body piece ${p.id}` : 'Case body' };
     },
     parts,
@@ -403,9 +425,21 @@ function planCase(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
         hinges: g.hinges.length,
         latches: g.latches.length,
         lidKeys: g.lidKeys.length,
+        joints: many ? bp.connector : undefined,
       },
     },
   };
+}
+
+/** Only what each part's geometry uses, so its mesh key changes only when its geometry does. */
+function forBody(g: CaseGeom): CaseGeom {
+  return { ...g, handle: 'none', pegY: 0, pegZ: 0, label: '', labelSize: 0, lidKeys: [] };
+}
+function forLid(g: CaseGeom): CaseGeom {
+  return { ...g, seat: 0, chamfer: 0, feet: 'none', footAt: [] };
+}
+function forHandle(g: CaseGeom): CaseGeom {
+  return { ...forLid(g), hinges: [], latches: [], label: '', labelSize: 0, lidKeys: [], cav: { x0: 0, y0: 0, x1: 0, y1: 0, r: 0 } };
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +486,9 @@ function planWall(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, se
     warnings.push('A seam crosses the French-cleat groove: each piece in the top row hangs on its own length of groove, the rest needs screws.');
   if (!d.baseplate.magnets) warnings.push('Wall grid without magnet pockets: bins can fall out. Turn on Magnet pockets, and give the bins magnets too.');
   if (band && bp.magnets && bp.magnetSide === 'bottom') warnings.push('Load the magnets from the top: bottom pockets in the French-cleat groove would be cut open.');
+  const loose = d.bins.filter((b) => b.opts.base === 'flat' || !['magnets', 'both', 'refined'].includes(String(b.opts.holes ?? 'none'))).length;
+  if (loose && d.baseplate.magnets && !layout.halfGrid)
+    warnings.push(`${loose} bin${loose === 1 ? ' has' : 's have'} no magnets in ${loose === 1 ? 'its' : 'their'} feet and will fall off the wall (Bins tab → Base & holes → magnets).`);
   if (layout.halfGrid && d.baseplate.magnets) warnings.push('21 mm half cells have no room for magnets: on a half-grid wall grid, rely on the ledge and keep bins light.');
 
   const ledgeFor = (p: PieceDef) =>
@@ -541,7 +578,7 @@ function planSpacers(d: Parameters<typeof planEnclosure>[0], layout: GridLayout,
   if (plan.error) warnings.push(plan.error);
   const seams = seamsOf(plan.pieces);
   const usable = Math.max(setup.bedW, setup.bedD) - 2 * setup.plateMargin;
-  const segs = planSpacerStrips({
+  const segs = !plan.pieces.length ? [] : planSpacerStrips({
     margins: sm,
     plateW: layout.plateW,
     plateD: layout.plateD,

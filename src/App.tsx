@@ -159,7 +159,8 @@ function drawerScene(
   return {
     items: shiftItems(items, enc?.shift),
     outline: state.drawer.mode === 'drawer' && enc?.outline !== false ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
-    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}-${withBins ? 'off' : lidView}` : ''}`,
+    // The camera stays put when the lid opens or closes.
+    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}` : ''}`,
   };
 }
 

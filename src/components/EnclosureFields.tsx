@@ -9,6 +9,7 @@ import type { PrintJob } from '../lib/project';
 type Kind = Enclosure | 'drawer';
 
 const SIDES = { left: 'Left', right: 'Right', front: 'Front', back: 'Back' } as const;
+const JOINTS = { none: 'none', bowtie: 'bowtie keys', pin: 'filament pins', puzzle: 'puzzle tabs', screw: 'M3 screws' } as const;
 
 /** Drawer tab: what the grid goes in — a drawer (with optional spacer strips), a printed carry case, or a wall. */
 export function EnclosureSection({ job }: { job: PrintJob }) {
@@ -134,6 +135,12 @@ function CaseFields({ opts: c, onChange, info, box }: { opts: CaseOptions; onCha
             <dd>
               {info.pieces === 1 ? 'one body and one lid' : `${info.pieces} body and ${info.pieces} lid pieces${info.lidKeys ? `, ${info.lidKeys} lid keys` : ''}`}
             </dd>
+            {info.joints && (
+              <>
+                <dt>Floor joints</dt>
+                <dd>{JOINTS[info.joints]}</dd>
+              </>
+            )}
             <dt>Hardware</dt>
             <dd>
               {info.hinges} hinge{info.hinges === 1 ? '' : 's'}, {info.latches} latch{info.latches === 1 ? '' : 'es'}
