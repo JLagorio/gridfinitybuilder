@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useStore } from '../state/store';
 import { billOfMaterials, bomCsv, bomText, estimateNote, filamentNote, type Bom, type PlateBom } from '../lib/bom';
-import { currencySymbol, estimateJob, formatDuration, formatMoney } from '../lib/estimate';
+import { currencySymbol, estimateJob, formatDuration, formatMoney, type PlateEstimate } from '../lib/estimate';
 import { DEFAULT_MOTION } from '../lib/printers';
 import { planTestFit } from '../lib/testfit';
 import { binLabel, sanitizeBin } from '../lib/geometry/bin';
@@ -85,8 +85,28 @@ function useJobStats(job: PrintJob) {
 export interface JobEstimate {
   /** Bill of materials with filament, time and cost per plate. */
   bom: Bom;
+  /** The time estimate behind each plate's figures, null until its parts are sliced. */
+  plates: (PlateEstimate | null)[];
   /** What the worker is busy with, if anything. */
   busy: { label: string; done: number; total: number } | null;
+}
+
+/** "Walls 45 % · skin 30 % · …, plus 5 min start" for a time cell's tooltip. */
+function timeBreakdown(e: PlateEstimate | null | undefined): string | undefined {
+  if (!e?.printSeconds) return undefined;
+  const b = e.breakdown;
+  const share = (v: number) => Math.round((100 * v) / e.printSeconds);
+  const parts = [
+    ['walls', b.walls],
+    ['top/bottom skin', b.skin],
+    ['infill', b.infill],
+    ['travel', b.travel],
+    ['layer cooling', b.cooling],
+    ['filament swaps', b.swaps],
+  ] as const;
+  const shown = parts.filter(([, v]) => share(v) >= 1).map(([k, v]) => `${k} ${share(v)} %`);
+  const swaps = e.swaps ? `; ${e.swaps} filament swaps, ${Math.round(e.wasteGrams)} g purged` : '';
+  return `${formatDuration(e.printSeconds)} printing (${shown.join(', ')}) + ${formatDuration(e.prepareSeconds)} start sequence${swaps}`;
 }
 
 /** Filament, print time and cost of every plate of the job, for the selected printer and prices. */
@@ -111,7 +131,7 @@ export function useJobEstimate(job: PrintJob): JobEstimate {
     : stats.progress
       ? { label: 'Estimating print time', done: stats.progress[0], total: stats.progress[1] }
       : null;
-  return { bom, busy };
+  return { bom, plates, busy };
 }
 
 const grams = (p: PlateBom) => (p.grams === null ? '…' : `${Math.round(p.grams)} g`);
@@ -129,7 +149,7 @@ export function plateSummary(p: PlateBom | undefined, symbol: string): string {
 
 /** Hardware, parts, filament, time and cost for the job, with CSV/text download. */
 export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: string; estimate: JobEstimate }) {
-  const { bom, busy } = estimate;
+  const { bom, busy, plates } = estimate;
   const symbol = bom.estimate?.currency ?? '$';
   const download = (kind: 'csv' | 'txt') =>
     downloadBytes(
@@ -180,7 +200,7 @@ export function BomSection({ job, stamp, estimate }: { job: PrintJob; stamp: str
                 </td>
                 <td>{p.parts}</td>
                 <td title={meters(p)}>{grams(p)}</td>
-                <td title={p.swaps ? `${p.swaps} filament swaps, ${Math.round(p.wasteGrams ?? 0)} g purged` : undefined}>{duration(p)}</td>
+                <td title={timeBreakdown(plates[i])}>{duration(p)}</td>
                 <td title={p.cost && bom.estimate?.electricity ? `filament ${formatMoney(p.cost.filament, symbol)}, electricity ${formatMoney(p.cost.energy, symbol)}` : undefined}>
                   {cost(p, symbol)}
                 </td>

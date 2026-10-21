@@ -277,9 +277,9 @@ export function meshToShells(positions: ArrayLike<number>, indices: ArrayLike<nu
       if (h === h0) return v;
     }
   };
-  // Closed runs with no corner on them get one, then chains that wander off a straight line are split.
+  // Chains that wander off a straight line are split; a closed run with no corner on it gets one first.
   const seen = new Uint8Array(tri.length);
-  for (let pass = 0; pass < 2; pass++) {
+  for (;;) {
     seen.fill(0);
     for (let h = 0; h < tri.length; h++) {
       if (!isB[h] || seen[h] || !corner[tri[h]]) continue;
@@ -290,13 +290,10 @@ export function meshToShells(positions: ArrayLike<number>, indices: ArrayLike<nu
       });
       splitBent(pos, verts, 0, verts.length - 1, tol, corner);
     }
-    for (let h = 0; h < tri.length; h++) {
-      if (isB[h] && !seen[h]) {
-        corner[tri[h]] = 1;
-        pass = -1; // recheck everything with the new corner
-        break;
-      }
-    }
+    let loose = -1;
+    for (let h = 0; h < tri.length && loose < 0; h++) if (isB[h] && !seen[h]) loose = h;
+    if (loose < 0) break;
+    corner[tri[loose]] = 1;
   }
 
   // Final chains → edges.
