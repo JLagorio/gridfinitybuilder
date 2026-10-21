@@ -124,7 +124,7 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
               {p.mounts.map((m, i) => (
                 <circle key={i} className={`we-mount ${m.kind}`} cx={m.x} cy={sy(m.y)} r={m.kind === 'stud' ? 2 : 2.6} />
               ))}
-              <text x={(p.x0 + p.x1) / 2} y={sy((p.y0 + p.y1) / 2)} fontSize={Math.max(6, Math.min(12, (p.x1 - p.x0) / 8))}>
+              <text x={(p.x0 + p.x1) / 2} y={sy((p.y0 + p.y1) / 2)} fontSize={Math.max(5, Math.min(12, (p.x1 - p.x0) / 8, (p.y1 - p.y0) * 0.55))}>
                 {p.name}
               </text>
             </g>
