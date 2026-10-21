@@ -73,12 +73,17 @@ import {
 } from './accessories';
 import { binAccessoryGeometry } from './accessoryGeometry';
 import { activeContainer, containerKeyPart, sanitizeContainerFields, type ContainerKind, type ContainerType } from './containers/registry';
+import { DEFAULT_INSERTS, insertKeyParts, sanitizeInsertOptions, type BinInsertOptions } from './insertOptions';
+import { shadowOverlay } from './shadowBoard';
 
 export type HoleStyle = 'none' | 'magnets' | 'screws' | 'both' | 'refined';
 export type LabelStyle = 'none' | 'full' | 'left' | 'center' | 'right';
 
-/** Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts; label text in labels.ts; trays, sliding lid and rails in accessories.ts. */
-export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAccessoryOptions {
+/**
+ * Base, lip, height-mode, hole, wall, pocket and lid options live in variants.ts; label text in labels.ts; trays, sliding lid and rails in accessories.ts;
+ * cups, grid inserts, pocket lids and shadow floors in insertOptions.ts.
+ */
+export interface BinOptions extends BinVariantOptions, BinLabelOptions, BinAccessoryOptions, BinInsertOptions {
   /** Footprint in grid units. */
   unitsX: number;
   unitsY: number;
@@ -122,6 +127,7 @@ export const DEFAULT_BIN: BinOptions = {
   ...DEFAULT_VARIANTS,
   ...DEFAULT_LABELS,
   ...DEFAULT_ACCESSORIES,
+  ...DEFAULT_INSERTS,
 };
 
 export const MIN_HEIGHT_UNITS = 2;
@@ -205,6 +211,7 @@ export function binKey(o: BinOptions, cells?: Partial<BinCells> | null): string 
     ...containerKeyPart(o),
     ...accessoryKeyParts(o, binSize(o, cells)),
     ...(live ? insideKeyParts(o, live) : []),
+    ...insertKeyParts(o),
   ].join('-');
 }
 
@@ -371,7 +378,8 @@ export function buildBin(w: Wasm, input: BinOptions, cellsIn?: Partial<BinCells>
     if (holes.length) bin = s.t(bin.subtract(s.t(w.Manifold.union(holes))));
 
     assertValid(bin, 'bin');
-    return labels.finish(toMeshData(bin));
+    // Two-colour shadow board: a filament-2 floor in each tool pocket (shadowBoard.ts).
+    return shadowOverlay(w, s, o, W, D, topInfill, labels.finish(toMeshData(bin)));
   } finally {
     s.dispose();
   }
@@ -398,6 +406,7 @@ export function sanitizeBin(o: BinOptions): BinOptions {
     ...sanitizeVariants({ ...o, heightUnits, lip }),
     ...sanitizeLabelOptions(o),
     ...sanitizeAccessoryOptions(o),
+    ...sanitizeInsertOptions(o),
     cutouts: sanitizeCutouts(o.cutouts),
     cutoutStyle: sanitizeCutoutStyle(o.cutoutStyle),
     ...sanitizeContainerFields(o),
@@ -452,6 +461,13 @@ export function binLabelTabs(opts: BinOptions, cells?: Partial<BinCells> | null)
   // Same floor buildBin cuts the compartments from.
   const hollowCut = isHollowBase(o.base) && o.interior !== 'pockets' && !keepsFullFloor(o, cells) && !accessoryNeedsFloor(o);
   return labelTabs(o, W, D, hollowCut ? hollowFloor(o.base) : binFloorZ(o), topInfill);
+}
+
+/** Floor the compartments are cut from, as buildBin cuts them: a hollow (lite / efficient) base's pocket bottom, or the bin's floor. */
+export function binCutFloor(opts: BinOptions, cells?: Partial<BinCells> | null): number {
+  const o = sanitizeBin(opts);
+  const hollowCut = isHollowBase(o.base) && o.interior === 'compartments' && !keepsFullFloor(o, cells) && !accessoryNeedsFloor(o);
+  return hollowCut ? hollowFloor(o.base) : binFloorZ(o);
 }
 
 /**

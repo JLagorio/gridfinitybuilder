@@ -89,6 +89,9 @@ export function cleanCompartmentOptions(c: unknown): CompartmentOptions | null {
   }
   if (o.floorHigh === 'front' || o.floorHigh === 'left' || o.floorHigh === 'right') out.floorHigh = o.floorHigh;
   if (o.tiers !== undefined && o.tiers !== null && Number.isFinite(num(o.tiers))) out.tiers = Math.min(MAX_TIERS, Math.max(MIN_TIERS, Math.round(num(o.tiers))));
+  // Drop-in parts (cups.ts): not part of the bin's geometry, so not in layoutKey.
+  if (typeof o.cup === 'boolean') out.cup = o.cup;
+  if (typeof o.crate === 'boolean') out.crate = o.crate;
   return Object.keys(out).length ? out : null;
 }
 
@@ -236,7 +239,7 @@ export function layoutKey(l: DividerLayout | null | undefined, live?: Set<string
       ].join(':'),
     );
   const comps = Object.keys(l.comps ?? {})
-    .filter((k) => !live || live.has(k))
+    .filter((k) => (!live || live.has(k)) && !dropInsOnly(l.comps![k]))
     .sort()
     .map((k) => {
       const c = l.comps![k];
@@ -245,6 +248,9 @@ export function layoutKey(l: DividerLayout | null | undefined, live?: Set<string
     });
   return `${walls.join(';')}|${comps.join(';')}${freeWallsKey(l.free)}`;
 }
+
+/** Options that only choose a drop-in part (a cup or grid, cups.ts): the bin itself is the same. */
+const dropInsOnly = (c: CompartmentOptions) => Object.keys(c).every((k) => k === 'cup' || k === 'crate');
 
 /** Key parts for a wall's notch and top shape; none when it has neither (so older layouts keep their keys). */
 function wallExtrasKey(w: DividerWall): string[] {

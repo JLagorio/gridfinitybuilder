@@ -9,6 +9,7 @@ import { unitsAcross } from '../lib/layout/halfgrid';
 import { maxBinUnits } from '../lib/bins';
 import type { PrintJob } from '../lib/project';
 import { DrawerMapButton } from './DrawerMap';
+import { PadFields } from './PadFields';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
@@ -474,6 +475,7 @@ export function DrawerPanel({ job }: { job: PrintJob }) {
           onChange={(pieceNumbers) => setBp({ pieceNumbers })}
           hint="Debossed in a solid spot and mirrored, so they read with the piece upside down. They match the assembly map."
         />
+        <PadFields bp={bp} setBp={setBp} job={job} />
         <details className="advanced">
           <summary>Advanced</summary>
           <NumberInput label="Outer corner radius" value={bp.outerRadius} min={0} max={30} step={0.5} onChange={(outerRadius) => setBp({ outerRadius })} />

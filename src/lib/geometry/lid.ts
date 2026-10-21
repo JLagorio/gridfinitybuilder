@@ -9,6 +9,7 @@ import { BASE_PROFILE, BASE_PROFILE_DEPTH, BASE_PROFILE_HEIGHT, BASE_TOP, BASE_T
 import { extrudePolygon, loftRoundedRect, roundedRectRing } from './shapes';
 import { binCells, binSize, type BinCells, type BinOptions } from './bin';
 import { binBodyHeight, cellRects } from './variants';
+import { buildPocketLid, isPocketLid, pocketLidHeight, pocketLidKeyPart } from './pocketLid';
 
 /** Solid plate between the top of the feet and the bottom of the receptacles. */
 export const LID_PLATE = 1.25;
@@ -22,7 +23,13 @@ export const LID_HEIGHT = LID_FLOOR + LIP_HEIGHT - LIP_TOP_FLAT;
  */
 export const LID_SEAT_DROP = BASE_PROFILE_HEIGHT - LIP_HEIGHT;
 
-type LidOpts = Pick<BinOptions, 'unitsX' | 'unitsY'>;
+/** The footprint, and (for a pocket-grid lid, pocketLid.ts) the lid style and pocket fields. */
+type LidOpts = Pick<BinOptions, 'unitsX' | 'unitsY'> & Partial<BinOptions>;
+
+/** Overall height of the bin's lid: the stacking lid's, or a pocket-grid lid's. */
+export function lidHeight(o: Partial<BinOptions>): number {
+  return isPocketLid(o) ? pocketLidHeight({ unitsX: 1, unitsY: 1, ...o }) : LID_HEIGHT;
+}
 
 /** A lid is printed for a bin that asks for one and has a lip to hold it. */
 export function hasLid(o: Pick<BinOptions, 'lid' | 'lip'>): boolean {
@@ -31,22 +38,23 @@ export function hasLid(o: Pick<BinOptions, 'lid' | 'lip'>): boolean {
 
 /** Height of a bin with its lid on (the lid seats in the lip), from the bin's bottom. */
 export function lidStackHeight(o: Pick<BinOptions, 'heightUnits' | 'lip'> & Partial<BinOptions>): number {
-  return binBodyHeight(o) - LID_SEAT_DROP + LID_HEIGHT;
+  return binBodyHeight(o) - LID_SEAT_DROP + lidHeight(o);
 }
 
 export function lidSize(o: LidOpts, cells?: Partial<BinCells> | null) {
   const { w, d } = binSize(o, cells);
-  return { w, d, h: LID_HEIGHT };
+  return { w, d, h: lidHeight(o) };
 }
 
-/** Stable key: lids only depend on the footprint. */
+/** Stable key: stacking lids only depend on the footprint; pocket-grid lids also on their pockets. */
 export function lidKey(o: LidOpts, cells?: Partial<BinCells> | null): string {
   const c = binCells(o, cells);
-  return `${c.x.join('/')}x${c.y.join('/')}`;
+  return `${c.x.join('/')}x${c.y.join('/')}${isPocketLid(o) ? `|${pocketLidKeyPart(o)}` : ''}`;
 }
 
 /** Build a lid centered on the origin in XY with its bottom at z = 0. */
 export function buildBinLid(w: Wasm, o: LidOpts, cellsIn?: Partial<BinCells> | null): MeshData {
+  if (isPocketLid(o)) return buildPocketLid(w, o, cellsIn);
   const cells = binCells(o, cellsIn);
   const { w: W, d: D } = binSize(o, cells);
   const gap = GRID - BASE_TOP;

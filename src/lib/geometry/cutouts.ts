@@ -5,6 +5,7 @@ import { BASE_HEIGHT, INNER_RADIUS, LIP_DEPTH, LIP_PROFILE, LIP_SUPPORT_HEIGHT, 
 import { extrudePolygon, roundedRectRing } from './shapes';
 import { binBodyHeight, binFloorZ, type LipStyle } from './variants';
 import { hasFont, textOutline, textSolid } from './text';
+import { SHADOW, wantsShadow } from './insertOptions';
 
 /**
  * Tool-outline pockets ("shadow board" bins). The bin's interior is filled
@@ -310,6 +311,7 @@ export function cutoutCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: nu
   const floor = cutoutFloor(o);
   const out: Manifold[] = [];
   const above = top + 1;
+  const shadow = wantsShadow(o);
   for (const c of o.cutouts ?? []) {
     if (c.outline.length < 3) continue;
     const tool = s.t(new w.CrossSection([placedOutline(c)], 'NonZero'));
@@ -318,6 +320,8 @@ export function cutoutCutters(w: Wasm, s: Scope, o: BinOptions, W: number, D: nu
     const zb = pocketFloorZ(top, c, st, floor);
     if (zb >= top - 0.05) continue;
     out.push(s.t(pocket.extrude(above - zb).translate([0, 0, zb])));
+    // Two-colour shadow board: a floor this much deeper, filled in filament 2 (shadowBoard.ts).
+    if (shadow) out.push(s.t(pocket.extrude(SHADOW.depth + 0.01).translate([0, 0, zb - SHADOW.depth])));
 
     // Top edge: stacked offsets in ~0.2 mm steps (one per print layer).
     const e = Math.min(st.edgeSize, top - zb);

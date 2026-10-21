@@ -7,6 +7,7 @@ import { binBodyHeight, binFloorZ, heightMmFor, heightMmRange, WALLS, type Heigh
 import { pocketLayout } from '../lib/geometry/pockets';
 import { LID_HEIGHT } from '../lib/geometry/lid';
 import { HEIGHT_UNIT, LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
+import { LidTopFields, ShadowFloorField } from './InsertFields';
 
 type Props = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -83,6 +84,7 @@ export function InteriorFields({ opts, onChange, cells }: Props & { cells?: BinC
         onChange={(interior) => onChange({ interior })}
         hint={opts.interior === 'cutouts' ? 'Lay the tools out in the Tool cutouts pane; pocket settings are in the Tool library section.' : undefined}
       />
+      <ShadowFloorField opts={opts} onChange={onChange} />
       {pockets && (
         <div className="indent">
           <PocketSettings value={opts} onChange={onChange} layout={layout} note="Compartment, scoop and label settings are not used." />
@@ -175,7 +177,7 @@ export function HoleFields({ opts, onChange }: Props) {
 }
 
 /** Lip style, anti-slide notches and the stacking lid. */
-export function LipFields({ opts, onChange }: Props) {
+export function LipFields({ opts, onChange, cells }: Props & { cells?: BinCells }) {
   const { fmt } = useUnits();
   return (
     <>
@@ -202,8 +204,13 @@ export function LipFields({ opts, onChange }: Props) {
             label="Stacking lid"
             checked={opts.lid}
             onChange={(lid) => onChange({ lid })}
-            hint={`Prints a ${fmt(LID_HEIGHT)} lid that sits in the lip; another bin stacks on top of it.`}
+            hint={opts.lid ? undefined : `Prints a ${fmt(LID_HEIGHT)} lid that sits in the lip; another bin stacks on top of it, or its top is a pocket grid.`}
           />
+          {opts.lid && (
+            <div className="indent">
+              <LidTopFields opts={opts} onChange={onChange} cells={cells} />
+            </div>
+          )}
         </div>
       ) : (
         <div className="field-hint">Lids need a stacking lip.</div>
