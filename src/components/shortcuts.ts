@@ -91,6 +91,11 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: [['Right-drag']], label: 'Pan' },
       { keys: [['Scroll']], label: 'Zoom' },
       { keys: [['Click a bin']], label: 'Select it (Bins tab)' },
+      { keys: [['C']], label: 'Cross-section: cut through everything with a plane' },
+      { keys: [['M']], label: 'Measure between two points (snaps to corners)' },
+      { keys: [['Esc']], label: 'Clear the measurement; again to stop measuring' },
+      { keys: [['X']], label: 'X-ray: see pockets, magnet holes and screw channels inside' },
+      { keys: [['L']], label: 'Lift the bins off the baseplate, or seat them (Bins tab)' },
     ],
   },
 ];
