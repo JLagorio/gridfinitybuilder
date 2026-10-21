@@ -95,6 +95,13 @@ Folding groups say what's set in them, start open when anything in them isn't th
      The panel goes in that order: the bin (type, size, height), **Inside** (compartments, pocket grid or tool cutouts, with the compartment tools), **Scoop & label**, **Options** (base & holes, lip & lid, walls, trays, cups), **What's in it**, stacking and stretching, then **This bin** (duplicate, delete, download it on its own). With nothing selected, the drawer's **Layout** (draw, fill, clear) comes first and the settings are for new bins.
    - **Start from** a preset: *Screws & small parts* (three compartments with scoops and labels), *Batteries* (an AA pocket grid, tall enough), *Deep bin* (one tall compartment, as tall as the drawer allows), *Tool tray* (low, a long slot and two compartments) or *Label everything* (label tabs, or a front label, with the text from *What's in it*). One click sets the selected bins, or new bins when none is selected, as one undo step. A preset only sets what it's about: the size, base, holes and lip stay, and a bin too tall for the printer is made smaller to fit.
    - **Templates** save a bin's settings by name. Apply one to the selected bins or to new bins, in any drawer.
+   - **My bins** is a library of whole bins of your own, there in every project: the size, height, inside, pockets, labels, inserts and lid, and (if you like) what's in it.
+     - **Save to My bins…** (under *This bin*) names it from its label or contents. Several selected bins save as one set, arranged as they are (stacks included), or each on its own.
+     - **Place** puts it in the active drawer at the first free spot, on full cells when there's room; with a mouse you can also drag it onto the grid, which shows where it would land. Like any new bin it's made smaller to fit the printer (the biggest one, with several) and lowered to fit the drawer's height. On a full grid, half-unit sizes round down; on a half grid, cells double. One undo step. The tools its pockets came from join the project's tool library.
+     - Search, rename, duplicate, delete (with undo), or keep just its settings as a template of the project.
+     - It's kept in this browser, apart from the project: a new project, opening a project file or a share link leaves it alone, and other open tabs see changes at once. In a private window, or with site data blocked, it only lasts until the tab closes, and the section says so.
+     - **Export file** and **Import file…** move it to another browser or computer. Importing adds only the bins that aren't there yet; for the same bin, the newer copy wins.
+     - Templates are different: they're saved with the project and copy settings onto bins that are already there.
 
    **Compartments.**
    - Select a bin and switch the left pane to *Compartments*. Hover inside the bin to see the wall a click would add. It runs wall to wall and snaps to 50 %, thirds and quarters of the space it splits (and of the whole bin), to other walls and to the 42 mm cell seams.
@@ -218,6 +225,7 @@ Every change to the project can be undone (⌘/Ctrl+Z, redo with ⇧⌘Z or Ctrl
   - Drag to draw, move and resize bins; handles get bigger on touch screens.
   - Tap to add a compartment wall, then drag it into place.
   - Drag tools in the bin, and the trace dialog's paper corners.
+  - Tap **Place** to put a bin from My bins in the drawer (dragging it onto the grid is for a mouse).
   - Double-tap where a mouse double-clicks (finger notches).
 - **No keyboard:** buttons stand in for the keys.
   - The drawer layout has **Select several** (Shift), **Duplicate** and **Delete**.
@@ -269,7 +277,7 @@ To check an export against Bambu Studio itself, use the CLI that ships with the 
 The first screen downloads only what it shows; the rest is code-split and loads on first use (`src/components/lazy.tsx`). `tests/bundle.test.ts` builds the app and keeps it that way.
 
 - **First screen:** the entry chunk (`index-*.js`: the app shell, the drawer panel, the bin grid, the 3D view) with the store and planning code it shares with the lazy parts (a few chunks rolldown splits off), React (`react-*.js`, with zustand) and three.js (`three-*.js`). Both libraries have chunks of their own, so a deploy that only changes the app doesn't download them again.
-- **On first use:** the Bins and Print plates panels, the compartment and tool-cutout editors, the trace dialog (the SVG / DXF readers load with the first file), *Fill from a list* (with `src/lib/autofill`), the drawer map and the STEP assembly layout. The tabs and editors also load in the background once the first mesh is on screen, so switching is instant. A returning visitor's saved tab (Bins or Print plates) gets its panel preloaded from `index.html` (`scripts/preload.ts`).
+- **On first use:** the Bins and Print plates panels (My bins comes with the Bins panel; the bin grid only has a slot for its drop preview, `gridLayers.ts`), the compartment and tool-cutout editors, the trace dialog (the SVG / DXF readers load with the first file), *Fill from a list* (with `src/lib/autofill`), the drawer map and the STEP assembly layout. The tabs and editors also load in the background once the first mesh is on screen, so switching is instant. A returning visitor's saved tab (Bins or Print plates) gets its panel preloaded from `index.html` (`scripts/preload.ts`).
 - **Geometry worker:** its entry (`geometry.worker.ts`) is tiny. It starts downloading and compiling the Manifold WASM at once, while the mesh code (`meshes.ts`) loads beside it. The file writers, zips and the slicer (`writers.ts`) load on the first export or print-time estimate. The label font loads with the first mesh that may have text (baseplate pieces never do), or once the WASM is ready; the page loads its own copy when a label preview or a print check needs it, and for the bin grid's check marks only after the first view.
 - **Offline copy:** the service worker registers once the first mesh is in and the other tabs have loaded, so saving every file doesn't compete with the first view. It checks each file with the server (`cache: 'no-cache'`), so what the page just downloaded comes from the HTTP cache instead of being downloaded again. Every lazy chunk is in its list.
 - **A chunk that fails to load** (usually a deploy replaced it while the page was open) shows *Reload to update* in its place (`src/pwa/chunks.ts`, `ErrorBoundary.tsx`); exports say the same.
@@ -299,6 +307,8 @@ src/lib/bom.ts      bill of materials; testfit.ts the test-fit kit; share.ts sha
 src/lib/printability.ts  print checks: rule-based warnings from the options and the nozzle (cheap, no geometry)
 src/lib/panelSearch.ts   "Find a setting" in the side panels: a keyword search over each panel's index (components/panelIndex.ts)
 src/lib/templates.ts     bin templates and the built-in presets ("Start from")
+src/lib/myBins.ts        My bins: the library format and its versions, placing an entry in a drawer, merging an import
+                         (state/myBins.ts keeps it in localStorage, apart from the project)
 src/lib/stacking.ts bins stacked on bins: columns, rules, heights
 src/state/          zustand store, undo history (history.ts), multi-bin selection, templates and presets, the panels' Basic / All view
 src/worker/         geometry Web Worker (a tiny entry, meshes.ts, writers.ts on first export) + client with a mesh queue/cache
