@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useStore, useUnits } from '../state/store';
 import { LengthInput, Section, Segmented, TextInput } from './fields';
-import { TraceDialog, type TraceTab } from './TraceDialog';
+import type { TraceTab } from './TraceDialog';
+import { LazyDialog, lazyNamed } from './lazy';
 import { TOOL_DRAG_MIME, ToolThumb } from './CutoutEditor';
 import { binSpec, type PrintJob } from '../lib/project';
 import { binSize } from '../lib/geometry/bin';
@@ -20,6 +21,9 @@ import {
   toolUsage,
   type Tool,
 } from '../lib/tools';
+
+// Photo tracing and SVG / DXF import (lib/trace) load when the dialog first opens.
+const TraceDialog = lazyNamed(() => import('./TraceDialog'), 'TraceDialog');
 
 /** Bins-tab sidebar: the tool library, plus pocket settings for the selected bin. */
 export function ToolLibrary({ job }: { job: PrintJob }) {
@@ -184,7 +188,11 @@ export function ToolLibrary({ job }: { job: PrintJob }) {
         {msg && <div className="field-error">{msg}</div>}
       </Section>
       {sel && (sel.opts.interior === 'cutouts' || usesToolCompartments(sel.opts)) ? <PocketSettings binId={sel.id} style={cutoutStyle(sel.opts)} count={sel.opts.cutouts?.length ?? 0} /> : null}
-      {dialog && <TraceDialog initialTab={dialog} onClose={() => setDialog(null)} />}
+      {dialog && (
+        <LazyDialog scope="The trace dialog" onClose={() => setDialog(null)}>
+          <TraceDialog initialTab={dialog} onClose={() => setDialog(null)} />
+        </LazyDialog>
+      )}
     </>
   );
 }

@@ -4,7 +4,8 @@ import { DEFAULT_BIN, binSize, sanitizeBin, type BinOptions } from '../src/lib/g
 import { DEFAULT_BASEPLATE } from '../src/lib/geometry/baseplate';
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput } from '../src/lib/layout/drawer';
 import { DEFAULT_SETUP, cleanSetup, type PrintSetup } from '../src/lib/layout/plan';
-import { assemblyMaps, exportPlatesZip, jobForPrinter, planPrint, type NamedDrawer, type PlacedBin, type PrintJob } from '../src/lib/project';
+import { assemblyMaps, jobForPrinter, planPrint, type NamedDrawer, type PlacedBin, type PrintJob } from '../src/lib/project';
+import { exportPlatesZip } from '../src/lib/export/threemf';
 import { exportPlatesStlZip } from '../src/lib/export/stl';
 import { baseplatePrinter, biggestPrinter, jobPrinters, printerNames, printerSetup, roughSeconds, shareOut, type PrinterSetup } from '../src/lib/layout/fleet';
 import { bedOvershoot, bedProblem, fitsBed, maxUnitsAlong, partOvershoot, placedOvershoot, shrinkToBed, usableBed, usableBeds } from '../src/lib/bedfit';

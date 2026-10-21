@@ -30,7 +30,8 @@ import {
 import { registerFont, textSolid } from '../src/lib/geometry/text';
 import { meshVolume } from '../src/lib/geometry/volume';
 import { setCompartmentOptions, setWallProps, uniformLayout, sanitizeLayout, layoutKey } from '../src/lib/dividers';
-import { DEFAULT_PROJECT, buildMesh, exportBambuProject, planJob, plateContents, usesSecondFilament, type PlacedBin } from '../src/lib/project';
+import { DEFAULT_PROJECT, buildMesh, planJob, plateContents, usesSecondFilament, type PlacedBin } from '../src/lib/project';
+import { exportBambuProject } from '../src/lib/export/bambu';
 import { billOfMaterials } from '../src/lib/bom';
 import { DEFAULT_DRAWER } from '../src/lib/layout/drawer';
 

@@ -5,9 +5,10 @@ import type { Pt, RGBAImage } from '../lib/trace/image';
 import { isConvexQuad, orderCorners, PAPER_SIZES, rectifyPaper, type Rectified } from '../lib/trace/homography';
 import { contourToMm, DEFAULT_TRACE, detectPaper, traceContour, traceMask, traceScore, type TraceParams } from '../lib/trace/pipeline';
 import { pickComponents } from '../lib/trace/segment';
-import { parseSVG, type ImportResult } from '../lib/trace/svg';
-import { parseDXF } from '../lib/trace/dxf';
+import type { ImportResult } from '../lib/trace/svg';
 import { bounds, pointInPolygon, signedArea } from '../lib/trace/polygon';
+import { once } from './lazy';
+import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { DEFAULT_CLEARANCE, DEFAULT_TOOL_DEPTH } from '../lib/tools';
 import { fingerPx, isTouch, useCoarsePointer } from './touch';
 
@@ -619,10 +620,14 @@ function OutlineStep({
 type UnitChoice = 'auto' | 'mm' | 'cm' | 'in' | 'px' | 'pt';
 const UNIT_MM: Record<Exclude<UnitChoice, 'auto'>, number> = { mm: 1, cm: 10, in: 25.4, px: 25.4 / 96, pt: 25.4 / 72 };
 
+// The SVG and DXF readers load with the first file; tracing a photo doesn't need them.
+const loadReaders = once(() => Promise.all([import('../lib/trace/svg'), import('../lib/trace/dxf')]));
+type ReadFile = (text: string, o: { mmPerUnit?: number }) => ImportResult;
+
 function ImportTab(p: TabProps) {
   const { fmt } = useUnits();
   const addTool = useStore((s) => s.addTool);
-  const [file, setFile] = useState<{ name: string; text: string; kind: 'svg' | 'dxf' } | null>(null);
+  const [file, setFile] = useState<{ name: string; text: string; read: ReadFile } | null>(null);
   const [units, setUnits] = useState<UnitChoice>('auto');
   const [picked, setPicked] = useState<number[] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -630,7 +635,13 @@ function ImportTab(p: TabProps) {
   const openFile = async (f: File) => {
     const text = await f.text();
     const kind = /\.dxf$/i.test(f.name) || /^\s*0\s*[\r\n]+\s*SECTION/.test(text) ? 'dxf' : 'svg';
-    setFile({ name: f.name, text, kind });
+    const read = await loadReaders().then(
+      ([svg, dxf]): ReadFile => (kind === 'dxf' ? dxf.parseDXF : svg.parseSVG),
+      (e): ReadFile => () => {
+        throw new Error(isChunkError(e) ? CHUNK_ERROR_MESSAGE : (e as Error).message);
+      },
+    );
+    setFile({ name: f.name, text, read });
     setPicked(null);
     setUnits('auto');
     p.setName(baseName(f.name));
@@ -647,7 +658,7 @@ function ImportTab(p: TabProps) {
     if (!file) return { r: null, error: null };
     try {
       const mmPerUnit = units === 'auto' ? undefined : UNIT_MM[units];
-      return { r: file.kind === 'dxf' ? parseDXF(file.text, { mmPerUnit }) : parseSVG(file.text, { mmPerUnit }), error: null };
+      return { r: file.read(file.text, { mmPerUnit }), error: null };
     } catch (e) {
       return { r: null, error: (e as Error).message };
     }

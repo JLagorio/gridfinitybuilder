@@ -1,4 +1,5 @@
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 
 const STORAGE_KEY = 'gridfit-project';
 
@@ -63,6 +64,8 @@ interface Props {
   scope?: string;
   /** A small in-place panel instead of a full-page screen. */
   compact?: boolean;
+  /** Puts the message in a frame (a dialog's backdrop, lazy.tsx). */
+  wrap?: (message: ReactNode) => ReactNode;
 }
 
 /**
@@ -84,15 +87,28 @@ export class ErrorBoundary extends Component<Props, { error: Error | null }> {
     const { error } = this.state;
     if (!error) return this.props.children;
     const scope = this.props.scope ?? 'Gridfit';
+    const wrap = this.props.wrap ?? ((m: ReactNode) => m);
+    // A part of the app that loads on first use (pwa/chunks.ts) didn't arrive: trying again can't help, a reload can.
+    if (isChunkError(error)) {
+      return wrap(
+        <div className={this.props.compact ? 'crash crash-compact crash-update' : 'crash crash-update'} role="alert">
+          <b>{scope} couldn’t load.</b>
+          <p>{CHUNK_ERROR_MESSAGE}</p>
+          <button className="primary" onClick={() => location.reload()}>
+            Reload to update
+          </button>
+        </div>,
+      );
+    }
     if (this.props.compact) {
-      return (
+      return wrap(
         <div className="crash crash-compact" role="alert">
           <b>{scope} hit an error.</b>
           <code>{error.message}</code>
           <button className="primary" onClick={() => this.setState({ error: null })}>
             Try again
           </button>
-        </div>
+        </div>,
       );
     }
     return (
@@ -120,8 +136,9 @@ export function ErrorBanner() {
   const [errors, setErrors] = useState<string[]>([]);
   useEffect(() => {
     const add = (msg: string) => setErrors((e) => (e.includes(msg) ? e : [...e.slice(-2), msg]));
-    const onError = (e: ErrorEvent) => add(e.message || String(e.error));
-    const onRejection = (e: PromiseRejectionEvent) => add(e.reason instanceof Error ? e.reason.message : String(e.reason));
+    const onError = (e: ErrorEvent) => add(isChunkError(e.error ?? e.message) ? CHUNK_ERROR_MESSAGE : e.message || String(e.error));
+    const onRejection = (e: PromiseRejectionEvent) =>
+      add(isChunkError(e.reason) ? CHUNK_ERROR_MESSAGE : e.reason instanceof Error ? e.reason.message : String(e.reason));
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onRejection);
     return () => {
@@ -130,11 +147,17 @@ export function ErrorBanner() {
     };
   }, []);
   if (!errors.length) return null;
+  const last = errors[errors.length - 1];
   return (
     <div className="error-banner" role="alert">
       <span>
-        <b>Something went wrong:</b> {errors[errors.length - 1]}
+        <b>Something went wrong:</b> {last}
       </span>
+      {last === CHUNK_ERROR_MESSAGE && (
+        <button className="primary" onClick={() => location.reload()}>
+          Reload
+        </button>
+      )}
       <button className="link" onClick={() => setErrors([])}>
         Dismiss
       </button>
