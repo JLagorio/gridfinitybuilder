@@ -78,7 +78,7 @@ export function LevelSwitcher({ levels }: { levels: StackLevels }) {
         options={Array.from({ length: levels.depth }, (_, i) => ({
           value: i,
           label: LEVEL_NAMES(i),
-          title: i === 0 ? 'Bins on the baseplate' : `Bins stacked ${i === 1 ? 'on a floor bin' : `${i} high`}`,
+          title: i === 0 ? 'Bins on the baseplate' : i === 1 ? 'Bins stacked on a floor bin' : `Bins stacked on level ${i}`,
         }))}
         onChange={levels.setLevel}
       />

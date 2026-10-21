@@ -9,8 +9,8 @@ import { selectedIds, useStore } from './store';
 /**
  * Multi-bin editing for the layout editor: selection, moving several bins,
  * resizing, copy/paste/duplicate, nudging. Everything goes through the store,
- * so undo/redo covers it. A bin carries the bins stacked on it (stacking.ts):
- * moving, deleting, copying and duplicating it takes them along.
+ * so undo/redo covers it. Stacks (stacking.ts) move as one; deleting,
+ * copying and duplicating a bin takes the bins stacked on it along.
  */
 
 export { selectedIds };
