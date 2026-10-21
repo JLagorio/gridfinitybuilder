@@ -5,7 +5,9 @@ import { Scope, meshBounds, toMeshData } from '../src/lib/geometry/kernel';
 import { DEFAULT_BIN, binKey, binLabel, binSize, binTotalHeight, buildBin, sanitizeBin, type BinOptions } from '../src/lib/geometry/bin';
 import { boxAt } from '../src/lib/geometry/shapes';
 import {
+  CONTAINER_KINDS,
   activeContainer,
+  containerDef,
   containerBase,
   containerDefs,
   registerContainer,
@@ -91,7 +93,9 @@ describe('container types', () => {
     const kept = sanitizeBin(bin({ containers: { dispenser: { plates: 9 } } }));
     expect(kept.containers?.dispenser).toEqual({ plates: 4, top: 20 });
     expect(binKey(kept)).toBe(binKey(plain));
-    expect(sanitizeContainerFields({ containers: { box: { anything: 1 } } }).containers).toEqual({ box: { anything: 1 } });
+    // (Any kind no type has registered yet: they get registered one by one.)
+    const unregistered = CONTAINER_KINDS.find((k) => k !== 'bin' && !containerDef(k));
+    if (unregistered) expect(sanitizeContainerFields({ containers: { [unregistered]: { anything: 1 } } }).containers).toEqual({ [unregistered]: { anything: 1 } });
   });
 
   it('dispatch the key, height, name and body to the type', () => {
