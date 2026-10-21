@@ -6,9 +6,24 @@ export interface PrinterProfile {
   bedW: number;
   bedD: number;
   maxH: number;
+  /** Bed areas no part may overlap (bed coordinates, front-left = 0,0), mm. */
+  bedExclude?: BedRect[];
   /** Bambu Studio printer preset, when the project export can target it directly. */
   bambu?: { printerModel: string; printerPreset: string; processPreset: string; filamentPreset: string };
 }
+
+export interface BedRect {
+  x: number;
+  y: number;
+  w: number;
+  d: number;
+}
+
+/**
+ * Bambu Studio's `bed_exclude_area` for the X1 and P1 series. Slicing fails if any
+ * part's footprint overlaps it ("… is too close to exclusion area").
+ */
+const X1_P1_EXCLUDE: BedRect[] = [{ x: 0, y: 0, w: 18, d: 28 }];
 
 const bambu = (model: string, w = 256, d = 256, h = 256, id?: string): PrinterProfile => ({
   id: id ?? model.toLowerCase().replace(/\s+/g, '-'),
@@ -25,13 +40,13 @@ const bambu = (model: string, w = 256, d = 256, h = 256, id?: string): PrinterPr
   },
 });
 
-/** Bed sizes for Bambu models come from Bambu Studio's own machine profiles. */
+/** Bed sizes and exclusion areas for Bambu models come from Bambu Studio's own machine profiles. */
 export const PRINTERS: PrinterProfile[] = [
   bambu('P2S'),
-  bambu('P1S'),
-  bambu('P1P'),
-  bambu('X1 Carbon', 256, 256, 256, 'x1c'),
-  bambu('X1E'),
+  { ...bambu('P1S'), bedExclude: X1_P1_EXCLUDE },
+  { ...bambu('P1P'), bedExclude: X1_P1_EXCLUDE },
+  { ...bambu('X1 Carbon', 256, 256, 256, 'x1c'), bedExclude: X1_P1_EXCLUDE },
+  { ...bambu('X1E'), bedExclude: X1_P1_EXCLUDE },
   bambu('A1'),
   bambu('A1 mini', 180, 180, 180),
   bambu('H2D', 350, 320, 325),

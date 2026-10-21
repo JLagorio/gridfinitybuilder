@@ -1,5 +1,6 @@
+import { findPrinter } from '../printers';
 import type { GridLayout } from './drawer';
-import { packPlates, type PackItem, type PlateLayout } from './pack';
+import { fitsOnBed, packPlates, plateLimits, type PackItem, type PackOptions, type PlateLayout } from './pack';
 import {
   axisCuts,
   balanceScore,
@@ -50,6 +51,19 @@ export interface BaseplatePlan {
 
 const pieceKey = (id: number) => `piece:${id}`;
 
+/** Packing options for a print setup, including the printer's bed exclusion areas. */
+export function packOptions(setup: PrintSetup, patch: Partial<PackOptions> = {}): PackOptions {
+  return {
+    bedW: setup.bedW,
+    bedD: setup.bedD,
+    margin: setup.plateMargin,
+    spacing: setup.spacing,
+    nest: setup.nest,
+    exclude: findPrinter(setup.printerId).bedExclude,
+    ...patch,
+  };
+}
+
 function greedyFromEnd(total: number, cuts: number[], maxLen: number): AxisPartition | null {
   const mirrored = cuts.map((c) => total - c).reverse();
   const p = greedyPartition(total, mirrored, maxLen);
@@ -82,34 +96,42 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplateP
   if (layout.plateW <= 0 || layout.plateD <= 0)
     return { pieces: [], plates: [], cols: 0, rows: 0, error: 'Drawer is too small for a baseplate.' };
 
-  const orientations: [number, number][] = [[UW, UD]];
-  if (Math.abs(UW - UD) > 1e-6) orientations.push([UD, UW]);
-
+  const opts = packOptions(setup);
   type Cand = { xs: AxisPartition; ys: AxisPartition; score: number[] };
-  let best: Cand | null = null;
-  for (const [maxX, maxY] of orientations) {
-    const cutsX = axisCuts(layout.originX, layout.nx, layout.pitchX, layout.plateW, maxX, setup.splitMargins);
-    const cutsY = axisCuts(layout.originY, layout.ny, layout.pitchY, layout.plateD, maxY, setup.splitMargins);
-    const xsList = candidatesFor(layout.plateW, cutsX, maxX, setup.splitStyle);
-    const ysList = candidatesFor(layout.plateD, cutsY, maxY, setup.splitStyle);
-    for (const xs of xsList) {
-      for (const ys of ysList) {
-        const nPieces = (xs.length - 1) * (ys.length - 1);
-        let nPlates = nPieces;
-        if (setup.splitStyle === 'auto' && setup.nest && nPieces > 1) {
-          const items: PackItem[] = makePieces(layout, xs, ys).map((p) => ({
-            key: pieceKey(p.id),
-            w: p.x1 - p.x0,
-            d: p.y1 - p.y0,
-          }));
-          nPlates = packPlates(items, { ...setup, bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin }).plates
-            .length;
+  /** Best split with pieces no larger than one of the limits (either way round) that all fit the plate. */
+  const search = (limits: [number, number][]) => {
+    const sizes: [number, number][] = [];
+    for (const [w, d] of limits) {
+      sizes.push([w, d]);
+      if (Math.abs(w - d) > 1e-6) sizes.push([d, w]);
+    }
+    let best: Cand | null = null;
+    for (const [maxX, maxY] of sizes) {
+      const cutsX = axisCuts(layout.originX, layout.nx, layout.pitchX, layout.plateW, maxX, setup.splitMargins);
+      const cutsY = axisCuts(layout.originY, layout.ny, layout.pitchY, layout.plateD, maxY, setup.splitMargins);
+      const xsList = candidatesFor(layout.plateW, cutsX, maxX, setup.splitStyle);
+      const ysList = candidatesFor(layout.plateD, cutsY, maxY, setup.splitStyle);
+      for (const xs of xsList) {
+        for (const ys of ysList) {
+          const pieces = makePieces(layout, xs, ys);
+          // An exclusion area can leave no room for a piece sized to the whole usable area.
+          if (!pieces.every((p) => fitsOnBed(p.x1 - p.x0, p.y1 - p.y0, opts))) continue;
+          const nPieces = pieces.length;
+          let nPlates = nPieces;
+          if (setup.splitStyle === 'auto' && setup.nest && nPieces > 1) {
+            const items: PackItem[] = pieces.map((p) => ({ key: pieceKey(p.id), w: p.x1 - p.x0, d: p.y1 - p.y0 }));
+            nPlates = packPlates(items, opts).plates.length;
+          }
+          const score = [nPlates, nPieces, balanceScore(xs) + balanceScore(ys)];
+          if (!best || lexLess(score, best.score)) best = { xs, ys, score };
         }
-        const score = [nPlates, nPieces, balanceScore(xs) + balanceScore(ys)];
-        if (!best || lexLess(score, best.score)) best = { xs, ys, score };
       }
     }
-  }
+    return best;
+  };
+  // Pieces as big as the usable area allows; failing that, as big as the free areas beside
+  // the printer's exclusion areas allow.
+  const best = search([[UW, UD]]) ?? search(plateLimits(opts));
   if (!best) {
     return {
       pieces: [],
@@ -122,7 +144,7 @@ export function planBaseplate(layout: GridLayout, setup: PrintSetup): BaseplateP
   const pieces = makePieces(layout, best.xs, best.ys);
   const { plates } = packPlates(
     pieces.map((p) => ({ key: pieceKey(p.id), w: p.x1 - p.x0, d: p.y1 - p.y0 })),
-    { bedW: setup.bedW, bedD: setup.bedD, margin: setup.plateMargin, spacing: setup.spacing, nest: setup.nest },
+    opts,
   );
   return { pieces, plates, cols: best.xs.length - 1, rows: best.ys.length - 1 };
 }

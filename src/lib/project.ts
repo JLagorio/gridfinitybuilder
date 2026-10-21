@@ -11,7 +11,15 @@ import {
 import { translateMesh, type MeshData, type Wasm } from './geometry/kernel';
 import { DEFAULT_DRAWER, computeLayout, type DrawerInput, type GridLayout } from './layout/drawer';
 import { packIntoPlates, packPlates, type PackItem, type Placement } from './layout/pack';
-import { DEFAULT_SETUP, assemblyMap, connectorSteps, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
+import {
+  DEFAULT_SETUP,
+  assemblyMap,
+  connectorSteps,
+  packOptions,
+  planBaseplate,
+  type BaseplatePlan,
+  type PrintSetup,
+} from './layout/plan';
 import type { PieceDef } from './layout/split';
 import { writeBambuProject, type BambuPlate } from './export/bambu';
 import { placeTransform, write3MF, type ExportObject } from './export/threemf';
@@ -128,13 +136,7 @@ export function planJob(state: ProjectState): PrintJob {
         keys.push({ key, w: size.w, d: size.d });
       }
     }
-    const packed = packIntoPlates(plan.plates, keys, {
-      bedW: state.setup.bedW,
-      bedD: state.setup.bedD,
-      margin: state.setup.plateMargin,
-      spacing: state.setup.spacing,
-      nest: true,
-    });
+    const packed = packIntoPlates(plan.plates, keys, packOptions(state.setup, { nest: true }));
     packed.plates.forEach((pl, i) => {
       plates.push({ name: `Baseplate ${i + 1}`, group: 'baseplate', placements: pl.placements });
     });
@@ -157,13 +159,7 @@ export function planJob(state: ProjectState): PrintJob {
       if (h > state.setup.maxH) warnings.push(`Bin ${binLabel(b.opts)} is taller than the printer allows.`);
       items.push({ key, w, d });
     }
-    const packed = packPlates(items, {
-      bedW: state.setup.bedW,
-      bedD: state.setup.bedD,
-      margin: state.setup.plateMargin,
-      spacing: Math.max(state.setup.spacing, 2),
-      nest: true,
-    });
+    const packed = packPlates(items, packOptions(state.setup, { spacing: Math.max(state.setup.spacing, 2), nest: true }));
     for (const o of packed.oversize) warnings.push(`${parts[o.key].name} is larger than the print bed and was left out.`);
     packed.plates.forEach((pl, i) => plates.push({ name: `Bins ${i + 1}`, group: 'bins', placements: pl.placements }));
   }

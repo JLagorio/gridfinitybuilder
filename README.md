@@ -33,7 +33,7 @@ Then open http://localhost:5199.
    - rounded inside corners
 
    "Fill empty with 1×1" fills the rest of the drawer.
-3. **Print plates.** Pick the printer (the Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles). Gridfit splits the baseplate on cell boundaries, so every receptacle stays whole. It then packs pieces and bins onto plates. Exports:
+3. **Print plates.** Pick the printer (the Bambu Lab P2S is the default, and bed sizes come from Bambu Studio's own profiles). Gridfit splits the baseplate on cell boundaries, so every receptacle stays whole. It then packs pieces and bins onto plates. On the X1 and P1 series, parts stay one part spacing clear of the 18 × 28 mm exclusion area in the bed's front-left corner, which Bambu Studio won't slice over. Exports:
    - **Bambu Studio project (.3mf):** every plate in one file, with the printer, *0.20mm Standard* process and *PLA Basic* filament preselected. Open it and press **Slice all plates**.
    - **Plates as 3MF (.zip):** one plain 3MF per plate for any slicer, plus `assembly-map.txt` showing which piece goes where.
    - Any single plate or bin.
