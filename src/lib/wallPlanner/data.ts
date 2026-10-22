@@ -4,7 +4,8 @@
  * where the project's Skådis boards and wall grids hang on it. Millimetres from
  * the wall's bottom-left corner, y up, as a board sees its own front
  * (lib/wall/plan.ts). Kept small: the store cleans it on every load, so it is
- * on the first screen; the planning (lib/wallPlanner/layout.ts) isn't.
+ * on the first screen; the planning (lib/wallPlanner/layout.ts) isn't, nor is
+ * the photo of the wall (lib/wallPlanner/photo.ts cleans that where it's used).
  */
 
 /** Something on the wall a board mustn't cover. */
@@ -23,6 +24,35 @@ export interface WallItem {
   y: number;
 }
 
+/**
+ * A photo of the wall behind the plan (lib/wallPlanner/photo.ts), lined up by four corners of something rectangular
+ * on it whose size is known: the wall's own corners, or a sheet of paper taped to it.
+ */
+export interface WallPhoto {
+  /**
+   * Content hash of the photo, a JPEG (lib/wallPlanner/photoStore.ts): its bytes are in this browser's storage and in
+   * saved project files, never in share links. '' when it stayed behind (a project opened from a share link).
+   */
+  hash: string;
+  /** The file it came from. */
+  name: string;
+  /** Its size, px. */
+  w: number;
+  h: number;
+  /** Where the four corners are in the photo, px from its top left (y down): top left, top right, bottom right, bottom left as on the wall. */
+  corners: [number, number][];
+  /** What the corners mark: the wall's own corners, or a sheet of paper on it. */
+  ref: 'wall' | 'paper';
+  /** The sheet, upright or long side across. */
+  paper: 'a4' | 'letter';
+  across: boolean;
+  /** The sheet's bottom-left corner on the wall, mm. */
+  at: [number, number];
+  /** How strongly it shows behind the boards, 0.1 … 1. */
+  opacity: number;
+  hidden: boolean;
+}
+
 export interface WallPlan {
   width: number;
   height: number;
@@ -30,6 +60,7 @@ export interface WallPlan {
   gap: number;
   obstacles: WallObstacle[];
   items: WallItem[];
+  photo?: WallPhoto;
 }
 
 const num = (v: unknown, lo: number, hi: number, d: number) => {
@@ -64,5 +95,6 @@ export function cleanWall(v: unknown, drawers?: readonly { id: string }[]): Wall
         return typeof id === 'string' && !!id && id.length <= 64 && !seen.has(id) && (!drawers || drawers.some((d) => d.id === id)) && !!seen.add(id);
       })
       .map((i) => ({ drawerId: i.drawerId as string, x: at(i.x), y: at(i.y) })),
+    ...(list([w.photo], 1).length ? { photo: w.photo as WallPhoto } : {}),
   };
 }

@@ -95,7 +95,8 @@ import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type Ext
 import { buildImported, type ImportedSpec } from './imported/registry';
 import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
 import { kindsReady, type AttachmentExtras, type PlacedAttachment, type AttachmentLayout, type MountCtx } from './wall';
-import { wallInlaid, type WallBoard, type WallPlacement } from './wall/plan';
+import { wallInlaid } from './wall/board';
+import type { WallBoard, WallPlacement } from './wall/plan';
 import type * as WallBuild from './wall/build';
 import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
