@@ -23,6 +23,7 @@ import { customAddOns, featureSpots } from '../src/lib/wall/custom/part';
 import { addPoint, movePoint, removePoint, snapPoint } from '../src/lib/wall/custom/edit';
 import { cleanCustom, customLayout, type CustomOptions } from '../src/lib/wall/kinds/custom';
 import { customBuilder } from '../src/lib/wall/kinds/custom.geom';
+import { attachmentsFromHash, attachmentsShareUrl, entryFromAttachments, placedOf } from '../src/lib/myAttachments';
 import { fitted } from './wallFit';
 
 let w: Wasm;
@@ -599,6 +600,32 @@ describe('on the board', () => {
     expect(parts).toHaveLength(list.length + keys);
     const onPlates = new Set(job.plates.flatMap((p) => p.placements.map((q) => q.key)));
     for (const p of parts) expect(onPlates.has(p.key), p.key).toBe(true);
+  });
+});
+
+describe('My attachments', () => {
+  it('a custom part saves, goes through a share link and comes back the same, placing without warnings', () => {
+    const o = cleanCustom({
+      ...presetOptions('tray'),
+      width: 120,
+      lip: 4,
+      dividers: 2,
+      features: [{ f: 1, k: 'notch', a: 20, b: 20, d: 0, u: 0, v: 3, n: 1, m: 1, su: 10, sv: 10 }],
+    });
+    const part: PlacedAttachment = { id: 'a', type: 'custom', x: 100, y: 200, opts: { ...o }, name: 'Bit tray', label: 'Bits', material: 'petg' };
+    const entry = entryFromAttachments([part], { pitch: 20, contents: false })!;
+    expect(entry.items[0].opts).toEqual(o);
+    const link = attachmentsShareUrl([entry], 'https://example.com/');
+    if ('error' in link) throw new Error(link.error);
+    expect(link.url.length).toBeLessThan(1000);
+    const back = attachmentsFromHash(new URL(link.url).hash);
+    if (!back || 'error' in back) throw new Error('no entries');
+    const item = back.entries[0].items[0];
+    expect(item.opts).toEqual(o);
+    expect([item.name, item.label, item.material]).toEqual(['Bit tray', 'Bits', 'petg']);
+    const job = planPrint([fitted(boardWith([placedOf(item, 'b', 100, 200)]))], DEFAULT_SETUP, { baseplate: true, bins: true });
+    expect(job.warnings).toEqual([]);
+    expect(job.drawers[0].enclosure!.wall!.placed[0].opts).toEqual(o);
   });
 });
 
