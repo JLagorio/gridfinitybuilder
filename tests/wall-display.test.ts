@@ -208,6 +208,21 @@ describe('slot rack', () => {
     expect(shared(solid, tops())).toBeGreaterThan(100);
   });
 
+  it("a short rack builds, its finger notch's round end below the dividers' tops", () => {
+    // A random audit: these threw InvalidConstruction (the notch's radius was more than its depth).
+    for (const raw of [
+      { count: 2, slot: 49, height: 28.8, notch: true },
+      { count: 2, height: 28, tilt: 15.5 },
+    ]) {
+      const what = JSON.stringify(raw);
+      const o = opts({ ...def('slotRack').defaults, ...raw });
+      const mesh = bodyMesh('slotRack', o);
+      expect(checkPart(w, mesh).issues.filter((i) => i.severity === 'error'), what).toEqual([]);
+      // The notch is still cut.
+      expect(toManifold(mesh).volume(), what).toBeLessThan(toManifold(bodyMesh('slotRack', { ...o, notch: false })).volume() - 100);
+    }
+  });
+
   it('names itself and says when it reaches out too far for its back', () => {
     const d = def('slotRack');
     expect(d.summary(opts())).toBe('Slot rack 4 × 12 mm');

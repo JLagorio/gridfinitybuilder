@@ -170,7 +170,7 @@ function CommonFields({ a, def, placed, ctx }: { a: PlacedAttachment; def: Attac
           onChange={(lock) => set({ lock })}
         />
       )}
-      {def.backPlate?.(opts, placed.layout) !== null && (
+      {def.backPlate?.(opts, placed.layout, ctx) !== null && (
         <Segmented
           label="Bolt it on"
           value={a.bolt ?? 'off'}

@@ -10,9 +10,12 @@
  * of the mounts; a pattern's holes are where the device has them (the
  * presets' sizes keep them off the mounts). Printed upright, as it hangs.
  */
-import { backMounts, minHeight, mountBox, siteAt } from '../mount';
+import { BOLT, backMounts, minHeight, mountBox, siteAt } from '../mount';
 import { bool, num, obj, pick, registerAttachment, type AttachmentHardware, type AttachmentLayout, type MountCtx } from '../registry';
 import type { Vec2 } from '../../geometry/kernel';
+
+/** A box in the plate's front view: x0, y0, x1, y1. */
+type Box = [number, number, number, number];
 
 export const PLATE_PATTERNS = ['grid', 'vesa75', 'vesa100', 'pi', 'piZero', 'ssd'] as const;
 export type PlatePattern = (typeof PLATE_PATTERNS)[number];
@@ -59,6 +62,23 @@ export const HOLE_PATTERNS = {
 /** A Pi's standoffs on the front: diameter, height and the pilot hole for an M2.5 screw, mm. */
 export const PI_STANDOFF = { d: 6, h: 5, pilot: 2.3 } as const;
 
+/**
+ * Magnet pockets (6 × 2 mm with room, their centres in from the corners), zip-tie slots (a tie 5 mm wide, its
+ * pair of slots apart, the channel behind) and the tape recess (in from the edges, deep); mm.
+ */
+export const PLATE = {
+  magnet: 6.3,
+  magnetDepth: 2.2,
+  magnetIn: 8,
+  slotW: 2.4,
+  slotH: 5.5,
+  tieSpan: 16,
+  tiePitch: 30,
+  channel: 1.8,
+  tapeIn: 3,
+  tapeDepth: 0.6,
+} as const;
+
 const NAMES = { vesa75: 'VESA 75', vesa100: 'VESA 100', pi: 'Raspberry Pi', piZero: 'Pi Zero', ssd: '2.5″ drive' } as const;
 
 /** The screw hole grid: centred, `ni` and `nj` holes each side of the middle, `edge` clear of the plate's edges (the head's radius + 1). */
@@ -82,6 +102,80 @@ export const tiePairs = (w: number) => (w < 26 ? 0 : Math.floor((w - 6) / 30) ||
 
 /** Height of the row of zip-tie slots: a step below the clips, clear of them and of the studs; null when that's off the plate. */
 export const tieRow = (l: Pick<AttachmentLayout, 'anchor'>, ctx: MountCtx) => (l.anchor[1] - ctx.pitch >= 5 ? l.anchor[1] - ctx.pitch : null);
+
+/** The magnet pockets' centres, in the front corners of a plate `w` × `h`. */
+export function magnetSpots(w: number, h: number): Vec2[] {
+  const i = PLATE.magnetIn;
+  return [
+    [i, i],
+    [w - i, i],
+    [i, h - i],
+    [w - i, h - i],
+  ];
+}
+
+/** Each pair of zip-tie slots, the channel between them included (its slots are its ends); none without ties or room for them. */
+export function tieBoxes(o: PlateOptions, l: Pick<AttachmentLayout, 'w' | 'anchor'>, ctx: MountCtx): Box[] {
+  const ty = tieRow(l, ctx);
+  const n = tiePairs(l.w);
+  if (!o.ties || ty === null || !n) return [];
+  const hw = PLATE.slotW / 2;
+  const hh = PLATE.slotH / 2;
+  return Array.from({ length: n }, (_, k) => {
+    const xc = l.w / 2 + (k - (n - 1) / 2) * PLATE.tiePitch;
+    return [xc - PLATE.tieSpan / 2 - hw, ty - hh, xc + PLATE.tieSpan / 2 + hw, ty + hh];
+  });
+}
+
+/**
+ * The screw grid's holes: centred, each clear of the mounts, the magnets and the zip-tie slots by the head's radius
+ * + 1. The mounts are the plate's own, so a bolt in a stud's place has none beside it.
+ */
+export function gridHoles(o: PlateOptions, ctx: MountCtx): Vec2[] {
+  if (o.pattern !== 'grid' || o.screws === 'none') return [];
+  const l = plateLayout(o, ctx);
+  const keep: Box[] = l.mounts.map((m) => {
+    const b = mountBox(m.kind, siteAt(l, m, ctx), ctx);
+    return [b.x0, b.y0, b.x1, b.y1];
+  });
+  const r = PLATE.magnet / 2;
+  if (o.magnets) for (const [x, y] of magnetSpots(l.w, l.h)) keep.push([x - r, y - r, x + r, y + r]);
+  keep.push(...tieBoxes(o, l, ctx));
+  const { edge: m, ni, nj } = screwGrid(o, l.h);
+  const out: Vec2[] = [];
+  for (let i = -ni; i <= ni; i++) {
+    for (let j = -nj; j <= nj; j++) {
+      const x = l.w / 2 + i * o.pitch;
+      const y = l.h / 2 + j * o.pitch;
+      if (!keep.some(([x0, y0, x1, y1]) => x > x0 - m && x < x1 + m && y > y0 - m && y < y1 + m)) out.push([x, y]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The largest boxes in `bound` that miss every one of `keep`, at least `min` each way: for each span across from
+ * the bound's left or a box's right to the bound's right or a box's left, the gaps up it that nothing lets go wider.
+ */
+function clearOf([X0, Y0, X1, Y1]: Box, keep: Box[], min: number): Box[] {
+  const ks = keep.filter(([x0, y0, x1, y1]) => x1 > X0 && x0 < X1 && y1 > Y0 && y0 < Y1);
+  const edges = (v: number[]) => [...new Set(v.filter((x) => x >= X0 && x <= X1))];
+  const out: Box[] = [];
+  for (const a of edges([X0, ...ks.map((k) => k[2])])) {
+    for (const b of edges([X1, ...ks.map((k) => k[0])])) {
+      if (b - a < min - 1e-6) continue;
+      const across = ks.filter((k) => k[0] < b && k[2] > a).sort((p, q) => p[1] - q[1]);
+      let y = Y0;
+      for (const [, y0, , y1] of [...across, [a, Y1, b, Y1]]) {
+        const top = Math.min(y0, Y1);
+        const stops = (x: number, side: 0 | 2) => ks.some((k) => k[side] === x && k[1] < top && k[3] > y);
+        if (top - y >= min - 1e-6 && (a === X0 || stops(a, 2)) && (b === X1 || stops(b, 0))) out.push([a, y, b, top]);
+        y = Math.max(y, y1);
+      }
+    }
+  }
+  return out;
+}
 
 const plateLayout = (o: PlateOptions, ctx: MountCtx): AttachmentLayout => {
   // A pattern needs the plate at least as big as its holes and the room round them.
@@ -131,7 +225,23 @@ registerAttachment<PlateOptions>({
     const x = o.magnets ? 13 : 3;
     return o.tape || o.pattern !== 'grid' || l.w - 2 * x < 12 ? null : { x, y: 1.5, w: l.w - 2 * x, h: Math.min(8, l.h / 4), z: o.thick, normal: 'front' };
   },
-  backPlate: (o, l) => ({ x0: 0, x1: l.w, y0: 0, y1: l.h, z: o.thick }),
+  backPlate(o, l, ctx) {
+    // Clear of what goes through it or stands on its front: the screw holes' heads (or a pattern's, or the Pi's
+    // standoffs to their points), the magnets' pockets, the zip-tie slots and their channel. With the tape's recess,
+    // inside it, as thick as its floor (the rim round it is too narrow for a head).
+    const round = ([x, y]: Vec2, r: number, up = r): Box => [x - r, y - r, x + r, y + up];
+    const head = o.screws === 'none' ? 0 : PLATE_SCREWS[o.screws][1];
+    const pat = patternHoles(o, l.w, l.h);
+    const keep = [
+      ...gridHoles(o, ctx).map((p) => round(p, head / 2)),
+      ...pat.at.map((p) => round(p, pat.r, /pi/.test(o.pattern) ? pat.r * Math.SQRT2 : pat.r)),
+      ...(o.magnets ? magnetSpots(l.w, l.h).map((p) => round(p, PLATE.magnet / 2)) : []),
+      ...tieBoxes(o, l, ctx),
+    ];
+    const e = o.tape ? PLATE.tapeIn : 0;
+    const z = o.tape ? o.thick - PLATE.tapeDepth : o.thick;
+    return clearOf([e, e, l.w - e, l.h - e], keep, BOLT.m3.head + 2).map(([x0, y0, x1, y1]) => ({ x0, x1, y0, y1, z }));
+  },
   hardware(o) {
     const out: AttachmentHardware[] = [];
     const g = screwGrid(o, o.height);

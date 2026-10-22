@@ -216,10 +216,10 @@ export interface AttachmentDef<O extends object = Record<string, unknown>> {
   /** Where a label goes (the Label option shows only when this gives a face); unset: no label. */
   labelFace?(o: O, layout: AttachmentLayout): LabelFace | null;
   /**
-   * Where its back is solid with nothing in front, for bolts (one region, or several); null: no bolts.
-   * Unset: next to its top row's mounts, on a boss as thick as the screw head needs (plan.ts).
+   * Where its back is solid with nothing in front, for bolts (one region, or several), on the board `ctx`; null: no
+   * bolts. Unset: next to its top row's mounts, on a boss as thick as the screw head needs (plan.ts).
    */
-  backPlate?(o: O, layout: AttachmentLayout): BackPlate | BackPlate[] | null;
+  backPlate?(o: O, layout: AttachmentLayout, ctx: MountCtx): BackPlate | BackPlate[] | null;
 }
 
 const DEFS = new Map<string, AttachmentDef<object>>();
