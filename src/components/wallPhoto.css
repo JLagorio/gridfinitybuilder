@@ -1,0 +1,87 @@
+/* The wall planner's photo (WallPhoto.tsx): its section in the side panel, the lining-up dialog's overlay, moving it on the wall. */
+.wph-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wph-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  min-width: 0;
+}
+.wph-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wph-name small {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.wph-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wph-actions button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.wph-actions button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wph-missing {
+  color: var(--text);
+}
+
+/* The wall drawn on the photo through the handles. */
+.wph-overlay path {
+  fill: none;
+  pointer-events: none;
+}
+.wph-wall {
+  stroke: #46c98b;
+  stroke-dasharray: 8 5;
+}
+.wph-grid {
+  stroke: rgba(70, 201, 139, 0.5);
+}
+.wph-obstacle {
+  stroke: #f0616a;
+  stroke-dasharray: 6 4;
+}
+.wph-overlay path {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.5px;
+}
+.wph-handle-name {
+  fill: #fff;
+  stroke: #000;
+  stroke-width: 3px;
+  paint-order: stroke;
+  vector-effect: non-scaling-stroke;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* On the wall: the photo behind the boards, the wall's edges over it, and the layer that drags it. */
+.wph-photo {
+  pointer-events: none;
+}
+.wph-edge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.wph-move {
+  fill: transparent;
+  cursor: move;
+}

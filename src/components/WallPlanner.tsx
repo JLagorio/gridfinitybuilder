@@ -1,4 +1,15 @@
-import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  Suspense,
+  memo,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { Vec2 } from '../lib/geometry/kernel';
 import { planJob, planPrint, type MeshSpec, type PrintJob } from '../lib/project';
 import { kindsVersion, loadKinds, subscribeKinds } from '../lib/wall';
@@ -42,8 +53,16 @@ import { geometry } from '../worker/client';
 import { Viewer, type SceneBed, type SceneItem } from './Viewer';
 import { LengthInput, Section } from './fields';
 import { isMod, isTyping, keyLetter } from './shortcuts';
+import { LazyDialog, lazyNamed, once } from './lazy';
+import type { PhotoDraft, Warp } from './WallPhoto';
 import './wall.css';
 import './wallPlanner.css';
+
+// The photo of the wall (WallPhoto.tsx): loaded with the first one, or when one is picked.
+const loadPhoto = once(() => import('./WallPhoto'));
+const PhotoPanel = lazyNamed(loadPhoto, 'PhotoPanel');
+const PhotoWarp = lazyNamed(loadPhoto, 'PhotoWarp');
+const PhotoCorners = lazyNamed(loadPhoto, 'PhotoCorners');
 
 /** A board or wall grid of the project, planned: what the wall planner draws and places. */
 interface Planned {
@@ -115,6 +134,26 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
 
   const [sel, setSel] = useState<Sel>(null);
   const [area, setArea] = useState<Rect | null>(null);
+  // The photo of the wall: resampled onto it, being lined up, being dragged into place, a picked file being read.
+  const [warp, setWarp] = useState<Warp | null>(null);
+  const [photoDraft, setPhotoDraft] = useState<PhotoDraft | null>(null);
+  const [movingPhoto, setMovingPhoto] = useState(false);
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const pickPhoto = async (file: File) => {
+    setPhotoNote('Reading the photo…');
+    try {
+      const m = await loadPhoto();
+      setPhotoDraft(await m.draftFromFile(file, file.name, useStore.getState().wall ?? DEFAULT_WALL));
+      setPhotoNote(null);
+    } catch {
+      setPhotoNote('Could not read that image.');
+    }
+  };
+  const photoMovable = !!warp?.movable && !warp.hidden;
+  useEffect(() => {
+    if (!photoMovable) setMovingPhoto(false);
+  }, [photoMovable]);
   const selItem = sel && 'item' in sel ? (onWall.find((p) => p.doc.id === sel.item) ?? null) : null;
 
   // Going to a drawer (the drawer menu, Find, undoing past a switch) or a tab leaves the planner.
@@ -137,6 +176,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
       if (e.key === 'Escape') {
         setSel(null);
         setArea(null);
+        setMovingPhoto(false);
         return;
       }
       if (!sel || e.altKey || isMod(e)) return;
@@ -230,10 +270,12 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
         d: wall.height,
         label: `Wall ${fmt(wall.width)} × ${fmt(wall.height)}`,
         exclude: wall.obstacles.map((o) => ({ x: o.x, y: o.y, w: o.w, d: o.h })),
+        // The photo of the wall as its texture.
+        ...(warp?.bed ? { image: warp.bed } : {}),
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [wall.width, wall.height, wall.obstacles, units],
+    [wall.width, wall.height, wall.obstacles, units, warp?.bed],
   );
 
   const tile = useMemo(() => (area ? oneTile(area, state.setup, boardSettings()) : null), [area, state.setup]);
@@ -258,6 +300,39 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
             <LengthInput label="Gap" value={wall.gap} max={500} onChange={(gap) => setWall({ gap })} />
           </div>
           <div className="field-hint">Boards snap to the wall’s edges, to each other’s and to what’s in the way, the gap apart.</div>
+        </Section>
+
+        <Section title="Photo of the wall">
+          {wall.photo ? (
+            <Suspense fallback={<div className="field-hint">Loading the photo…</div>}>
+              <PhotoPanel wall={wall} moving={movingPhoto} setMoving={setMovingPhoto} onDraft={setPhotoDraft} onPick={() => photoInput.current?.click()} />
+            </Suspense>
+          ) : (
+            <>
+              <button className="small" onClick={() => photoInput.current?.click()}>
+                Add a photo…
+              </button>
+              <div className="field-hint">
+                Plan on a photo of the wall: line it up by the wall’s corners or a sheet of A4 or Letter taped to it, and it shows behind the boards.
+              </div>
+            </>
+          )}
+          {photoNote && (
+            <div className="field-hint" role="status">
+              {photoNote}
+            </div>
+          )}
+          <input
+            ref={photoInput}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void pickPhoto(f);
+              e.target.value = '';
+            }}
+          />
         </Section>
 
         {warnings.length > 0 && (
@@ -452,6 +527,8 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
                 setArea(a);
                 if (a) setSel(null);
               }}
+              photo={warp && !warp.hidden ? warp : null}
+              onMovePhoto={movingPhoto ? (dx, dy) => void loadPhoto().then((m) => m.movePhotoBy(dx, dy)) : undefined}
               onDropDrawer={(id, at) => {
                 const p = byId.get(id);
                 if (!p) return;
@@ -474,6 +551,16 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
           </div>
         </div>
       </main>
+      {wall.photo && (
+        <Suspense fallback={null}>
+          <PhotoWarp photo={wall.photo} wall={wall} onWarp={setWarp} />
+        </Suspense>
+      )}
+      {photoDraft && (
+        <LazyDialog scope="Photo of the wall" onClose={() => setPhotoDraft(null)}>
+          <PhotoCorners draft={photoDraft} wall={wall} onClose={() => setPhotoDraft(null)} />
+        </LazyDialog>
+      )}
     </div>
   );
 }
@@ -567,6 +654,8 @@ function WallFront({
   onArea,
   onDropDrawer,
   fmt,
+  photo,
+  onMovePhoto,
 }: {
   planned: (Planned & { x: number; y: number })[];
   obstacles: WallObstacle[];
@@ -580,9 +669,16 @@ function WallFront({
   onArea: (r: Rect | null) => void;
   onDropDrawer: (id: string, at: Vec2) => void;
   fmt: (mm: number) => string;
+  /** The photo of the wall, resampled onto it (WallPhoto.tsx), drawn behind everything. */
+  photo: Pick<Warp, 'url' | 'rect' | 'opacity'> | null;
+  /** Set while the photo drags into place: a drag anywhere moves it by (dx, dy) mm. */
+  onMovePhoto?: (dx: number, dy: number) => void;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  // The photo being dragged into place: where the drag started and is now, wall mm; `done` until it's drawn there.
+  const [photoDrag, setPhotoDrag] = useState<{ start: Vec2; at: Vec2; done?: boolean } | null>(null);
+  useEffect(() => setPhotoDrag((d) => (d?.done ? null : d)), [photo?.url]);
   const uid = useId().replace(/:/g, '');
   const big = Math.max(W, H);
   const M = big * 0.05;
@@ -708,7 +804,20 @@ function WallFront({
           </pattern>
         </defs>
         <rect className="wp-wall" x={0} y={0} width={W} height={H} onPointerDown={(e) => (e.stopPropagation(), onSelect(null), onDown(e))} />
+        {photo && (
+          <image
+            className="wph-photo"
+            href={photo.url}
+            x={photo.rect.x + (photoDrag ? photoDrag.at[0] - photoDrag.start[0] : 0)}
+            y={sy(photo.rect.y + photo.rect.h + (photoDrag ? photoDrag.at[1] - photoDrag.start[1] : 0))}
+            width={photo.rect.w}
+            height={photo.rect.h}
+            opacity={photo.opacity}
+            preserveAspectRatio="none"
+          />
+        )}
         <rect className="wp-grid" x={0} y={0} width={W} height={H} fill={`url(#${uid}-grid)`} pointerEvents="none" />
+        {photo && <rect className="wph-edge" x={0} y={0} width={W} height={H} />}
         <text className="wp-dim" x={W / 2} y={H + M * 0.55} fontSize={font}>
           {fmt(W)}
         </text>
@@ -760,6 +869,30 @@ function WallFront({
             y={sy((drawn ?? area)!.y + (drawn ?? area)!.h)}
             width={(drawn ?? area)!.w}
             height={(drawn ?? area)!.h}
+          />
+        )}
+        {onMovePhoto && (
+          <rect
+            className="wph-move"
+            x={-M}
+            y={-M}
+            width={W + 2 * M}
+            height={H + 2 * M}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              if (e.button !== 0) return;
+              (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+              const { at } = toWall(e);
+              setPhotoDrag({ start: at, at });
+            }}
+            onPointerMove={(e) => photoDrag && !photoDrag.done && setPhotoDrag({ ...photoDrag, at: toWall(e).at })}
+            onPointerUp={() => {
+              const d = photoDrag;
+              const moved = d && !d.done && (d.at[0] !== d.start[0] || d.at[1] !== d.start[1]);
+              setPhotoDrag(moved ? { ...d, done: true } : null);
+              if (moved) onMovePhoto(d.at[0] - d.start[0], d.at[1] - d.start[1]);
+            }}
+            onPointerCancel={() => setPhotoDrag(null)}
           />
         )}
       </svg>

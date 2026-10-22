@@ -10,7 +10,7 @@ import { binFrontQr, binUsesInlay } from './geometry/bin';
 import { planLidQr } from './geometry/lid';
 import { qrInlaid } from './geometry/qrCode';
 import { filamentFor } from './bom';
-import { wallInlaid } from './wall/plan';
+import { wallInlaid } from './wall/board';
 
 /**
  * Print checks for multi-colour (colours.ts), printability.ts style: one

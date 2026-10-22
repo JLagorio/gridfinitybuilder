@@ -37,7 +37,8 @@ import { externalBox, importedSpec } from './lib/external';
 import { hasImported, importedVersion, subscribeImported } from './lib/imported/registry';
 import { kindsVersion, loadKinds, subscribeKinds } from './lib/wall';
 import { GRID_BOARD_NAMES, gridBoardsVersion, isGridBoard, subscribeGridBoards } from './lib/gridBoards';
-import { slotKeys } from './lib/wall/plan';
+import { loadSkadisBoards, skadisBoardsVersion, subscribeSkadisBoards } from './lib/skadisBoards';
+import { slotKeys } from './lib/wall/board';
 import { NO_FIT_COLOR, dragMoves, draggedItems, grabOffset, sameDrag, wallDragAt } from './components/wallDrag';
 import type { Vec2 } from './lib/geometry/kernel';
 import { useCoarsePointer } from './components/touch';
@@ -50,8 +51,8 @@ const loadBinPanel = once(() => import('./components/BinPanel'));
 const loadPrintPanel = once(() => import('./components/PrintPanel'));
 const loadInterior = once(() => import('./components/BinInteriorEditor'));
 const loadCutouts = once(() => import('./components/CutoutEditor'));
-// Only a Skådis board's tabs (geometry/skadis.ts) need it.
-const loadSkadis = once(() => import('./components/SkadisPanel'));
+// Only a Skådis board's tabs (geometry/skadis.ts) need it; it shows once the board has planned (lib/skadisBoards.ts).
+const loadSkadis = once(() => Promise.all([import('./components/SkadisPanel'), loadSkadisBoards()]).then(([m]) => m));
 const BinPanel = lazyNamed(loadBinPanel, 'BinPanel');
 const PrintPanel = lazyNamed(loadPrintPanel, 'PrintPanel');
 const BinInteriorEditor = lazyNamed(loadInterior, 'BinInteriorEditor');
@@ -352,19 +353,21 @@ export default function App() {
   const kinds = useSyncExternalStore(subscribeKinds, kindsVersion);
   // An openGrid or Multiboard board plans once its planning has loaded (lib/gridBoards.ts).
   const grids = useSyncExternalStore(subscribeGridBoards, gridBoardsVersion);
+  // A Skådis board plans once its planning has loaded (lib/skadisBoards.ts): it loads with the first board too.
+  const boards = useSyncExternalStore(subscribeSkadisBoards, skadisBoardsVersion);
   const hasBoard = state.drawer.enclosure === 'skadis' || state.drawers.some((d) => d.drawer.enclosure === 'skadis');
   useEffect(() => {
-    if (hasBoard) void Promise.all([loadKinds(), loadArrange().then((m) => (arrange = m))]);
+    if (hasBoard) void Promise.all([loadSkadisBoards(), loadKinds(), loadArrange().then((m) => (arrange = m))]);
   }, [hasBoard]);
   // A board's attachments that hold a bin find it in the other drawers (lib/wall/follow.ts).
-  const held = { drawers: state.drawers };
+  const others = { drawers: state.drawers };
   const job = useMemo(
-    () => planJob(project, held),
+    () => planJob(project, others),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.drawer, state.baseplate, state.setup, state.bins, state.include, state.drawers, kinds, grids],
+    [state.drawer, state.baseplate, state.setup, state.bins, state.include, state.drawers, kinds, grids, boards],
   );
   const viewJob = useMemo(
-    () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } }, held)),
+    () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } }, others)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [job, state.include.bins],
   );
@@ -455,6 +458,8 @@ export default function App() {
   // An openGrid or Multiboard board: its own tab, no bins, no attachments of Gridfit's.
   const gridBoard = isGridBoard(state.drawer.enclosure) ? state.drawer.enclosure : null;
   const boardInfo = board ? job.drawers[0]?.enclosure?.info.skadis : undefined;
+  // A board whose planning is still loading (lib/skadisBoards.ts, lib/gridBoards.ts): nothing to count yet.
+  const boardPending = (board && !boardInfo) || (!!gridBoard && !job.drawers[0]?.enclosure?.info.grid);
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
   const coarse = useCoarsePointer();
@@ -619,7 +624,9 @@ export default function App() {
             {state.setup.printers ? printerNames(state.setup).map(shortName).join(' + ') : `${printer.name} · ${state.setup.bedW}×${state.setup.bedD}`}
           </span>
           <span className="chip">
-            {board ? (
+            {boardPending ? (
+              <>{gridBoard ? GRID_BOARD_NAMES[gridBoard] : 'Skådis board'} · …</>
+            ) : board ? (
               <>
                 Skådis · {job.drawers[0]?.haveBaseplate ? 'just attachments' : `${boardInfo?.tiles ?? 0} ${boardInfo?.shape === 'hex' ? 'hexagons' : 'tiles'}`} ·{' '}
                 {state.drawer.attachments?.length ?? 0} attachments ·{' '}
@@ -634,7 +641,7 @@ export default function App() {
                 {job.drawers[0]?.haveBaseplate ? 'just bins' : `${job.plan.pieces.length} pieces`} ·{' '}
               </>
             )}
-            {printJob.plates.length} plates
+            {!boardPending && `${printJob.plates.length} plates`}
           </span>
           <ShortcutsHelp />
         </div>

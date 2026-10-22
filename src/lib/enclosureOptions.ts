@@ -2,7 +2,7 @@ import type { DrawerInput } from './layout/drawer';
 import { sanitizeCase } from './geometry/case';
 import { sanitizeWall } from './geometry/wallmount';
 import { sanitizeSpacers } from './geometry/spacers';
-import { sanitizeSkadis } from './geometry/skadis';
+import { sanitizeSkadis } from './geometry/skadisOptions';
 import { isGridBoard } from './gridBoards';
 import type { BinLink, PlacedAttachment } from './wall/registry';
 import { sanitizeContents } from './inventory';
