@@ -1,8 +1,9 @@
 /**
  * Dragging a board's attachments in the 3D view (Viewer's `drag`, wired up in App). The part keeps where the
  * pointer took hold of it, its anchor goes to the nearest slot where it fits (plan.ts dragAnchor), and the view
- * shows it there, red where it doesn't fit, without planning the board again. The drop moves it for real (one
- * undo step); meanwhile UIState.wallDrag says where it's shown.
+ * shows it there, red where it doesn't fit, without planning the board again. Grabbing one of several selected
+ * moves them all by the same slots (lib/wall/arrange.ts dragGroup: UIState.wallDrag's `group`). The drop moves
+ * them for real (one undo step); meanwhile UIState.wallDrag says where they're shown.
  */
 import type { Vec2 } from '../lib/geometry/kernel';
 import { dragAnchor, type WallBoard, type WallPlacement } from '../lib/wall/plan';
@@ -31,8 +32,13 @@ export function wallDragAt(
   return r ? { id: p.id, x: r.at[0], y: r.at[1], fits: r.fits } : null;
 }
 
-export const sameDrag = (a: WallDrag | null | undefined, b: WallDrag | null | undefined) =>
-  a === b || (!!a && !!b && a.id === b.id && a.x === b.x && a.y === b.y && a.fits === b.fits);
+/** Every part a drag moves, the one held first. */
+export const dragMoves = (d: WallDrag | null | undefined): Omit<WallDrag, 'group'>[] => (d ? [d, ...(d.group ?? [])] : []);
+
+export const sameDrag = (a: WallDrag | null | undefined, b: WallDrag | null | undefined) => {
+  const [p, q] = [dragMoves(a), dragMoves(b)];
+  return a === b || (!!a && p.length === q.length && p.every((m, i) => m.id === q[i].id && m.x === q[i].x && m.y === q[i].y && m.fits === q[i].fits));
+};
 
 /** Where a drag that ended puts its attachment: its anchor, or null if it's back where it was. */
 export function dropAt(drag: WallDrag | null | undefined, placed: readonly Pick<WallPlacement, 'id' | 'x' | 'y'>[]): Vec2 | null {
@@ -41,18 +47,22 @@ export function dropAt(drag: WallDrag | null | undefined, placed: readonly Pick<
 }
 
 /**
- * The scene with the dragged attachment where the drag has it: every item picked as it (its body, extra parts and
- * lock keys) moved along, and red where it doesn't fit.
+ * The scene with the dragged attachments where the drag has them: every item picked as one (its body, extra parts
+ * and lock keys) moved along, and red where it doesn't fit.
  */
 export function draggedItems(items: SceneItem[], drag: WallDrag | null | undefined, placed: readonly Pick<WallPlacement, 'id' | 'x' | 'y'>[]): SceneItem[] {
-  const p = drag && placed.find((q) => q.id === drag.id);
-  if (!drag || !p) return items;
-  const dx = drag.x - p.x;
-  const dy = drag.y - p.y;
+  const to = new Map(
+    dragMoves(drag).flatMap((m) => {
+      const p = placed.find((q) => q.id === m.id);
+      return p ? [[m.id, { dx: m.x - p.x, dy: m.y - p.y, fits: m.fits }] as const] : [];
+    }),
+  );
+  if (!drag || !to.has(drag.id)) return items;
   return items.map((it) => {
-    if (!it.pickable || it.id !== drag.id) return it;
-    const moved = { ...it, x: it.x + dx, y: it.y + dy };
-    if (drag.fits) return moved;
+    const m = it.pickable ? to.get(it.id) : undefined;
+    if (!m) return it;
+    const moved = { ...it, x: it.x + m.dx, y: it.y + m.dy };
+    if (m.fits) return moved;
     const { paint: _, ...plain } = moved;
     return { ...plain, color: NO_FIT_COLOR, selected: false };
   });

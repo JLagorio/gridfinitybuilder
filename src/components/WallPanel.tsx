@@ -1,13 +1,33 @@
-import { useState } from 'react';
-import { useStore, useUnits } from '../state/store';
+import { useState, useSyncExternalStore } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { attachmentSelection, useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, TextInput, Toggle } from './fields';
+import { MOD } from './shortcuts';
 import { attachmentDef, attachmentLabel, type AttachmentDef, type AttachmentField, type AttachmentGroup, type MountCtx, type PlacedAttachment } from '../lib/wall';
-import { LOCK_DEFAULT, canLock, type WallPlacement } from '../lib/wall/plan';
+import { LOCK_DEFAULT, canLock, type WallBoard, type WallPlacement } from '../lib/wall/plan';
+import type { AlignHow } from '../lib/wall/arrange';
 import { GROUP_LABELS, attachmentUi, attachmentUis, type AttachmentUi } from '../lib/wall/ui';
 import '../lib/wall/kinds/all';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
 import type { PrintJob } from '../lib/project';
-import { addAttachment, duplicateAttachment, removeAttachment, selectAttachment, setAttachmentOpts, updateAttachment } from '../state/wall';
+import {
+  addAttachment,
+  alignAttachments,
+  clipVersion,
+  copyAttachments,
+  distributeAttachments,
+  duplicateAttachments,
+  hasAttachmentClip,
+  moveToFit,
+  pasteAttachments,
+  removeAttachment,
+  removeAttachments,
+  selectAttachment,
+  setAttachmentOpts,
+  subscribeClip,
+  toggleAttachment,
+  updateAttachment,
+} from '../state/wall';
 import { ModelField } from './ModelField';
 import { AttachmentContentsField, AttachmentLabelField } from './WallContents';
 import { StartFromTemplate } from './BoardTemplatesButton';
@@ -15,17 +35,23 @@ import './wall.css';
 
 /**
  * A Skådis board's Attachments tab (lib/wall): add hooks, bins, cups, … to
- * the board, edit the selected one, and pick how tightly the clips fit.
+ * the board, edit the selected one (or line several up), and pick how tightly
+ * the clips fit.
  */
 export function WallPanel({ job }: { job: PrintJob }) {
   const drawer = useStore((s) => s.drawer);
-  const selected = useStore((s) => s.ui.selectedAttachment ?? null);
+  const picked = useStore(useShallow((s) => attachmentSelection(s.ui)));
   const setDrawer = useStore((s) => s.setDrawer);
   const { fmt } = useUnits();
   const wall = job.drawers[0]?.enclosure?.wall;
   const o = sanitizeSkadis(drawer.skadis);
   const list = drawer.attachments ?? [];
-  const sel = list.find((a) => a.id === selected) ?? null;
+  // The selection on this board, the primary (the one the form edits) first.
+  const group = picked.filter((id) => list.some((a) => a.id === id));
+  const selected = group[0] ?? null;
+  const sel = group.length === 1 ? (list.find((a) => a.id === selected) ?? null) : null;
+  // Something copied (on any board) to paste here.
+  useSyncExternalStore(subscribeClip, clipVersion);
   const placed = wall?.placed.find((p) => p.id === selected) ?? null;
   const def = sel ? attachmentDef(sel.type) : null;
   const [query, setQuery] = useState('');
@@ -50,6 +76,7 @@ export function WallPanel({ job }: { job: PrintJob }) {
 
   return (
     <>
+      {group.length > 1 && <GroupSection ids={group} board={wall.board} placed={wall.placed} />}
       {sel && def && (
         <Section
           title={sel.name?.trim() || def.summary(def.sanitize(sel.opts) as never)}
@@ -73,12 +100,24 @@ export function WallPanel({ job }: { job: PrintJob }) {
               {fmt(placed.x1 - placed.x0)} wide × {fmt(placed.y1 - placed.y0)} high, {fmt(placed.depth)} out from the board.{' '}
               {placed.ok
                 ? `${placed.mounts.filter((m) => m.kind !== 'stud').length} ${placed.layout.pose === 'side' ? 'hook' : 'clip'}(s) hold it.`
-                : 'It doesn’t fit here: drag it to where its mounts find slots.'}{' '}
+                : placed.fit
+                  ? 'It doesn’t fit here: its mounts don’t all find slots.'
+                  : 'It doesn’t fit anywhere on this board: make it narrower or shorter.'}{' '}
               Prints {placed.layout.pose === 'side' ? 'on its side' : 'upright, as it hangs'}.
             </div>
           )}
+          {placed?.fit && (
+            <button className="wide" onClick={() => moveToFit([sel.id], wall.board)}>
+              Move to the nearest spot that fits
+            </button>
+          )}
           <div className="wall-actions">
-            <button onClick={() => duplicateAttachment(sel.id, wall.board, wall.placed)}>Duplicate</button>
+            <button title={`A copy beside it (${MOD}+D)`} onClick={() => duplicateAttachments([sel.id], wall.board)}>
+              Duplicate
+            </button>
+            <button title={`Copy it, to paste on this board or another (${MOD}+C, then ${MOD}+V)`} onClick={() => copyAttachments([sel.id])}>
+              Copy
+            </button>
             <button className="danger" onClick={() => removeAttachment(sel.id)}>
               Delete
             </button>
@@ -89,7 +128,10 @@ export function WallPanel({ job }: { job: PrintJob }) {
       {!list.length && <StartFromTemplate />}
 
       <Section title="Add to the board">
-        <p className="muted small">Click to add one, then drag it on the board: it snaps to the slots. Arrow keys move the selected one a slot over.</p>
+        <p className="muted small">
+          Click to add one, then drag it on the board: it snaps to the slots. Arrow keys move the selection a slot over; Shift-click or drag a box to select
+          several.
+        </p>
         <div className="input-wrap wall-search">
           <input
             type="search"
@@ -123,12 +165,25 @@ export function WallPanel({ job }: { job: PrintJob }) {
         })}
       </Section>
 
-      <Section title={`On this board (${list.length})`}>
+      <Section
+        title={`On this board (${list.length})`}
+        aside={
+          hasAttachmentClip() && (
+            <button className="link" title={`Paste what you copied (${MOD}+V), on the first free spot that fits`} onClick={() => pasteAttachments(wall.board)}>
+              Paste
+            </button>
+          )
+        }
+      >
         {list.length ? (
           <ul className="wall-list">
             {wall.placed.map((p) => (
               <li key={p.id}>
-                <button className={p.id === selected ? 'active' : ''} onClick={() => selectAttachment(p.id)}>
+                <button
+                  className={p.id === selected ? 'active' : group.includes(p.id) ? 'picked' : ''}
+                  title={`Shift- or ${MOD}-click to select several`}
+                  onClick={(e) => (e.shiftKey || e.ctrlKey || e.metaKey ? toggleAttachment(p.id) : selectAttachment(p.id))}
+                >
                   <span>{p.name}</span>
                   <small>{p.ok ? `${fmt(p.x1 - p.x0)} × ${fmt(p.y1 - p.y0)}` : 'doesn’t fit'}</small>
                 </button>
@@ -154,6 +209,90 @@ export function WallPanel({ job }: { job: PrintJob }) {
         />
       </Section>
     </>
+  );
+}
+
+/** Line-up buttons: how, what it does, and its icon (16 × 16: the line, and two parts against it). */
+const ALIGN: { how: AlignHow; label: string; d: string }[] = [
+  { how: 'left', label: 'Line up their left edges', d: 'M2 1v14M4 3h9v3H4zM4 10h6v3H4z' },
+  { how: 'centre', label: 'Line up their centres, across', d: 'M8 1v14M3 3h10v3H3zM5 10h6v3H5z' },
+  { how: 'right', label: 'Line up their right edges', d: 'M14 1v14M3 3h9v3H3zM6 10h6v3H6z' },
+  { how: 'top', label: 'Line up their tops', d: 'M1 2h14M3 4v9h3V4zM10 4v6h3V4z' },
+  { how: 'middle', label: 'Line up their middles, up the board', d: 'M1 8h14M3 3v10h3V3zM10 5v6h3V5z' },
+  { how: 'bottom', label: 'Line up their bottoms', d: 'M1 14h14M3 3v9h3V3zM10 6v6h3V6z' },
+];
+
+/** Space-out buttons: three parts evenly across, and up. */
+const SPREAD: { axis: 'x' | 'y'; label: string; d: string }[] = [
+  {
+    axis: 'x',
+    label: 'Space them out evenly across: the outer two stay, the gaps come out the same (in whole slots)',
+    d: 'M1 1v14M15 1v14M3.5 4h2v8h-2zM7 4h2v8H7zM10.5 4h2v8h-2z',
+  },
+  {
+    axis: 'y',
+    label: 'Space them out evenly up the board: the top and bottom ones stay, the gaps come out the same (in whole slots)',
+    d: 'M1 1h14M1 15h14M4 3.5h8v2H4zM4 7h8v2H4zM4 10.5h8v2H4z',
+  },
+];
+
+/** Several selected: line them up, space them out, copy, duplicate or delete them together. */
+function GroupSection({ ids, board, placed }: { ids: string[]; board: WallBoard; placed: WallPlacement[] }) {
+  const misfits = placed.filter((p) => ids.includes(p.id) && !p.ok && p.fit);
+  const icon = (d: string) => (
+    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.3">
+      <path d={d} />
+    </svg>
+  );
+  return (
+    <Section
+      title={`${ids.length} selected`}
+      aside={
+        <button className="link" onClick={() => selectAttachment(null)}>
+          Done
+        </button>
+      }
+    >
+      <div className="wall-arrange" role="group" aria-label="Line up">
+        <span>Line up</span>
+        {ALIGN.map((a) => (
+          <button key={a.how} title={a.label} aria-label={a.label} onClick={() => alignAttachments(ids, a.how, board)}>
+            {icon(a.d)}
+          </button>
+        ))}
+      </div>
+      <div className="wall-arrange" role="group" aria-label="Space out">
+        <span>Space out</span>
+        {SPREAD.map((a) => (
+          <button
+            key={a.axis}
+            title={ids.length < 3 ? 'Select three or more to space them out' : a.label}
+            aria-label={a.label}
+            disabled={ids.length < 3}
+            onClick={() => distributeAttachments(ids, a.axis, board)}
+          >
+            {icon(a.d)}
+          </button>
+        ))}
+      </div>
+      <p className="field-hint">They move in whole slots, so they line up as near as the slots allow. Drag any of them to move them all.</p>
+      {misfits.length > 0 && (
+        <button className="wide" onClick={() => moveToFit(ids, board)}>
+          Move the {misfits.length === 1 ? 'one that doesn’t fit' : `${misfits.length} that don’t fit`} to the nearest spots that fit
+        </button>
+      )}
+      <div className="wall-actions">
+        <button title={`Copies beside them (${MOD}+D)`} onClick={() => duplicateAttachments(ids, board)}>
+          Duplicate
+        </button>
+        <button title={`Copy them, to paste on this board or another (${MOD}+C, then ${MOD}+V)`} onClick={() => copyAttachments(ids)}>
+          Copy
+        </button>
+        <button className="danger" onClick={() => removeAttachments(ids)}>
+          Delete {ids.length}
+        </button>
+      </div>
+    </Section>
   );
 }
 

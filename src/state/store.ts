@@ -46,13 +46,16 @@ export interface UIState {
   plate: number;
   /** Bins tab, left pane (see BinPane). */
   binPane: BinPane;
-  /** A Skådis board's selected attachment (lib/wall), on its Attachments tab. */
+  /** A Skådis board's selected attachment (lib/wall), on its Attachments tab: the primary, the one its panel edits. */
   selectedAttachment?: string | null;
+  /** Every selected attachment; like `selectedBinIds`, only counts while it contains `selectedAttachment` (see attachmentSelection). */
+  selectedAttachments?: string[];
   /**
    * An attachment being dragged in the 3D view (components/wallDrag.ts): the anchor slot it's shown on, and
-   * whether all its mounts have slots there. The drop moves it (one undo step); this is never saved or undone.
+   * whether all its mounts have slots there, and the same for the rest of the selection moving with it (`group`).
+   * The drop moves them (one undo step); this is never saved or undone.
    */
-  wallDrag?: { id: string; x: number; y: number; fits: boolean } | null;
+  wallDrag?: { id: string; x: number; y: number; fits: boolean; group?: { id: string; x: number; y: number; fits: boolean }[] } | null;
 }
 
 /**
@@ -199,6 +202,13 @@ export function selectedIds(ui: Pick<UIState, 'selectedBinId' | 'selectedBinIds'
   return ui.selectedBinIds?.includes(p) ? [p, ...ui.selectedBinIds.filter((id) => id !== p)] : [p];
 }
 
+/** Every selected attachment id, primary first. */
+export function attachmentSelection(ui: Pick<UIState, 'selectedAttachment' | 'selectedAttachments'>): string[] {
+  const p = ui.selectedAttachment;
+  if (!p) return [];
+  return ui.selectedAttachments?.includes(p) ? [p, ...ui.selectedAttachments.filter((id) => id !== p)] : [p];
+}
+
 const DEFAULT_UI: UIState = {
   tab: 'drawer',
   selectedBinId: null,
@@ -343,7 +353,7 @@ function persisted(s: Store) {
     onlyChanged: s.onlyChanged,
     wall: s.wall,
     // View-only state (selection, spread pieces, shown plate, a drag in the 3D view) starts fresh on every load.
-    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1, wallDrag: null },
+    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], selectedAttachments: [], explode: false, plate: -1, wallDrag: null },
   };
 }
 

@@ -4,6 +4,7 @@
   min-height: 0;
   padding: 10px 14px 14px;
   display: flex;
+  position: relative;
 }
 .wall-editor svg {
   width: 100%;
@@ -64,6 +65,79 @@
 }
 .we-mount {
   pointer-events: none;
+}
+/* Selecting with a box, and the guides while dragging: light, and never in the way of the pointer. */
+.we-marquee {
+  fill: rgba(245, 165, 36, 0.08);
+  stroke: var(--accent);
+  stroke-width: 0.8;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.we-guides {
+  pointer-events: none;
+}
+.we-guides line {
+  stroke: #ff5fa2;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.75;
+}
+.we-guides > line {
+  stroke-dasharray: 3 3;
+}
+.we-gap text {
+  fill: #ff9cc6;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: #15181d;
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+}
+/* A selected part that doesn't fit where it is: the way to the nearest spot that does. */
+.we-fit {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 6px 8px 6px 12px;
+  border-radius: 8px;
+  background: rgba(21, 24, 29, 0.92);
+  border: 1px solid rgba(240, 97, 106, 0.5);
+  font-size: 12.5px;
+  color: #ffd0d3;
+}
+.we-fit button {
+  flex: none;
+}
+/* Several selected: line them up, space them out. */
+.wall-arrange {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 8px;
+}
+.wall-arrange > span {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 64px;
+}
+.wall-arrange button {
+  padding: 4px 6px;
+  line-height: 0;
+}
+.wall-arrange svg {
+  width: 16px;
+  height: 16px;
 }
 .we-mount.clip,
 .we-mount.hook {
@@ -134,6 +208,10 @@
 }
 .wall-list button.active {
   border-color: var(--accent);
+}
+.wall-list button.picked {
+  border-color: rgba(245, 165, 36, 0.55);
+  background: var(--accent-soft);
 }
 .wall-list small {
   color: var(--muted);

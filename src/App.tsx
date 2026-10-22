@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { projectOf, selectedIds, useStore, type Tab } from './state/store';
+import { attachmentSelection, projectOf, selectedIds, useStore, type Tab } from './state/store';
 import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
 import { asDrawer, binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
@@ -38,7 +38,7 @@ import { hasImported, importedVersion, subscribeImported } from './lib/imported/
 import { kindsVersion, loadKinds, subscribeKinds } from './lib/wall';
 import { GRID_BOARD_NAMES, gridBoardsVersion, isGridBoard, subscribeGridBoards } from './lib/gridBoards';
 import { slotKeys } from './lib/wall/plan';
-import { draggedItems, dropAt, grabOffset, sameDrag, wallDragAt } from './components/wallDrag';
+import { NO_FIT_COLOR, dragMoves, draggedItems, grabOffset, sameDrag, wallDragAt } from './components/wallDrag';
 import type { Vec2 } from './lib/geometry/kernel';
 import { useCoarsePointer } from './components/touch';
 import { useWallView } from './state/wallView';
@@ -71,6 +71,9 @@ const GridBoardAttachments = lazyNamed(loadGridPanel, 'GridBoardAttachments');
 // The wall planner: the project's boards and wall grids on one measured wall (drawer menu → Wall planner).
 const loadWallPlanner = once(() => import('./components/WallPlanner'));
 const WallPlanner = lazyNamed(loadWallPlanner, 'WallPlanner');
+// Dragging several attachments together in the 3D view (lib/wall/arrange.ts): loaded with the first board.
+const loadArrange = once(() => import('./lib/wall/arrange'));
+let arrange: Awaited<ReturnType<typeof loadArrange>> | null = null;
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
@@ -275,11 +278,20 @@ function drawerScene(
               ? undefined
               : { main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }
       : undefined;
-    // A Skådis board's attachments are never "had": only the board itself can be.
-    const picked = state.ui.selectedAttachment;
+    // A Skådis board's attachments are never "had": only the board itself can be. One that doesn't fit where it is shows red.
+    const picked = new Set(attachmentSelection(state.ui));
+    // (While it's dragged, where it's going decides: wallDrag.ts.)
+    const moving = new Set(dragMoves(state.ui.wallDrag).map((m) => m.id));
+    const bad = new Set(enc.wall?.placed.filter((p) => !p.ok && !moving.has(p.id)).map((p) => p.id));
     items.push(
       ...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint).map((it) =>
-        it.pickable ? { ...it, selected: it.id === picked } : have ? { ...it, ghost: true } : it,
+        it.pickable
+          ? bad.has(it.id)
+            ? { ...it, paint: undefined, color: NO_FIT_COLOR, selected: false }
+            : { ...it, selected: picked.has(it.id) }
+          : have
+            ? { ...it, ghost: true }
+            : it,
       ),
     );
   }
@@ -339,7 +351,7 @@ export default function App() {
   const grids = useSyncExternalStore(subscribeGridBoards, gridBoardsVersion);
   const hasBoard = state.drawer.enclosure === 'skadis' || state.drawers.some((d) => d.drawer.enclosure === 'skadis');
   useEffect(() => {
-    if (hasBoard) void loadKinds();
+    if (hasBoard) void Promise.all([loadKinds(), loadArrange().then((m) => (arrange = m))]);
   }, [hasBoard]);
   const job = useMemo(
     () => planJob(project),
@@ -375,6 +387,7 @@ export default function App() {
     ui.selectedBinId,
     ui.selectedBinIds,
     ui.selectedAttachment,
+    ui.selectedAttachments,
     ui.wallDrag,
     state.setup,
     lidView,
@@ -444,8 +457,8 @@ export default function App() {
   // Attachments tab, and on its board tab unless the tiles are spread apart.
   const wall = board ? viewJob.drawers[0]?.enclosure?.wall : undefined;
   const wallKeys = useMemo(() => (wall ? slotKeys(wall.board.slots) : null), [wall?.board.slots]);
-  // Where the anchor is from the pointer, from the press on.
-  const grab = useRef<{ id: string; at: Vec2 } | null>(null);
+  // Where the anchor is from the pointer, from the press on, and the selected parts that move with it.
+  const grab = useRef<{ id: string; at: Vec2; group: string[] } | null>(null);
   const drag: ViewerDrag | undefined =
     wall && wallKeys && (ui.tab === 'bins' || (ui.tab === 'drawer' && !ui.explode))
       ? {
@@ -453,24 +466,35 @@ export default function App() {
           planeZ: wall.board.front,
           start: (id, x, y) => {
             const p = wall.placed.find((q) => q.id === id);
-            grab.current = p ? { id, at: grabOffset(p, x, y) } : null;
-            if (p && ui.tab === 'bins') state.setUI({ selectedAttachment: id });
+            const sel = attachmentSelection(useStore.getState().ui);
+            grab.current = p ? { id, at: grabOffset(p, x, y), group: sel.includes(id) ? sel : [id] } : null;
+            if (p && ui.tab === 'bins') state.setUI({ selectedAttachment: id, ...(sel.includes(id) ? {} : { selectedAttachments: [id] }) });
           },
           move: (id, x, y) => {
             const p = wall.placed.find((q) => q.id === id);
-            const next = p && grab.current?.id === id ? wallDragAt(wall.board, wallKeys, p, grab.current.at, x, y) : null;
+            const g = grab.current;
+            if (!p || g?.id !== id) return;
+            const parts = wall.placed.filter((q) => g.group.includes(q.id));
+            // Several move together once their math has loaded (it has, with the first board).
+            const moves = parts.length > 1 ? arrange?.dragGroup(wall.board, wallKeys, parts, id, x + g.at[0], y + g.at[1]) : null;
+            const held = moves?.find((m) => m.id === id);
+            const next = held
+              ? { ...held, group: moves!.filter((m) => m !== held) }
+              : parts.length > 1
+                ? null
+                : wallDragAt(wall.board, wallKeys, p, g.at, x, y);
             if (next && !sameDrag(next, useStore.getState().ui.wallDrag)) state.setUI({ wallDrag: next });
           },
-          end: (id, moved) => {
+          end: (_, moved) => {
             grab.current = null;
             const clear = () => {
               if (useStore.getState().ui.wallDrag) state.setUI({ wallDrag: null });
             };
-            const at = moved ? dropAt(useStore.getState().ui.wallDrag, wall.placed) : null;
-            if (!at) return clear();
-            // The drag clears once it has moved, so it never shows back where it was.
+            const moves = moved ? dragMoves(useStore.getState().ui.wallDrag) : [];
+            if (!moves.some((m) => wall.placed.some((p) => p.id === m.id && (p.x !== m.x || p.y !== m.y)))) return clear();
+            // The drag clears once they have moved, so they never show back where they were.
             void loadWallEdits()
-              .then((m) => m.moveAttachment(id, at[0], at[1]))
+              .then((m) => m.moveAttachments(moves))
               .finally(clear);
           },
         }
@@ -496,7 +520,9 @@ export default function App() {
         fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
         fitIds={focusing ? [ui.selectedBinId!] : undefined}
         legend={legend}
-        onPick={ui.tab === 'bins' ? (id) => state.setUI(board ? { selectedAttachment: id } : { selectedBinId: id }) : undefined}
+        onPick={
+          ui.tab === 'bins' ? (id) => state.setUI(board ? { selectedAttachment: id, selectedAttachments: id ? [id] : [] } : { selectedBinId: id }) : undefined
+        }
         drag={drag}
         hint={
           coarse
@@ -655,7 +681,7 @@ export default function App() {
                 </div>
                 {viewJob.drawers[0]?.enclosure?.wall && (
                   <LazyPart scope="The board editor">
-                    <WallEditor board={viewJob.drawers[0].enclosure.wall.board} placed={viewJob.drawers[0].enclosure.wall.placed} selected={ui.selectedAttachment ?? null} />
+                    <WallEditor board={viewJob.drawers[0].enclosure.wall.board} placed={viewJob.drawers[0].enclosure.wall.placed} />
                   </LazyPart>
                 )}
               </div>

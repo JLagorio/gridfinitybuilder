@@ -641,10 +641,10 @@ describe('common options', () => {
       att('f', 'fitTest', 60, 520, { steps: '5', gauge: true }),
       att('t', 'labelTag', 200, 520, { text: 'Tools' }),
       att('h', 'hook', 300, 520, {}, { lock: true }),
-      att('s', 'shelf', 60, 420, { width: 160, height: 80 }, { bolt: 'm3', label: 'Paint', barbs: 'ends' }),
+      att('s', 'shelf', 40, 400, { width: 160, height: 80 }, { bolt: 'm3', label: 'Paint', barbs: 'ends' }),
       att('b', 'bin', 300, 420, { label: true }, { label: 'Screws' }),
       att('g', 'gridClip', 460, 420, {}, { lock: true }),
-      att('r', 'toolRack', 60, 260, {}, { bolt: 'm4' }),
+      att('r', 'toolRack', 40, 240, {}, { bolt: 'm4' }),
     ];
     const job = plan(list);
     expect(job.warnings).toEqual([]);

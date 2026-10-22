@@ -14,6 +14,7 @@ import { attachmentDefs, type AttachmentDef, type AttachmentLayout, type BackPla
 import { attachmentUi } from '../src/lib/wall/ui';
 import { BOLT, partBounds, viewTurn } from '../src/lib/wall/mount';
 import { planExtras } from '../src/lib/wall/plan';
+import { fitted } from './wallFit';
 
 /**
  * Every kind's say in the common options: where its back is solid with nothing in front (AttachmentDef.backPlate), it
@@ -143,9 +144,10 @@ const onBoard = (attachments: PlacedAttachment[]): NamedDrawer => ({
   bins: [],
 });
 
-/** One attachment planned on a 560 board with its common options, and built as the print job builds it. */
+/** One attachment planned on a 560 board with its common options (where it fits nearest the middle: tests/wallFit.ts), and built as the print job builds it. */
 function planned(type: string, opts: object, common: Pick<PlacedAttachment, 'bolt' | 'label'>) {
-  const job = planPrint([onBoard([{ id: 'a', type, x: SIZE / 2, y: SIZE / 2, opts: { ...opts }, ...common }])], DEFAULT_SETUP, { baseplate: true, bins: true });
+  const d = fitted(onBoard([{ id: 'a', type, x: SIZE / 2, y: SIZE / 2, opts: { ...opts }, ...common }]));
+  const job = planPrint([d], DEFAULT_SETUP, { baseplate: true, bins: true });
   const p = job.drawers[0].enclosure!.wall!.placed[0];
   const mesh = buildMesh(w, { kind: 'attachment', key: type, type, opts: p.opts, layout: p.layout, ctx: CTX, ...(p.extras ? { extras: p.extras } : {}) });
   return { job, p, mesh };

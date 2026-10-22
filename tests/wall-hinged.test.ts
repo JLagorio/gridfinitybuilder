@@ -17,6 +17,7 @@ import { LID, lidPlan, type LidBoxOptions } from '../src/lib/wall/kinds/lidBox';
 import { CAB, cabPlan, type CabinetOptions } from '../src/lib/wall/kinds/cabinet';
 import { SWIVEL, swivelPlan, type SwivelTowerOptions } from '../src/lib/wall/kinds/swivelTower';
 import { FOLD, foldPlan, type FoldHookOptions } from '../src/lib/wall/kinds/foldHook';
+import { fitted } from './wallFit';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -567,7 +568,8 @@ describe('on a board', () => {
       baseplate: DEFAULT_BASEPLATE,
       bins: [],
     };
-    const job = planPrint([d], DEFAULT_SETUP, { baseplate: true, bins: true });
+    // Each where it fits nearest where it is put (planning leaves it where it is put: tests/wallFit.ts).
+    const job = planPrint([fitted(d)], DEFAULT_SETUP, { baseplate: true, bins: true });
     expect(job.warnings).toEqual([]);
     const wall = job.drawers[0].enclosure!.wall!;
     expect(wall.placed.every((p) => p.ok)).toBe(true);

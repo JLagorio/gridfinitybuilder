@@ -16,6 +16,7 @@ import { BOTTLE_RACK_DEFAULTS, RACK, bottleSpec, neckRadius, rackLip, rackPlan, 
 import { STICK_RACK_DEFAULTS, listRows, stickSpec, type StickRackOptions } from '../src/lib/wall/kinds/stickRack';
 import { HOLSTER, HOLSTER_DEFAULTS, holsterGeometry, obround, type HolsterOptions } from '../src/lib/wall/kinds/holster';
 import { GRIP, GRIPPER_DEFAULTS, gripGeometry, type GripperOptions } from '../src/lib/wall/kinds/gripper';
+import { fitted } from './wallFit';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -518,7 +519,8 @@ describe('on a 560 × 560 board', () => {
       baseplate: DEFAULT_BASEPLATE,
       bins: [],
     };
-    const job = planPrint([d], DEFAULT_SETUP, { baseplate: true, bins: true });
+    // Each where it fits nearest where it is put (planning leaves it where it is put: tests/wallFit.ts).
+    const job = planPrint([fitted(d)], DEFAULT_SETUP, { baseplate: true, bins: true });
     expect(job.warnings).toEqual([]);
     const wall = job.drawers[0].enclosure!.wall!;
     expect(wall.placed.map((p) => p.ok)).toEqual(list.map(() => true));

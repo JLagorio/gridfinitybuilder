@@ -17,6 +17,7 @@ import { MEASURE, measurePlan, type MeasureHangerOptions } from '../src/lib/wall
 import { EYE, eyeShape, type EyewearOptions } from '../src/lib/wall/kinds/eyewear';
 import { CLAMP, clampPlan, type ClampRackOptions } from '../src/lib/wall/kinds/clampRack';
 import { TAB, tabPlan, type ClipTabOptions } from '../src/lib/wall/kinds/clipTab';
+import { fitted } from './wallFit';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -535,7 +536,8 @@ describe('hangers on a board', () => {
       baseplate: DEFAULT_BASEPLATE,
       bins: [],
     };
-    const job = planPrint([d], DEFAULT_SETUP, { baseplate: true, bins: true });
+    // Each where it fits nearest where it is put (planning leaves it where it is put: tests/wallFit.ts).
+    const job = planPrint([fitted(d)], DEFAULT_SETUP, { baseplate: true, bins: true });
     const wall = job.drawers[0].enclosure!.wall!;
     expect(job.warnings).toEqual([]);
     expect(wall.placed.every((p) => p.ok)).toBe(true);
