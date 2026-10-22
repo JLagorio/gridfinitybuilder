@@ -44,6 +44,8 @@ import { encodeMesh, meshHash } from '../src/lib/imported/format';
 import { putImported } from '../src/lib/imported/registry';
 import { flatMasks } from '../src/lib/wall/modelMesh';
 import type { ModelRef } from '../src/lib/wall/kinds/model';
+import { PRESET_KEYS, presetOptions } from '../src/lib/wall/custom/presets';
+import { overhangs } from '../src/lib/wall/custom/profile';
 import type { SampleGroup } from './sampler-cases';
 
 const SETUP = DEFAULT_SETUP;
@@ -368,6 +370,25 @@ const MORE: AttachmentSample[] = [
   { id: 'model-box-plate', type: 'model', opts: { mesh: BOX_MODEL, attach: 'plate' } },
 ];
 
+/**
+ * Build your own: its side-profile presets live in its own editor, not a 'preset' field, so each is sampled here as
+ * 'auto' picks it, on its side, and upright where the profile allows; then the add-ons and features on a tray.
+ */
+const CUSTOM_SAMPLES: AttachmentSample[] = [
+  ...PRESET_KEYS.flatMap((k): AttachmentSample[] => {
+    const o = presetOptions(k);
+    const id = `custom-${slug(k)}`;
+    return [
+      { id, type: 'custom', opts: o },
+      { id: `${id}-side`, type: 'custom', opts: { ...o, pose: 'side' } },
+      ...(overhangs(o.profile).length ? [] : [{ id: `${id}-upright`, type: 'custom', opts: { ...o, pose: 'upright' } }]),
+    ];
+  }),
+  { id: 'custom-tray-lip-dividers-walls', type: 'custom', opts: { ...presetOptions('tray'), lip: 6, dividers: 3, ends: 'walls', width: 160 } },
+  { id: 'custom-ledge-label-raised', type: 'custom', opts: presetOptions('ledge'), common: { label: 'Bits', labelStyle: 'raised' } },
+  { id: 'custom-ledge-bolt-m3', type: 'custom', opts: { ...presetOptions('ledge'), width: 120 }, common: { bolt: 'm3' } },
+];
+
 /** Samples that need the geometry kernel to plan (an imported model is kept by its mesh's hash). */
 const MORE_WITH_WASM = (w: Wasm): AttachmentSample[] => {
   const bracket = bracketModel(w);
@@ -416,7 +437,7 @@ export const setSamplerWasm = (w: Wasm) => (wasm = w);
 
 /** Every attachment sample: each kind's from its form, then the ones picked by hand. */
 export function attachmentSamples(): AttachmentSample[] {
-  const more = [...MORE, ...(wasm ? MORE_WITH_WASM(wasm) : [])];
+  const more = [...MORE, ...CUSTOM_SAMPLES, ...(wasm ? MORE_WITH_WASM(wasm) : [])];
   return [...attachmentDefs().flatMap((d) => kindSamples(d.type)), ...more.filter((s) => attachmentDef(s.type))].map(fitBed);
 }
 
@@ -499,6 +520,16 @@ export const BOARD_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
     file: /^boards\/multiboard\/threads|^attachments\/display\/display-ledge-/,
     what: /parts \(expected/,
     why: 'a few zero-area triangles in float32 (thousands in the threads) that PrusaSlicer counts as shells of their own; split, they come to nothing: one object, the same volume',
+  },
+  {
+    file: /^attachments\/board\/custom-.*-side/,
+    what: /^overhang$|Long bridging extrusions/,
+    why: 'Build your own on its side (picked, or its profile can’t print upright): its end walls, gussets and dividers bridge over the open profile, and its note says so',
+  },
+  {
+    file: /^attachments\/board\/custom-bracket-upright/,
+    what: /^contact$/,
+    why: 'the L-bracket forced upright stands on its plate’s edge: Auto prints it on its side for that reason; a brim helps',
   },
   // Faces past 45° (sampler-steep.ts), listed for a look.
   {

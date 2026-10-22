@@ -316,7 +316,10 @@ too big for, so the sample board is one tile with every slot).
   bigger than the bed at the kind's defaults (a cradle for a 13" tablet, a
   bottle rack of aerosol cans, …: the planner warns and leaves it out) is
   sampled with fewer columns or a shorter length, which its file name says
-  (`bottle-rack-preset-aerosol-columns-3`).
+  (`bottle-rack-preset-aerosol-columns-3`). *Build your own*'s side-profile
+  presets are in its own editor, not a preset field, so each is sampled as
+  Auto picks it, on its side, and upright where its profile allows, with a
+  tray of lip, dividers and end walls, a raised label and a bolt.
 
 ### What was found and fixed
 
@@ -337,6 +340,10 @@ as it sits (114 with extra parts) has no two pieces running into each other.
 - **A magnetic bar with the magnets under a skin** (Fix: Skin) has a 0.5 mm
   skin over each pocket, an option from 0.3 to 1 mm: thinner pulls harder.
   The print pauses to drop the magnets in (its note says where).
+- **Build your own on its side** (picked, or a profile that can't print
+  upright): its end walls, gussets and dividers bridge over the open profile,
+  and its note says so. Forced upright, the L-bracket stands on its plate's
+  edge and may tip: Auto prints it on its side for that reason.
 - **Tall shadow boards** (a board as tall as its tools, 200–230 mm) print
   upright on their 5 mm edge: a brim helps.
 - **"Low bed adhesion"** in PrusaSlicer: small parts (lock keys, pins, fit-test

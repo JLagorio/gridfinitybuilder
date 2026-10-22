@@ -141,8 +141,10 @@ registerAttachment<CustomOptions>({
       out.push(
         `Printed upright, ${down === 1 ? 'an edge' : `${down} edges`} underneath ${down === 1 ? 'is' : 'are'} flatter than 45° (red in the editor): print it on its side, or make them steeper.`,
       );
-    if (l.pose === 'side' && (o.ends === 'walls' || o.dividers))
-      out.push('On its side, its end walls and dividers print as bridges over the open profile: print it upright if you can.');
+    if (l.pose === 'side' && (o.ends !== 'none' || o.dividers))
+      out.push(
+        `On its side, its ${o.ends === 'gussets' ? 'gussets' : 'end walls'}${o.dividers ? ' and dividers' : ''} print as bridges over the open profile: print it upright if you can.`,
+      );
     const thin = thinnest(o.profile, l.h);
     if (thin && thin.t < CUSTOM.wall - 0.05) out.push(`A wall is only ${r1(thin.t)} mm thick: make it ${CUSTOM.wall} mm or more.`);
     const left = featureSpots(o, l, ctx).filter((s) => !s.ok).length;

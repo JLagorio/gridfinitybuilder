@@ -198,7 +198,8 @@ describe('the 45° rule', () => {
     ];
     const auto = opts({ profile: lifted });
     expect(customLayout(auto, CTX).pose).toBe('side');
-    expect(def().notes!(auto, CTX)).toEqual([]);
+    // Its gussets (the ledge's) bridge over the open profile on its side: that's all it says.
+    expect(def().notes!(auto, CTX)).toEqual([expect.stringMatching(/^On its side, its gussets print as bridges/)]);
     // On its side: a hook at its left, flush with the bed; a stud under it.
     const l = customLayout(auto, CTX);
     expect(l.mounts.map((m) => m.kind)).toEqual(['hook', 'stud']);
