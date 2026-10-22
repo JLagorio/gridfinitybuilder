@@ -39,7 +39,26 @@ export interface PlacedAttachment {
   label?: string;
   /** Barbs on the clips at the ends of its top row only (the rest plain pegs): easier to push on and off. */
   barbs?: 'ends';
+  /** What's in it or on it, one item per line, like a bin's (lib/inventory.ts): for finding it. Not geometry. */
+  contents?: string;
+  /** 'contents': its label says what's in it (contentsLabel) instead of `label`. */
+  labelFrom?: 'contents';
 }
+
+/** The label its contents give an attachment: its one item, a few short ones ("Nozzles, Wipes"), else the first; '' when none. */
+export function contentsLabel(contents: string | undefined): string {
+  // The items, as lib/inventory.ts contentLines reads them: trimmed lines, list bullets dropped.
+  const items = (contents ?? '')
+    .split('\n')
+    .map((l) => l.trim().replace(/^[-*•·–]\s+/, ''))
+    .filter(Boolean);
+  const joined = items.join(', ');
+  return (items.length > 1 && joined.length <= 24 ? joined : (items[0] ?? '')).slice(0, 40);
+}
+
+/** The text on an attachment's label: its own, or from its contents. */
+export const attachmentLabel = (a: Pick<PlacedAttachment, 'label' | 'contents' | 'labelFrom'>): string =>
+  (a.labelFrom === 'contents' ? contentsLabel(a.contents) : (a.label ?? '')).trim().slice(0, 40);
 
 /** The board an attachment is for: its slots and thickness. */
 export interface MountCtx {

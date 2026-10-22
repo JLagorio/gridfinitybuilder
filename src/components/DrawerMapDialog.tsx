@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useUnits } from '../state/store';
+import { useStore, useUnits } from '../state/store';
 import { PAPERS, combinedMapSvg, drawerMaps, mapSvg, tilePlan, type DrawerMap, type Tile } from '../lib/inventory';
 import { downloadBytes } from '../worker/client';
 import { Segmented, Toggle } from './fields';
 import { encodeQr, qrRects } from '../lib/qrEncode';
 import type { QrEcc } from '../lib/qr';
 import { useAllDrawers, type Scope } from './DrawerMap';
+import { planPrint } from '../lib/project';
+import { boardMap } from '../lib/wall/boardMap';
 
 type Scale = 'fit' | 'actual';
 
@@ -39,20 +41,28 @@ const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
  * behind it is hidden from print while this is open.
  */
 export function DrawerMapDialog({ initialScope = 'active', onClose }: { initialScope?: Scope; onClose: () => void }) {
-  const { docs, activeDrawerId } = useAllDrawers();
+  const { docs, all, activeDrawerId } = useAllDrawers();
   const { units, precision } = useUnits();
-  const [scope, setScope] = useState<Scope>(docs.length > 1 ? initialScope : 'active');
+  const setup = useStore((s) => s.setup);
+  const [scope, setScope] = useState<Scope>(all.length > 1 ? initialScope : 'active');
   const [scale, setScale] = useState<Scale>('fit');
   const [paperId, setPaperId] = useState(units === 'in' ? 'letter' : 'a4');
   const paper = PAPERS.find((p) => p.id === paperId) ?? PAPERS[0];
   const shown = useMemo(() => (scope === 'all' ? docs : docs.filter((d) => d.id === activeDrawerId)), [docs, scope, activeDrawerId]);
+  // Skådis boards get a map of their own (lib/wall/boardMap.ts): planned to see where each part hangs.
+  const shownAll = useMemo(() => (scope === 'all' ? all : all.filter((d) => d.id === activeDrawerId)), [all, scope, activeDrawerId]);
   // Bins with a QR code get it on the map too (off: just the text).
   const anyQr = shown.some((d) => d.bins.some((b) => b.opts.qr && b.opts.qr !== 'none'));
   const [codes, setCodes] = useState(true);
   // Stacked bins get a map per level.
   const maps = useMemo(
-    () => shown.flatMap((d) => drawerMaps(d, { units, precision, ...(codes ? { qr: mapQr } : {}) })),
-    [shown, units, precision, codes],
+    () =>
+      shownAll.flatMap((d) => {
+        if (d.drawer.enclosure !== 'skadis') return drawerMaps(d, { units, precision, ...(codes ? { qr: mapQr } : {}) });
+        const wall = planPrint([d], setup, { baseplate: true, bins: true }).drawers[0]?.enclosure?.wall;
+        return wall ? [boardMap(d, wall, { units, precision })] : [];
+      }),
+    [shownAll, units, precision, codes, setup],
   );
   const pages = useMemo<Page[]>(
     () =>
@@ -102,12 +112,12 @@ export function DrawerMapDialog({ initialScope = 'active', onClose }: { initialS
       <style>{pageCss}</style>
       <div className="gfm-toolbar">
         <h2>Drawer map</h2>
-        {docs.length > 1 && (
+        {all.length > 1 && (
           <Segmented
             value={scope}
             options={[
               { value: 'active', label: 'This drawer' },
-              { value: 'all', label: `All ${docs.length} drawers` },
+              { value: 'all', label: `All ${all.length} drawers` },
             ]}
             onChange={setScope}
           />

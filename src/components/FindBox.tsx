@@ -27,15 +27,21 @@ export function flashSelection() {
   window.setTimeout(() => b.classList.remove('find-flash'), 1800);
 }
 
-/** Show a search result: its drawer, the Bins tab, the bin selected (and its compartment). */
-export function goToResult(r: Pick<FindResult, 'drawerId' | 'binId' | 'compKey'>) {
+/** Show a search result: its drawer, the Bins tab, the bin selected (and its compartment); a board's attachment selected on its Attachments tab. */
+export function goToResult(r: Pick<FindResult, 'drawerId' | 'binId' | 'compKey' | 'attachmentId'>) {
+  if (r.attachmentId) {
+    useStore.getState().switchDrawer(r.drawerId);
+    useStore.getState().setUI({ tab: 'bins', selectedAttachment: r.attachmentId });
+    flashSelection();
+    return;
+  }
   useStore.getState().locateBin(r.drawerId, r.binId);
   if (r.binId && r.compKey) selectCompartment(r.binId, r.compKey);
   else clearInteriorSelection();
   if (r.binId) flashSelection();
 }
 
-const KIND: Record<FindResult['kind'], string> = { label: 'Label', contents: '', tool: 'Tool', drawer: 'Drawer' };
+const KIND: Record<FindResult['kind'], string> = { label: 'Label', contents: '', tool: 'Tool', drawer: 'Drawer', part: '' };
 
 /** Top-bar search over every drawer: what's in the bins, labels, compartments, tools, drawer names. Ctrl/⌘ K or /. */
 export function FindBox() {
@@ -53,6 +59,8 @@ export function FindBox() {
     [open, q, ws],
   );
   const binCount = useMemo(() => (open ? allDrawers(ws).reduce((t, d) => t + d.bins.length, 0) : 0), [open, ws]);
+  // Parts on Skådis boards, searched too.
+  const partCount = useMemo(() => (open ? allDrawers(ws).reduce((t, d) => t + (d.drawer.attachments?.length ?? 0), 0) : 0), [open, ws]);
 
   useEffect(() => setActive(0), [q]);
   useEffect(() => {
@@ -151,8 +159,9 @@ export function FindBox() {
         <div className="find-results" onMouseDown={(e) => e.preventDefault()}>
           {!q.trim() ? (
             <p className="find-empty">
-              Search what&apos;s in the bins, their labels, compartments, tool cutouts and drawer names, in all {ws.drawers.length}{' '}
-              drawer{ws.drawers.length === 1 ? '' : 's'} ({binCount} bins). List a bin&apos;s contents in the Bins tab under &ldquo;What&apos;s in it&rdquo;.
+              Search what&apos;s in the bins, their labels, compartments, tool cutouts and drawer names, in all {ws.drawers.length} drawer
+              {ws.drawers.length === 1 ? '' : 's'} ({binCount} bins{partCount ? `, ${partCount} parts on boards` : ''}). List a bin&apos;s contents in the Bins
+              tab under &ldquo;What&apos;s in it&rdquo;.
             </p>
           ) : results.length ? (
             <ul id={listId} role="listbox" ref={list}>

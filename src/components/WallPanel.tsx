@@ -8,6 +8,8 @@ import '../lib/wall/kinds/all';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
 import type { PrintJob } from '../lib/project';
 import { addAttachment, duplicateAttachment, removeAttachment, selectAttachment, setAttachmentOpts, updateAttachment } from '../state/wall';
+import { AttachmentContentsField, AttachmentLabelField } from './WallContents';
+import { StartFromTemplate } from './BoardTemplatesButton';
 import './wall.css';
 
 /**
@@ -62,6 +64,7 @@ export function WallPanel({ job }: { job: PrintJob }) {
             placeholder={def.summary(def.sanitize(sel.opts) as never)}
             onChange={(name) => updateAttachment(sel.id, { name })}
           />
+          <AttachmentContentsField a={sel} />
           {placed && <CommonFields a={sel} def={def} placed={placed} ctx={wall.board.ctx} />}
           <AttachmentFields def={def} ui={attachmentUi(sel.type)} opts={sel.opts} onChange={(p) => setAttachmentOpts(sel.id, p)} />
           {placed && (
@@ -81,6 +84,8 @@ export function WallPanel({ job }: { job: PrintJob }) {
           </div>
         </Section>
       )}
+
+      {!list.length && <StartFromTemplate />}
 
       <Section title="Add to the board">
         <p className="muted small">Click to add one, then drag it on the board: it snaps to the slots. Arrow keys move the selected one a slot over.</p>
@@ -194,7 +199,7 @@ function CommonFields({ a, def, placed, ctx }: { a: PlacedAttachment; def: Attac
           onChange={(v) => set({ barbs: v === 'ends' ? 'ends' : undefined })}
         />
       )}
-      {face && <TextInput label="Label" value={a.label ?? ''} placeholder="Cut into its front" onChange={(label) => set({ label })} />}
+      {face && <AttachmentLabelField a={a} />}
     </>
   );
 }

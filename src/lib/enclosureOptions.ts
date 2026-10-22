@@ -4,6 +4,7 @@ import { sanitizeWall } from './geometry/wallmount';
 import { sanitizeSpacers } from './geometry/spacers';
 import { sanitizeSkadis } from './geometry/skadis';
 import type { PlacedAttachment } from './wall/registry';
+import { sanitizeContents } from './inventory';
 
 /**
  * Clean a saved drawer's enclosure fields (carry case, wall grid, spacer
@@ -43,6 +44,7 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
     if (!id || seen.has(id) || typeof r.type !== 'string' || !Number.isFinite(x) || !Number.isFinite(y)) continue;
     seen.add(id);
     const opts = r.opts && typeof r.opts === 'object' && !Array.isArray(r.opts) ? { ...(r.opts as Record<string, unknown>) } : {};
+    const contents = sanitizeContents(r.contents);
     out.push({
       id,
       type: r.type,
@@ -56,6 +58,9 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
       ...(r.bolt === 'm3' || r.bolt === 'm4' ? { bolt: r.bolt } : {}),
       ...(typeof r.label === 'string' && r.label.trim() ? { label: r.label.slice(0, 40) } : {}),
       ...(r.barbs === 'ends' ? { barbs: 'ends' as const } : {}),
+      // What's in it (like a bin's contents), and a label that follows it.
+      ...(contents ? { contents } : {}),
+      ...(r.labelFrom === 'contents' ? { labelFrom: 'contents' as const } : {}),
     });
   }
   return out;

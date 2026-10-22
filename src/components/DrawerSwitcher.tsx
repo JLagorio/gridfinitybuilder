@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { allDrawers, useStore } from '../state/store';
+import { BoardTemplatesDialog } from './boardTemplatesLazy';
 
 /** Top-bar drawer picker: switch, add, duplicate, rename, delete. */
 export function DrawerSwitcher() {
@@ -15,6 +16,8 @@ export function DrawerSwitcher() {
   const activeHave = useStore((s) => !!s.drawer.haveBaseplate);
   const activeBoard = useStore((s) => s.drawer.enclosure === 'skadis');
   const [open, setOpen] = useState(false);
+  // The starter-board picker (BoardTemplates.tsx), open after the menu closes.
+  const [templates, setTemplates] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const active = drawers.find((d) => d.id === activeId) ?? drawers[0];
 
@@ -100,6 +103,16 @@ export function DrawerSwitcher() {
             >
               New: Skådis board
             </button>
+            {/* A board with a ready set of parts on it (lib/wall/templates.ts). */}
+            <button
+              title="A Skådis board with parts on it for a 3D printer’s corner, an electronics bench, a paint station, the kitchen, …"
+              onClick={() => {
+                setTemplates(true);
+                setOpen(false);
+              }}
+            >
+              New: board from a template…
+            </button>
             <button
               onClick={() => {
                 duplicateDrawer(activeId);
@@ -129,6 +142,7 @@ export function DrawerSwitcher() {
           </div>
         </div>
       )}
+      {templates && <BoardTemplatesDialog target="new" onClose={() => setTemplates(false)} />}
     </div>
   );
 }
