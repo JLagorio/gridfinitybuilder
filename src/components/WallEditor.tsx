@@ -73,6 +73,9 @@ interface Marquee {
 
 const ARROWS: Record<string, Vec2> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
 
+/** A part's name sized to fit across it (about 0.58 em a character), as large as 12 mm and no smaller than 4. */
+const labelSize = (text: string, w: number, h: number) => Math.max(4, Math.min(12, h * 0.55, (w - 4) / (0.58 * Math.max(1, text.length))));
+
 /**
  * A Skådis board seen from the front, on its Attachments tab: the tiles, every slot, and the attachments on it.
  * Click one to select it (Shift or Ctrl-click to add it, or take it out; drag over the empty board to select what
@@ -459,7 +462,7 @@ export function WallEditor({ board, placed, job }: { board: WallBoard; placed: W
               {p.mounts.map((m, i) => (
                 <circle key={i} className={`we-mount ${m.kind}`} cx={m.x} cy={sy(m.y)} r={m.kind === 'stud' ? 2 : 2.6} />
               ))}
-              <text x={(p.x0 + p.x1) / 2} y={sy((p.y0 + p.y1) / 2)} fontSize={Math.max(5, Math.min(12, w / 8, h * 0.55))}>
+              <text x={(p.x0 + p.x1) / 2} y={sy((p.y0 + p.y1) / 2)} fontSize={labelSize(size ?? p.name, w, h)}>
                 {size ?? p.name}
               </text>
               {marks[`att:${p.id}`] && (
