@@ -17,7 +17,7 @@ import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
-import { NEW_SKADIS } from '../lib/geometry/skadis';
+import { NEW_SKADIS } from '../lib/geometry/skadisOptions';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';

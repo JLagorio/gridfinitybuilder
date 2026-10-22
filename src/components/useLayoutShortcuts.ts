@@ -9,7 +9,7 @@ import {
   selectedBins,
 } from '../state/selection';
 import { isMod, isTyping, keyLetter } from './shortcuts';
-import { hasLayoutClip, pasteLayoutInto } from './WallTools';
+import { hasLayoutClip, pasteLayoutInto } from './layoutClip';
 
 const ARROWS: Record<string, [number, number]> = {
   ArrowLeft: [-1, 0],
