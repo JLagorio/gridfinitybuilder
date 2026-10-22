@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { attachmentSelection, useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, TextInput, Toggle } from './fields';
 import { MOD } from './shortcuts';
+import { useCoarsePointer, useTouchModes } from './touch';
 import {
   attachmentDef,
   attachmentLabel,
@@ -60,6 +61,9 @@ export function WallPanel({ job }: { job: PrintJob }) {
   const picked = useStore(useShallow((s) => attachmentSelection(s.ui)));
   const setDrawer = useStore((s) => s.setDrawer);
   const { fmt } = useUnits();
+  // Touch: taps in place of clicks, and the board's Select several in place of Shift.
+  const coarse = useCoarsePointer();
+  const multi = useTouchModes((s) => s.multi);
   const wall = job.drawers[0]?.enclosure?.wall;
   const o = sanitizeSkadis(drawer.skadis);
   const list = drawer.attachments ?? [];
@@ -169,8 +173,9 @@ export function WallPanel({ job }: { job: PrintJob }) {
 
       <Section title="Add to the board">
         <p className="muted small">
-          Click to add one, then drag it on the board: it snaps to the slots. Arrow keys move the selection a slot over; Shift-click or drag a box to select
-          several.
+          {coarse
+            ? 'Tap one to add it, then drag it on the board: it snaps to the slots. Hold a part still, or turn on Select several, to select more than one.'
+            : 'Click to add one, then drag it on the board: it snaps to the slots. Arrow keys move the selection a slot over; Shift-click or drag a box to select several.'}
         </p>
         <div className="input-wrap wall-search">
           <input
@@ -223,7 +228,7 @@ export function WallPanel({ job }: { job: PrintJob }) {
                 <button
                   className={p.id === selected ? 'active' : group.includes(p.id) ? 'picked' : ''}
                   title={`Shift- or ${MOD}-click to select several`}
-                  onClick={(e) => (e.shiftKey || e.ctrlKey || e.metaKey ? toggleAttachment(p.id) : selectAttachment(p.id))}
+                  onClick={(e) => (e.shiftKey || e.ctrlKey || e.metaKey || multi ? toggleAttachment(p.id) : selectAttachment(p.id))}
                 >
                   <span>{p.name}</span>
                   <small>{p.ok ? `${fmt(p.x1 - p.x0)} × ${fmt(p.y1 - p.y0)}` : 'doesn’t fit'}</small>

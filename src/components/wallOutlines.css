@@ -25,3 +25,11 @@
   padding-left: 4px;
   padding-right: 4px;
 }
+/* Fingers: turn and remove a fingertip wide. */
+@media (pointer: coarse) {
+  .wall-outline .tool-main > .link {
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 16px;
+  }
+}

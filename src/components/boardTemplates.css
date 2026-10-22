@@ -82,3 +82,24 @@
     height: 100%;
   }
 }
+/* Phones: the title and its close button on one line, the hint under them; a close button a fingertip finds. */
+@media (max-width: 640px) {
+  .tpl-dialog .modal-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+  }
+  .tpl-dialog .modal-head > span {
+    grid-column: 1 / -1;
+  }
+  .tpl-dialog .modal-close {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}
+@media (pointer: coarse) {
+  .tpl-dialog .modal-close {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}

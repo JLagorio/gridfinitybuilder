@@ -10,7 +10,8 @@ import { bounds, pointInPolygon, signedArea } from '../lib/trace/polygon';
 import { once } from './lazy';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { DEFAULT_CLEARANCE, DEFAULT_TOOL_DEPTH } from '../lib/tools';
-import { fingerPx, isTouch, useCoarsePointer } from './touch';
+import { isTouch, useCoarsePointer } from './touch';
+import { fingerPx } from './gestures';
 import { inOpenList } from './shortcuts';
 import type { TracedOutline } from '../lib/wall/kinds/traced';
 

@@ -26,7 +26,8 @@ import { cleanupPhotos, isPhotoMissing, keepPhoto, loadPhoto, photoBytes, photoH
 import { currentPhoto, setPhotoView, setWallPhoto } from '../state/wallPhoto';
 import { useUnits } from '../state/store';
 import { LengthInput, Segmented, Slider, Toggle } from './fields';
-import { fingerPx, isTouch, useCoarsePointer } from './touch';
+import { isTouch, useCoarsePointer } from './touch';
+import { fingerPx } from './gestures';
 import { inOpenList } from './shortcuts';
 import './wallPhoto.css';
 

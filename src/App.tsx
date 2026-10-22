@@ -538,7 +538,7 @@ export default function App() {
         drag={drag}
         hint={
           coarse
-            ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? (board ? ' · tap an attachment to select it, drag it to move it' : ' · tap a bin to select it') : ''}`
+            ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? (board ? ' · tap an attachment, then drag it to move it' : ' · tap a bin to select it') : ''}`
             : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? (board ? ' · drag an attachment to move it' : ' · click a bin to select') : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
         }
       >

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { Vec2 } from '../lib/geometry/kernel';
 import { attachmentDef } from '../lib/wall';
@@ -13,6 +13,7 @@ import { attachmentSelection, useStore, useUnits } from '../state/store';
 import {
   copyAttachments,
   duplicateAttachments,
+  hasAttachmentClip,
   moveAttachments,
   moveToFit,
   pasteAttachments,
@@ -20,11 +21,14 @@ import {
   selectAllAttachments,
   selectAttachment,
   selectAttachments,
+  subscribeClip,
   toggleAttachment,
   updateAttachment,
 } from '../state/wall';
 import { isMod, isTyping, keyLetter } from './shortcuts';
-import { isTouch, tapSlop } from './touch';
+import { TouchToggle, isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
+import { fingerPx, longPress } from './gestures';
+import { FINGER_PX, handleHit, heldSelection, nearestPart, useMmPerPx } from './wallTouch';
 import { dragMoves } from './wallDrag';
 import { asDrawer, type PrintJob } from '../lib/project';
 import { markText, markTitle, partMarks } from '../lib/printedBoards';
@@ -78,6 +82,11 @@ const ARROWS: Record<string, Vec2> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], A
  * or bottom edge to resize it. Delete removes the selection, the arrow keys move it one slot over, Ctrl+C / V / D
  * copy, paste (at the pointer) and duplicate (lib/wall/arrange.ts, state/wall.ts). With `job` (the drawer's view),
  * a part printed already has a ✓ in its corner, one changed since it was printed a dot (lib/printed.ts).
+ *
+ * With a finger: tap a part to select it (a press just beside a thin one takes it), drag it to move it, hold it still
+ * to add it to the selection (or take it out), or turn on Select several in the bar above the board, which also
+ * has the keyboard's Duplicate, Copy, Paste and Delete. The resize handles take a press a fingertip wide. A second
+ * finger calls a drag off, and pinches zoom the page.
  */
 export function WallEditor({ board, placed, job }: { board: WallBoard; placed: WallPlacement[]; job?: PrintJob }) {
   const svg = useRef<SVGSVGElement>(null);
@@ -97,11 +106,20 @@ export function WallEditor({ board, placed, job }: { board: WallBoard; placed: W
   const drawerId = useStore((s) => s.activeDrawerId);
   const marks = useMemo(() => (job ? partMarks(asDrawer(job, drawerId), record) : {}), [job, drawerId, record]);
   const { fmt } = useUnits();
+  // Touch: the bar of buttons, Select several in place of Shift, a long press, and the finger the gesture is with.
+  const coarse = useCoarsePointer();
+  const multi = useTouchModes((s) => s.multi);
+  const setModes = useTouchModes((s) => s.set);
+  const clip = useSyncExternalStore(subscribeClip, hasAttachmentClip);
+  const [hold] = useState(longPress);
+  const finger = useRef<number | null>(null);
   const M = 12;
   const W = Math.max(board.W, 1);
   const H = Math.max(board.H, 1);
   // Board y is up; the screen's is down.
   const sy = (y: number) => H - y;
+  // Board mm in a screen pixel, for finger-sized targets.
+  const mmPerPx = useMmPerPx(svg, [W, H]);
 
   /** A pointer event in board millimetres. */
   const toBoard = (e: { clientX: number; clientY: number }): Vec2 => {
@@ -143,29 +161,68 @@ export function WallEditor({ board, placed, job }: { board: WallBoard; placed: W
     };
   };
 
+  /** A second finger: whatever the first was doing is called off (and the page may take both, to pinch). */
+  const second = (e: ReactPointerEvent) => {
+    if (e.isPrimary || finger.current === null) return false;
+    onCancel();
+    return true;
+  };
   const onDown = (e: ReactPointerEvent, p: WallPlacement) => {
     e.stopPropagation();
-    if (e.button !== 0 || !e.isPrimary) return;
-    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    if (second(e) || e.button !== 0 || !e.isPrimary) return;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey || multi;
     const had = sel.includes(p.id);
     // Grabbing a selected part drags the whole selection; Shift or Ctrl adds one to it.
     const ids = had ? sel : additive ? [p.id, ...sel] : [p.id];
     if (!had) selectAttachments(ids, p.id);
     svg.current?.setPointerCapture?.(e.pointerId);
+    finger.current = e.pointerId;
     setDrag({ held: p.id, ids, start: toBoard(e), screen: [e.clientX, e.clientY], slop: tapSlop(isTouch(e)), moves: null, additive, toggle: additive && had });
+    // A finger held still adds the part to the selection it came down on (or takes it out), and does nothing more.
+    if (isTouch(e) && !additive) {
+      const before = sel;
+      hold.down(e, () => {
+        setDrag(null);
+        const next = heldSelection(before, p.id);
+        selectAttachments(next, next.includes(p.id) ? p.id : undefined);
+        navigator.vibrate?.(15);
+      });
+    }
   };
   const onBoardDown = (e: ReactPointerEvent) => {
-    if (e.button !== 0 || !e.isPrimary) return;
-    svg.current?.setPointerCapture?.(e.pointerId);
+    if (second(e) || e.button !== 0 || !e.isPrimary) return;
     const at = toBoard(e);
-    setMarquee({ start: at, now: at, screen: [e.clientX, e.clientY], slop: tapSlop(isTouch(e)), base: e.shiftKey || e.ctrlKey || e.metaKey ? sel : [] });
+    // A finger just beside a part (a hook is a few pixels wide on a phone) takes it.
+    const near = isTouch(e) && nearestPart(placed, at[0], at[1], fingerPx(6, true) * mmPerPx);
+    if (near) return onDown(e, near);
+    svg.current?.setPointerCapture?.(e.pointerId);
+    finger.current = e.pointerId;
+    setMarquee({
+      start: at,
+      now: at,
+      screen: [e.clientX, e.clientY],
+      slop: tapSlop(isTouch(e)),
+      base: e.shiftKey || e.ctrlKey || e.metaKey || multi ? sel : [],
+    });
   };
   const onHandle = (e: ReactPointerEvent, p: WallPlacement, edge: Resize['edge']) => {
     e.stopPropagation();
+    if (second(e) || !e.isPrimary) return;
     (e.target as Element).setPointerCapture?.(e.pointerId);
+    finger.current = e.pointerId;
     setResize({ id: p.id, edge, start: toBoard(e), axes, x0: p.x0, y1: p.y1, patch: {} });
   };
+  /** Calls the gesture off: nothing moves, nothing is selected that wasn't. */
+  const onCancel = () => {
+    hold.stop();
+    finger.current = null;
+    setDrag(null);
+    setMarquee(null);
+    setResize(null);
+  };
   const onMove = (e: ReactPointerEvent) => {
+    if (finger.current !== null && e.pointerId !== finger.current) return;
+    hold.move(e);
     const now = toBoard(e);
     hover.current = now;
     if (marquee) {
@@ -200,6 +257,10 @@ export function WallEditor({ board, placed, job }: { board: WallBoard; placed: W
     if (moves && JSON.stringify(moves) !== JSON.stringify(drag.moves)) setDrag({ ...drag, moves });
   };
   const onUp = (e: ReactPointerEvent) => {
+    if (finger.current !== null && e.pointerId !== finger.current) return;
+    finger.current = null;
+    // A long press did all it does.
+    if (hold.stop()) return;
     if (marquee) {
       const click = Math.hypot(e.clientX - marquee.screen[0], e.clientY - marquee.screen[1]) <= marquee.slop;
       // A plain click on the empty board clears the selection.
@@ -347,13 +408,37 @@ export function WallEditor({ board, placed, job }: { board: WallBoard; placed: W
 
   return (
     <div className="wall-editor">
+      {coarse && (
+        <div className="we-touch-bar">
+          <TouchToggle
+            on={multi}
+            label="Select several"
+            title="Tap parts to add them to the selection, or drag across the board to select a group"
+            onChange={(on) => setModes({ multi: on })}
+          />
+          <span className="we-touch-actions">
+            <button type="button" disabled={!sel.length} onClick={() => duplicateAttachments(sel, board)}>
+              Duplicate
+            </button>
+            <button type="button" disabled={!sel.length} onClick={() => copyAttachments(sel)}>
+              Copy
+            </button>
+            <button type="button" disabled={!clip} onClick={() => pasteAttachments(board)}>
+              Paste
+            </button>
+            <button type="button" className="danger" disabled={!sel.length} onClick={() => removeAttachments(sel)}>
+              Delete
+            </button>
+          </span>
+        </div>
+      )}
       <svg
         ref={svg}
         viewBox={`${-M} ${-M} ${W + 2 * M} ${H + 2 * M}`}
         preserveAspectRatio="xMidYMid meet"
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerCancel={onUp}
+        onPointerCancel={onCancel}
         onPointerDown={onBoardDown}
         onPointerLeave={() => (hover.current = null)}
         role="application"
@@ -415,6 +500,24 @@ export function WallEditor({ board, placed, job }: { board: WallBoard; placed: W
                       onPointerDown={(e) => onHandle(e, raw, 'se')}
                     />
                   )}
+                  {/* A fingertip's worth round each handle, drawn as before. */}
+                  {coarse &&
+                    (['e', 's', 'se'] as const)
+                      .filter((edge) => (edge === 's' || axes.w) && (edge === 'e' || axes.h))
+                      .map((edge) => {
+                        const z = handleHit(edge, p, edge === 'se' ? hs : 2 * hs, FINGER_PX * mmPerPx);
+                        return (
+                          <rect
+                            key={edge}
+                            className="we-handle-hit"
+                            x={z.x0}
+                            y={sy(z.y1)}
+                            width={z.x1 - z.x0}
+                            height={z.y1 - z.y0}
+                            onPointerDown={(e) => onHandle(e, raw, edge)}
+                          />
+                        );
+                      })}
                 </>
               )}
             </g>
