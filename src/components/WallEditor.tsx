@@ -6,7 +6,7 @@ import '../lib/wall/kinds/all';
 import { partBounds, siteAt } from '../lib/wall/mount';
 import { dragAnchor, nearestSlot, slotKeys, type WallBoard, type WallPlacement } from '../lib/wall/plan';
 import { resizeAxes, resized, type ResizeAxis } from '../lib/wall/resize';
-import { useUnits } from '../state/store';
+import { useStore, useUnits } from '../state/store';
 import { moveAttachment, removeAttachment, selectAttachment, updateAttachment } from '../state/wall';
 import './wall.css';
 
@@ -33,6 +33,8 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
   const keys = useMemo(() => slotKeys(board.slots), [board.slots]);
   const [drag, setDrag] = useState<{ id: string; start: Vec2; from: Vec2; at: Vec2 | null; fits: boolean } | null>(null);
   const [resize, setResize] = useState<Resize | null>(null);
+  // A part being dragged in the 3D view (App.tsx): shown where it's going here too.
+  const wallDrag = useStore((s) => s.ui.wallDrag ?? null);
   const { fmt } = useUnits();
   const M = 12;
   const W = Math.max(board.W, 1);
@@ -165,21 +167,27 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
       const size = `${fmt(v.box.x1 - v.box.x0)} × ${fmt(v.box.y1 - v.box.y0)}`;
       return { p: { ...p, ...v.box, mounts: v.mounts }, bad: false, size };
     }
-    if (drag?.id !== p.id || !drag.at) return { p, bad: !p.ok };
-    const dx = drag.at[0] - p.x;
-    const dy = drag.at[1] - p.y;
+    const moving =
+      drag?.id === p.id && drag.at
+        ? { at: drag.at, fits: drag.fits }
+        : wallDrag?.id === p.id
+          ? { at: [wallDrag.x, wallDrag.y] as Vec2, fits: wallDrag.fits }
+          : null;
+    if (!moving) return { p, bad: !p.ok };
+    const dx = moving.at[0] - p.x;
+    const dy = moving.at[1] - p.y;
     return {
       p: {
         ...p,
-        x: drag.at[0],
-        y: drag.at[1],
+        x: moving.at[0],
+        y: moving.at[1],
         x0: p.x0 + dx,
         x1: p.x1 + dx,
         y0: p.y0 + dy,
         y1: p.y1 + dy,
         mounts: p.mounts.map((m) => ({ ...m, x: m.x + dx, y: m.y + dy })),
       },
-      bad: !drag.fits,
+      bad: !moving.fits,
     };
   };
 
