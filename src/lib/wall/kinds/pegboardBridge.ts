@@ -50,4 +50,6 @@ registerAttachment<PegboardBridgeOptions>({
   // Its pegboard face covers the whole back.
   backPlate: () => null,
   notes: (o) => (o.cavity < 6 ? ['Most hooks’ tails need about 6 mm behind the face: make the cavity deeper.'] : []),
+  // Anything that hangs on it, in front.
+  load: (_o, l) => ({ kg: 0, at: l.depth + 30 }),
 });

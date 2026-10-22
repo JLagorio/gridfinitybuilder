@@ -1,7 +1,8 @@
 /**
- * Every attachment kind's planning (each registers itself; ../index.ts loads this on demand).
- * Add a kind here, in ../ui.ts and in ../build.ts.
+ * Every attachment kind's planning (each registers itself; ../index.ts loads this on demand), and
+ * the load check planning runs on them (../load.ts). Add a kind here, in ../ui.ts and in ../build.ts.
  */
+import '../load';
 import './hook';
 import './bin';
 import './cup';

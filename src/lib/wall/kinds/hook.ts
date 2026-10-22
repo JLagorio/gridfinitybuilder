@@ -74,4 +74,6 @@ registerAttachment<HookOptions>({
     const top = o.style === 'l' ? hookArmTop({ ...o, style: 'peg' }) : hookArmTop(o);
     return { x0: 0, x1: l.w, y0: top + 1, y1: l.h, z: HOOK_PLATE };
   },
+  // Anything: it hangs near the tip.
+  load: (o) => ({ kg: 0, at: Math.max(o.reach / 2, o.reach - o.arm) }),
 });

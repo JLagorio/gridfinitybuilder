@@ -21,6 +21,7 @@
 import { backMounts, minHeight } from '../mount';
 import { bool, int, num, obj, pick, registerAttachment, type AttachmentHardware, type AttachmentPart, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface SpoolRackOptions {
   mode: 'axle' | 'pegs';
@@ -241,5 +242,12 @@ registerAttachment<SpoolRackOptions>({
         { item: 'Rod ⌀8 mm (smooth, or M8 threaded)', count: 1, note: cut },
       ];
     return [];
+  },
+  // Spools of wire, thread or filament.
+  load(o) {
+    const each = Math.max(0.05, (Math.PI / 4) * o.diameter ** 2 * o.width * KG.roll);
+    if (o.mode === 'axle') return { kg: each * o.count, at: spoolPlan(o).zc };
+    const g = pegPlan(o);
+    return { kg: each * o.count * o.rows, at: g.z0 + ((o.rows - 1) * g.p) / 2 };
   },
 });

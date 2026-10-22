@@ -16,6 +16,7 @@
 import { backMounts, minHeight } from '../mount';
 import { int, num, obj, pick, registerAttachment, type AttachmentPart } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface SwivelTowerOptions {
   count: number;
@@ -149,4 +150,6 @@ registerAttachment<SwivelTowerOptions>({
     if (o.source === 'bolt') return [{ item: `Threaded rod or bolt M${Math.round(o.axle)}`, count: 1, note: `${L} long` }];
     return [];
   },
+  // Its trays full, swung out.
+  load: (o) => ({ kg: o.count * o.trayH * o.length * o.width * KG.full, at: swivelPlan(o).za + o.length / 2 }),
 });

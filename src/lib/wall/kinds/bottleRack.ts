@@ -241,4 +241,9 @@ registerAttachment<BottleRackOptions>({
   summary: (o) => `Bottle rack ${o.columns} × ${o.rows}, ${o.shape === 'square' ? '□' : '⌀'}${Math.round(o.diameter * 10) / 10}`,
   notes: (o, ctx) => rackNotes(bottleSpec(o), ctx),
   backPlate: (o, l) => rackBack(bottleSpec(o), l),
+  // A bottle about 2.5 times as tall as its cup is deep (as the presets' cups are), 0.8 g a cm³ with the air in it.
+  load: (o, l) => ({
+    kg: bottleSpec(o).rows.flat().length * (o.shape === 'round' ? Math.PI / 4 : 1) * o.diameter ** 2 * 2.5 * o.cup * 0.8e-6,
+    at: l.depth / 2,
+  }),
 });

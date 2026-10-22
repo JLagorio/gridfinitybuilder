@@ -3,6 +3,7 @@ import { useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, TextInput, Toggle } from './fields';
 import { attachmentDef, type AttachmentDef, type AttachmentField, type AttachmentGroup, type MountCtx, type PlacedAttachment } from '../lib/wall';
 import { LOCK_DEFAULT, canLock, type WallPlacement } from '../lib/wall/plan';
+import { DEFAULT_MATERIAL, MATERIALS, loadCheck, loadLine, slotsUnder, type Material } from '../lib/wall/load';
 import { GROUP_LABELS, attachmentUi, attachmentUis, type AttachmentUi } from '../lib/wall/ui';
 import '../lib/wall/kinds/all';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
@@ -29,6 +30,8 @@ export function WallPanel({ job }: { job: PrintJob }) {
   const [closed, setClosed] = useState<Set<AttachmentGroup>>(() => new Set());
 
   if (!wall) return <Section title="Attachments">{<p className="muted">The board can't be planned yet: check its size on the Skådis board tab.</p>}</Section>;
+  // What the selected one's mounts hold (lib/wall/load.ts), and what it's meant to.
+  const load = sel && def && placed ? loadCheck(sel, def, def.sanitize(sel.opts), wall.board.ctx, slotsUnder(placed, wall.board)) : null;
 
   // The palette, by group; a search shows every match with its group open.
   const q = query.trim().toLowerCase();
@@ -71,6 +74,14 @@ export function WallPanel({ job }: { job: PrintJob }) {
                 ? `${placed.mounts.filter((m) => m.kind !== 'stud').length} ${placed.layout.pose === 'side' ? 'hook' : 'clip'}(s) hold it.`
                 : 'It doesn’t fit here: drag it to where its mounts find slots.'}{' '}
               Prints {placed.layout.pose === 'side' ? 'on its side' : 'upright, as it hangs'}.
+            </div>
+          )}
+          {load && (
+            <div
+              className={load.over ? 'field-error' : 'field-hint'}
+              title={`A rough estimate for a load centred ${fmt(load.at)} out from the board: what its clips, hooks and bolts take, with a margin for how prints vary and for years of hanging.`}
+            >
+              {loadLine(load)}
             </div>
           )}
           <div className="wall-actions">
@@ -183,6 +194,13 @@ function CommonFields({ a, def, placed, ctx }: { a: PlacedAttachment; def: Attac
           onChange={(v) => set({ bolt: v === 'off' ? undefined : v })}
         />
       )}
+      <Segmented
+        label="Printed in"
+        value={a.material ?? DEFAULT_MATERIAL}
+        options={(Object.keys(MATERIALS) as Material[]).map((m) => ({ value: m, label: MATERIALS[m].label }))}
+        hint="For what it holds: PLA creeps under a load that stays on (and softens in a warm room); PETG and ASA hold about twice as much."
+        onChange={(m) => set({ material: m === DEFAULT_MATERIAL ? undefined : m })}
+      />
       {clips > 2 && (
         <Segmented
           label="Barbs"

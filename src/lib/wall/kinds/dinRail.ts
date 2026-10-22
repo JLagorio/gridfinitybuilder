@@ -73,4 +73,6 @@ registerAttachment<DinRailOptions>({
     ];
   },
   notes: (o) => (o.length > 200 ? [`It prints standing on its end, ${Math.round(o.length)} mm tall: check your printer takes it.`] : []),
+  // A breaker, a relay or a terminal block every 18 mm, about 0.1 kg each, standing about 30 mm out.
+  load: (o, l) => ({ kg: (0.1 * o.length) / 18, at: l.depth + 30 }),
 });

@@ -18,6 +18,7 @@ import { bool, int, num, obj, pick, registerAttachment, type AttachmentPart } fr
 import { PIN, magnetHardware, pinHardware, pinPart, type PinKind } from './hinge';
 import { LID } from './lidBox';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface CabinetOptions {
   width: number;
@@ -166,6 +167,7 @@ registerAttachment<CabinetOptions>({
         : []),
     ];
   },
+  load: (o) => ({ kg: o.width * o.height * o.depth * KG.full, at: o.depth / 2 }),
 });
 
 /** The door's window (hinge on the left), and its rebate 3 mm round it. */

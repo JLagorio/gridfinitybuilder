@@ -39,6 +39,8 @@ export interface PlacedAttachment {
   label?: string;
   /** Barbs on the clips at the ends of its top row only (the rest plain pegs): easier to push on and off. */
   barbs?: 'ends';
+  /** What it's printed in, for what it holds (load.ts); unset: PLA. */
+  material?: 'pla' | 'petg' | 'asa';
 }
 
 /** The board an attachment is for: its slots and thickness. */
@@ -220,6 +222,14 @@ export interface AttachmentDef<O extends object = Record<string, unknown>> {
    * bolts. Unset: next to its top row's mounts, on a boss as thick as the screw head needs (plan.ts).
    */
   backPlate?(o: O, layout: AttachmentLayout, ctx: MountCtx): BackPlate | BackPlate[] | null;
+  /** What it's meant to hold (load.ts sets it against what its mounts take). Unset: only what its mounts take, for a load halfway out. */
+  load?(o: O, layout: AttachmentLayout): AttachmentLoad;
+}
+
+/** What an attachment is meant to hold, about, kg (0: anything, so only where it hangs counts), and how far out from the board's front its centre sits, mm. */
+export interface AttachmentLoad {
+  kg: number;
+  at: number;
 }
 
 const DEFS = new Map<string, AttachmentDef<object>>();

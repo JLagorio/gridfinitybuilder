@@ -20,6 +20,7 @@ import { backMounts, minHeight } from '../mount';
 import { bool, num, obj, pick, registerAttachment, type AttachmentPart } from '../registry';
 import { PIN, magnetHardware, pinAlongX, pinHardware, pinPart, type PinKind } from './hinge';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface LidBoxOptions {
   width: number;
@@ -162,4 +163,5 @@ registerAttachment<LidBoxOptions>({
       ...(o.label && o.lid !== 'flip' ? [{ item: 'Label card', count: 1, note: `${Math.floor(lw - 2)} × 12.5 mm` }] : []),
     ];
   },
+  load: (o) => ({ kg: o.width * o.height * o.depth * KG.full, at: o.depth / 2 }),
 });

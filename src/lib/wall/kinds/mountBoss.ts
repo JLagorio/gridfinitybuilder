@@ -156,4 +156,6 @@ registerAttachment<MountBossOptions>({
       return [{ item: 'M5 thumb screw, 16 mm, and M5 nut', count: 1, note: 'the nut drops into the slot in the side; the screw locks the plate' }];
     return [];
   },
+  // Anything, on the fixing.
+  load: (o) => ({ kg: 0, at: o.reach }),
 });

@@ -99,4 +99,6 @@ registerAttachment<ReceiverOptions>({
     for (let j = 0; j <= o.rows; j++) out.push({ x0: 0, x1: l.w, y0: j ? ys[j - 1] + k.up : 0, y1: j < o.rows ? ys[j] - k.down : l.h, z: RECEIVER_PLATE });
     return out;
   },
+  // Anything that hangs on it, in front.
+  load: (_o, l) => ({ kg: 0, at: l.depth + 30 }),
 });

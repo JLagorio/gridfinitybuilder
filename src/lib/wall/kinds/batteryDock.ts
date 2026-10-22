@@ -227,4 +227,6 @@ registerAttachment<BatteryDockOptions>({
       };
     });
   },
+  // Packs weigh 0.6–1 kg.
+  load: (o) => ({ kg: 0.7 * o.count, at: BATTERY.back + o.packD / 2 }),
 });

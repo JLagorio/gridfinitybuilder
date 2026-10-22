@@ -10,6 +10,7 @@
 import { backMounts, minHeight } from '../mount';
 import { bool, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface CradleOptions {
   /** The device: width (left to right), depth (out from the board) and how much of its height the pocket covers, mm. */
@@ -93,4 +94,6 @@ registerAttachment<CradleOptions>({
     if (o.front === 'lip') return { x0: p.x0, x1: p.x1, y0: f.lip, y1: l.h, z: CRADLE.back };
     return { x0: p.x0 + f.corner, x1: p.x1 - f.corner, y0: p.y0, y1: l.h, z: CRADLE.back };
   },
+  // The device: about twice as tall as the pocket covers, 1 kg a litre.
+  load: (o) => ({ kg: 2 * o.width * o.depth * o.height * KG.full, at: CRADLE.back + CRADLE.fit + o.depth / 2 }),
 });

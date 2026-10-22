@@ -10,6 +10,7 @@
 import { backMounts, minHeight } from '../mount';
 import { num, obj, pick, registerAttachment, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface ChargerCradleOptions {
   /** The charger lying flat, mm: across, front to back, top to bottom. */
@@ -81,4 +82,6 @@ registerAttachment<ChargerCradleOptions>({
     const p = chargerPocket(o, ctx);
     return leverNotes(p.d, p.h);
   },
+  // The charger, and a pack on it: about 1 kg a litre.
+  load: (o) => ({ kg: o.width * o.depth * o.height * KG.full, at: CHARGER.back + (o.stand === 'flat' ? o.depth : o.height) / 2 }),
 });

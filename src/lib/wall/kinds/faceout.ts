@@ -100,4 +100,6 @@ registerAttachment<FaceoutOptions>({
     return out;
   },
   hardware: (o) => (o.label ? [{ item: 'Label', count: 1, note: `${Math.round(o.labelW)} × ${FACEOUT.labelH} mm` }] : []),
+  // Anything, out to the tip.
+  load: (o) => ({ kg: 0, at: o.length }),
 });

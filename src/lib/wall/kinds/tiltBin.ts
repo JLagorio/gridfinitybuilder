@@ -21,6 +21,7 @@ import { backMounts, minHeight } from '../mount';
 import { bool, int, num, obj, registerAttachment, type AttachmentPart } from '../registry';
 import { PIN, pinAlongX, pinPart } from './hinge';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface TiltBinOptions {
   width: number;
@@ -169,4 +170,6 @@ registerAttachment<TiltBinOptions>({
     const lw = Math.min(tiltPlan(o).binW - 8, 60);
     return o.label ? [{ item: 'Label card', count: o.stack, note: `${Math.floor(lw - 2)} × 12.5 mm` }] : [];
   },
+  // Full, and tipped out: its weight swings out with it.
+  load: (o) => ({ kg: o.stack * o.width * o.height * o.depth * KG.full, at: o.depth / 2 + (o.height / 2) * Math.sin((o.angle * Math.PI) / 180) }),
 });

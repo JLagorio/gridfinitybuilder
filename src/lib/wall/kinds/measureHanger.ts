@@ -220,4 +220,6 @@ registerAttachment<MeasureHangerOptions>({
       out.push('The beam is off the slider: its distance from the right edge is more than the slider is wide.');
     return out;
   },
+  // Calipers, a square or a tape, about 0.4 kg each.
+  load: (o, l) => ({ kg: 0.4 * o.count, at: l.depth / 2 }),
 });

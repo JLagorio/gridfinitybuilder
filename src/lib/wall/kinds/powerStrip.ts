@@ -9,6 +9,7 @@
  */
 import { backMounts, minHeight } from '../mount';
 import { bool, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
+import { KG } from '../load';
 
 export interface PowerStripOptions {
   /** The strip's size: out from the board, up, along the board (open ends: the holder's length), mm. */
@@ -68,4 +69,5 @@ registerAttachment<PowerStripOptions>({
   summary: (o) => `Power strip holder ${Math.round(o.width)} × ${Math.round(o.height)}`,
   hardware: (o) =>
     o.strap ? [{ item: 'Hook-and-loop strap, 20 mm wide', count: 2, note: `at least ${Math.ceil((2 * (o.width + o.height) + 40) / 10) * 10} mm long` }] : [],
+  load: (o) => ({ kg: o.width * o.height * o.length * KG.full, at: PS.back + o.width / 2 }),
 });

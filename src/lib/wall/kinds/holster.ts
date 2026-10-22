@@ -156,4 +156,6 @@ registerAttachment<HolsterOptions>({
     if (o.cord && g.gap < HOLSTER.cord + 2) out.push(`The cord notch needs a gap from the board of ${HOLSTER.cord + 2} mm or more.`);
     return out;
   },
+  // A drill, a glue gun or a heat gun: about 1.5 kg.
+  load: (o) => ({ kg: 1.5, at: HOLSTER.back + o.offset + o.depth / 2 }),
 });

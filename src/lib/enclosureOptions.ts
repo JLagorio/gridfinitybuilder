@@ -56,6 +56,7 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
       ...(r.bolt === 'm3' || r.bolt === 'm4' ? { bolt: r.bolt } : {}),
       ...(typeof r.label === 'string' && r.label.trim() ? { label: r.label.slice(0, 40) } : {}),
       ...(r.barbs === 'ends' ? { barbs: 'ends' as const } : {}),
+      ...(r.material === 'pla' || r.material === 'petg' || r.material === 'asa' ? { material: r.material } : {}),
     });
   }
   return out;
