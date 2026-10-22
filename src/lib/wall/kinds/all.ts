@@ -23,6 +23,11 @@ import './gridClip';
 import './batteryDock';
 import './toolDock';
 import './chargerCradle';
+import './cellDispenser';
+import './mediaBlock';
+import './spoolRack';
+import './boxSleeve';
+import './leadHanger';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();

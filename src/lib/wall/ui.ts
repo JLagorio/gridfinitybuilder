@@ -24,3 +24,8 @@ import './kinds/gridClip.ui';
 import './kinds/batteryDock.ui';
 import './kinds/toolDock.ui';
 import './kinds/chargerCradle.ui';
+import './kinds/cellDispenser.ui';
+import './kinds/mediaBlock.ui';
+import './kinds/spoolRack.ui';
+import './kinds/boxSleeve.ui';
+import './kinds/leadHanger.ui';

@@ -28,6 +28,11 @@ import { gridClipBuilder } from './kinds/gridClip.geom';
 import { batteryDockBuilder } from './kinds/batteryDock.geom';
 import { toolDockBuilder } from './kinds/toolDock.geom';
 import { chargerCradleBuilder } from './kinds/chargerCradle.geom';
+import { cellDispenserBuilder } from './kinds/cellDispenser.geom';
+import { mediaBlockBuilder } from './kinds/mediaBlock.geom';
+import { spoolRackBuilder } from './kinds/spoolRack.geom';
+import { boxSleeveBuilder } from './kinds/boxSleeve.geom';
+import { leadHangerBuilder } from './kinds/leadHanger.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -62,6 +67,11 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   batteryDock: batteryDockBuilder as AttachmentBuilder<never>,
   toolDock: toolDockBuilder as AttachmentBuilder<never>,
   chargerCradle: chargerCradleBuilder as AttachmentBuilder<never>,
+  cellDispenser: cellDispenserBuilder as AttachmentBuilder<never>,
+  mediaBlock: mediaBlockBuilder as AttachmentBuilder<never>,
+  spoolRack: spoolRackBuilder as AttachmentBuilder<never>,
+  boxSleeve: boxSleeveBuilder as AttachmentBuilder<never>,
+  leadHanger: leadHangerBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
