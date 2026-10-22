@@ -5,7 +5,7 @@ import type { WallBoard, WallPlacement } from '../lib/wall/plan';
 import { useStore, useUnits } from '../state/store';
 import { addTile, removeTile } from '../state/skadisTiles';
 import { asDrawer, type PrintJob } from '../lib/project';
-// Loaded with the board's kinds, as the board editor is (lib/printedBoards.ts goes with them).
+// Loaded with the board's kinds and planning, as the board editor is (lib/printedBoards.ts goes with them).
 import '../lib/wall/kinds/all';
 import { markText, markTitle, partMarks } from '../lib/printedBoards';
 import './boardTiles.css';

@@ -1,6 +1,6 @@
 /**
  * What's been printed (printed.ts), for boards: loaded with the first board
- * (lib/wall/kinds/all.ts), so none of it is on the first screen.
+ * with its planning (skadisBoardPlan.ts), so none of it is on the first screen.
  *
  * - A board's parts whose mesh key says where they go: a cleat, door hook or
  *   desk part has its height on the board in it, a frame strip its place along

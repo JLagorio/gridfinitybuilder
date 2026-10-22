@@ -7,8 +7,6 @@ import '../../skadisBoardPlan';
 import '../load';
 // A board's attachments in a print job (project.ts setWallParts).
 import '../parts';
-// Its parts in what's been printed (lib/printed.ts setPrintKey).
-import '../../printedBoards';
 import './hook';
 import './bin';
 import './cup';
