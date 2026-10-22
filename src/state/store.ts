@@ -22,6 +22,7 @@ import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
 import { cleanExternal, cleanExternalOpts, patchExternalOpts } from '../lib/external';
+import { cleanWall, type WallPlan } from '../lib/wallPlanner/data';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -88,6 +89,8 @@ export interface Store extends ProjectState {
   printed: PrintedRecord;
   /** Print only what isn't printed yet. */
   onlyChanged: boolean;
+  /** The wall the boards and wall grids hang on (lib/wallPlanner, components/WallPlanner.tsx). Unset: none measured yet. */
+  wall?: WallPlan;
   /** Add a tool (outline in mm, any winding/origin; it's normalized). Returns its id. */
   addTool(t: Partial<Tool> & Pick<Tool, 'outline'>): string;
   /** Change a tool; its copies in placed bins follow. */
@@ -338,6 +341,7 @@ function persisted(s: Store) {
     tools: s.tools,
     printed: s.printed,
     onlyChanged: s.onlyChanged,
+    wall: s.wall,
     // View-only state (selection, spread pieces, shown plate, a drag in the 3D view) starts fresh on every load.
     ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1, wallDrag: null },
   };
@@ -350,6 +354,7 @@ const DEFAULT_WORKSPACE = {
   printPick: [] as string[],
   printed: NO_PRINTS,
   onlyChanged: false,
+  wall: undefined as WallPlan | undefined,
 };
 
 export const useStore = create<Store>()(
@@ -730,6 +735,7 @@ export const useStore = create<Store>()(
           tools: mergeTools(s.tools, cleanTools(p.tools)),
           printed: cleanPrinted(p.printed),
           onlyChanged: p.onlyChanged === true,
+          wall: cleanWall(p.wall, docs),
           ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
@@ -767,6 +773,7 @@ export const useStore = create<Store>()(
           tools: cleanTools(p.tools ?? current.tools),
           printed: cleanPrinted(p.printed ?? current.printed),
           onlyChanged: (p.onlyChanged ?? current.onlyChanged) === true,
+          wall: cleanWall(p.wall, docs),
           // Saved before view state stopped being persisted: never come back with pieces spread apart.
           ui: { ...current.ui, ...p.ui, explode: false, plate: -1 },
         };
@@ -795,6 +802,7 @@ export function projectFile(s: Store) {
     tools: s.tools,
     printed: s.printed,
     onlyChanged: s.onlyChanged,
+    ...(s.wall ? { wall: s.wall } : {}),
   };
 }
 

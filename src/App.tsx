@@ -41,6 +41,7 @@ import { slotKeys } from './lib/wall/plan';
 import { draggedItems, dropAt, grabOffset, sameDrag, wallDragAt } from './components/wallDrag';
 import type { Vec2 } from './lib/geometry/kernel';
 import { useCoarsePointer } from './components/touch';
+import { useWallView } from './state/wallView';
 import './components/workflow.css';
 
 // The first screen is the drawer panel, the bin grid and the 3D view; the rest loads on first use (components/lazy.tsx).
@@ -67,6 +68,9 @@ const loadWallEdits = once(() => import('./state/wall'));
 const loadGridPanel = once(() => import('./components/GridBoardPanel'));
 const GridBoardPanel = lazyNamed(loadGridPanel, 'GridBoardPanel');
 const GridBoardAttachments = lazyNamed(loadGridPanel, 'GridBoardAttachments');
+// The wall planner: the project's boards and wall grids on one measured wall (drawer menu → Wall planner).
+const loadWallPlanner = once(() => import('./components/WallPlanner'));
+const WallPlanner = lazyNamed(loadWallPlanner, 'WallPlanner');
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
@@ -377,8 +381,12 @@ export default function App() {
     meshesIn,
   ]);
 
-  // Ask the worker for exactly the meshes on screen (selected bin first).
+  // Ask the worker for exactly the meshes on screen (selected bin first); the wall planner asks for its own.
+  const wallView = useWallView((s) => s.open);
+  // A tab leaves the wall planner too.
+  const pickTab = (tab: Tab) => (state.setUI({ tab }), useWallView.getState().set(false));
   useEffect(() => {
+    if (wallView) return;
     const seen = new Set<string>();
     const specs: MeshSpec[] = [];
     const ordered = [...scene.items].sort((a, b) => Number(!!b.selected) - Number(!!a.selected));
@@ -389,7 +397,7 @@ export default function App() {
       if (spec) specs.push(spec);
     }
     geometry.want(specs);
-  }, [scene, printJob, viewJob]);
+  }, [scene, printJob, viewJob, wallView]);
 
   useOpenSharedProject();
   const selection = useSelectedIds();
@@ -528,7 +536,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app${phone3d ? ' phone-3d' : ''}`}>
+    <div className={`app${phone3d ? ' phone-3d' : ''}${wallView ? ' wall-view' : ''}`}>
       <header className="topbar">
         <div className="brand">
           <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden>
@@ -544,7 +552,7 @@ export default function App() {
         <DrawerSwitcher />
         <nav className="tabs" role="tablist">
           {TABS.map((t, i) => (
-            <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => state.setUI({ tab: t.id })}>
+            <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => pickTab(t.id)}>
               <span className="tab-num">{i + 1}</span>
               {gridBoard && t.id !== 'print'
                 ? t.id === 'drawer'
@@ -599,7 +607,12 @@ export default function App() {
         </div>
       </header>
 
-      <div className="body">
+      {wallView && (
+        <LazyPart scope="The wall planner">
+          <WallPlanner drawerScene={drawerScene} />
+        </LazyPart>
+      )}
+      <div className="body" hidden={wallView}>
         <aside className="sidebar">
           {ui.tab === 'drawer' &&
             (board ? (

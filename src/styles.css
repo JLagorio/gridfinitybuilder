@@ -248,6 +248,11 @@ button.wide {
   color: var(--faint);
   flex-shrink: 0;
 }
+/* The wall planner (DrawerSwitcher.tsx). */
+.drawer-menu-wall {
+  width: 100%;
+  margin-top: 6px;
+}
 .drawer-menu-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -310,6 +315,10 @@ button.wide {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+/* The wall planner is open in its place (App.tsx). */
+.body[hidden] {
+  display: none;
 }
 
 .sidebar {
