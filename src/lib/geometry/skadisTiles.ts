@@ -2,7 +2,7 @@
  * Planning a Skådis board built from tiles (SkadisOptions.layout 'tiles',
  * geometry/skadis.ts says how): the size of its tiles, the largest the bed
  * takes or the one picked, and where its hexagons go. Loaded with the first
- * board (lib/wall/kinds/all.ts imports it), so it isn't on the first screen;
+ * board (lib/skadisBoardPlan.ts imports it), so it isn't on the first screen;
  * it hands skadis.ts its planner (setTilesPlanner).
  */
 import type { Vec2 } from './kernel';

@@ -9,7 +9,6 @@
  * (AttachmentExtras) and the extra parts they bring (lock keys, T-nuts).
  */
 import type { Vec2 } from '../geometry/kernel';
-import type { MeshSpec } from '../project';
 import type { SkadisOptions, SkadisPlan } from '../geometry/skadis';
 import { boardSlots, plannedSkadis, rimWidth, skadisBehind, skadisGap, tileOutlines } from '../geometry/skadis';
 import { BOLT, boltSeat, lockKey, mountBox, siteAt, tNut, viewTurn, type BoltSize } from './mount';
@@ -29,8 +28,8 @@ import {
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
-/** A slot's key in a board's set of them (slotKeys). */
-export const keyOf = (x: number, y: number) => `${r2(x)},${r2(y)}`;
+// The slot math and the second-filament check, on the first screen (board.ts).
+export { dragAnchor, fitsAt, keyOf, nearestSlot, slotKeys, snapAnchor, wallInlaid } from './board';
 
 /** A board as attachments see it (wall coordinates). */
 export interface WallBoard {
@@ -232,14 +231,6 @@ export function labelRelief(e: AttachmentExtras | undefined, layout: Pick<Attach
     : { dz: 0, dy: Math.max(0, r3(l.face.y + LABEL_RELIEF - layout.h)) };
 }
 
-/**
- * Whether a board's mesh has bodies that print in filament 2 with multi-colour off: an attachment's inlaid label or its
- * kind's own inlays (AttachmentDef.inlaid), a tile's inlaid zone text.
- */
-export function wallInlaid(spec: MeshSpec | undefined): boolean {
-  if (spec?.kind === 'attachment') return spec.extras?.label?.style === 'inlaid' || !!attachmentDef(spec.type)?.inlaid?.(spec.opts);
-  return spec?.kind === 'piece' && spec.enclosure?.kind === 'skadis' && !!spec.enclosure.tile.text?.some((t) => t.inlay);
-}
 
 /** Lock keys and T-nuts are built by build.ts's own part builder: their mesh specs have this for a type. */
 export const MOUNT_PARTS = '@mount';
@@ -291,66 +282,6 @@ export function extrasHardware(e: AttachmentExtras | undefined): AttachmentHardw
   return [...out.values()];
 }
 
-/** Whether every mount of `layout` lands on a slot when its anchor is at (x, y). */
-export function fitsAt(slots: ReadonlySet<string>, layout: Pick<AttachmentLayout, 'mounts'>, ctx: Pick<MountCtx, 'pitch'>, x: number, y: number): boolean {
-  return layout.mounts.every((m) => slots.has(keyOf(x + m.di * ctx.pitch, y + m.dj * ctx.pitch)));
-}
-
-export const slotKeys = (slots: Vec2[]): Set<string> => new Set(slots.map(([x, y]) => keyOf(x, y)));
-
-/** The slot nearest (x, y) where the whole layout fits, or null. */
-export function snapAnchor(
-  slots: Vec2[],
-  keys: ReadonlySet<string>,
-  layout: Pick<AttachmentLayout, 'mounts'>,
-  ctx: Pick<MountCtx, 'pitch'>,
-  x: number,
-  y: number,
-): Vec2 | null {
-  let best: Vec2 | null = null;
-  let bestD = Infinity;
-  for (const s of slots) {
-    const d = (s[0] - x) ** 2 + (s[1] - y) ** 2;
-    if (d < bestD && fitsAt(keys, layout, ctx, s[0], s[1])) {
-      best = s;
-      bestD = d;
-    }
-  }
-  return best;
-}
-
-/** The slot nearest (x, y), or null on a board without slots. */
-export function nearestSlot(slots: Vec2[], x: number, y: number): Vec2 | null {
-  let best: Vec2 | null = null;
-  let bestD = Infinity;
-  for (const s of slots) {
-    const d = (s[0] - x) ** 2 + (s[1] - y) ** 2;
-    if (d < bestD) {
-      best = s;
-      bestD = d;
-    }
-  }
-  return best;
-}
-
-/**
- * Where an attachment dragged to (x, y) goes: the nearest slot where it fits, if one is near (within three lattice
- * steps), else the slot under the pointer, so it follows the drag even where it doesn't fit (it shows red there).
- */
-export function dragAnchor(
-  slots: Vec2[],
-  keys: ReadonlySet<string>,
-  layout: Pick<AttachmentLayout, 'mounts'>,
-  ctx: Pick<MountCtx, 'pitch'>,
-  x: number,
-  y: number,
-): { at: Vec2; fits: boolean } | null {
-  const near = slots.filter((s) => Math.hypot(s[0] - x, s[1] - y) <= 3 * ctx.pitch);
-  const fit = snapAnchor(near, keys, layout, ctx, x, y);
-  if (fit) return { at: fit, fits: true };
-  const at = nearestSlot(slots, x, y);
-  return at ? { at, fits: false } : null;
-}
 
 /** Each attachment's kind, cleaned options and layout (null: a kind that isn't registered). */
 export function attachmentLayout(a: Pick<PlacedAttachment, 'type' | 'opts'>, ctx: MountCtx): { opts: object; layout: AttachmentLayout } | null {
