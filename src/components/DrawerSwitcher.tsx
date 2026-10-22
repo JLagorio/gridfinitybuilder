@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { allDrawers, useStore } from '../state/store';
+import { useWallView } from '../state/wallView';
 
 /** Top-bar drawer picker: switch, add, duplicate, rename, delete. */
 export function DrawerSwitcher() {
@@ -68,6 +69,18 @@ export function DrawerSwitcher() {
               </li>
             ))}
           </ul>
+          {/* Every board and wall grid of the project on one measured wall (WallPlanner.tsx). */}
+          <button
+            className="drawer-menu-wall"
+            title="Lay out the boards and wall grids on a measured wall"
+            onClick={() => {
+              setUI({ selectedBinId: null, selectedAttachment: null });
+              useWallView.getState().set(true);
+              setOpen(false);
+            }}
+          >
+            Wall planner
+          </button>
           <div className="drawer-menu-actions">
             <button
               onClick={() => {

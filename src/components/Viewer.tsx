@@ -283,6 +283,8 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, chi
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isMod(e) || e.altKey || isTyping(e.target)) return;
       if (document.querySelector('.modal-backdrop, .overlay')) return;
+      // Hidden (the wall planner is over it): the 3D view on screen takes the keys.
+      if (!host.current?.offsetParent) return;
       const t = useViewerTools.getState();
       if (e.key === 'Escape') {
         if (ctx.current?.cancelDrag()) {
