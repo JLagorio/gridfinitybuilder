@@ -29,6 +29,11 @@ import './spoolRack';
 import './boxSleeve';
 import './leadHanger';
 import './labelTag';
+import './receiver';
+import './pegboardBridge';
+import './cleatStrip';
+import './dinRail';
+import './mountBoss';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();

@@ -36,6 +36,11 @@ import { spoolRackBuilder } from './kinds/spoolRack.geom';
 import { boxSleeveBuilder } from './kinds/boxSleeve.geom';
 import { leadHangerBuilder } from './kinds/leadHanger.geom';
 import { labelTagBuilder } from './kinds/labelTag.geom';
+import { receiverBuilder } from './kinds/receiver.geom';
+import { pegboardBridgeBuilder } from './kinds/pegboardBridge.geom';
+import { cleatStripBuilder } from './kinds/cleatStrip.geom';
+import { dinRailBuilder } from './kinds/dinRail.geom';
+import { mountBossBuilder } from './kinds/mountBoss.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -78,6 +83,11 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   boxSleeve: boxSleeveBuilder as AttachmentBuilder<never>,
   leadHanger: leadHangerBuilder as AttachmentBuilder<never>,
   labelTag: labelTagBuilder as AttachmentBuilder<never>,
+  receiver: receiverBuilder as AttachmentBuilder<never>,
+  pegboardBridge: pegboardBridgeBuilder as AttachmentBuilder<never>,
+  cleatStrip: cleatStripBuilder as AttachmentBuilder<never>,
+  dinRail: dinRailBuilder as AttachmentBuilder<never>,
+  mountBoss: mountBossBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {

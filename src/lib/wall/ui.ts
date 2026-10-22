@@ -30,3 +30,8 @@ import './kinds/spoolRack.ui';
 import './kinds/boxSleeve.ui';
 import './kinds/leadHanger.ui';
 import './kinds/labelTag.ui';
+import './kinds/receiver.ui';
+import './kinds/pegboardBridge.ui';
+import './kinds/cleatStrip.ui';
+import './kinds/dinRail.ui';
+import './kinds/mountBoss.ui';
