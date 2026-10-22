@@ -13,11 +13,15 @@ import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { putImported } from '../lib/imported/registry';
 import { setGridBoardBuilders } from '../lib/gridBoards';
 import * as gridBuild from '../lib/geometry/gridBoardBuild';
+import { setSkadisBoardBuilders } from '../lib/skadisBoards';
+import * as skadisBuild from '../lib/geometry/skadisBuild';
 
 // Attachments' builders: project.ts doesn't import them (the first screen would get every kind's planning).
 setWallBuilders(wallBuild);
 // openGrid and Multiboard boards' builders, likewise (lib/gridBoards.ts).
 setGridBoardBuilders(gridBuild);
+// Skådis boards' builders, likewise (lib/skadisBoards.ts).
+setSkadisBoardBuilders(skadisBuild);
 
 /**
  * The geometry worker's work: builds meshes with Manifold and answers the

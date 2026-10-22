@@ -33,6 +33,7 @@ import { ModelField } from './ModelField';
 import { AttachmentContentsField, AttachmentLabelField } from './WallContents';
 import { StartFromTemplate } from './BoardTemplatesButton';
 import { OutlinesField } from './WallOutlines';
+import { MineGroup, SaveToMine, useMineCount } from './MyAttachments';
 import './wall.css';
 
 /**
@@ -58,6 +59,8 @@ export function WallPanel({ job }: { job: PrintJob }) {
   const def = sel ? attachmentDef(sel.type) : null;
   const [query, setQuery] = useState('');
   const [closed, setClosed] = useState<Set<AttachmentGroup>>(() => new Set());
+  // My attachments the search finds (the picker's Mine group).
+  const mine = useMineCount(query.trim().toLowerCase());
 
   if (!wall) return <Section title="Attachments">{<p className="muted">The board can't be planned yet: check its size on the Skådis board tab.</p>}</Section>;
   // What the selected one's mounts hold (lib/wall/load.ts), and what it's meant to.
@@ -134,6 +137,7 @@ export function WallPanel({ job }: { job: PrintJob }) {
               Delete
             </button>
           </div>
+          <SaveToMine ids={[sel.id]} board={wall.board} />
         </Section>
       )}
 
@@ -154,7 +158,8 @@ export function WallPanel({ job }: { job: PrintJob }) {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {!groups.size && <p className="muted small">Nothing matches “{query.trim()}”.</p>}
+        {!groups.size && !mine && <p className="muted small">Nothing matches “{query.trim()}”.</p>}
+        <MineGroup query={q} board={wall.board} placed={wall.placed} />
         {[...groups].map(([g, defs]) => {
           const open = !!q || !closed.has(g);
           return (
@@ -304,6 +309,7 @@ function GroupSection({ ids, board, placed }: { ids: string[]; board: WallBoard;
           Delete {ids.length}
         </button>
       </div>
+      <SaveToMine ids={ids} board={board} />
     </Section>
   );
 }

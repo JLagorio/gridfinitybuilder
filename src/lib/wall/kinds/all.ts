@@ -2,8 +2,8 @@
  * Every attachment kind's planning (each registers itself; ../index.ts loads this on demand), and
  * the load check planning runs on them (../load.ts). Add a kind here, in ../ui.ts and in ../build.ts.
  */
-// Boards built from tiles plan with this, loaded with the first board too (geometry/skadis.ts setTilesPlanner).
-import '../../geometry/skadisTiles';
+// The boards themselves plan with this (it brings boards built from tiles too), loaded with the first board as well (skadisBoards.ts).
+import '../../skadisBoardPlan';
 import '../load';
 // A board's attachments in a print job (project.ts setWallParts).
 import '../parts';
