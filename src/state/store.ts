@@ -17,7 +17,7 @@ import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
 import { cleanEnclosure } from '../lib/enclosureOptions';
-import { DEFAULT_SKADIS } from '../lib/geometry/skadis';
+import { NEW_SKADIS } from '../lib/geometry/skadis';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
@@ -550,8 +550,8 @@ export const useStore = create<Store>()(
             ...(s.drawer.halfGrid ? { halfGrid: true } : {}),
             // For a baseplate you have: given by its cells, and nothing of it prints.
             ...(o.haveBaseplate && !o.skadis ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
-            // A pegboard for a space on the wall, a 56 cm square board to start.
-            ...(o.skadis ? { enclosure: 'skadis' as const, skadis: { ...DEFAULT_SKADIS } } : {}),
+            // A pegboard built from tiles, one to start (geometry/skadis.ts).
+            ...(o.skadis ? { enclosure: 'skadis' as const, skadis: { ...NEW_SKADIS } } : {}),
           },
           baseplate: { ...s.baseplate },
           bins: [],

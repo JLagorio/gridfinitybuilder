@@ -17,7 +17,23 @@ export const SKADIS_INDEX: FindEntry[] = [
         words: ['just attachments', 'have a board', 'standard board', 'already have', 'own', 'bought', 'not printed', 'only attachments', '56 cm', '76 cm', '36 cm'],
       },
       { id: 'skadis-name', title: 'Name', words: ['name', 'rename', 'title'] },
-      { id: 'skadis-space', title: 'Space on the wall', words: ['size', 'width', 'height', 'space', 'measure', 'wall', 'fill', '56 cm', '76 cm'] },
+      {
+        id: 'skadis-layout',
+        title: 'Board: tiles or a space',
+        words: ['tiles', 'add tile', 'add hexagon', 'remove tile', 'more tiles', 'grow', 'extend', 'expand', 'layout', 'fill a space', 'build'],
+      },
+      {
+        id: 'skadis-space',
+        title: 'Space on the wall',
+        when: 'filling a space',
+        words: ['size', 'width', 'height', 'space', 'measure', 'wall', 'fill', '56 cm', '76 cm'],
+      },
+      {
+        id: 'skadis-tile-size',
+        title: 'Tile size',
+        when: 'built from tiles',
+        words: ['tile size', 'hexagon size', 'size', 'largest', 'printer', 'bed', 'width', 'height', 'bigger', 'smaller'],
+      },
       {
         id: 'skadis-shape',
         title: 'Tiles',
@@ -39,8 +55,8 @@ export const SKADIS_INDEX: FindEntry[] = [
       {
         id: 'skadis-join',
         title: 'Join the tiles with',
-        when: 'with rectangle tiles',
-        words: ['join', 'joint', 'connector', 'connect', 'dovetail', 'tab', 'puzzle', 'plate', 'pin', 'interlock', 'glue', 'seam'],
+        when: 'with rectangle tiles, or hexagons built from tiles',
+        words: ['join', 'joint', 'connector', 'connect', 'dovetail', 'tab', 'puzzle', 'plate', 'pin', 'interlock', 'glue', 'seam', 'line up', 'align'],
       },
       {
         id: 'skadis-hang',

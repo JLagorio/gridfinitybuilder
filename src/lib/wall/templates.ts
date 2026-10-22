@@ -17,6 +17,8 @@
 import { DEFAULT_BASEPLATE } from '../geometry/baseplate';
 import { DEFAULT_SKADIS, type SkadisOptions } from '../geometry/skadis';
 import { DEFAULT_DRAWER } from '../layout/drawer';
+import { skadisAreas } from '../enclosures';
+import { tilesForSpace } from '../geometry/skadisTiles';
 import type { PrintSetup } from '../layout/plan';
 import { newId } from '../bins';
 import { planPrint } from '../project';
@@ -381,8 +383,10 @@ export function fitTemplate(
 }
 
 /** A board with the template's size: the drawer settings for it (the rest of `base`, a board's settings, kept). */
-export function templateSkadis(t: Pick<BoardTemplate, 'width' | 'height'>, base: SkadisOptions = DEFAULT_SKADIS): SkadisOptions {
-  return { ...base, width: t.width, height: t.height };
+export function templateSkadis(t: Pick<BoardTemplate, 'width' | 'height'>, base: SkadisOptions = DEFAULT_SKADIS, setup?: PrintSetup): SkadisOptions {
+  // A board built from tiles (new boards are) gets as many as cover the template's size.
+  const tiles = base.layout === 'tiles' && setup ? { tiles: tilesForSpace(base, skadisAreas(setup), t.width, t.height, 'cover') } : {};
+  return { ...base, width: t.width, height: t.height, ...tiles };
 }
 
 /** The board a drawer's Skådis settings make with this printer setup (its slots, split into tiles as it prints), or null. */

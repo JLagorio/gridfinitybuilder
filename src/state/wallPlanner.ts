@@ -96,8 +96,10 @@ export function addBoardHere(kind: 'board' | 'grid', r: Rect): string {
   const s = useStore.getState();
   const id = s.addDrawer(kind === 'grid' ? 'Wall grid' : undefined, { skadis: kind === 'board' });
   const t = useStore.getState();
-  if (kind === 'board') t.setDrawer({ skadis: { ...like, width: Math.round(r.w), height: Math.round(r.h) } });
-  else {
+  if (kind === 'board') {
+    // It fills the area exactly (Board: Fill a space; its tab can switch it to tiles), even when new boards are built from tiles.
+    t.setDrawer({ skadis: { ...like, layout: undefined, width: Math.round(r.w), height: Math.round(r.h) } });
+  } else {
     t.setDrawer({ enclosure: 'wall', mode: 'drawer', width: Math.round(r.w), depth: Math.round(r.h) });
     // As the Drawer tab does when a wall grid is picked: bins stay on the wall by magnets.
     if (!t.drawer.halfGrid) t.setBaseplate({ magnets: true });

@@ -18,7 +18,7 @@ export function newBoardFromTemplate(t: BoardTemplate): TemplateResult {
   history.checkpoint();
   useStore.getState().addDrawer(t.name, { skadis: true });
   const s = useStore.getState();
-  const skadis = templateSkadis(t, sanitizeSkadis(s.drawer.skadis));
+  const skadis = templateSkadis(t, sanitizeSkadis(s.drawer.skadis), s.setup);
   const board = boardOf(skadis, s.setup);
   const fit = board ? fitTemplate(t, board) : { list: [], left: t.items.map((i) => i.name ?? i.type) };
   s.setDrawer({ skadis, attachments: fit.list });

@@ -74,10 +74,13 @@ const WallPlanner = lazyNamed(loadWallPlanner, 'WallPlanner');
 // Dragging several attachments together in the 3D view (lib/wall/arrange.ts): loaded with the first board.
 const loadArrange = once(() => import('./lib/wall/arrange'));
 let arrange: Awaited<ReturnType<typeof loadArrange>> | null = null;
+// A board built from tiles: its tiles from the front, to add and take away tiles, on its board tab.
+const loadBoardTiles = once(() => import('./components/BoardTiles'));
+const BoardTiles = lazyNamed(loadBoardTiles, 'BoardTiles');
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
-  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts, loadSkadis, loadWall, loadWallEditor);
+  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts, loadSkadis, loadWall, loadWallEditor, loadBoardTiles);
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -456,6 +459,8 @@ export default function App() {
   // A board's attachments drag in the 3D view too, over the board's front (components/wallDrag.ts): on its
   // Attachments tab, and on its board tab unless the tiles are spread apart.
   const wall = board ? viewJob.drawers[0]?.enclosure?.wall : undefined;
+  // A board built from tiles: where they are (geometry/skadis.ts SkadisPlan.grid).
+  const tileGrid = board ? viewJob.drawers[0]?.enclosure?.info.skadis?.grid : undefined;
   const wallKeys = useMemo(() => (wall ? slotKeys(wall.board.slots) : null), [wall?.board.slots]);
   // Where the anchor is from the pointer, from the press on, and the selected parts that move with it.
   const grab = useRef<{ id: string; at: Vec2; group: string[] } | null>(null);
@@ -715,6 +720,15 @@ export default function App() {
                     tints={tints}
                   />
                 )}
+              </div>
+              <div className="pane pane-3d">{viewer}</div>
+            </div>
+          ) : ui.tab === 'drawer' && tileGrid && wall ? (
+            <div className="split">
+              <div className="pane pane-2d">
+                <LazyPart scope="The board's tiles">
+                  <BoardTiles grid={tileGrid} board={wall.board} placed={wall.placed} hex={boardInfo?.shape === 'hex'} />
+                </LazyPart>
               </div>
               <div className="pane pane-3d">{viewer}</div>
             </div>

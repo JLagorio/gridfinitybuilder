@@ -29,6 +29,25 @@
  * Hexagon boards (like Azntek's hexagonal Skadis board) are honeycomb tiles,
  * each its own board, as large as the bed takes.
  *
+ * A board is laid out one of two ways. Filling a space ('space', the first
+ * boards' way): a width and a height on the wall, a rectangle split into tiles
+ * or whole hexagons fitted in. Built from tiles ('tiles', new boards): tiles
+ * of one size (the largest the bed takes, or one picked) added one by one on a
+ * grid, (column, row) for rectangles, axial (q, r) for hexagons. Every tile's
+ * slots are on one lattice then, so an attachment can span two tiles. A
+ * rectangle tile is a whole number of steps each way and they butt together
+ * as seams do (an edge with no tile past it runs along a lattice line too,
+ * the slots it would cut left out). Hexagons stand on a corner: the one to a
+ * hexagon's right is 2a steps across, the one up and to its right a across
+ * and b up, with a+b even on the standard pattern and a and b even on the
+ * square one, so every hexagon has the same slots and they are still all one
+ * part. No a and b make a regular hexagon, so it is the cell those steps give
+ * (a few % taller or flatter), drawn in by half the gap all round. Two side by
+ * side share an upright edge, every other row of slots running on from one to
+ * the next a column apart, so a part across them finds its slots; joint
+ * plates on the back across the gap hold them in line. (Hexagons filling a
+ * space have their corners left and right, each its own lattice.)
+ *
  * Every tile prints face down: the front comes off the bed smooth, the slots
  * and countersunk screw holes open toward the bed with a chamfer, and the
  * standoff posts on the back stand up. Coordinates here are the wall's, seen
@@ -73,6 +92,8 @@ export type SkadisPattern = 'skadis' | 'square' | 'dense';
 export type SkadisFrame = 'none' | 'rim' | 'led';
 /** How the board hangs: screws through it into the wall, a French cleat, hooks over a door, or on a desk. */
 export type SkadisHang = 'screws' | 'cleat' | 'door' | 'desk';
+/** A tile's place on the board's grid: (column, row) for rectangles, axial (q, r) for hexagons. */
+export type SkadisCell = [number, number];
 
 /** A solid area of a rectangle board, wall coordinates (mm), snapped to the lattice: no slots, and text or magnets. */
 export interface SkadisZone {
@@ -135,6 +156,13 @@ export interface SkadisOptions {
   deskThickness: number;
   /** Snap-on caps over the screw heads (screws through posts, up to 5 mm). */
   covers: boolean;
+  /** 'tiles': the board is built from tiles added one by one (`tiles`); unset, it fills the space (`width` × `height`). */
+  layout?: 'tiles';
+  /** Built from tiles: where they are on the grid. */
+  tiles: SkadisCell[];
+  /** Built from tiles: their size, mm (a hexagon's, corner to corner; a rectangle's width; 0: the largest the bed takes), and a rectangle's height (0: as wide, or the largest). */
+  tileSize: number;
+  tileHeight: number;
 }
 
 /** Clip fit in the slots: tighter for a board that runs large, looser for one that runs small. */
@@ -172,7 +200,13 @@ export const DEFAULT_SKADIS: SkadisOptions = {
   deskMount: 'stand',
   deskThickness: 25,
   covers: false,
+  tiles: [[0, 0]],
+  tileSize: 0,
+  tileHeight: 0,
 };
+
+/** A new board: one tile, to add more to. */
+export const NEW_SKADIS: SkadisOptions = { ...DEFAULT_SKADIS, layout: 'tiles' };
 
 export const SKADIS = {
   /** The lattice: columns, and half the distance between slots in a column. */
@@ -259,7 +293,34 @@ export function sanitizeSkadis(raw: unknown): SkadisOptions {
     deskMount: r.deskMount === 'clamp' ? 'clamp' : 'stand',
     deskThickness: num(r.deskThickness, 10, 80, d.deskThickness),
     covers: r.covers === undefined ? d.covers : !!r.covers,
+    ...(r.layout === 'tiles' ? { layout: 'tiles' as const } : {}),
+    tiles: cleanCells(r.tiles),
+    tileSize: size(r.tileSize),
+    tileHeight: size(r.tileHeight),
   };
+}
+
+/** A tile size: 60 to 1000 mm, or 0 (the largest). */
+const size = (v: unknown) => (num(v, 0, 1000, 0) < 60 ? 0 : r1(num(v, 0, 1000, 0)));
+
+/** Tiles' places: whole numbers, each once, 400 at most; one tile at least. */
+function cleanCells(raw: unknown): SkadisCell[] {
+  const seen = new Set<string>();
+  const out: SkadisCell[] = [];
+  for (const c of Array.isArray(raw) ? raw : []) {
+    if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
+    const cell: SkadisCell = [Math.round(num(c[0], -60, 60, 0)), Math.round(num(c[1], -60, 60, 0))];
+    if (!seen.has(String(cell)) && out.length < 400) out.push(cell);
+    seen.add(String(cell));
+  }
+  return out.length ? out : [[0, 0]];
+}
+
+/** Whether tiles fill the rectangle round them (so a frame or a cleat can go round or across it). */
+export function cellsFull(cells: SkadisCell[]): boolean {
+  const xs = cells.map((c) => c[0]);
+  const ys = cells.map((c) => c[1]);
+  return cells.length === (Math.max(...xs) - Math.min(...xs) + 1) * (Math.max(...ys) - Math.min(...ys) + 1);
 }
 
 /** Width of the LED channel round the back edge. */
@@ -271,14 +332,16 @@ export const rimWidth = (o: Pick<SkadisOptions, 'border' | 'chamfer'>) => r1(o.b
  * The options as planned (the same again when planned twice): a dense
  * pattern spaced for its slots (a step 4 mm longer than a slot at least), an
  * LED frame's border wide enough for its channel (and its walls), frames,
- * zones and other hanging for rectangle boards only, and what a board that
- * isn't screwed to the wall rests on: posts with no screws (cleat, door hooks;
- * a cleat as thick as the gap, 12 mm at least, hooks 8) or nothing (desk).
+ * zones and other hanging for rectangle boards only (frames and hanging for
+ * tiles that make a whole rectangle), and what a board that isn't screwed to
+ * the wall rests on: posts with no screws (cleat, door hooks; a cleat as thick
+ * as the gap, 12 mm at least, hooks 8) or nothing (desk).
  */
 export function plannedSkadis(o: SkadisOptions): SkadisOptions {
   const rect = o.shape === 'rect';
-  const hang = rect ? o.hang : 'screws';
-  const frame = rect ? o.frame : 'none';
+  const whole = rect && (o.layout !== 'tiles' || cellsFull(o.tiles));
+  const hang = whole ? o.hang : 'screws';
+  const frame = whole ? o.frame : 'none';
   return {
     ...o,
     pitch: o.pattern === 'dense' ? Math.max(o.pitch, Math.ceil((o.slotL + 4) * 10) / 10) : o.pitch,
@@ -460,8 +523,16 @@ export interface SkadisPlan {
   seamsY: number[];
   joints: SkadisJoint[];
   mounts: SkadisMount[];
-  /** Hexagons: their size and centres. */
-  hex?: { w: number; h: number; centres: Vec2[] };
+  /**
+   * Hexagons: their size and centres; built from tiles, the hexagon's corners (CCW from the top one, its box's
+   * bottom-left at 0, 0) and the pockets for joint plates on its back (by centre, tile coordinates).
+   */
+  hex?: { w: number; h: number; centres: Vec2[]; poly?: Vec2[]; pockets?: Vec2[] };
+  /**
+   * Built from tiles: tile (q, r)'s place is origin + q·`q` + r·`r` (a hexagon's centre, a rectangle's
+   * bottom-left corner), `at` each tile's (q, r) in tile order.
+   */
+  grid?: { origin: Vec2; q: Vec2; r: Vec2; at: SkadisCell[] };
   /** Slots on the whole board (rectangle: whole slots, a cut one counted once). */
   slots: number;
   /** Rectangle boards: zones, frame strips, magnet pockets (wall coordinates), the parts it hangs from and the screws into them (length, mm). */
@@ -499,18 +570,32 @@ export function skadisLattice(
  * A rectangle board's slots (the pattern's, less the seams' columns, the rows
  * a dense board's level seams take, and the zones), its solid points (lattice
  * points without a slot, off the seams; on a dense board the middles between
- * four slots), and how much plastic a box leaves to the nearest slot.
+ * four slots), and how much plastic a box leaves to the nearest slot. Built
+ * from tiles (`grid`), only what is on the tiles: a slot with the border round
+ * it, a solid point.
  */
-function boardGrid(o: SkadisOptions, L: SkadisLattice, seamsX: number[], seamsY: number[], zones: SkadisZoneRect[]) {
+function boardGrid(o: SkadisOptions, L: SkadisLattice, seamsX: number[], seamsY: number[], zones: SkadisZoneRect[], grid?: SkadisPlan['grid']) {
   const P = L.p;
   const dense = o.pattern === 'dense';
   const cols = new Set(seamsX.map((x) => Math.round((x - L.ox) / P)));
   const rows = new Set(dense ? seamsY.map((y) => Math.round((y - L.oy) / P)) : []);
   const at = (i: number, j: number): Vec2 => [r3(L.ox + P * i), r3(L.oy + P * j)];
+  const tiles = grid && new Set(grid.at.map(String));
+  // Every tile a box reaches is there (one on the line between two: both).
+  const on = (x0: number, y0: number, x1: number, y1: number) => {
+    if (!grid || !tiles) return true;
+    const [cw, ch] = [grid.q[0], grid.r[1]];
+    const [ox, oy] = grid.origin;
+    for (let c = Math.floor((x0 - ox) / cw - EPS); c <= Math.floor((x1 - ox) / cw + EPS); c++)
+      for (let r = Math.floor((y0 - oy) / ch - EPS); r <= Math.floor((y1 - oy) / ch + EPS); r++) if (!tiles.has(`${c},${r}`)) return false;
+    return true;
+  };
+  const bw = o.slotW / 2 + o.border;
+  const bl = o.slotL / 2 + o.border;
   const has = (i: number, j: number) => {
     if (i < 0 || j < 0 || i >= L.nx || j >= L.ny || cols.has(i) || rows.has(j) || !patternSlot(o.pattern, i, j)) return false;
     const [x, y] = at(i, j);
-    return !zones.some((z) => x > z.x0 && x < z.x1 && y > z.y0 && y < z.y1);
+    return !zones.some((z) => x > z.x0 && x < z.x1 && y > z.y0 && y < z.y1) && on(x - bw, y - bl, x + bw, y + bl);
   };
   const a = (o.slotL - o.slotW) / 2;
   const clear = (x0: number, y0: number, x1 = x0, y1 = y0) => {
@@ -532,7 +617,7 @@ function boardGrid(o: SkadisOptions, L: SkadisLattice, seamsX: number[], seamsY:
       } else if (!cols.has(i) && !patternSlot(o.pattern, i, j)) solid.push(at(i, j));
     }
   }
-  return { has, at, clear, solid, p: P };
+  return { has, at, clear, solid: grid ? solid.filter(([x, y]) => on(x, y, x, y)) : solid, p: P };
 }
 type BoardGrid = ReturnType<typeof boardGrid>;
 
@@ -589,17 +674,26 @@ export function maxHexWidth(areas: BedArea[]): number {
   return Math.floor(best * 10) / 10;
 }
 
-const fitsArea = (w: number, d: number, areas: BedArea[]) => areas.some((a) => (w <= a.w + EPS && d <= a.d + EPS) || (d <= a.w + EPS && w <= a.d + EPS));
+export const fitsArea = (w: number, d: number, areas: BedArea[]) => areas.some((a) => (w <= a.w + EPS && d <= a.d + EPS) || (d <= a.w + EPS && w <= a.d + EPS));
 
-/** Plan a board for the space on the bed areas it prints on. */
+/**
+ * Planning a board built from tiles (skadisTiles.ts: the tiles' size, where
+ * they go): not on the first screen, it loads with the first board, as the
+ * attachments' kinds do (lib/wall/kinds/all.ts imports it). Until then such a
+ * board plans empty.
+ */
+let tilesPlanner: ((o: SkadisOptions, areas: BedArea[]) => SkadisPlan) | undefined;
+export const setTilesPlanner = (f: typeof tilesPlanner) => (tilesPlanner = f);
+
+/** Plan a board for the space (or from the tiles) on the bed areas it prints on. */
 export function planSkadis(raw: SkadisOptions, areas: BedArea[]): SkadisPlan {
   const o = plannedSkadis(raw);
-  const plan = o.shape === 'hex' ? planHex(o, areas) : planRect(o, areas);
+  const plan = o.layout === 'tiles' ? (tilesPlanner?.(o, areas) ?? emptyPlan(o, '')) : o.shape === 'hex' ? planHex(o, areas) : planRect(o, areas);
   if (o.pitch > raw.pitch) plan.warnings.unshift(`Dense slots need a step of ${o.pitch} mm or more (4 mm more than a slot): the lattice is ${o.pitch} mm.`);
   return plan;
 }
 
-function emptyPlan(o: SkadisOptions, error: string): SkadisPlan {
+export function emptyPlan(o: SkadisOptions, error: string): SkadisPlan {
   return {
     shape: o.shape,
     W: o.width,
@@ -621,66 +715,77 @@ function emptyPlan(o: SkadisOptions, error: string): SkadisPlan {
   };
 }
 
-function planRect(o: SkadisOptions, areas: BedArea[]): SkadisPlan {
-  const W = o.width;
-  const H = o.height;
-  const L = skadisLattice(W, H, o);
-  const P = L.p;
-  if (!L.nx || !L.ny) return emptyPlan(o, `The space is too small for a slot inside a ${o.border} mm border.`);
+/**
+ * A rectangle board built from tiles, laid out (skadisTiles.ts): the options with its size, its lattice (a point off
+ * the board each side, so the edges are on lattice lines as the seams are), where the tiles' edges are across and up,
+ * where they are on the grid, and whether there is one in column c, row r.
+ */
+export interface RectTiles {
+  o: SkadisOptions;
+  L: SkadisLattice;
+  xs: number[];
+  ys: number[];
+  grid: NonNullable<SkadisPlan['grid']>;
+  has: (c: number, r: number) => boolean;
+}
+
+/**
+ * A rectangle board: filling the space, split into the fewest tiles that fit
+ * the bed; or built from tiles (`cells`), each n × m steps, their edges on
+ * lattice columns and rows (seams where two tiles meet, the edge where none
+ * does: a slot the edge would cut isn't there).
+ */
+export function planRect(o: SkadisOptions, areas: BedArea[], cells?: RectTiles): SkadisPlan {
   const warnings: string[] = [];
   const plates = (o.join === 'both' || o.join === 'plates') && platesFit(o.thickness);
-  if ((o.join === 'both' || o.join === 'plates') && !plates)
-    warnings.push(`A ${o.thickness} mm board is too thin for joint plates: the tiles only join with tabs.`);
   const join: SkadisJoin = plates ? o.join : o.join === 'none' ? 'none' : 'tabs';
   const tabs = join === 'both' || join === 'tabs';
   // Tabs reach into the tile to the right and the one above.
   const reach = tabs ? SKADIS.tab.depth + SKADIS.tab.gap : 0;
-  const colX = (i: number) => r3(L.ox + P * i);
-  const rowY = (j: number) => r3(L.oy + P * j);
-  // Upright seams on a slot column (it loses its slots), level ones through a row of slots (a dense board's lose theirs); a
-  // square grid's along its empty columns and rows. Never in the outermost ones.
-  const inner = (n: number) => Array.from({ length: Math.max(0, n - 2) }, (_, k) => k + 1).filter((k) => o.pattern !== 'square' || k & 1);
-  const cutsX = inner(L.nx).map(colX);
-  const cutsY = inner(L.ny).map(rowY);
-  let best: { xs: number[]; ys: number[]; score: number[] } | null = null;
-  for (const a of areas) {
-    for (const [mw, mh] of [
-      [a.w, a.d],
-      [a.d, a.w],
-    ]) {
-      const xs = partition(W, cutsX, mw - reach);
-      const ys = partition(H, cutsY, mh - reach);
-      if (!xs || !ys) continue;
-      const score = [(xs.length - 1) * (ys.length - 1), balanceScore(xs) + balanceScore(ys)];
-      if (!best || score[0] < best.score[0] || (score[0] === best.score[0] && score[1] < best.score[1] - EPS)) best = { xs, ys, score };
-    }
+  let L: SkadisLattice;
+  let xs: number[];
+  let ys: number[];
+  let grid: SkadisPlan['grid'];
+  let has = (_c: number, _r: number) => true;
+  if (cells) ({ o, L, xs, ys, grid, has } = cells);
+  else {
+    L = skadisLattice(o.width, o.height, o);
+    if (!L.nx || !L.ny) return emptyPlan(o, `The space is too small for a slot inside a ${o.border} mm border.`);
+    const split = splitRect(o, areas, L, reach);
+    if (!split) return emptyPlan(o, 'Could not split the board into tiles that fit this bed: make the border smaller, or pick a bigger printer.');
+    [xs, ys] = split;
   }
-  if (!best) return emptyPlan(o, 'Could not split the board into tiles that fit this bed: make the border smaller, or pick a bigger printer.');
-  const { xs, ys } = best;
+  if ((o.join === 'both' || o.join === 'plates') && !plates)
+    warnings.push(`A ${o.thickness} mm board is too thin for joint plates: the tiles only join with tabs.`);
+  const W = o.width;
+  const H = o.height;
   const cols = xs.length - 1;
   const rows = ys.length - 1;
+  const on = (c: number, r: number) => c >= 0 && r >= 0 && c < cols && r < rows && has(c, r);
   const seamsX = xs.slice(1, -1);
   const seamsY = ys.slice(1, -1);
   const tiles: SkadisTile[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      if (!on(c, r)) continue;
       tiles.push({
-        id: r * cols + c + 1,
+        id: tiles.length + 1,
         col: c,
         row: r,
         x0: xs[c],
         y0: ys[r],
         x1: xs[c + 1],
         y1: ys[r + 1],
-        outer: { left: c === 0, right: c === cols - 1, bottom: r === 0, top: r === rows - 1 },
+        outer: { left: !on(c - 1, r), right: !on(c + 1, r), bottom: !on(c, r - 1), top: !on(c, r + 1) },
       });
+      if (grid) grid.at.push([c - Math.round(grid.origin[0] / grid.q[0]), r - Math.round(grid.origin[1] / grid.r[1])]);
     }
   }
   const zones = zoneRects(o, L);
-  const g = boardGrid(o, L, seamsX, seamsY, zones);
+  const g = boardGrid(o, L, seamsX, seamsY, zones, grid);
   // Joints and mounts keep off the frame's rim and LED channel round the outer edge.
   const edge = o.frame === 'led' ? ledChannel(o) : o.frame === 'rim' ? rimWidth(o) : 0;
-  const joints = planJoints(join, xs, ys, L, g, edge, warnings);
+  const joints = planJoints(join, xs, ys, L, g, edge, warnings, on);
   const maxLen = Math.max(...areas.map((a) => Math.max(a.w, a.d))) - 2;
   const hung = planHang(o, tiles, g, seamsY, joints, planMounts(o, tiles, g, seamsY, joints, zones, edge), zones, maxLen, warnings);
   const mounts = hung.mounts;
@@ -704,12 +809,51 @@ function planRect(o: SkadisOptions, areas: BedArea[]): SkadisPlan {
     magnets: planMagnets(o, zones, g, seamsX, seamsY, joints, mounts, edge),
     hang: hung.parts,
     ...(hung.screw ? { hangScrew: hung.screw } : {}),
+    ...(grid ? { grid } : {}),
     warnings,
   };
 }
 
-/** Joints along the seams: plates where seams cross, then evenly spaced sites along each stretch of seam, all clear of the slots. */
-function planJoints(join: SkadisJoin, xs: number[], ys: number[], L: SkadisLattice, g: BoardGrid, edge: number, warnings: string[]): SkadisJoint[] {
+/** A space split into the fewest tiles that fit the bed, the most even way: where the tiles' edges are, across and up. */
+function splitRect(o: SkadisOptions, areas: BedArea[], L: SkadisLattice, reach: number): [number[], number[]] | null {
+  const P = L.p;
+  const colX = (i: number) => r3(L.ox + P * i);
+  const rowY = (j: number) => r3(L.oy + P * j);
+  // Upright seams on a slot column (it loses its slots), level ones through a row of slots (a dense board's lose theirs); a
+  // square grid's along its empty columns and rows. Never in the outermost ones.
+  const inner = (n: number) => Array.from({ length: Math.max(0, n - 2) }, (_, k) => k + 1).filter((k) => o.pattern !== 'square' || k & 1);
+  const cutsX = inner(L.nx).map(colX);
+  const cutsY = inner(L.ny).map(rowY);
+  let best: { xs: number[]; ys: number[]; score: number[] } | null = null;
+  for (const a of areas) {
+    for (const [mw, mh] of [
+      [a.w, a.d],
+      [a.d, a.w],
+    ]) {
+      const xs = partition(o.width, cutsX, mw - reach);
+      const ys = partition(o.height, cutsY, mh - reach);
+      if (!xs || !ys) continue;
+      const score = [(xs.length - 1) * (ys.length - 1), balanceScore(xs) + balanceScore(ys)];
+      if (!best || score[0] < best.score[0] || (score[0] === best.score[0] && score[1] < best.score[1] - EPS)) best = { xs, ys, score };
+    }
+  }
+  return best && [best.xs, best.ys];
+}
+
+/**
+ * Joints along the seams: plates where seams cross, then evenly spaced sites along each stretch of seam, all clear of
+ * the slots. `on`: whether there is a tile in column c, row r (a seam only where two are, a crossing's plate where four).
+ */
+function planJoints(
+  join: SkadisJoin,
+  xs: number[],
+  ys: number[],
+  L: SkadisLattice,
+  g: BoardGrid,
+  edge: number,
+  warnings: string[],
+  on: (c: number, r: number) => boolean,
+): SkadisJoint[] {
   if (join === 'none') return [];
   const P = L.p;
   const plates = join === 'both' || join === 'plates';
@@ -726,7 +870,8 @@ function planJoints(join: SkadisJoin, xs: number[], ys: number[], L: SkadisLatti
       : seam === 'x'
         ? g.clear(x - 0.5, y - hw, x + depth + gap, y + hw)
         : g.clear(x - hw, y - 0.5, x + hw, y + depth + gap)) >= 1.2;
-  if (plates) for (const x of seamsX) for (const y of seamsY) if (fits(x, y, 'xy')) out.push({ kind: 'plate', x, y, seam: 'xy' });
+  const four = (c: number, r: number) => on(c, r) && on(c + 1, r) && on(c, r + 1) && on(c + 1, r + 1);
+  if (plates) seamsX.forEach((x, c) => seamsY.forEach((y, r) => four(c, r) && fits(x, y, 'xy') && out.push({ kind: 'plate', x, y, seam: 'xy' })));
   // Room left for a crossing's plate (and a joint's own half), and from the outer edge (and its LED channel).
   const fromCross = SKADIS.plate.size / 2 + SKADIS.plate.gap + 12;
   const fromEdge = Math.max(half + 3, edge + half + 1);
@@ -751,10 +896,12 @@ function planJoints(join: SkadisJoin, xs: number[], ys: number[], L: SkadisLatti
     at.forEach(add);
   };
   const rowsY = Array.from({ length: L.ny }, (_, j) => r3(L.oy + P * j));
-  for (const x of seamsX) {
+  // Each stretch between two tiles, its ends at a crossing where a tile is past either.
+  seamsX.forEach((x, c) => {
     for (let r = 0; r + 1 < ys.length; r++) {
-      const a = ys[r] + (r > 0 ? fromCross : fromEdge);
-      const b = ys[r + 1] - (r + 2 < ys.length ? fromCross : fromEdge);
+      if (!on(c, r) || !on(c + 1, r)) continue;
+      const a = ys[r] + (on(c, r - 1) || on(c + 1, r - 1) ? fromCross : fromEdge);
+      const b = ys[r + 1] - (on(c, r + 1) || on(c + 1, r + 1) ? fromCross : fromEdge);
       place(
         a,
         b,
@@ -763,16 +910,17 @@ function planJoints(join: SkadisJoin, xs: number[], ys: number[], L: SkadisLatti
         (y, k) => out.push({ kind: kindAt(k), x, y, seam: 'x' }),
       );
     }
-  }
-  for (const y of seamsY) {
+  });
+  seamsY.forEach((y, r) => {
     const j = Math.round((y - L.oy) / P);
     // Along a level seam, only where no slot is (cut): the solid lattice points of its row.
     const empty = Array.from({ length: L.nx }, (_, i) => i)
       .filter((i) => !g.has(i, j))
       .map((i) => r3(L.ox + P * i));
     for (let c = 0; c + 1 < xs.length; c++) {
-      const a = xs[c] + (c > 0 ? fromCross : fromEdge);
-      const b = xs[c + 1] - (c + 2 < xs.length ? fromCross : fromEdge);
+      if (!on(c, r) || !on(c, r + 1)) continue;
+      const a = xs[c] + (on(c - 1, r) || on(c - 1, r + 1) ? fromCross : fromEdge);
+      const b = xs[c + 1] - (on(c + 1, r) || on(c + 1, r + 1) ? fromCross : fromEdge);
       place(
         a,
         b,
@@ -781,7 +929,7 @@ function planJoints(join: SkadisJoin, xs: number[], ys: number[], L: SkadisLatti
         (x, k) => out.push({ kind: kindAt(k), x, y, seam: 'y' }),
       );
     }
-  }
+  });
   if (bare) warnings.push('At this step some stretches of seam have no room for a joint clear of the slots: make the step longer, or the bed bigger.');
   return out;
 }
@@ -1170,57 +1318,82 @@ function planHex(o: SkadisOptions, areas: BedArea[]): SkadisPlan {
     y1: r3(y + hh / 2),
     outer: { left: true, right: true, bottom: true, top: true },
   }));
-  const local = hexLocalMounts(o, hw);
-  const mounts: SkadisMount[] = tiles.flatMap((t) => local.map((m) => ({ x: r3(t.x0 + m.x), y: r3(t.y0 + m.y), screw: m.screw, tile: t.id })));
-  const one = hexSlots(o, hw, local).length;
+  return hexPlan(o, W, H, hw, hh, tiles, placed, nc, Math.max(...Array.from({ length: nc }, (_, k) => colRows(k))));
+}
+
+/** A hexagon board from its tiles, every one alike: its mounting points and slot count (`poly`: built from tiles, the hexagon's corners). */
+export function hexPlan(
+  o: SkadisOptions,
+  W: number,
+  H: number,
+  hw: number,
+  hh: number,
+  tiles: SkadisTile[],
+  centres: Vec2[],
+  cols: number,
+  rows: number,
+  poly?: Vec2[],
+  grid?: SkadisPlan['grid'],
+): SkadisPlan {
+  const local = hexLocalMounts(o, hw, poly);
   return {
     shape: 'hex',
     W,
     H,
     tiles,
-    cols: nc,
-    rows: Math.max(...Array.from({ length: nc }, (_, k) => colRows(k))),
+    cols,
+    rows,
     seamsX: [],
     seamsY: [],
     joints: [],
-    mounts,
-    hex: { w: r3(hw), h: r3(hh), centres: placed },
-    slots: one * tiles.length,
+    mounts: tiles.flatMap((t) => local.map((m) => ({ x: r3(t.x0 + m.x), y: r3(t.y0 + m.y), screw: m.screw, tile: t.id }))),
+    hex: { w: r3(hw), h: r3(hh), centres, ...(poly ? { poly } : {}) },
+    slots: hexSlots(o, hw, hh, local, poly, grid ? hexPar(o) : 0).length * tiles.length,
     zones: [],
     rim: [],
     magnets: [],
     hang: [],
+    ...(grid ? { grid } : {}),
     warnings: [],
   };
 }
 
+/** Where a hexagon's centre is on the lattice, built from tiles: off the slots on a square grid (so the upright edges between them are too). */
+export const hexPar = (o: Pick<SkadisOptions, 'pattern'>) => (o.pattern === 'square' ? 1 : 0);
+
 /**
  * A hexagon's mounting points (tile coordinates): one in each corner, far
- * enough in for its standoff. Screws go in the left and right corners; the
+ * enough in for its standoff. Screws go in the left and right corners (the
+ * top and bottom ones of a hexagon on a corner, built from tiles, `poly`); the
  * other four are posts the board rests on. Separate spacers need a screw
  * each to stay put, so with them every corner gets one.
  */
-function hexLocalMounts(o: SkadisOptions, hw: number): { x: number; y: number; screw: boolean }[] {
+function hexLocalMounts(o: SkadisOptions, hw: number, poly?: Vec2[]): { x: number; y: number; screw: boolean }[] {
   const hh = (hw * SQ3) / 2;
   const rad = mountRadius(o);
-  // Far enough from both edges at a 120° corner, the rounding and the border.
-  const inset = (rad + 2.5) / Math.sin(Math.PI / 3) + o.corner * 0.3;
-  return hexCorners(hw / 2, hh / 2, hw).flatMap(([x, y], k) => {
+  const pts = poly ?? hexCorners(hw / 2, hh / 2, hw);
+  return pts.flatMap(([x, y], k) => {
     const side = k === 0 || k === 3;
     if (o.standoff !== 'posts' && o.standoff !== 'spacers' && !side) return [];
-    const ux = (hw / 2 - x) / (hw / 2);
-    const uy = (hh / 2 - y) / (hw / 2);
+    // In along the corner's bisector (a regular hexagon's: toward its middle), far enough from both edges, the rounding and the border.
+    let [ux, uy, sin] = [(hw / 2 - x) / (hw / 2), (hh / 2 - y) / (hw / 2), Math.sin(Math.PI / 3)];
+    if (poly) {
+      const p = norm([pts[(k + 5) % 6][0] - x, pts[(k + 5) % 6][1] - y]);
+      const q = norm([pts[(k + 1) % 6][0] - x, pts[(k + 1) % 6][1] - y]);
+      [ux, uy] = norm([p[0] + q[0], p[1] + q[1]]);
+      sin = Math.sqrt((1 - p[0] * q[0] - p[1] * q[1]) / 2);
+    }
+    const inset = (rad + 2.5) / sin + o.corner * 0.3;
     return [{ x: r3(x + ux * inset), y: r3(y + uy * inset), screw: o.standoff === 'spacers' || side }];
   });
 }
 
 /** Slots of one hexagon (tile coordinates): the pattern on a lattice centred on it, inside its border, clear of its mounts. */
-function hexSlots(o: SkadisOptions, hw: number, mounts: { x: number; y: number }[]): Vec2[] {
+function hexSlots(o: SkadisOptions, hw: number, hh: number, mounts: { x: number; y: number }[], poly?: Vec2[], par = 0): Vec2[] {
   const P = o.pitch;
-  const hh = (hw * SQ3) / 2;
   const cx = hw / 2;
   const cy = hh / 2;
-  const corners = hexCorners(cx, cy, hw);
+  const corners = poly ?? hexCorners(cx, cy, hw);
   const keep = o.border + o.slotW / 2;
   const a = (o.slotL - o.slotW) / 2;
   // Inside the inset hexagon: on the inner side of every edge by `keep`.
@@ -1233,10 +1406,10 @@ function hexSlots(o: SkadisOptions, hw: number, mounts: { x: number; y: number }
     });
   const rad = mountRadius(o) + 1.5;
   const out: Vec2[] = [];
-  const n = Math.ceil(hw / P) + 1;
+  const n = Math.ceil(Math.max(hw, hh) / P) + 1;
   for (let i = -n; i <= n; i++) {
     for (let j = -n; j <= n; j++) {
-      if (!patternSlot(o.pattern, i, j)) continue;
+      if (!patternSlot(o.pattern, i + par, j + par)) continue;
       const x = cx + P * i;
       const y = cy + P * j;
       if (!inside(x, y - a) || !inside(x, y + a)) continue;
@@ -1252,18 +1425,21 @@ function hexSlots(o: SkadisOptions, hw: number, mounts: { x: number; y: number }
  * Every slot an attachment can use, wall coordinates (slot centres): on a
  * rectangle board the pattern less the seams it loses and the zones (a slot a
  * level seam cuts is whole once the tiles are together), on hexagons each
- * one's own.
+ * one's own (on one lattice when built from tiles).
  */
 export function boardSlots(plan: SkadisPlan, raw: SkadisOptions): Vec2[] {
   const o = plannedSkadis(raw);
   if (plan.shape === 'hex' && plan.hex) {
-    const hw = plan.hex.w;
-    const local = hexSlots(o, hw, hexLocalMounts(o, hw));
-    return plan.tiles.flatMap((t) => local.map(([x, y]) => [r3(t.x0 + x), r3(t.y0 + y)] as Vec2));
+    const { w: hw, poly } = plan.hex;
+    const local = hexSlots(o, hw, poly ? plan.hex.h : (hw * SQ3) / 2, hexLocalMounts(o, hw, poly), poly, plan.grid ? hexPar(o) : 0);
+    // Built from tiles, exactly on the board's one lattice.
+    const g = plan.grid;
+    const at = (v: number, k: 0 | 1) => (g ? r3(g.origin[k] + o.pitch * Math.round((v - g.origin[k]) / o.pitch)) : r3(v));
+    return plan.tiles.flatMap((t) => local.map(([x, y]) => [at(t.x0 + x, 0), at(t.y0 + y, 1)] as Vec2));
   }
   const L = plan.lattice;
   if (!L || !plan.tiles.length) return [];
-  const g = boardGrid(o, L, plan.seamsX, plan.seamsY, plan.zones);
+  const g = boardGrid(o, L, plan.seamsX, plan.seamsY, plan.zones, plan.grid);
   const out: Vec2[] = [];
   for (let i = 0; i < L.nx; i++) for (let j = 0; j < L.ny; j++) if (g.has(i, j)) out.push(g.at(i, j));
   return out;
@@ -1272,8 +1448,10 @@ export function boardSlots(plan: SkadisPlan, raw: SkadisOptions): Vec2[] {
 /** Outline of each tile on the wall (CCW), for drawing the board. */
 export function tileOutlines(plan: SkadisPlan, o: SkadisOptions): Vec2[][] {
   if (plan.shape === 'hex' && plan.hex) {
-    const hw = plan.hex.w;
-    return plan.tiles.map((t) => roundedPolygon(hexCorners((t.x0 + t.x1) / 2, (t.y0 + t.y1) / 2, hw), o.corner));
+    const { w: hw, poly } = plan.hex;
+    return plan.tiles.map((t) =>
+      roundedPolygon(poly ? poly.map(([x, y]) => [r3(t.x0 + x), r3(t.y0 + y)] as Vec2) : hexCorners((t.x0 + t.x1) / 2, (t.y0 + t.y1) / 2, hw), o.corner),
+    );
   }
   return plan.tiles.map((t) => [
     [t.x0, t.y0],
@@ -1331,7 +1509,8 @@ export const ledDepth = (o: Pick<SkadisOptions, 'thickness'>) => r3(Math.min(SKA
 
 /** The spec for each tile of a plan, in tile order. */
 export function skadisTileSpecs(plan: SkadisPlan, raw: SkadisOptions): SkadisTileSpec[] {
-  const o = plannedSkadis(raw);
+  // Built from tiles, the board is as big as they make it.
+  const o = { ...plannedSkadis(raw), width: plan.W, height: plan.H };
   const posts = o.standoff === 'posts' ? r3(o.depth) : 0;
   const cover = coverHole(o);
   const common = {
@@ -1345,18 +1524,17 @@ export function skadisTileSpecs(plan: SkadisPlan, raw: SkadisOptions): SkadisTil
     ...(cover ? { cover } : {}),
   };
   if (plan.shape === 'hex' && plan.hex) {
-    const hw = plan.hex.w;
-    const hh = plan.hex.h;
-    const local = hexLocalMounts(o, hw);
-    const slots = hexSlots(o, hw, local);
-    const outline = roundedPolygon(hexCorners(hw / 2, hh / 2, hw), o.corner);
+    const { w: hw, h: hh, poly } = plan.hex;
+    const local = hexLocalMounts(o, hw, poly);
+    const slots = hexSlots(o, hw, poly ? hh : (hw * SQ3) / 2, local, poly, plan.grid ? hexPar(o) : 0);
+    const outline = roundedPolygon(poly ?? hexCorners(hw / 2, hh / 2, hw), o.corner);
     // Hexagons go up in any order: no numbers, so they are all one part.
-    return plan.tiles.map(() => ({ outline, ...common, slots, tabs: [], sockets: [], pockets: [], mounts: local }));
+    return plan.tiles.map(() => ({ outline, ...common, slots, tabs: [], sockets: [], pockets: plan.hex?.pockets ?? [], mounts: local }));
   }
   const L = plan.lattice;
   if (!L) return [];
   const P = L.p;
-  const g = boardGrid(o, L, plan.seamsX, plan.seamsY, plan.zones);
+  const g = boardGrid(o, L, plan.seamsX, plan.seamsY, plan.zones, plan.grid);
   const sl = o.slotL / 2;
   const sw = o.slotW / 2;
   const pinAt = plan.rim.flatMap((s) => s.pins);
@@ -1500,7 +1678,7 @@ export function roundedPolygon(pts: Vec2[], r: number, segs = 6): Vec2[] {
   return out;
 }
 
-function norm(v: Vec2): Vec2 {
+export function norm(v: Vec2): Vec2 {
   const l = Math.hypot(v[0], v[1]) || 1;
   return [v[0] / l, v[1] / l];
 }

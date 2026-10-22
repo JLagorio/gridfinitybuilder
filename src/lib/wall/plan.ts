@@ -45,7 +45,7 @@ export interface WallBoard {
   front: number;
   /** A frame's rim round the edge: how wide, mm (attachments keep off it). */
   rim?: number;
-  /** Hexagon tiles: each has slots of its own, not in line with its neighbours'. */
+  /** Hexagon tiles filling a space: each has slots of its own, not in line with its neighbours' (built from tiles, they share one lattice). */
   hex?: boolean;
 }
 
@@ -53,14 +53,14 @@ export function wallBoard(plan: SkadisPlan, raw: SkadisOptions): WallBoard {
   const o = plannedSkadis(raw);
   const behind = skadisBehind(o);
   return {
-    W: o.width,
-    H: o.height,
+    W: plan.W,
+    H: plan.H,
     slots: boardSlots(plan, o),
     ctx: { t: o.thickness, slotW: o.slotW, slotL: o.slotL, pitch: o.pitch, fit: o.fit, behind },
     outlines: tileOutlines(plan, o),
     front: skadisGap(o) + o.thickness,
     ...(o.frame !== 'none' ? { rim: rimWidth(o) } : {}),
-    ...(plan.shape === 'hex' ? { hex: true } : {}),
+    ...(plan.shape === 'hex' && !plan.grid ? { hex: true } : {}),
   };
 }
 

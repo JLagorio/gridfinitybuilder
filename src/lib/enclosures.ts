@@ -262,6 +262,8 @@ export interface SkadisInfo {
   /** How much of the space the board covers, mm. */
   boardW: number;
   boardH: number;
+  /** Built from tiles: where they are, and where more can go (SkadisPlan.grid). */
+  grid?: SkadisPlan['grid'];
 }
 
 export interface EnclosurePlan {
@@ -800,6 +802,9 @@ function planSpacers(d: Parameters<typeof planEnclosure>[0], layout: GridLayout,
 // Skådis board
 // ---------------------------------------------------------------------------
 
+/** The bed areas a board's tiles print on. */
+export const skadisAreas = (setup: PrintSetup) => clearAreas({ ...plateBed(setup), spacing: setup.spacing }).map((a) => ({ w: a.w, d: a.d }));
+
 /** A tile as a floor piece. */
 const pieceOfTile = (t: SkadisPlan['tiles'][number]): PieceDef => ({
   id: t.id,
@@ -822,9 +827,10 @@ const pieceOfTile = (t: SkadisPlan['tiles'][number]): PieceDef => ({
  * turned over for it (EnclosureScene.pieceTurn).
  */
 function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLayout, setup: PrintSetup): EnclosurePlan {
-  const o = plannedSkadis(sanitizeSkadis(d.drawer.skadis));
-  const areas = clearAreas({ ...plateBed(setup), spacing: setup.spacing }).map((a) => ({ w: a.w, d: a.d }));
-  const plan = planSkadis(o, areas);
+  const raw = plannedSkadis(sanitizeSkadis(d.drawer.skadis));
+  const plan = planSkadis(raw, skadisAreas(setup));
+  // Built from tiles, the board is as big as they make it.
+  const o = { ...raw, width: plan.W, height: plan.H };
   const specs = skadisTileSpecs(plan, o);
   const pieces = plan.tiles.map(pieceOfTile);
   const bounds = specs.map(tileBounds);
@@ -980,7 +986,9 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
   const magnets = specs.reduce((n, s) => n + (s.magnets?.length ?? 0), 0);
   const steps: string[] = [];
   if (pieces.length) {
-    steps.push(`Skådis board: ${pieces.length} ${what}${pieces.length === 1 ? '' : 's'}, numbered on the back as on this map.`);
+    steps.push(
+      `Skådis board: ${pieces.length} ${what}${pieces.length === 1 ? '' : 's'}, ${hex && plan.grid ? 'all alike: any goes in any place on this map' : 'numbered on the back as on this map'}.`,
+    );
     if (!hex && pieces.length > 1) {
       if (tabs) steps.push('Lay the tiles face down in order and slide the dovetail tabs into their sockets, a row at a time.');
       if (plates.length) steps.push(`Press the ${plates.length} joint plates into the pockets across the seams (pins down); a drop of glue in each makes it one board.`);
@@ -994,7 +1002,18 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
       const by = o.standoff === 'none' ? '' : ` ${o.depth} mm off the wall`;
       steps.push(`Screw it to the wall through the ${screws.length} countersunk holes${by}, with wall plugs where the wall needs them.`);
     }
-    if (hex && o.standoff === 'posts') steps.push('The posts in the top and bottom corners rest on the wall; the screws go through the left and right ones.');
+    if (hex && o.standoff === 'posts')
+      steps.push(
+        plan.grid
+          ? 'The posts in the side corners rest on the wall; the screws go through the top and bottom ones.'
+          : 'The posts in the top and bottom corners rest on the wall; the screws go through the left and right ones.',
+      );
+    if (hex && plan.grid && pieces.length > 1)
+      steps.push(
+        plates.length
+          ? `Press the ${plates.length === 1 ? 'joint plate' : `${plates.length} joint plates`} into the pockets across the gaps between hexagons side by side (pins down, a drop of glue in each): they hold them in line, so a part can span two.`
+          : `Hang the hexagons ${o.hexGap} mm apart and in line, as on the map: their slots are on one lattice, so a part can span two side by side.`,
+      );
     if (covered.length) steps.push(`Push a cover onto each of the ${covered.length} screw heads: its legs click into the groove round the hole.`);
     if (onto) steps.push(`Screw the ${onto} on from the front, through the ${hangScrews} holes in the board.`);
     if (o.hang === 'cleat') steps.push('Screw the wall cleat level to the wall, its sloping edge up, and hang the board on it.');
@@ -1022,6 +1041,7 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
     ...(covered.length ? { covers: covered.length } : {}),
     boardW: hex && plan.hex ? r1(Math.max(...plan.tiles.map((t) => t.x1)) - Math.min(...plan.tiles.map((t) => t.x0))) : o.width,
     boardH: hex && plan.hex ? r1(Math.max(...plan.tiles.map((t) => t.y1)) - Math.min(...plan.tiles.map((t) => t.y0))) : o.height,
+    ...(plan.grid ? { grid: plan.grid } : {}),
   };
   return {
     kind: 'skadis',
@@ -1079,9 +1099,16 @@ function planSkadisBoard(d: Parameters<typeof planEnclosure>[0], layout: GridLay
 function skadisMap(plan: SkadisPlan, info: SkadisInfo, o: ReturnType<typeof sanitizeSkadis>, steps: string[]): string {
   const lines: string[] = ['SKÅDIS BOARD ASSEMBLY MAP', '='.repeat(40)];
   const hex = plan.shape === 'hex';
-  lines.push(`Space: ${r1(o.width)} × ${r1(o.height)} mm`);
-  if (hex && plan.hex) lines.push(`Hexagons: ${plan.tiles.length}, ${r1(plan.hex.w)} mm corner to corner, ${r1(plan.hex.h)} mm high, ${o.hexGap} mm apart`);
-  else lines.push(`Board: ${r1(o.width)} × ${r1(o.height)} mm in ${plan.cols} × ${plan.rows} tiles`);
+  const g = plan.grid;
+  lines.push(g ? `Built from tiles: ${r1(o.width)} × ${r1(o.height)} mm in all` : `Space: ${r1(o.width)} × ${r1(o.height)} mm`);
+  if (hex && plan.hex)
+    lines.push(
+      `Hexagons: ${plan.tiles.length}, ${g ? `${r1(plan.hex.h)} mm corner to corner (top to bottom), ${r1(plan.hex.w)} mm across` : `${r1(plan.hex.w)} mm corner to corner, ${r1(plan.hex.h)} mm high`}, ${o.hexGap} mm apart${g ? ', on one slot lattice' : ''}`,
+    );
+  else
+    lines.push(
+      `Board: ${r1(o.width)} × ${r1(o.height)} mm in ${g ? `${plan.tiles.length} tiles of ${r1(g.q[0])} × ${r1(g.r[1])} mm` : `${plan.cols} × ${plan.rows} tiles`}`,
+    );
   const pattern = o.pattern === 'skadis' && o.pitch === 20 ? 'standard Skådis spacing' : `${o.pattern} pattern, ${o.pitch} mm step`;
   lines.push(`Slots: ${plan.slots} (${o.slotW} × ${o.slotL} mm, ${pattern})`);
   if (info.plates || info.tabs) lines.push(`Joints: ${info.tabs} dovetail tabs, ${info.plates} joint plates`);
@@ -1091,8 +1118,9 @@ function skadisMap(plan: SkadisPlan, info: SkadisInfo, o: ReturnType<typeof sani
   lines.push('', 'Seen from the front (as on the wall). Numbers are on the back of each tile.');
   if (!hex) {
     for (let r = plan.rows - 1; r >= 0; r--) {
-      const row = plan.tiles.filter((t) => t.row === r).sort((a, b) => a.col - b.col);
-      lines.push('  ' + row.map((t) => `[${String(t.id).padStart(3)} ]`).join(' '));
+      // A gap where a board built from tiles has none.
+      const row = Array.from({ length: plan.cols }, (_, c) => plan.tiles.find((t) => t.row === r && t.col === c));
+      lines.push(('  ' + row.map((t) => (t ? `[${String(t.id).padStart(3)} ]` : ' '.repeat(6))).join(' ')).trimEnd());
     }
   } else {
     for (const t of [...plan.tiles].sort((a, b) => b.y0 - a.y0 || a.x0 - b.x0)) {
