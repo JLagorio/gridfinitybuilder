@@ -138,7 +138,7 @@ export function BoardTiles({ grid, board, placed, hex, job }: { grid: Grid; boar
           onPointerDown={() => finger.current || setSel(null)}
           onClick={() => finger.current && setSel(null)}
           role="application"
-          aria-label={`The board's ${what}s: click + to add one, ✕ to take one away`}
+          aria-label={`The board's ${what}s: + adds one, ✕ takes one away`}
         >
           {ghosts.map((c) => (
             <g

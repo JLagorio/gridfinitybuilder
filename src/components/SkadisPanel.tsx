@@ -138,7 +138,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             onChange={(v) => (v === 'tiles' ? toTiles() : set({ layout: undefined }))}
             hint={
               byTiles
-                ? `Click + by the board’s edge on its picture to add a ${what}, ✕ to take one away. Every ${what}’s slots are on one lattice, so a part can span two.`
+                ? `Use + by the board’s edge on its picture to add a ${what}, ✕ to take one away. Every ${what}’s slots are on one lattice, so a part can span two.`
                 : 'The board fills a space on the wall: give its width and height.'
             }
           />
