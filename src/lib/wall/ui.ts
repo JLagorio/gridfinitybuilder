@@ -56,3 +56,5 @@ import './kinds/cabinet.ui';
 import './kinds/swivelTower.ui';
 import './kinds/foldHook.ui';
 import './kinds/model.ui';
+import './kinds/shadowBoard.ui';
+import './kinds/toolCradle.ui';

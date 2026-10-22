@@ -55,6 +55,8 @@ import './cabinet';
 import './swivelTower';
 import './foldHook';
 import './model';
+import './shadowBoard';
+import './toolCradle';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();

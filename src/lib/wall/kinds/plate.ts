@@ -157,7 +157,7 @@ export function gridHoles(o: PlateOptions, ctx: MountCtx): Vec2[] {
  * The largest boxes in `bound` that miss every one of `keep`, at least `min` each way: for each span across from
  * the bound's left or a box's right to the bound's right or a box's left, the gaps up it that nothing lets go wider.
  */
-function clearOf([X0, Y0, X1, Y1]: Box, keep: Box[], min: number): Box[] {
+export function clearOf([X0, Y0, X1, Y1]: Box, keep: Box[], min: number): Box[] {
   const ks = keep.filter(([x0, y0, x1, y1]) => x1 > X0 && x0 < X1 && y1 > Y0 && y0 < Y1);
   const edges = (v: number[]) => [...new Set(v.filter((x) => x >= X0 && x <= X1))];
   const out: Box[] = [];

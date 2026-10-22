@@ -1,0 +1,27 @@
+/* A shadow board's or a tool holder's tools (WallOutlines.tsx), in the tool library's rows (styles.css). */
+.wall-outlines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wall-outline {
+  cursor: default;
+}
+.wall-outline .tool-main > .link {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  font-size: 14px;
+}
+.wall-outline-name {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 5px;
+  font-weight: 600;
+}
+.wall-outline-hold {
+  padding: 0 8px 8px;
+}
+.wall-outline-hold .segmented button {
+  padding-left: 4px;
+  padding-right: 4px;
+}

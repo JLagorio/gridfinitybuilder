@@ -68,6 +68,8 @@ import { cabinetBuilder } from './kinds/cabinet.geom';
 import { swivelTowerBuilder } from './kinds/swivelTower.geom';
 import { foldHookBuilder } from './kinds/foldHook.geom';
 import { modelBuilder } from './kinds/model.geom';
+import { shadowBoardBuilder } from './kinds/shadowBoard.geom';
+import { toolCradleBuilder } from './kinds/toolCradle.geom';
 
 /** A body in another colour, in the part's frame: it touches the body without overlapping it (splitInlay makes one). */
 export interface AttachmentInlay extends InlayTag {
@@ -148,6 +150,8 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   swivelTower: swivelTowerBuilder as AttachmentBuilder<never>,
   foldHook: foldHookBuilder as AttachmentBuilder<never>,
   model: modelBuilder as AttachmentBuilder<never>,
+  shadowBoard: shadowBoardBuilder as AttachmentBuilder<never>,
+  toolCradle: toolCradleBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
