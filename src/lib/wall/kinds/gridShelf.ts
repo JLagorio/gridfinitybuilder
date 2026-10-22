@@ -91,4 +91,9 @@ registerAttachment<GridShelfOptions>({
     return out;
   },
   hardware: (o) => gridMagnets(o.magnets, o.cellsX * o.cellsY, 'Gridfinity shelf'),
+  labelFace: (o, l) => (o.tilt ? null : { x: SHELF.cheek + 1, y: 0.6, w: l.w - 2 * SHELF.cheek - 2, h: GRID_TOP + o.lip - 1.2, z: l.depth, normal: 'front' }),
+  backPlate(o, l) {
+    const sd = shelfSide(o);
+    return { x0: SHELF.cheek + 0.5, x1: l.w - SHELF.cheek - 0.5, y0: Math.max(sd.top + SHELF.root, GRID_TOP + o.lip) + 0.5, y1: l.h, z: SHELF.plate };
+  },
 });

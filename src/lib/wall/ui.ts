@@ -29,3 +29,4 @@ import './kinds/mediaBlock.ui';
 import './kinds/spoolRack.ui';
 import './kinds/boxSleeve.ui';
 import './kinds/leadHanger.ui';
+import './kinds/labelTag.ui';

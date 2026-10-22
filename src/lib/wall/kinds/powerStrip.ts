@@ -58,6 +58,13 @@ registerAttachment<PowerStripOptions>({
     const m = backMounts(L, H, ctx, { rows: 3 });
     return { w: L, h: H, depth: Z, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
+  // The back above the lip, or between the brackets (bolt it on before the strip goes in).
+  backPlate(o, l) {
+    const e = o.cable === 'open' ? 0 : PS.end + 0.5;
+    const above = { x0: e, x1: l.w - e, y0: PS.floor + o.lip + 0.5, y1: l.h, z: PS.back };
+    const tray = o.style === 'tray' || l.w < 2 * PS.bracket + 20;
+    return tray ? above : [above, { x0: PS.bracket + 0.5, x1: l.w - PS.bracket - 0.5, y0: 0, y1: l.h, z: PS.back }];
+  },
   summary: (o) => `Power strip holder ${Math.round(o.width)} × ${Math.round(o.height)}`,
   hardware: (o) =>
     o.strap ? [{ item: 'Hook-and-loop strap, 20 mm wide', count: 2, note: `at least ${Math.ceil((2 * (o.width + o.height) + 40) / 10) * 10} mm long` }] : [],

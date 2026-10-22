@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, TextInput, Toggle } from './fields';
-import { attachmentDef, type AttachmentDef, type AttachmentField, type AttachmentGroup } from '../lib/wall';
+import { attachmentDef, type AttachmentDef, type AttachmentField, type AttachmentGroup, type MountCtx, type PlacedAttachment } from '../lib/wall';
+import { LOCK_DEFAULT, canLock, type WallPlacement } from '../lib/wall/plan';
 import { GROUP_LABELS, attachmentUi, attachmentUis, type AttachmentUi } from '../lib/wall/ui';
 import '../lib/wall/kinds/all';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
@@ -61,6 +62,7 @@ export function WallPanel({ job }: { job: PrintJob }) {
             placeholder={def.summary(def.sanitize(sel.opts) as never)}
             onChange={(name) => updateAttachment(sel.id, { name })}
           />
+          {placed && <CommonFields a={sel} def={def} placed={placed} ctx={wall.board.ctx} />}
           <AttachmentFields def={def} ui={attachmentUi(sel.type)} opts={sel.opts} onChange={(p) => setAttachmentOpts(sel.id, p)} />
           {placed && (
             <div className="field-hint">
@@ -142,9 +144,57 @@ export function WallPanel({ job }: { job: PrintJob }) {
             { value: 'loose', label: 'Loose', title: 'For tight slots, or brittle filament' },
           ]}
           onChange={(fit) => setDrawer({ skadis: { ...o, fit } })}
-          hint={`For this board: ${fmt(o.thickness)} thick, ${o.slotW} × ${o.slotL} mm slots. Clips push straight in and drop onto the slot bottoms; lift and pull firmly to take one off. PETG holds up best.`}
+          hint={`For this board: ${fmt(o.thickness)} thick, ${o.slotW} × ${o.slotL} mm slots. Clips push straight in and drop onto the slot bottoms; lift and pull firmly to take one off. PETG holds up best. Boards run 4.8 to 5.5 mm thick: measure yours with the fit test’s thickness gauge and set Thickness on the board’s tab to it, so hooks hang snug.`}
         />
       </Section>
+    </>
+  );
+}
+
+/**
+ * The options every kind has (lib/wall/registry.ts PlacedAttachment): lock keys over its hooks, a bolt, barbs on
+ * the end clips only, a label. Each shows only where it can apply.
+ */
+function CommonFields({ a, def, placed, ctx }: { a: PlacedAttachment; def: AttachmentDef<object>; placed: WallPlacement; ctx: MountCtx }) {
+  const set = (patch: Partial<PlacedAttachment>) => updateAttachment(a.id, patch);
+  const opts = def.sanitize(a.opts);
+  const face = def.labelFace?.(opts, placed.layout) ?? null;
+  const clips = placed.layout.mounts.filter((m) => m.kind === 'clip').length;
+  return (
+    <>
+      {canLock(placed.layout, ctx) && (
+        <Toggle
+          label="Lock keys"
+          checked={a.lock ?? LOCK_DEFAULT}
+          hint="A little key pushed into the slot over each hook, so it can't be lifted off by accident. Pull its tab to take it out."
+          onChange={(lock) => set({ lock })}
+        />
+      )}
+      {def.backPlate?.(opts, placed.layout) !== null && (
+        <Segmented
+          label="Bolt it on"
+          value={a.bolt ?? 'off'}
+          options={[
+            { value: 'off', label: 'Off' },
+            { value: 'm3', label: 'M3' },
+            { value: 'm4', label: 'M4' },
+          ]}
+          hint="For heavy things: a countersunk screw through its back and a slot into a printed T-nut behind the board."
+          onChange={(v) => set({ bolt: v === 'off' ? undefined : v })}
+        />
+      )}
+      {clips > 2 && (
+        <Segmented
+          label="Barbs"
+          value={a.barbs ?? 'all'}
+          options={[
+            { value: 'all', label: 'Every clip' },
+            { value: 'ends', label: 'Ends only', title: 'Easier to push on and pull off' },
+          ]}
+          onChange={(v) => set({ barbs: v === 'ends' ? 'ends' : undefined })}
+        />
+      )}
+      {face && <TextInput label="Label" value={a.label ?? ''} placeholder="Cut into its front" onChange={(label) => set({ label })} />}
     </>
   );
 }

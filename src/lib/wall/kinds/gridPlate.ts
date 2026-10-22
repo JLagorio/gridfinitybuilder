@@ -51,6 +51,8 @@ registerAttachment<GridPlateOptions>({
     const m = backMounts(w, h, ctx, { rows: 8 });
     return { w, h, depth: GRID_TOP + (o.ledge ? PLATE_LEDGE.out : 0), anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
+  // Receptacles all over its front: no bolts.
+  backPlate: () => null,
   summary: (o) => `Gridfinity wall plate ${o.cellsX} × ${o.cellsY}`,
   notes: (o) =>
     o.magnets ? [] : [o.ledge ? 'Without magnets only the bottom row stays on, standing on the ledge.' : 'Without magnets or a ledge the bins fall off.'],

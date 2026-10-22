@@ -2,10 +2,7 @@ import type { Manifold, Scope, Vec2, Wasm } from '../../geometry/kernel';
 import { boxAt } from '../../geometry/shapes';
 import { prismX } from '../mount';
 import type { AttachmentBuilder } from '../build';
-import { SHELF_BACK, type ShelfOptions } from './shelf';
-
-/** Gusset and side wall thickness, lip thickness, the fillet along the shelf's back edge, drain slot width and pitch; mm. */
-export const SHELF = { gusset: 3, side: 2.4, lip: 2, fillet: 4, slot: 3, slotPitch: 8, gussetEvery: 150 } as const;
+import { SHELF, SHELF_BACK, shelfRibs, type ShelfOptions } from './shelf';
 
 /**
  * A 45° triangle `size` on a side in the corner between a back plate (`back`
@@ -48,8 +45,7 @@ export const shelfBuilder: AttachmentBuilder<ShelfOptions> = {
       ];
       parts.push(prismX(w, s, side, 0, SHELF.side), prismX(w, s, side, W - SHELF.side, SHELF.side));
     } else parts.push(cornerGusset(w, s, B, T, big, 0, G), cornerGusset(w, s, B, T, big, W - G, G));
-    const n = Math.ceil(W / SHELF.gussetEvery) - 1;
-    for (let k = 1; k <= n; k++) ribs.push((W * k) / (n + 1));
+    ribs.push(...shelfRibs(W));
     for (const x of ribs) parts.push(cornerGusset(w, s, B, T, Math.min(big, 25), x - G / 2, G));
     let body = s.t(w.Manifold.union(parts));
     if (o.holes === 'slots') {

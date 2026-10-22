@@ -51,6 +51,11 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
       opts,
       ...(typeof r.name === 'string' && r.name.trim() ? { name: r.name.slice(0, 80) } : {}),
       ...(Number.isInteger(r.colour) && (r.colour as number) > 0 ? { colour: r.colour as number } : {}),
+      // The options every kind has (wall/registry.ts).
+      ...(typeof r.lock === 'boolean' ? { lock: r.lock } : {}),
+      ...(r.bolt === 'm3' || r.bolt === 'm4' ? { bolt: r.bolt } : {}),
+      ...(typeof r.label === 'string' && r.label.trim() ? { label: r.label.slice(0, 40) } : {}),
+      ...(r.barbs === 'ends' ? { barbs: 'ends' as const } : {}),
     });
   }
   return out;

@@ -12,7 +12,19 @@
  * - Stud: a plain peg in a slot lower down, so a heavy part can't tilt.
  * - Hook (parts printed on their side): a peg with a lip that drops behind the
  *   board below its slot, the classic pegboard hook; its profile lies on the
- *   bed, so it is strong and needs no support.
+ *   bed, so it is strong and needs no support. The lip's face narrows toward
+ *   the neck (0.6 mm clear at its foot, 0.2 mm at the neck): it drops on
+ *   easily and the part's weight pulls it snug instead of rattling. A hook
+ *   sits flush with the part's top, so the slot over its neck is open from the
+ *   front for a lock key.
+ * - Lock key (an extra part, plan.ts): a plug pushed into that slot over the
+ *   hook's neck, filling it to the slot's end, so the part can't be lifted off
+ *   (lifting is how a hook comes out). A flange on the board's face stops it,
+ *   a tab on top pulls it out, crush ribs hold it in.
+ * - Bolt (a common option, plan.ts): a countersunk screw through the part's
+ *   back and a free slot into a printed T-nut behind the board: a bar wider
+ *   than the slot with a hex nut pressed in, and a boss in the slot so it
+ *   can't turn as the screw tightens.
  *
  * Mounts sit on the slot lattice: columns two steps (40 mm on the standard spacing)
  * apart in the top row, studs two steps below. Units: wall coordinates of the
@@ -36,8 +48,18 @@ export const MOUNT = {
   clip: { height: 12, split: 1.8, barb: 2, gap: 0.3, lead: 0.2, tipIn: 0.3 },
   /** Stud: height (capped by the slot), clearance each side, depth into the slot (capped by the board). */
   stud: { height: 10, side: 0.3, depth: 3 },
-  /** Hook: clearance each side, neck height, lip drop and thickness, gap behind the board. */
-  hook: { side: 0.35, neck: 5, drop: 7, lip: 3, gap: 0.35 },
+  /**
+   * Hook: clearance each side, neck height, lip drop and thickness, gap behind the board (to the lip's back);
+   * the lip's face is `grip` off the board's back at the neck, opening to `lead` `ramp` mm further down.
+   */
+  hook: { side: 0.35, neck: 5, drop: 7, lip: 3, gap: 0.35, grip: 0.2, lead: 0.6, ramp: 2.5 },
+  /**
+   * Lock key: clearance over the hook's neck and under the slot's end, the flange's thickness and width and how far it
+   * covers the board above the slot, the pull tab, and how much the crush ribs press on the slot's sides.
+   */
+  key: { under: 0.3, over: 0.15, flange: 2.4, width: 10, above: 3, tab: 2, crush: 0.15 },
+  /** T-nut: how far its bar reaches past the slot each side, plastic between nut and board, the boss into the slot (clearance each side, depth). */
+  tnut: { side: 6, skin: 2.4, fit: 0.2, boss: 2.5 },
   /** Pegs sit this far above where the round end of the slot meets them. */
   seat: 0.05,
   /** Least plastic between a mount and the part's edge, mm. */
@@ -63,6 +85,50 @@ export const hookWidth = (ctx: MountCtx) => r3(ctx.slotW - 2 * MOUNT.hook.side);
 /** A hook's lip drop: what still lets neck and lip through the slot together. */
 export const hookDrop = (ctx: MountCtx) => r3(Math.max(2, Math.min(MOUNT.hook.drop, ctx.slotL - 2 * seatOf(ctx, hookWidth(ctx)) - MOUNT.hook.neck - 0.5)));
 export const hookReach = (ctx: MountCtx) => r3(ctx.t + MOUNT.hook.gap + MOUNT.hook.lip);
+
+/**
+ * A lock key over the hook at slot `at` (part frame): its shank fills the slot from just over the hook's neck
+ * (`y0`) to just under the slot's end (`y1`), `kw` wide, back to `z0`; its flange lies on the board's face,
+ * x0..x1 across, out to `zf`, from y0 up to `top`, with a pull tab out to `zt` at the top.
+ */
+export function lockKey(at: Vec2, ctx: MountCtx) {
+  const K = MOUNT.key;
+  const kw = hookWidth(ctx);
+  const neck = at[1] - ctx.slotL / 2 + seatOf(ctx, kw) + MOUNT.hook.neck;
+  return {
+    kw,
+    x0: r3(at[0] - K.width / 2),
+    x1: r3(at[0] + K.width / 2),
+    y0: r3(neck + K.under),
+    y1: r3(at[1] + ctx.slotL / 2 - seatOf(ctx, kw) - K.over),
+    top: r3(at[1] + ctx.slotL / 2 + K.above),
+    z0: -r3(Math.max(1, ctx.t - 0.4)),
+    zf: K.flange,
+    zt: K.flange + K.tab,
+  };
+}
+
+/** Bolts: clearance hole, countersunk head, hex nut across flats and thickness, mm. */
+export const BOLT = { m3: { hole: 3.4, head: 6.4, nut: 5.5, nutT: 2.4 }, m4: { hole: 4.5, head: 8.6, nut: 7, nutT: 3.2 } } as const;
+export type BoltSize = keyof typeof BOLT;
+
+/** How thick a part's back must be under a countersunk head: the cone and 0.8 mm. */
+export const boltSeat = (size: BoltSize) => r3((BOLT[size].head - BOLT[size].hole) / 2 + 0.8);
+
+/** A T-nut for `size`: its bar (`len` across the slot, `h` up, `t` thick) and the boss into the slot (bw × bh, bd deep). */
+export function tNut(size: BoltSize, ctx: MountCtx) {
+  const T = MOUNT.tnut;
+  const B = BOLT[size];
+  const bh = r3(Math.max(B.hole + 1, Math.min(9, ctx.slotL - ctx.slotW - 0.4)));
+  return {
+    len: r3(ctx.slotW + 2 * T.side),
+    h: r3(Math.max(B.nut + 4.5, bh + 2)),
+    t: r3(B.nutT + 0.2 + T.skin),
+    bw: r3(ctx.slotW - 2 * T.fit),
+    bh,
+    bd: r3(Math.max(0.6, Math.min(T.boss, ctx.t - 1))),
+  };
+}
 
 /** Where a mount is in the part's frame: the slot centre it uses. */
 export function siteAt(layout: Pick<AttachmentLayout, 'anchor'>, site: MountSite, ctx: Pick<MountCtx, 'pitch'>): Vec2 {
@@ -149,8 +215,8 @@ export function backMounts(
   // Parts printed on their side keep their mounts at the left, flush with the bed (a stud is a little wider than a hook); the others centre them.
   const stud0 = mountBox('stud', [0, 0], ctx);
   const x = o.left ? r3(Math.max(half, -stud0.x0)) : r3((w - (n - 1) * step) / 2);
-  // Highest the top row's slot centre can be: its peg ends below the part's top.
-  const y = r3(h - (o.top ?? MOUNT.margin) - box0.y1);
+  // Highest the top row's slot centre can be: its peg ends below the part's top; a hook's neck at it (a lock key goes in over it).
+  const y = r3(h - (o.top ?? (kind === 'hook' ? 0 : MOUNT.margin)) - box0.y1);
   const mounts: MountSite[] = [];
   for (let c = 0; c < n; c++) mounts.push({ di: 2 * c, dj: 0, kind });
   const rows = Math.max(1, o.rows ?? 2);
@@ -217,7 +283,7 @@ function underside(w: Wasm, s: Scope, x0: number, x1: number, y: number, reach: 
   );
 }
 
-function clipSolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx): Manifold {
+function clipSolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx, barbed = true): Manifold {
   const W = clipWidth(ctx);
   const H = clipHeight(ctx);
   const { split, barb, gap, lead, tipIn } = MOUNT.clip;
@@ -228,6 +294,11 @@ function clipSolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx): Manifold {
   const sp = Math.min(split, W - 2.4) / 2;
   const splitFrom = 0.6;
   const yb = at[1] - ctx.slotL / 2 + seatOf(ctx, W);
+  if (!barbed) {
+    // A plain peg through the slot, just past the board.
+    const peg = prismY(w, s, rect(at[0] - hw, -0.5, at[0] + hw, catchAt), yb, H);
+    return s.t(peg.subtract(underside(w, s, at[0] - hw, at[0] + hw, yb, catchAt)));
+  }
   // Its section across the slot (x) and back from the board's front (d): two legs joined at the root, each with a barb.
   const pts: Vec2[] = [
     [-hw, -0.5],
@@ -269,18 +340,23 @@ function studSolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx): Manifold {
 function hookSolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx): Manifold {
   const W = hookWidth(ctx);
   const yb = at[1] - ctx.slotL / 2 + seatOf(ctx, W);
-  const { neck, gap, lip } = MOUNT.hook;
+  const { neck, gap, lip, grip, lead, ramp } = MOUNT.hook;
   const drop = hookDrop(ctx);
-  const g = ctx.t + gap;
+  const t = ctx.t;
+  const back = t + gap + lip;
+  // The lip's face: snug at the neck, opening out further down (a lead-in as it drops behind the board), its foot chamfered.
+  const r = Math.min(ramp, drop - 0.8);
   return prismX(
     w,
     s,
     [
       [-0.5, yb],
-      [g, yb],
-      [g, yb - drop],
-      [g + lip, yb - drop],
-      [g + lip, yb + neck],
+      [t + grip, yb],
+      [t + lead, yb - r],
+      [t + lead, yb - drop + 0.4],
+      [t + lead + 0.4, yb - drop],
+      [back, yb - drop],
+      [back, yb + neck],
       [-0.5, yb + neck],
     ],
     at[0] - W / 2,
@@ -288,12 +364,123 @@ function hookSolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx): Manifold {
   );
 }
 
-/** The solids of a part's mounts, in its frame. */
-export function mountSolids(w: Wasm, s: Scope, layout: AttachmentLayout, ctx: MountCtx): Manifold[] {
+/** The solids of a part's mounts, in its frame. `barbs: 'ends'`: only the clips at the ends of the top row have barbs. */
+export function mountSolids(w: Wasm, s: Scope, layout: AttachmentLayout, ctx: MountCtx, barbs?: 'ends'): Manifold[] {
+  const clips = layout.mounts.filter((m) => m.kind === 'clip');
+  const top = Math.max(...clips.map((m) => m.dj));
+  const row = clips.filter((m) => m.dj === top).map((m) => m.di);
+  const barbed = (m: MountSite) => barbs !== 'ends' || (m.dj === top && (m.di === Math.min(...row) || m.di === Math.max(...row)));
   return layout.mounts.map((m) => {
     const at = siteAt(layout, m, ctx);
-    return m.kind === 'clip' ? clipSolid(w, s, at, ctx) : m.kind === 'stud' ? studSolid(w, s, at, ctx) : hookSolid(w, s, at, ctx);
+    return m.kind === 'clip' ? clipSolid(w, s, at, ctx, barbed(m)) : m.kind === 'stud' ? studSolid(w, s, at, ctx) : hookSolid(w, s, at, ctx);
   });
+}
+
+/** A circle as a polygon round (x, y). */
+const circle = (x: number, y: number, r: number, n = 40): Vec2[] =>
+  Array.from({ length: n }, (_, k) => [x + r * Math.cos((2 * Math.PI * k) / n), y + r * Math.sin((2 * Math.PI * k) / n)] as Vec2);
+
+/** A rectangle as a polygon, (x0, y0) to (x1, y1). */
+function rect(x0: number, y0: number, x1: number, y1: number): Vec2[] {
+  return [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+  ];
+}
+
+/** A lock key (lockKey) over the hook at `at`, in the part's frame, as it sits. */
+export function lockKeySolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx): Manifold {
+  const k = lockKey(at, ctx);
+  const hw = k.kw / 2;
+  const x = at[0];
+  const parts = [prismZ(w, s, rect(x - hw, k.y0, x + hw, k.y1), k.z0, 0.5), prismZ(w, s, rect(k.x0, k.y0, k.x1, k.top), 0, k.zf)];
+  // Crush ribs on its sides, up the straight part of the slot: 45° each way, so they lead in and print upright.
+  const ribTop = Math.min(k.y1, at[1] + ctx.slotL / 2 - ctx.slotW / 2 - 0.3);
+  const proud = (ctx.slotW - k.kw) / 2 - FIT[ctx.fit].side + MOUNT.key.crush;
+  for (const d of [1.2, -k.z0 - 1.2]) {
+    for (const sx of [-1, 1]) {
+      const e = x + sx * (hw - 0.1);
+      const tri: Vec2[] = [
+        [e, d - proud - 0.1],
+        [x + sx * (hw + proud), d],
+        [e, d + proud + 0.1],
+      ];
+      parts.push(prismY(w, s, tri, k.y0, ribTop - k.y0));
+    }
+  }
+  // The pull tab: a lip across the flange's top for a fingernail, its underside at 45°.
+  const tab = MOUNT.key.tab;
+  const lip: Vec2[] = [
+    [-(k.zf - 0.5), k.top - 2 * tab - 0.5],
+    [-k.zt, k.top - tab],
+    [-k.zt, k.top],
+    [-(k.zf - 0.5), k.top],
+  ];
+  parts.push(prismX(w, s, lip, k.x0, k.x1 - k.x0));
+  return s.t(w.Manifold.union(parts));
+}
+
+/**
+ * A T-nut (tNut) as printed: its back on the bed (z = 0) with the nut's hex pocket open there, the boss on top,
+ * centred on x = y = 0. Where it sits, its back is `ctx.t + t` behind the board's front.
+ */
+export function tNutSolid(w: Wasm, s: Scope, size: BoltSize, ctx: MountCtx): Manifold {
+  const n = tNut(size, ctx);
+  const B = BOLT[size];
+  const body = s.t(
+    w.Manifold.union([
+      prismZ(w, s, rect(-n.len / 2, -n.h / 2, n.len / 2, n.h / 2), 0, n.t),
+      prismZ(w, s, rect(-n.bw / 2, -n.bh / 2, n.bw / 2, n.bh / 2), n.t - 0.5, n.t + n.bd),
+    ]),
+  );
+  // The hex (flats left and right, so the bridge over it is short) and the screw's hole through.
+  const hex = circle(0, 0, (B.nut + 0.3) / 2 / Math.cos(Math.PI / 6), 6);
+  const holes = s.t(w.Manifold.union([prismZ(w, s, hex, -1, B.nutT + 0.2), prismZ(w, s, circle(0, 0, B.hole / 2), -1, n.t + n.bd + 1)]));
+  return s.t(body.subtract(holes));
+}
+
+/** A bolt as the part's geometry needs it (registry.ts BoltSite). */
+type Bolt = { x: number; y: number; size: BoltSize; seat: number };
+
+/**
+ * What a bolt takes out of a part (its frame): the clearance hole through its back, the countersink up to the
+ * seat, and a bore for the head and the screwdriver on out through anything in front (to `front`).
+ */
+export function boltCut(w: Wasm, s: Scope, b: Bolt, front: number): Manifold {
+  const B = BOLT[b.size];
+  const r = B.hole / 2;
+  const R = B.head / 2;
+  const at = (m: Manifold, z: number) => s.t(s.t(m).translate([b.x, b.y, z]));
+  return s.t(
+    w.Manifold.union([
+      at(w.Manifold.cylinder(b.seat + 2, r, r, 32), -1),
+      at(w.Manifold.cylinder(R - r + 0.01, r, R + 0.01, 48), b.seat - (R - r)),
+      at(w.Manifold.cylinder(Math.max(1, front - b.seat + 1), R + 0.3, R + 0.3, 48), b.seat),
+    ]),
+  );
+}
+
+/**
+ * A boss round a bolt from the part's back out to its seat, for a back thinner than the head needs. Its outline
+ * comes to a 45° point underneath as printed (`down`: the print's down in the part's front view), so it needs no support.
+ */
+export function boltBoss(w: Wasm, s: Scope, b: Bolt, down: 'y' | 'x'): Manifold {
+  const rb = BOLT[b.size].head / 2 + 1.6;
+  const pts: Vec2[] = [];
+  for (let k = 0; k <= 36; k++) {
+    const a = -Math.PI / 4 + (k / 36) * 1.5 * Math.PI;
+    pts.push([rb * Math.cos(a), rb * Math.sin(a)]);
+  }
+  pts.push([0, -rb * Math.SQRT2]);
+  return prismZ(
+    w,
+    s,
+    pts.map(([u, v]) => (down === 'y' ? [b.x + u, b.y + v] : [b.x + v, b.y - u]) as Vec2),
+    0,
+    b.seat,
+  );
 }
 
 /** Turn a part from its wall frame into its print pose (rotation only; the caller moves it to the origin). */

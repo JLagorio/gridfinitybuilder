@@ -71,6 +71,8 @@ registerAttachment<RodOptions>({
     const m = backMounts(g.w, h, ctx, { rows: 3 });
     return { w: g.w, h, depth: g.reach, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
+  // The strip between the arms (bolt it on before the roll goes on).
+  backPlate: (_o, l) => ({ x0: ROD.arm + 0.5, x1: l.w - ROD.arm - 0.5, y0: 0, y1: l.h, z: ROD.back }),
   summary: (o) => `Roll holder ${Math.round(o.width)} × ⌀${Math.round(o.diameter)}`,
   notes(o, ctx) {
     const g = rodGeometry(o);

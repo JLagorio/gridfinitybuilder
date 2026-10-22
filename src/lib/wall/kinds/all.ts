@@ -28,6 +28,7 @@ import './mediaBlock';
 import './spoolRack';
 import './boxSleeve';
 import './leadHanger';
+import './labelTag';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();

@@ -9,6 +9,7 @@ import { STANDARD_PROCESS, currencySymbol, formatDuration, formatMoney, plateCos
 import { coloursOn, slotLabel, slotPrice } from './colours';
 import { enclosurePartHardware, type EnclosurePartKind } from './enclosures';
 import { attachmentDef } from './wall';
+import { extrasHardware } from './wall/plan';
 import { printerSetup } from './layout/fleet';
 
 /**
@@ -149,7 +150,7 @@ function holesIn(split: MeshSpec | undefined): { item: string; count: number; no
   const spec = baseSpec(split);
   if (!spec) return [];
   if (spec.kind === 'enclosure') return enclosurePartHardware(spec.part);
-  if (spec.kind === 'attachment') return attachmentDef(spec.type)?.hardware?.(spec.opts) ?? [];
+  if (spec.kind === 'attachment') return [...(attachmentDef(spec.type)?.hardware?.(spec.opts) ?? []), ...extrasHardware(spec.extras)];
   if (spec.kind === 'piece') {
     const o = spec.opts;
     const out: HardwareLine[] = [...(spec.enclosure?.hardware ?? [])];

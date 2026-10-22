@@ -1,7 +1,7 @@
 import { boxAt } from '../../geometry/shapes';
 import { prismX } from '../mount';
 import type { AttachmentBuilder } from '../build';
-import { BIN_BACK, type BinOptions } from './bin';
+import { BIN_BACK, binFront, type BinOptions } from './bin';
 
 export const binBuilder: AttachmentBuilder<BinOptions> = {
   body(w, s, o, layout) {
@@ -9,7 +9,7 @@ export const binBuilder: AttachmentBuilder<BinOptions> = {
     const H = layout.h;
     const D = o.depth;
     const t = o.wall;
-    const frontH = Math.max(o.floor + 4, (H * o.front) / 100);
+    const frontH = binFront(o, H);
     let box = s.t(boxAt(w, 0, 0, 0, W, H, D));
     // Hollow: walls, floor and the thicker back.
     box = s.t(box.subtract(s.t(boxAt(w, t, o.floor, BIN_BACK, W - t, H + 1, D - t))));

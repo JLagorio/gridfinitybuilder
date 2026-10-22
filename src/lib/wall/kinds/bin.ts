@@ -24,6 +24,9 @@ export const BIN_DEFAULTS: BinOptions = { width: 80, height: 60, depth: 50, fron
 /** Back wall thickness: room for the clips' roots. */
 export const BIN_BACK = 2.4;
 
+/** The front wall's height on a bin `h` tall (the sides slope down to it). */
+export const binFront = (o: BinOptions, h: number) => Math.max(o.floor + 4, (h * o.front) / 100);
+
 registerAttachment<BinOptions>({
   type: 'bin',
   defaults: BIN_DEFAULTS,
@@ -48,4 +51,23 @@ registerAttachment<BinOptions>({
   },
   summary: (o) => `Bin ${Math.round(o.width)} × ${Math.round(o.depth)} × ${Math.round(o.height)}${o.dividers ? `, ${o.dividers + 1} sections` : ''}`,
   notes: (o) => (o.width / (o.dividers + 1) < 8 ? ['Sections under 8 mm wide are hard to reach into.'] : []),
+  labelFace(o, l) {
+    const fh = binFront(o, l.h);
+    // The label ledge's front, or the front wall (not too deep for a thin one).
+    if (o.label) {
+      const y0 = Math.max(0, fh - 12);
+      return { x: 2, y: y0 + 2.5, w: l.w - 4, h: fh - y0 - 3, z: o.depth + 2, normal: 'front' };
+    }
+    return fh >= 7 && o.wall >= 1.2
+      ? { x: o.wall + 1, y: 1, w: l.w - 2 * o.wall - 2, h: fh - 2, z: o.depth, normal: 'front', depth: Math.min(0.6, o.wall / 2) }
+      : null;
+  },
+  backPlate(o, l) {
+    // Above the front wall (a screwdriver reaches in over it), between the sides and the dividers.
+    const y0 = binFront(o, l.h) + 1;
+    const t = o.wall;
+    const cuts = Array.from({ length: o.dividers }, (_, k) => t + ((l.w - 2 * t) * (k + 1)) / (o.dividers + 1));
+    const xs = [t, ...cuts.flatMap((x) => [x - t / 2, x + t / 2]), l.w - t];
+    return Array.from({ length: xs.length / 2 }, (_, k) => ({ x0: xs[2 * k], x1: xs[2 * k + 1], y0, y1: l.h, z: BIN_BACK }));
+  },
 });

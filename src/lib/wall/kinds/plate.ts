@@ -69,6 +69,8 @@ registerAttachment<PlateOptions>({
     o.ties && (!tiePairs(o.width) || tieRow(plateLayout(o, ctx), ctx) === null)
       ? ['Too small for zip-tie slots: they need about 26 × 35 mm below the clips.']
       : [],
+  labelFace: (o, l) => (o.tape ? null : { x: 3, y: 1.5, w: l.w - 6, h: Math.min(8, l.h / 4), z: o.thick, normal: 'front' }),
+  backPlate: (o, l) => ({ x0: 0, x1: l.w, y0: 0, y1: l.h, z: o.thick }),
   hardware(o) {
     const out: AttachmentHardware[] = [];
     const g = screwGrid(o, o.height);

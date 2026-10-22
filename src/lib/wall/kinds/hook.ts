@@ -61,4 +61,11 @@ registerAttachment<HookOptions>({
     return { w, h, depth: Math.max(HOOK_PLATE, o.reach), anchor: m.anchor, mounts: m.mounts, pose: 'side' };
   },
   summary: (o) => `${o.style === 'double' ? 'Double' : o.style.toUpperCase()} hook ${Math.round(o.reach)} mm`,
+  backPlate(o, l) {
+    const P = HOOK_PLATE;
+    const R = Math.max(o.reach, P + o.arm);
+    const rise = (R - P) * Math.tan((o.angle * Math.PI) / 180);
+    const top = o.style === 'l' || o.style === 'peg' ? rise + 1.6 * o.arm : (o.style === 'double' ? o.spacing : 0) + o.arm + o.tip;
+    return { x0: 0, x1: l.w, y0: top + 1, y1: l.h, z: P };
+  },
 });

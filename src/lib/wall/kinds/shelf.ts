@@ -29,6 +29,15 @@ export const SHELF_DEFAULTS: ShelfOptions = { width: 160, depth: 100, height: 60
 /** Back plate thickness, mm. */
 export const SHELF_BACK = 3;
 
+/** Gusset and side wall thickness, lip thickness, the fillet along the shelf's back edge, drain slot width and pitch; mm. */
+export const SHELF = { gusset: 3, side: 2.4, lip: 2, fillet: 4, slot: 3, slotPitch: 8, gussetEvery: 150 } as const;
+
+/** Where the gussets between the ends stand on a shelf `w` wide (their middles), one every 150 mm or so. */
+export function shelfRibs(w: number): number[] {
+  const n = Math.max(0, Math.ceil(w / SHELF.gussetEvery) - 1);
+  return Array.from({ length: n }, (_, k) => (w * (k + 1)) / (n + 1));
+}
+
 /** A part that reaches out more than three times as far as its back is tall pries its clips out under load. */
 export const leverNotes = (depth: number, h: number) =>
   depth > 3 * h ? [`It reaches out over three times as far as its back is tall: a heavy load may pull the clips out. Make the back taller.`] : [];
@@ -58,4 +67,23 @@ registerAttachment<ShelfOptions>({
   },
   summary: (o) => `Shelf ${Math.round(o.width)} × ${Math.round(o.depth)}`,
   notes: (o, ctx) => leverNotes(o.depth, shelfHeight(o, ctx)),
+  labelFace(o, l) {
+    // The lip's front.
+    const h = o.floor + o.lip;
+    const x = (o.sides ? SHELF.side : 0) + 1;
+    return h >= 5 ? { x, y: 0.6, w: l.w - 2 * x, h: h - 1.2, z: o.depth, normal: 'front' } : null;
+  },
+  backPlate(o, l) {
+    // Above the fillet along the shelf and the lip (a screwdriver reaches in over it), between the ends and the gussets.
+    const end = (o.sides ? SHELF.side : SHELF.gusset) + 0.5;
+    const g = SHELF.gusset / 2 + 0.5;
+    const xs = [end, ...shelfRibs(l.w).flatMap((x) => [x - g, x + g]), l.w - end];
+    return Array.from({ length: xs.length / 2 }, (_, k) => ({
+      x0: xs[2 * k],
+      x1: xs[2 * k + 1],
+      y0: o.floor + Math.max(SHELF.fillet, o.lip) + 0.5,
+      y1: l.h,
+      z: SHELF_BACK,
+    }));
+  },
 });
