@@ -646,8 +646,8 @@ describe('on a 560 × 560 board', () => {
     const wall = job.drawers[0].enclosure!.wall!;
     expect(wall.placed.every((p) => p.ok)).toBe(true);
     const parts = Object.values(job.parts).filter((p) => p.kind === 'attachment');
-    // The cleat's hanger prints too.
-    expect(parts).toHaveLength(list.length + 1);
+    // The cleat's hanger prints too, and a lock key for each part with hooks.
+    expect(parts.filter((p) => !p.name.startsWith('Lock key'))).toHaveLength(list.length + 1);
     const onPlates = new Set(job.plates.flatMap((p) => p.placements.map((q) => q.key)));
     for (const p of parts) expect(onPlates.has(p.key), p.key).toBe(true);
   });

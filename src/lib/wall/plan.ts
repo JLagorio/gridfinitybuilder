@@ -89,8 +89,8 @@ export interface WallPlacement {
 // Common options: lock keys, bolts, labels, barbs
 // ---------------------------------------------------------------------------
 
-/** Whether parts with hooks get lock keys when their `lock` is unset. */
-export const LOCK_DEFAULT = false;
+/** Whether parts with hooks get lock keys when their `lock` is unset: yes, parts popping off is the most common complaint about printed pegboard parts. */
+export const LOCK_DEFAULT = true;
 
 /** Whether a part takes lock keys: it has hooks, each flush with its top (so the slot over the neck is open) with room over it for a key. */
 export function canLock(layout: AttachmentLayout, ctx: MountCtx): boolean {

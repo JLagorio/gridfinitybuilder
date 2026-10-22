@@ -244,8 +244,8 @@ describe('lock keys', () => {
     }
   });
 
-  it('are an option of parts with hooks, off unless asked for, in the parts list and the 3D view', () => {
-    const job = plan([att('h', 'hook', 100, 300, {}, { lock: true }), att('c', 'cableClip', 200, 300), att('b', 'bin', 300, 300, {}, { lock: true })]);
+  it('are an option of parts with hooks, on unless turned off, in the parts list and the 3D view', () => {
+    const job = plan([att('h', 'hook', 100, 300), att('c', 'cableClip', 200, 300, {}, { lock: false }), att('b', 'bin', 300, 300, {}, { lock: true })]);
     expect(job.warnings).toEqual([]);
     const parts = Object.values(job.parts).filter((p) => p.kind === 'attachment');
     expect(parts.filter((p) => p.name.startsWith('Lock key')).map((p) => p.attachment)).toEqual(['h']);

@@ -364,7 +364,8 @@ describe('Gridfinity on a board', () => {
     ]);
     // Each prints, on the board's plates.
     const atts = Object.values(job.parts).filter((p) => p.kind === 'attachment');
-    expect(atts).toHaveLength(list.length);
+    // (and a lock key for each part with hooks)
+    expect(atts.filter((p) => !p.name.startsWith('Lock key'))).toHaveLength(list.length);
     const onPlates = new Set(job.plates.flatMap((p) => p.placements.map((q) => q.key)));
     for (const p of atts) expect(onPlates.has(p.key)).toBe(true);
   });

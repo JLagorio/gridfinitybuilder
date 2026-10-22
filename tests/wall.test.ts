@@ -184,7 +184,8 @@ describe('on a board', () => {
       return out;
     };
     const tiles = job.plan.pieces.map((p) => place(buildMesh(w, job.meshes[job.parts[`piece:${p.id}`].meshKey]), enc.pieceAt[p.id], enc.pieceTurn as Vec3));
-    for (const it of enc.items.filter((i) => i.role === 'attachment')) {
+    // (Lock keys press into their slots on purpose: tests/wall-mounts.test.ts checks their fit.)
+    for (const it of enc.items.filter((i) => i.role === 'attachment' && !i.id.includes('-lock'))) {
       const a = place(buildMesh(w, job.meshes[it.meshKey]), [it.x, it.y, it.z], it.turn as Vec3);
       for (const t of tiles) {
         // Its back lies on the board's front: float32 positions leave a film of a few thousandths of a mm³ there.
@@ -208,7 +209,8 @@ describe('on a board', () => {
 
   it('just attachments: the board you have is not printed', () => {
     const job = plan(board([att('h', 'hook', 200, 150)], {}, { haveBaseplate: true }));
-    expect(Object.values(job.parts).filter((p) => p.kind === 'attachment')).toHaveLength(1);
+    // The hook and its lock key.
+    expect(Object.values(job.parts).filter((p) => p.kind === 'attachment')).toHaveLength(2);
     expect(job.plates.every((p) => p.placements.every((q) => job.parts[q.key].kind === 'attachment'))).toBe(true);
   });
 

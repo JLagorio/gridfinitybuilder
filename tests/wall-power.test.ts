@@ -347,8 +347,8 @@ describe('on a 560 × 560 board', () => {
     const wall = job.drawers[0].enclosure!.wall!;
     expect(wall.placed.map((p) => p.ok)).toEqual(atts.map(() => true));
     const parts = Object.values(job.parts).filter((p) => p.kind === 'attachment');
-    // Five attachments, the diffuser and the lid.
-    expect(parts).toHaveLength(7);
+    // Five attachments, the diffuser and the lid (and the cable clip's lock key).
+    expect(parts.filter((p) => !p.name.startsWith('Lock key'))).toHaveLength(7);
     expect(parts.map((p) => p.name).join()).toMatch(/Diffuser \(clear or white PETG\)/);
     const onPlates = new Set(job.plates.flatMap((p) => p.placements.map((q) => q.key)));
     for (const p of parts) expect(onPlates.has(p.key)).toBe(true);
