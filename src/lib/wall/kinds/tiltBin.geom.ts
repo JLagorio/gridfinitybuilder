@@ -37,9 +37,9 @@ export function stopInBin(o: TiltBinOptions, deg: number): Vec2 {
 }
 
 /** A hull of discs along x, x0..x1 (an arc slot from its pieces). */
-function stadiumX(w: Wasm, s: Scope, a: Vec2, b: Vec2, r: number, x0: number, x1: number): Manifold {
+function stadiumX(w: Wasm, s: Scope, a: Vec2, b: Vec2, r: number, x0: number, x1: number, ...more: Vec2[]): Manifold {
   const pts: [number, number, number][] = [];
-  for (const [z, y] of [a, b])
+  for (const [z, y] of [a, b, ...more])
     for (let k = 0; k < 32; k++) for (const x of [x0, x1]) pts.push([x, y + r * Math.sin((2 * Math.PI * k) / 32), z + r * Math.cos((2 * Math.PI * k) / 32)]);
   return s.t(w.Manifold.hull(pts));
 }
@@ -150,6 +150,12 @@ function tiltBinSolid(w: Wasm, s: Scope, o: TiltBinOptions): Manifold {
     if (o.liftOff) {
       const [zs, ys] = p.stop;
       holes.push(s.t(boxAt(w, u0, yP - a - 1, zP + zs - p.slot, u1, yP + ys, zP + zs + p.slot)));
+      // Where the arc slot leaves the slot down, the wall between them comes to a knife edge: off with it, as far as
+      // it's thinner than 1 mm (the slots part at the angle the arc starts at, as far from the pivot as the stop pin).
+      const half = Math.atan2(ys, -zs) / 2;
+      const run = (1 + 2 * p.slot) / 2 / Math.sin(half);
+      const [za, ya] = stopInBin(o, Math.min(o.angle, (run / p.rho) * (180 / Math.PI)));
+      holes.push(stadiumX(w, s, [zP + zs, yP + ys], [zP + zs, yP + ys - run], p.slot, u0, u1, [zP + za, yP + ya]));
     }
   }
   return s.t(s.t(w.Manifold.union(add)).subtract(s.t(w.Manifold.union(holes))));

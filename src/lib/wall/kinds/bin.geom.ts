@@ -13,14 +13,16 @@ export const binBuilder: AttachmentBuilder<BinOptions> = {
     let box = s.t(boxAt(w, 0, 0, 0, W, H, D));
     // Hollow: walls, floor and the thicker back.
     box = s.t(box.subtract(s.t(boxAt(w, t, o.floor, BIN_BACK, W - t, H + 1, D - t))));
-    // Sides slope from the back's height down to the front's.
+    // Sides slope from the back's height down to the front's, at the front wall's inside face: the front's top is
+    // flat (sloped across it, its top would taper to an edge too thin to print).
     if (frontH < H - 0.01) {
       const slope = prismX(
         w,
         s,
         [
           [-BIN_BACK, H],
-          [-D - 1, frontH - ((H - frontH) / (D - BIN_BACK)) * 1],
+          [-(D - t), frontH],
+          [-D - 1, frontH],
           [-D - 1, H + 1],
           [-BIN_BACK, H + 1],
         ],

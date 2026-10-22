@@ -13,7 +13,9 @@
  * layers, the default printer's bed) and records its warnings and `--info`
  * (manifold, repairs, parts). Vase-mode bins are sliced in spiral vase mode
  * with the bottom layers and wall line they are drawn for, and their G-code is
- * read back to check that it is one continuous spiral (scripts/gcode-spiral.ts). --only keeps groups or parts whose path contains
+ * read back to check that it is one continuous spiral (scripts/gcode-spiral.ts). Boards and wall attachments
+ * (scripts/sampler-boards.ts) are sampled the same way, and faces hanging past 45° are listed for a look
+ * (scripts/sampler-steep.ts). --only keeps groups or parts whose path contains
  * the text. Results go to report.json and report.md in outDir (see
  * docs/print-check.md); findings listed in KNOWN_FINDINGS are marked as by
  * design. `--report <report.json>` only writes report.md again from a run.
@@ -30,7 +32,10 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { buildMesh } from '../src/lib/project';
+import { buildMesh, setWallBuilders, type PrintJob } from '../src/lib/project';
+import * as wallBuild from '../src/lib/wall/build';
+import { setGridBoardBuilders } from '../src/lib/gridBoards';
+import * as gridBuild from '../src/lib/geometry/gridBoardBuild';
 import { exportPlate3MF } from '../src/lib/export/threemf';
 import { meshBodySlots, plateChanges } from '../src/lib/export/colourExport';
 import { LAYERS, layerTop, paletteOf, strategyOf } from '../src/lib/colours';
@@ -40,7 +45,9 @@ import { FONT_URL_PATH, registerFont } from '../src/lib/geometry/text';
 import { writeSTL } from '../src/lib/export/stl';
 import { usableBed } from '../src/lib/bedfit';
 import { KNOWN_FINDINGS, SAMPLE_GROUPS, SAMPLE_SETUP, printedParts } from './sampler-cases';
+import { setSamplerWasm } from './sampler-boards';
 import { spiralReport, type SpiralReport } from './gcode-spiral';
+import { steepFaces, type SteepRegion } from './sampler-steep';
 import { vaseBottomLayers, type SpiralPrint } from '../src/lib/geometry/containers/vase';
 
 const args = process.argv.slice(2);
@@ -60,6 +67,10 @@ const wasm = await Module();
 const fontBytes = readFileSync(resolve('public', FONT_URL_PATH));
 registerFont(fontBytes.buffer.slice(fontBytes.byteOffset, fontBytes.byteOffset + fontBytes.byteLength));
 wasm.setup();
+// Attachments' and grid boards' builders, as the geometry worker hands them to buildMesh; an imported model's sample needs the kernel to plan.
+setWallBuilders(wallBuild);
+setGridBoardBuilders(gridBuild);
+setSamplerWasm(wasm);
 
 interface SlicerResult {
   ok: boolean;
@@ -95,6 +106,8 @@ interface PartRecord {
   slicer?: SlicerResult;
   /** Vase-mode bins: how they print (sliced in spiral vase mode). */
   spiral?: SpiralPrint;
+  /** Faces hanging past 45° (sampler-steep.ts), for a look. */
+  steep?: SteepRegion[];
 }
 
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
@@ -117,14 +130,17 @@ interface ColourPlateRecord {
 const bed = usableBed(SAMPLE_SETUP);
 const records: PartRecord[] = [];
 const colourPlates: ColourPlateRecord[] = [];
+/** Attachments put together as the drawer view shows them (assemble): how many, and pieces of one that run into each other. */
+const assembled = { checked: 0, overlaps: [] as { file: string; a: string; b: string; volume: number }[] };
 const warnings: Record<string, string[]> = {};
 const t0 = performance.now();
 mkdirSync(outDir, { recursive: true });
 if (fromReport) {
   if (!existsSync(fromReport)) throw new Error(`No report at ${fromReport}`);
-  const saved = JSON.parse(readFileSync(fromReport, 'utf8')) as { warnings: typeof warnings; parts: PartRecord[] };
+  const saved = JSON.parse(readFileSync(fromReport, 'utf8')) as { warnings: typeof warnings; parts: PartRecord[]; assembled?: typeof assembled };
   records.push(...saved.parts);
   Object.assign(warnings, saved.warnings);
+  if (saved.assembled) Object.assign(assembled, saved.assembled);
 }
 
 for (const group of fromReport ? [] : SAMPLE_GROUPS) {
@@ -132,6 +148,8 @@ for (const group of fromReport ? [] : SAMPLE_GROUPS) {
   const job = group.job();
   if (job.warnings.length) warnings[group.name] = job.warnings;
   const dir = join(outDir, group.name);
+  // Attachments' meshes, to put each together after (assemble).
+  const built = new Map<string, MeshData>();
   for (const { part, file, same } of printedParts(group, job)) {
     if (only && !file.includes(only)) continue;
     const rec: PartRecord = { group: group.name, file, part: part.key, name: part.name, kind: part.kind, same, size: [], triangles: 0, volume: 0, overlayBodies: 0, ms: 0, issues: [] };
@@ -158,11 +176,15 @@ for (const group of fromReport ? [] : SAMPLE_GROUPS) {
     rec.overlayBodies = (mesh.overlays ?? []).reduce((n, o) => n + meshTopology(o).components.length, 0);
     rec.contact = check.slices?.contact;
     rec.issues = check.issues;
+    const faces = steepFaces(mesh);
+    if (faces.length) rec.steep = faces;
+    if (part.kind === 'attachment') built.set(part.meshKey, mesh);
     rec.ms = Math.round(performance.now() - t);
     const errors = check.issues.filter((i) => i.severity === 'error').length;
     const warns = check.issues.length - errors;
     console.log(`${errors ? '✗' : warns ? '~' : '✓'} ${file} ${rec.size.join('×')} ${rec.ms} ms${check.issues.length ? `: ${check.issues.map((i) => i.message).join(' | ')}` : ''}`);
   }
+  if (built.size) assemble(job, group.name, built);
   // Multi-colour groups: every plate as a 3MF in its colours.
   if (group.setup && strategyOf(group.setup) && (!only || group.name.includes(only))) {
     const cache = new Map<string, MeshData>();
@@ -196,6 +218,43 @@ for (const group of fromReport ? [] : SAMPLE_GROUPS) {
     });
   }
 }
+/**
+ * Each attachment put together as the drawer view shows it (wall/parts.ts: its body, its extra parts where they sit,
+ * its lock keys and T-nuts): no two of its pieces may share more than 0.05 mm³. Only where all its meshes were built.
+ */
+function assemble(job: PrintJob, group: string, built: Map<string, MeshData>): void {
+  for (const d of job.drawers) {
+    const items = (d.enclosure?.items ?? []).filter((it) => it.role === 'attachment');
+    for (const pick of new Set(items.map((it) => it.pick))) {
+      const mine = items.filter((it) => it.pick === pick);
+      if (mine.length < 2 || mine.some((it) => !built.has(it.meshKey))) continue;
+      const solids = mine.map((it) => {
+        const mesh = built.get(it.meshKey)!;
+        const m = wasm.Manifold.ofMesh(new wasm.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
+        const r = it.turn ? m.rotate(it.turn) : m;
+        const b = r.boundingBox();
+        const out = r.translate([it.x - b.min[0], it.y - b.min[1], it.z - b.min[2]]);
+        if (r !== m) r.delete();
+        m.delete();
+        return { id: it.id, m: out };
+      });
+      assembled.checked++;
+      for (let i = 0; i < solids.length; i++)
+        for (let j = i + 1; j < solids.length; j++) {
+          const both = solids[i].m.intersect(solids[j].m);
+          const volume = both.volume();
+          both.delete();
+          if (volume > 0.05) {
+            const file = `${group}/${d.id}`;
+            assembled.overlaps.push({ file, a: solids[i].id, b: solids[j].id, volume: r2(volume) });
+            console.log(`✗ ${file}: ${solids[i].id} and ${solids[j].id} share ${r2(volume)} mm³ where they sit`);
+          }
+        }
+      for (const x of solids) x.m.delete();
+    }
+  }
+}
+
 if (!fromReport) console.log(`Built and checked ${records.length} parts in ${Math.round((performance.now() - t0) / 1000)} s.`);
 
 // ---------------------------------------------------------------------------
@@ -367,7 +426,7 @@ if (slice && !fromReport) {
 // Report
 // ---------------------------------------------------------------------------
 
-if (!fromReport) writeFileSync(join(outDir, 'report.json'), JSON.stringify({ setup: SAMPLE_SETUP, bed, warnings, parts: records, colourPlates }, null, 1));
+if (!fromReport) writeFileSync(join(outDir, 'report.json'), JSON.stringify({ setup: SAMPLE_SETUP, bed, warnings, parts: records, colourPlates, assembled }, null, 1));
 const sliced = records.some((r) => r.slicer);
 
 /** Why a finding is there by design (KNOWN_FINDINGS), or null. `what` is the issue kind or the slicer finding. */
@@ -408,6 +467,8 @@ const slicerNotes = records.filter((r) => slicerFindings(r).length);
 md.push(`- ${errored.length} with errors, ${warned.length} with warnings only`);
 md.push(`- ${unexplained.length} with findings not marked as by design`);
 if (sliced) md.push(`- ${slicerNotes.length} with PrusaSlicer findings; ${records.filter((r) => Number(r.slicer?.info.degenerate_facets) > 0).length} had zero-area facets it removed`);
+md.push(`- ${records.filter((r) => r.steep?.length).length} with faces past 45° (listed for a look, not findings)`);
+if (assembled.checked) md.push(`- ${assembled.checked} attachments with extra parts put together: ${assembled.overlaps.length} pairs of pieces run into each other`);
 md.push('');
 for (const [title, list] of [
   ['Errors', errored],
@@ -420,6 +481,11 @@ for (const [title, list] of [
     if (r.error) md.push(`  - build failed: ${r.error}`);
     for (const i of r.issues) md.push(`  - ${note(r, i.kind, `${i.severity} ${i.kind}: ${i.message}`)}`);
   }
+  md.push('');
+}
+if (assembled.overlaps.length) {
+  md.push('## Assembled', '', 'Pieces of an attachment that run into each other where they sit (its body, extra parts, lock keys, T-nuts).', '');
+  for (const o of assembled.overlaps) md.push(`- \`${o.file}\`: ${o.a} and ${o.b} share ${o.volume} mm³`);
   md.push('');
 }
 if (slicerNotes.length) {
@@ -446,6 +512,20 @@ if (colourPlates.length) {
   }
   md.push('');
 }
+const steep = records.filter((r) => r.steep?.length);
+if (steep.length) {
+  md.push(
+    '## Faces past 45°',
+    '',
+    'Faces hanging between 45° and flat, off the first layer (scripts/sampler-steep.ts): the layer checks only see flat ledges. For a look, not counted as findings; round holes and pegs lying down show here and print without support up to about 10 mm across.',
+    '',
+  );
+  for (const r of steep) {
+    md.push(`- \`${r.file}\``);
+    for (const g of r.steep!) md.push(`  - ${note(r, 'steep', `${g.area} mm² up to ${g.angle}° at z ${g.z.join('–')} (x ${g.min[0]}–${g.max[0]}, y ${g.min[1]}–${g.max[1]})`)}`);
+  }
+  md.push('');
+}
 const vases = records.filter((r) => r.slicer?.spiral);
 if (vases.length) {
   md.push('## Spiral vase', '', 'Vase-mode bins sliced in spiral vase mode, their G-code read back.', '');
@@ -467,4 +547,4 @@ console.log(
     `${unexplained.length} not marked as by design. Report: ${join(outDir, 'report.md')}`,
 );
 // Errors (not warnings, not slicer findings) fail the run.
-if (errored.length) process.exitCode = 1;
+if (errored.length || assembled.overlaps.length) process.exitCode = 1;

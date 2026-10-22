@@ -2,8 +2,10 @@
 
 A hardening pass on the printed geometry: every kind of part Gridfit makes was
 built through the app's own code, checked for things that print badly, and
-sliced with PrusaSlicer. This page says what is checked, how to run it again,
-what it found and fixed, and what is left.
+sliced with PrusaSlicer. Boards (Skådis, openGrid, Multiboard) and wall
+attachments went through the same pass later ("Boards and attachments" below).
+This page says what is checked, how to run it again, what it found and fixed,
+and what is left.
 
 ## What is checked
 
@@ -62,6 +64,26 @@ once PrusaSlicer inset it by half a line (every layer two loops and a travel,
 no spiral, one section printed); at 1.75 lines it stayed one loop with either
 perimeter generator. The slits stop 2 lines short.
 
+### Faces past 45°
+
+The overhang check works layer by layer: a face sloping between 45° and flat
+puts down only a fraction of a millimetre past the layer below, so it isn't
+seen until it is nearly flat (and a flat one is a ledge or a bridge, which it
+does see). `scripts/sampler-steep.ts` looks at the mesh itself: triangles
+facing down more than 50° from upright and less than 85°, off the first
+layer, joined where they share corners; regions of 4 mm² or more that rise at
+least 0.6 mm are listed in `report.md` ("Faces past 45°") with their area,
+steepest face and place. They are for a look, not findings: the tops of round
+holes and the undersides of round pegs lying down show here, and print
+without support up to about 10 mm across.
+
+### Assembled attachments
+
+Each attachment is put together as the drawer view shows it (`wall/parts.ts`:
+its body, its extra parts where they sit, its lock keys and T-nuts, turned and
+placed by the job's scene items) and no two of its pieces may share more than
+0.05 mm³. An overlap fails the run like an error (`report.md`: "Assembled").
+
 ## Running it
 
 ```bash
@@ -82,12 +104,15 @@ run fails when a part has an error.
 
 The tests run the checks on synthetic shapes and on a representative part of
 each family (`tests/printcheck.test.ts`, about 15 seconds), and hold every fix
-below (`tests/print-fixes.test.ts`).
+below (`tests/print-fixes.test.ts`; the boards' and attachments' in
+`tests/wall-print.test.ts`, which also checks that the sampler samples every
+attachment kind, each of its presets and every extra part).
 
 ## What the sampler covers
 
 `scripts/sampler-cases.ts`, 279 parts in 16 groups, each planned like a real
-job (`planPrint`, `planTestFit`) and built with `buildMesh`:
+job (`planPrint`, `planTestFit`) and built with `buildMesh` (boards and
+attachments, 17 groups more: "Boards and attachments" below):
 
 - **containers:** drawer units (notch, tab, knob and grip pulls, stops, labels
   raised and engraved, flat / lip / grid tops, row sizes, compartments) with
