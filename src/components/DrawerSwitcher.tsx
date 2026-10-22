@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { allDrawers, useStore } from '../state/store';
 import { BoardTemplatesDialog } from './boardTemplatesLazy';
+import { GRID_BOARD_NAMES, isGridBoard, type GridBoardKind } from '../lib/gridBoards';
 
 /** Top-bar drawer picker: switch, add, duplicate, rename, delete. */
 export function DrawerSwitcher() {
@@ -15,6 +16,8 @@ export function DrawerSwitcher() {
   // The active drawer's live settings are at the top level of the store.
   const activeHave = useStore((s) => !!s.drawer.haveBaseplate);
   const activeBoard = useStore((s) => s.drawer.enclosure === 'skadis');
+  const activeEnclosure = useStore((s) => s.drawer.enclosure);
+  const setDrawer = useStore((s) => s.setDrawer);
   const [open, setOpen] = useState(false);
   // The starter-board picker (BoardTemplates.tsx), open after the menu closes.
   const [templates, setTemplates] = useState(false);
@@ -58,7 +61,9 @@ export function DrawerSwitcher() {
                 >
                   <span>{d.name}</span>
                   <small>
-                    {(d.id === activeId ? activeBoard : d.drawer.enclosure === 'skadis') ? (
+                    {isGridBoard(d.id === activeId ? activeEnclosure : d.drawer.enclosure) ? (
+                      GRID_BOARD_NAMES[(d.id === activeId ? activeEnclosure : d.drawer.enclosure) as GridBoardKind]
+                    ) : (d.id === activeId ? activeBoard : d.drawer.enclosure === 'skadis') ? (
                       'Skådis board'
                     ) : (
                       <>
@@ -113,6 +118,26 @@ export function DrawerSwitcher() {
             >
               New: board from a template…
             </button>
+            {/* Boards for openGrid's and Multiboard's own accessories, split to the bed (lib/gridBoards.ts). */}
+            {(
+              [
+                ['opengrid', 'An openGrid board (28 mm squares), split into tiles that fit your printer'],
+                ['multiboard', 'A Multiboard-compatible board (25 mm grid), split into tiles that fit your printer'],
+              ] as const
+            ).map(([kind, title]) => (
+              <button
+                key={kind}
+                title={title}
+                onClick={() => {
+                  addDrawer(GRID_BOARD_NAMES[kind]);
+                  setDrawer({ enclosure: kind, [kind]: {} });
+                  setUI({ tab: 'drawer' });
+                  setOpen(false);
+                }}
+              >
+                New: {GRID_BOARD_NAMES[kind]}
+              </button>
+            ))}
             <button
               onClick={() => {
                 duplicateDrawer(activeId);
