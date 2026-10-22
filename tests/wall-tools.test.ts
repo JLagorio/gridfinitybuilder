@@ -16,8 +16,7 @@ import { SHELF_DEFAULTS } from '../src/lib/wall/kinds/shelf';
 import { ROD, rodGeometry, ROD_DEFAULTS } from '../src/lib/wall/kinds/rod';
 import { TOOL, TOOL_RACK_DEFAULTS, parseSizes, toolLayout, type ToolRackOptions } from '../src/lib/wall/kinds/toolRack';
 import { CRADLE, cradlePocket } from '../src/lib/wall/kinds/cradle';
-import { PLATE_SCREWS, tieRow } from '../src/lib/wall/kinds/plate';
-import { PLATE } from '../src/lib/wall/kinds/plate.geom';
+import { PLATE, PLATE_SCREWS, tieRow } from '../src/lib/wall/kinds/plate';
 
 let w: Wasm;
 beforeAll(async () => {

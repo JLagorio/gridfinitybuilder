@@ -76,6 +76,12 @@ const MORE: Record<string, object[]> = {
     { columns: 1, height: 100 },
   ],
   cleatStrip: [{ angle: 30, size: 12 }],
+  plate: [
+    { ties: true, magnets: true, tape: true },
+    { pattern: 'pi', width: 80, height: 70, thick: 4, magnets: true, tape: true },
+    { pattern: 'vesa75', width: 88, height: 88, thick: 6, ties: true },
+    { screws: 'm4', pitch: 30, width: 160, height: 120, ties: true, magnets: true },
+  ],
   mountBoss: [{ tilt: 30 }, { fixing: 'gopro', tilt: 20 }, { fixing: 'arca', height: 100 }, { height: 100 }, { fixing: 'gopro', tilt: 0, reach: 20 }],
   slotRack: [{ tilt: 0 }, { tilt: 25, slot: 6 }],
   displayLedge: [{ lip: 8 }, { mode: 'bases', tiers: 3, lip: 4 }],
@@ -209,8 +215,7 @@ describe('back plates and label faces', () => {
       for (const opts of variants(def)) {
         const o = def.sanitize({ ...def.defaults, ...opts });
         const layout = def.layout(o, CTX);
-        // (The adapter plate's back plate is all of it, though its screw grid, magnets, zip-tie slots and tape recess cut into it.)
-        const regions = def.type === 'plate' ? [] : plates(def.backPlate?.(o, layout)).filter((r) => r.x1 - r.x0 >= 2 * R + 2 && r.y1 - r.y0 >= 2 * R + 2);
+        const regions = plates(def.backPlate?.(o, layout, CTX)).filter((r) => r.x1 - r.x0 >= 2 * R + 2 && r.y1 - r.y0 >= 2 * R + 2);
         const f = def.labelFace?.(o, layout) ?? null;
         if (!regions.length && !f) continue;
         const mesh = buildMesh(w, { kind: 'attachment', key: def.type, type: def.type, opts: o, layout, ctx: CTX });
@@ -275,7 +280,7 @@ describe('bolts', () => {
     it(`${def.type}: a bolt goes through its back clear of everything, or it says there's no way`, () => {
       const o = def.sanitize(def.defaults);
       const layout = def.layout(o, CTX);
-      const declared = def.backPlate?.(o, layout);
+      const declared = def.backPlate?.(o, layout, CTX);
       if (NO_BOLT.includes(def.type)) expect(declared, def.type).toBeNull();
       else {
         expect(declared, def.type).toBeTruthy();
