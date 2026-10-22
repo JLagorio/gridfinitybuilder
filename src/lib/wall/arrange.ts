@@ -6,7 +6,8 @@
  * its edge nearest the line. Plain math on plan.ts's placements; state/wall.ts makes the edits.
  */
 import type { Vec2 } from '../geometry/kernel';
-import { fitsAt, nearestFit, nearestSlot, onBoard, overlaps, slotKeys, type Box, type WallBoard, type WallPlacement } from './plan';
+import { fitsAt, nearestSlot, slotKeys, type WallBoard, type WallPlacement } from './plan';
+import { nearestFit, onBoard, overlaps, type Box } from './place';
 
 /** Where a part goes: its anchor slot, and whether all its mounts find slots there. */
 export interface Move {

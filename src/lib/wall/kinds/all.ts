@@ -5,6 +5,8 @@
 // Boards built from tiles plan with this, loaded with the first board too (geometry/skadis.ts setTilesPlanner).
 import '../../geometry/skadisTiles';
 import '../load';
+// A board's attachments in a print job (project.ts setWallParts).
+import '../parts';
 import './hook';
 import './bin';
 import './cup';

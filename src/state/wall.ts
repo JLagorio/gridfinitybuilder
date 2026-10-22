@@ -9,7 +9,8 @@ import { newId } from '../lib/bins';
 import type { Vec2 } from '../lib/geometry/kernel';
 import { attachmentDef, type PlacedAttachment } from '../lib/wall';
 import '../lib/wall/kinds/all';
-import { attachmentLayout, nearestSlot, placeAttachments, slotKeys, snapAnchor, type Box, type WallBoard, type WallPlacement } from '../lib/wall/plan';
+import { attachmentLayout, nearestSlot, slotKeys, snapAnchor, type WallBoard, type WallPlacement } from '../lib/wall/plan';
+import { placeAttachments, type Box } from '../lib/wall/place';
 import { partBounds } from '../lib/wall/mount';
 import { align, bounds, distribute, fitMoves, pasteSpot, type AlignHow } from '../lib/wall/arrange';
 

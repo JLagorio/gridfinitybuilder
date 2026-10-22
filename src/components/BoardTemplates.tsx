@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useStore, useUnits } from '../state/store';
 import { Segmented } from './fields';
 import { BOARD_TEMPLATES, boardOf, fitTemplate, templateSkadis, type BoardTemplate } from '../lib/wall/templates';
-import { placeAttachments } from '../lib/wall/plan';
+import { placeAttachments } from '../lib/wall/place';
 import { applyTemplate, newBoardFromTemplate, type TemplateResult } from '../state/boardTemplates';
 import type { TemplateTarget } from './boardTemplatesLazy';
 import './boardTemplates.css';

@@ -34,7 +34,8 @@
  * and said as "about".
  */
 import { BOLT, MOUNT, clipHeight, clipWidth, hookWidth, siteAt, studHeight, studWidth, tNut, type BoltSize } from './mount';
-import { fitsAt, planExtras, setLoadNote, slotKeys, type WallBoard, type WallPlacement } from './plan';
+import { fitsAt, planExtras, slotKeys, type WallBoard, type WallPlacement } from './plan';
+import { setLoadNote } from './place';
 import type { AttachmentDef, AttachmentExtras, AttachmentLayout, AttachmentLoad, MountCtx, MountKind, PlacedAttachment, PrintPose } from './registry';
 
 export type Material = NonNullable<PlacedAttachment['material']>;

@@ -4,7 +4,8 @@ import { DEFAULT_SETUP } from '../src/lib/layout/plan';
 import { planPrint } from '../src/lib/project';
 import { DEFAULT_SKADIS } from '../src/lib/geometry/skadis';
 import type { MountCtx, PlacedAttachment } from '../src/lib/wall';
-import { fitsAt, nearestFit, overlaps, placeAttachments, slotKeys, type Box, type WallBoard, type WallPlacement } from '../src/lib/wall/plan';
+import { fitsAt, slotKeys, type WallBoard, type WallPlacement } from '../src/lib/wall/plan';
+import { nearestFit, overlaps, placeAttachments, type Box } from '../src/lib/wall/place';
 import { align, distribute, dragGroup, dragGuides, fitMoves, groupMove, pasteSpot } from '../src/lib/wall/arrange';
 import { attachmentSelection, history, useStore } from '../src/state/store';
 import {

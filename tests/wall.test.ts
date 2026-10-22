@@ -10,7 +10,8 @@ import { DEFAULT_SKADIS, type SkadisOptions } from '../src/lib/geometry/skadis';
 import { checkPart } from '../src/lib/geometry/printcheck';
 import { attachmentDefs, type MountCtx, type PlacedAttachment } from '../src/lib/wall';
 import { MOUNT, backMounts, clipReach, clipWidth, mountBox, partBounds, printedSize } from '../src/lib/wall/mount';
-import { placeAttachments, slotKeys, snapAnchor } from '../src/lib/wall/plan';
+import { slotKeys, snapAnchor } from '../src/lib/wall/plan';
+import { placeAttachments } from '../src/lib/wall/place';
 import { cleanAttachments } from '../src/lib/enclosureOptions';
 import { attachmentUi, attachmentUis } from '../src/lib/wall/ui';
 

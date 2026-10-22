@@ -37,6 +37,7 @@ import {
   setWall,
   updateObstacle,
 } from '../state/wallPlanner';
+import { GRID_BOARD_NAMES, isGridBoard } from '../lib/gridBoards';
 import { geometry } from '../worker/client';
 import { Viewer, type SceneBed, type SceneItem } from './Viewer';
 import { LengthInput, Section } from './fields';
@@ -66,6 +67,9 @@ export type DrawerScene = (job: PrintJob, explode: boolean, withBins: boolean, s
 /** Drag and drop from the list of boards not on the wall yet. */
 const DND = 'application/x-gridfit-drawer';
 const KIND_NAME: Record<WallKind, string> = { board: 'Skådis board', grid: 'Wall grid' };
+/** What a board on the list is: its kind's name (another system's board by its own). */
+const kindName = (p: { kind: WallKind; doc: DrawerDoc }) =>
+  isGridBoard(p.doc.drawer.enclosure) ? GRID_BOARD_NAMES[p.doc.drawer.enclosure] : KIND_NAME[p.kind];
 const OBSTACLE_COLOUR = '#f0616a';
 
 /**
@@ -246,7 +250,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
           }
         >
           <p className="field-hint wp-intro">
-            Measure the wall, mark what’s in the way, then drag the project’s Skådis boards and wall grids onto it. Click an empty spot to add a board there.
+            Measure the wall, mark what’s in the way, then drag the project’s boards and wall grids onto it. Click an empty spot to add a board there.
           </p>
           <div className="row3">
             <LengthInput label="Width" value={wall.width} min={100} max={20000} onChange={(width) => setWall({ width })} />
@@ -306,7 +310,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
                 >
                   <span>{p.doc.name}</span>
                   <small>
-                    {KIND_NAME[p.kind]} · {fmt(p.w)} × {fmt(p.h)}
+                    {kindName(p)} · {fmt(p.w)} × {fmt(p.h)}
                   </small>
                 </button>
               </li>
@@ -348,7 +352,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
         >
           {!planned.length && (
             <div className="field-hint">
-              The project has no Skådis boards or wall grids yet. Click an empty spot on the wall to add one, or start one from the drawer menu.
+              The project has no boards or wall grids yet. Click an empty spot on the wall to add one, or start one from the drawer menu.
             </div>
           )}
           {planned.length > 0 && !offWall.length && <div className="field-hint">Every board and wall grid is on the wall.</div>}
@@ -370,7 +374,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
                 <span className="wp-off-name">
                   {p.doc.name}
                   <small>
-                    {KIND_NAME[p.kind]} · {fmt(p.w)} × {fmt(p.h)}
+                    {kindName(p)} · {fmt(p.w)} × {fmt(p.h)}
                   </small>
                 </span>
                 <button className="small" onClick={() => placeFree([p])}>

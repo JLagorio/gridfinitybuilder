@@ -82,6 +82,7 @@ import {
   type EnclosurePart,
   type EnclosurePartKind,
   type EnclosureScene,
+  type EnclosureSceneItem,
   type EnclosureView,
   type PieceEnclosure,
 } from './enclosures';
@@ -93,8 +94,8 @@ import { groupName, plateGroup, plateGroups, soloGroup, tagColours, useSplitMesh
 import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
 import { buildImported, type ImportedSpec } from './imported/registry';
 import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
-import { attachmentDef, kindsReady, type AttachmentExtras, type AttachmentLayout, type MountCtx } from './wall';
-import { MOUNT_PARTS, attachmentKey, attachmentView, mountParts, placeAttachments, wallInlaid } from './wall/plan';
+import { kindsReady, type AttachmentExtras, type PlacedAttachment, type AttachmentLayout, type MountCtx } from './wall';
+import { wallInlaid, type WallBoard, type WallPlacement } from './wall/plan';
 import type * as WallBuild from './wall/build';
 import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
@@ -596,39 +597,14 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     // A Skådis board holds attachments (lib/wall), not bins: they print with the bins, on shared plates.
     if (enc?.kind === 'skadis') {
       if (enc.wall) {
-        // Until the kinds have loaded (wall/ready.ts) the board plans bare; App plans again once they're in.
-        const { placed, warnings: notes } = placeAttachments(kindsReady() ? (d.drawer.attachments ?? []) : [], enc.wall);
-        for (const msg of notes) warn(msg);
         const scene = drawerJobs[drawerJobs.length - 1].enclosure!;
-        drawerJobs[drawerJobs.length - 1].enclosure = { ...scene, wall: { board: enc.wall, placed }, items: [...scene.items] };
-        const items = drawerJobs[drawerJobs.length - 1].enclosure!.items;
-        const ctx = enc.wall.ctx;
-        for (const p of placed) {
-          const def = attachmentDef(p.type)!;
-          const meshKey = attachmentKey(p.type, p.opts, ctx, p.extras);
-          meshes[meshKey] = { kind: 'attachment', key: meshKey, type: p.type, opts: p.opts, layout: p.layout, ctx, ...(p.extras ? { extras: p.extras } : {}) };
-          const v = attachmentView(p, enc.wall);
-          const key = `${prefix}att:${p.id}`;
-          parts[key] = { key, name: `${label}${p.name}`, kind: 'attachment', meshKey, ...v.size, drawer: d.id, attachment: p.id };
-          if (include.bins) binItems.push({ key, w: v.size.w, d: v.size.d });
-          items.push({ id: `att-${p.id}`, pick: p.id, meshKey, x: v.at[0], y: v.at[1], z: v.at[2], ...v.size, turn: v.turn, role: 'attachment', when: 'always' });
-          // Its kind's extra parts, then its lock keys and T-nuts (the mount standard's own, build.ts builds them).
-          const extra = [...(def.parts?.(p.opts, ctx) ?? []).map((xp) => ({ xp, type: p.type })), ...mountParts(p, ctx).map((xp) => ({ xp, type: MOUNT_PARTS }))];
-          for (const { xp, type } of extra) {
-            const pk = `attpart|${type}|${JSON.stringify(xp.spec)}|${JSON.stringify(ctx)}`;
-            meshes[pk] = { kind: 'attachmentPart', key: pk, type, part: xp.spec, ctx };
-            const k = `${prefix}att:${p.id}:${xp.key}`;
-            parts[k] = { key: k, name: `${label}${xp.name} (${p.name})`, kind: 'attachment', meshKey: pk, w: xp.w, d: xp.d, h: xp.h, drawer: d.id, attachment: p.id };
-            if (include.bins) binItems.push({ key: k, w: xp.w, d: xp.d });
-            // Shown where it sits: the attachment's frame has its origin at the board's front, the anchor on its slot.
-            if (xp.place) {
-              const [ax, ay, az] = xp.place.at;
-              const [x, y, z] = [p.x - p.layout.anchor[0] + ax, p.y - p.layout.anchor[1] + ay, enc.wall.front + az];
-              const size = { w: xp.w, d: xp.d, h: xp.h };
-              items.push({ id: `att-${p.id}-${xp.key}`, pick: p.id, meshKey: pk, x, y, z, ...size, turn: xp.place.turn, role: 'attachment', when: 'always' });
-            }
-          }
-        }
+        const items = [...scene.items];
+        // Until the kinds and their planning have loaded (wall/ready.ts, wall/parts.ts) the board plans bare; App plans again once they're in.
+        const placed =
+          wallParts && kindsReady()
+            ? wallParts({ list: d.drawer.attachments ?? [], board: enc.wall, drawer: d.id, prefix, label, bins: include.bins, meshes, parts, binItems, items, warn })
+            : [];
+        drawerJobs[drawerJobs.length - 1].enclosure = { ...scene, wall: { board: enc.wall, placed }, items };
       }
       continue;
     }
@@ -957,6 +933,30 @@ function sharePlates(
     dj.plateOffset = Math.min(...now);
   }
   return out;
+}
+
+/** What a board's attachments add to a print job: their parts, meshes and drawer-view items (wall/parts.ts). */
+export type WallParts = (a: {
+  list: readonly PlacedAttachment[];
+  board: WallBoard;
+  drawer: string;
+  prefix: string;
+  label: string;
+  bins: boolean;
+  meshes: Record<string, MeshSpec>;
+  parts: Record<string, JobPart>;
+  binItems: PackItem[];
+  items: EnclosureSceneItem[];
+  warn: (msg: string) => void;
+}) => WallPlacement[];
+
+/**
+ * A board's attachments' planning (wall/parts.ts hands it in as it loads, with the kinds): importing it here would put
+ * the placing, the mount standard and the common options on the first screen.
+ */
+let wallParts: WallParts | null = null;
+export function setWallParts(f: WallParts): void {
+  wallParts = f;
 }
 
 /**

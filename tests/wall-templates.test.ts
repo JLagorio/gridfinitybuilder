@@ -6,7 +6,7 @@ import { DEFAULT_SKADIS, type SkadisOptions } from '../src/lib/geometry/skadis';
 import { planPrint, type NamedDrawer } from '../src/lib/project';
 import { attachmentDef, type PlacedAttachment } from '../src/lib/wall';
 import { attachmentUi } from '../src/lib/wall/ui';
-import { placeAttachments } from '../src/lib/wall/plan';
+import { placeAttachments } from '../src/lib/wall/place';
 import { BOARD_TEMPLATES, boardOf, boardTemplate, fitTemplate, templateAttachment, templateSkadis, type BoardTemplate } from '../src/lib/wall/templates';
 import { applyTemplate, newBoardFromTemplate } from '../src/state/boardTemplates';
 import { history, useStore } from '../src/state/store';
