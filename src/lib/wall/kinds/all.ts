@@ -39,6 +39,12 @@ import './displayLedge';
 import './planter';
 import './caddy';
 import './faceout';
+import './saddle';
+import './magnetBar';
+import './measureHanger';
+import './eyewear';
+import './clampRack';
+import './clipTab';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();

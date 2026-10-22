@@ -46,6 +46,12 @@ import { displayLedgeBuilder } from './kinds/displayLedge.geom';
 import { planterBuilder } from './kinds/planter.geom';
 import { caddyBuilder } from './kinds/caddy.geom';
 import { faceoutBuilder } from './kinds/faceout.geom';
+import { saddleBuilder } from './kinds/saddle.geom';
+import { magnetBarBuilder } from './kinds/magnetBar.geom';
+import { measureHangerBuilder } from './kinds/measureHanger.geom';
+import { eyewearBuilder } from './kinds/eyewear.geom';
+import { clampRackBuilder } from './kinds/clampRack.geom';
+import { clipTabBuilder } from './kinds/clipTab.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -98,6 +104,12 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   planter: planterBuilder as AttachmentBuilder<never>,
   caddy: caddyBuilder as AttachmentBuilder<never>,
   faceout: faceoutBuilder as AttachmentBuilder<never>,
+  saddle: saddleBuilder as AttachmentBuilder<never>,
+  magnetBar: magnetBarBuilder as AttachmentBuilder<never>,
+  measureHanger: measureHangerBuilder as AttachmentBuilder<never>,
+  eyewear: eyewearBuilder as AttachmentBuilder<never>,
+  clampRack: clampRackBuilder as AttachmentBuilder<never>,
+  clipTab: clipTabBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
