@@ -3,11 +3,17 @@
  * turned into its print pose. Apart from the defs (registry.ts) so the
  * geometry only loads with the mesh builders: buildMesh is the only caller,
  * and the builders are listed here, not registered as a side effect.
+ *
+ * Two colours: a kind's body can come with inlays (AttachmentBody: inlaid
+ * text, two-colour pocket floors), and a raised or inlaid label is one too.
+ * Each is a body of its own on the mesh (an overlay, geometry/inlay.ts), posed
+ * with the part, so the 3D view and the 3MF give it its colour role's filament.
  */
 import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Wasm } from '../geometry/kernel';
 import { hasFont, textOutline, textSolid } from '../geometry/text';
+import { addInlay, splitInlay, type InlayTag } from '../geometry/inlay';
 import { boltBoss, boltCut, lockKeySolid, mountSolids, tNutSolid, toPrintPose } from './mount';
-import { MOUNT_PARTS, type MountPartSpec } from './plan';
+import { LABEL_RELIEF, MOUNT_PARTS, type MountPartSpec } from './plan';
 import type { AttachmentExtras, AttachmentLayout, LabelFace, MountCtx } from './registry';
 import { hookBuilder } from './kinds/hook.geom';
 import { binBuilder } from './kinds/bin.geom';
@@ -63,15 +69,27 @@ import { swivelTowerBuilder } from './kinds/swivelTower.geom';
 import { foldHookBuilder } from './kinds/foldHook.geom';
 import { modelBuilder } from './kinds/model.geom';
 
+/** A body in another colour, in the part's frame: it touches the body without overlapping it (splitInlay makes one). */
+export interface AttachmentInlay extends InlayTag {
+  m: Manifold;
+}
+
+/** A kind's body with its inlays (AttachmentBuilder.body; AttachmentDef.inlaid says when it has filament-2 ones). */
+export interface AttachmentBody {
+  body: Manifold;
+  inlays: AttachmentInlay[];
+}
+
 export interface AttachmentBuilder<O = never> {
   /**
    * The body in the part's frame: its front view's bottom-left at the origin,
    * its back on the board (z = 0), out to +z. It must be solid 0.5 mm in from
    * its back wherever a mount is (the mounts are added after). The common options
    * are added after too: bolt holes (and bosses) where AttachmentDef.backPlate
-   * says, label text on AttachmentDef.labelFace (withExtras).
+   * says, label text on AttachmentDef.labelFace (withExtras). With inlays (bodies
+   * in another colour) it returns them beside it.
    */
-  body(w: Wasm, s: Scope, o: O, layout: AttachmentLayout, ctx: MountCtx): Manifold;
+  body(w: Wasm, s: Scope, o: O, layout: AttachmentLayout, ctx: MountCtx): Manifold | AttachmentBody;
   /** An extra part (AttachmentDef.parts), in its print pose, min corner at the origin. */
   part?(w: Wasm, spec: never, ctx: MountCtx): MeshData;
 }
@@ -138,51 +156,82 @@ function builder(type: string): AttachmentBuilder<never> {
   return b;
 }
 
-/** A part in its frame turned into its print pose, its min corner at the origin. */
-export function posed(s: Scope, m: Manifold, layout: Pick<AttachmentLayout, 'pose'>, what: string): MeshData {
+/** A part in its frame turned into its print pose, its min corner at the origin (its inlays' too, posed with it). */
+export function posed(s: Scope, m: Manifold, layout: Pick<AttachmentLayout, 'pose'>, what: string, inlays: readonly AttachmentInlay[] = []): MeshData {
   const p = toPrintPose(s, m, layout.pose);
-  const b = p.boundingBox();
-  const out = s.t(p.translate([-b.min[0], -b.min[1], -b.min[2]]));
+  const more = inlays.map((i) => ({ ...i, m: toPrintPose(s, i.m, layout.pose) }));
+  const min = p.boundingBox().min.map((v, k) => Math.min(v, ...more.map((i) => i.m.boundingBox().min[k])));
+  const out = s.t(p.translate([-min[0], -min[1], -min[2]]));
   assertValid(out, what);
-  return toMeshData(out);
+  const mesh = toMeshData(out);
+  for (const i of more) addInlay(mesh, s.t(i.m.translate([-min[0], -min[1], -min[2]])), i);
+  return mesh;
 }
 
 /**
- * Text cut into a label face (registry.ts LabelFace), as large as fits up to 8 mm capitals; null without text
- * or before the font is loaded (the geometry worker loads it before building attachments).
+ * Label text on a face (registry.ts LabelFace), as large as fits up to 8 mm capitals, from `from` to `to` out along
+ * the face's normal (negative: into the part); null without text or before the font is loaded (the geometry worker
+ * loads it before building attachments).
  */
-export function labelCut(w: Wasm, s: Scope, text: string, f: LabelFace): Manifold | null {
+function labelSolid(w: Wasm, s: Scope, text: string, f: LabelFace, from: number, to: number): Manifold | null {
   if (!text.trim() || !hasFont()) return null;
-  const depth = f.depth ?? 0.6;
-  const m = textSolid(w, textOutline(text, { size: Math.min(8, f.h * 0.7), maxWidth: f.w, maxHeight: f.h }), 0, 0, 0, depth + 1);
+  const m = textSolid(w, textOutline(text, { size: Math.min(8, f.h * 0.7), maxWidth: f.w, maxHeight: f.h }), 0, 0, 0, to - from);
   if (!m) return null;
   s.t(m);
-  if (f.normal === 'front') return s.t(m.translate([f.x + f.w / 2, f.y + f.h / 2, f.z - depth]));
-  // Up: the text's top toward the board, cut down into the face.
-  return s.t(s.t(m.rotate([-90, 0, 0])).translate([f.x + f.w / 2, f.y - depth, f.z + f.h / 2]));
+  if (f.normal === 'front') return s.t(m.translate([f.x + f.w / 2, f.y + f.h / 2, f.z + from]));
+  // Up: the text's top toward the board, standing up out of the face.
+  return s.t(s.t(m.rotate([-90, 0, 0])).translate([f.x + f.w / 2, f.y + from, f.z + f.h / 2]));
 }
 
-/** A body with what its common options add (registry.ts AttachmentExtras): bosses for bolts, then their holes and the label cut in. */
-function withExtras(w: Wasm, s: Scope, body: Manifold, e: AttachmentExtras, layout: AttachmentLayout): Manifold {
+/** Text cut into a label face (as deep as it says, else 0.6 mm), or null (labelSolid). */
+export function labelCut(w: Wasm, s: Scope, text: string, f: LabelFace): Manifold | null {
+  return labelSolid(w, s, text, f, -(f.depth ?? 0.6), 1);
+}
+
+/** Raised and inlaid labels: the board text's colour (colours.ts); inlaid ones in filament 2 with multi-colour off, raised ones with the part. */
+const LABEL_INLAID: InlayTag = { name: 'Label text', role: 'wallText', filament: 2 };
+const LABEL_RAISED: InlayTag = { name: 'Label text', role: 'wallText', filament: 1 };
+
+/**
+ * A body with what its common options add (registry.ts AttachmentExtras): bosses for bolts, then their holes, and the
+ * label cut in, inlaid (what the text cuts out of the part is the inlay) or raised (standing on the face, reaching a
+ * hair into it where the face isn't quite there). The bolt holes go through the kind's inlays too.
+ */
+function withExtras(w: Wasm, s: Scope, b: AttachmentBody, e: AttachmentExtras, layout: AttachmentLayout): AttachmentBody {
   const down = layout.pose === 'upright' ? 'y' : 'x';
   const bolts = e.bolts ?? [];
-  const bosses = bolts.filter((b) => b.boss).map((b) => boltBoss(w, s, b, down));
-  let m = bosses.length ? s.t(w.Manifold.union([body, ...bosses])) : body;
-  const cuts = bolts.map((b) => boltCut(w, s, b, layout.depth));
-  const text = e.label ? labelCut(w, s, e.label.text, e.label.face) : null;
-  if (text) cuts.push(text);
-  if (cuts.length) m = s.t(m.subtract(s.t(w.Manifold.union(cuts))));
-  return m;
+  const bosses = bolts.filter((x) => x.boss).map((x) => boltBoss(w, s, x, down));
+  let m = bosses.length ? s.t(w.Manifold.union([b.body, ...bosses])) : b.body;
+  const cuts = bolts.map((x) => boltCut(w, s, x, layout.depth));
+  const label = e.label;
+  const style = label?.style;
+  const text = !label ? null : style === 'raised' ? labelSolid(w, s, label.text, label.face, -0.3, LABEL_RELIEF) : labelCut(w, s, label.text, label.face);
+  if (text && !style) cuts.push(text);
+  const holes = cuts.length ? s.t(w.Manifold.union(cuts)) : null;
+  if (holes) m = s.t(m.subtract(holes));
+  let inlays = holes ? b.inlays.map((i) => ({ ...i, m: s.t(i.m.subtract(holes)) })) : b.inlays;
+  if (text && style === 'inlaid') {
+    const split = splitInlay(s, m, text);
+    m = split.body;
+    if (split.fill) inlays = [...inlays, { ...LABEL_INLAID, m: split.fill }];
+  }
+  if (text && style === 'raised') inlays = [...inlays, { ...LABEL_RAISED, m: s.t(text.subtract(m)) }];
+  return { body: m, inlays };
 }
 
 /** An attachment with its mounts, ready to print. */
 export function buildAttachment(w: Wasm, spec: { type: string; opts: object; layout: AttachmentLayout; ctx: MountCtx; extras?: AttachmentExtras }): MeshData {
   const s = new Scope();
   try {
-    let body = builder(spec.type).body(w, s, spec.opts as never, spec.layout, spec.ctx);
-    if (spec.extras) body = withExtras(w, s, body, spec.extras, spec.layout);
-    const all = s.t(w.Manifold.union([body, ...mountSolids(w, s, spec.layout, spec.ctx, spec.extras?.barbs)]));
-    return posed(s, all, spec.layout, `attachment ${spec.type}`);
+    const raw = builder(spec.type).body(w, s, spec.opts as never, spec.layout, spec.ctx);
+    let b: AttachmentBody = 'inlays' in raw ? raw : { body: raw, inlays: [] };
+    if (spec.extras) b = withExtras(w, s, b, spec.extras, spec.layout);
+    const mounts = mountSolids(w, s, spec.layout, spec.ctx, spec.extras?.barbs);
+    const all = s.t(w.Manifold.union([b.body, ...mounts]));
+    // The mounts reach into the body's back: an inlay there gives way to them.
+    const back = b.inlays.length && mounts.length ? s.t(w.Manifold.union(mounts)) : null;
+    const inlays = back ? b.inlays.map((i) => ({ ...i, m: s.t(i.m.subtract(back)) })) : b.inlays;
+    return posed(s, all, spec.layout, `attachment ${spec.type}`, inlays);
   } finally {
     s.dispose();
   }

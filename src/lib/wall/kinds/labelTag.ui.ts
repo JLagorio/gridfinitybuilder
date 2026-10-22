@@ -3,7 +3,7 @@ import { registerAttachmentUi } from '../uiRegistry';
 registerAttachmentUi({
   type: 'labelTag',
   label: 'Label tag',
-  description: 'A little card that clips into any slot, its text raised or cut in.',
+  description: 'A little card that clips into any slot, its text raised, cut in or inlaid in a second colour.',
   group: 'board',
   fields: [
     { key: 'text', label: 'Text', kind: 'text', placeholder: 'What it says' },
@@ -15,9 +15,11 @@ registerAttachmentUi({
       label: 'Text',
       kind: 'select',
       options: [
-        { value: 'raised', label: 'Raised', title: 'Stands out 0.6 mm inside a raised rim: swap filament at the rim for two colours' },
+        { value: 'raised', label: 'Raised', title: 'Stands out 0.6 mm inside a raised rim; in the board text colour with multi-colour on' },
         { value: 'engraved', label: 'Cut in', title: 'Cut 0.6 mm into the card' },
+        { value: 'inlaid', label: 'Inlaid', title: 'Cut in and filled flush in a second filament: two colours, a smooth face' },
       ],
+      hint: 'Raised and inlaid text print in the board text colour (Print plates › Colours); inlaid text needs a second filament.',
     },
   ],
 });

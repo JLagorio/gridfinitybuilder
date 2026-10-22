@@ -256,7 +256,16 @@ function drawerScene(
     const cs = job.colours;
     const pal = cs ? paletteOf(cs, 16) : null;
     const over = cs && state.baseplate.colour ? { plate: state.baseplate.colour } : undefined;
-    const encPaint = cs && !have ? (role: string) => ({ main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }) : undefined;
+    // A board's attachments: their parts' own paint (an attachment's colour, its label text's).
+    const atts = new Map(Object.values(job.parts).flatMap((p) => (p.attachment ? [[`${p.attachment}|${p.meshKey}`, p.key] as const] : [])));
+    const encPaint = cs
+      ? (role: string, it: { pick?: string; meshKey: string }) =>
+          role === 'attachment'
+            ? partPaint(job, atts.get(`${it.pick}|${it.meshKey}`) ?? '')
+            : have
+              ? undefined
+              : { main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }
+      : undefined;
     // A Skådis board's attachments are never "had": only the board itself can be.
     const picked = state.ui.selectedAttachment;
     items.push(

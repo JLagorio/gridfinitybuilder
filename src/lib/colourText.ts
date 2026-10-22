@@ -25,9 +25,11 @@ export const ROLE_TEXT: Record<ColourRole, { label: string; note: string; basic?
   containerShell: { label: 'Container shells', note: 'Drawer units, parts boxes, hoppers, racks, dispensers.' },
   containerFront: { label: 'Drawer fronts', note: 'The drawers of a drawer unit.' },
   containerPull: { label: 'Pulls', note: 'Tab and knob pulls on drawer fronts.' },
-  labelText: { label: 'Label text & icons', note: 'Inlaid and two-tone label text and icons.', basic: 'Labels' },
+  attachments: { label: 'Board attachments', note: 'Hooks, bins, shelves and everything else that hangs on a Skådis board, with their extra parts.' },
+  labelText: { label: 'Label text & icons', note: 'Inlaid and two-tone label text and icons, and the text on boards and their attachments.', basic: 'Labels' },
   qrCode: { label: 'QR codes', note: 'The dark modules of inlaid QR codes: keep them darker than what they’re on.' },
   shadow: { label: 'Tool shadows', note: 'Two-colour floors of tool pockets.' },
+  wallText: { label: 'Board & attachment text', note: 'Inlaid and raised text on a board’s zones, attachment labels and label tags.' },
 };
 
 export const roleLabel = (r: ColourRole) => ROLE_TEXT[r].label;

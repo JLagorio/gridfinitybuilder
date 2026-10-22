@@ -8,6 +8,7 @@ import { DEFAULT_SETUP } from '../src/lib/layout/plan';
 import { buildMesh, planPrint, type NamedDrawer } from '../src/lib/project';
 import { DEFAULT_SKADIS } from '../src/lib/geometry/skadis';
 import { checkPart } from '../src/lib/geometry/printcheck';
+import { meshVolume } from '../src/lib/geometry/volume';
 import { registerFont } from '../src/lib/geometry/text';
 import { billOfMaterials } from '../src/lib/bom';
 import { cleanAttachments } from '../src/lib/enclosureOptions';
@@ -580,7 +581,8 @@ describe('fit test', () => {
 
 describe('label tag', () => {
   it('a card with a clip, its text raised in a rim or cut in, as big as planned', () => {
-    const volume = (opts: object) => checkPart(w, hung('labelTag', opts).mesh).topology.volume;
+    // With the text: raised letters are a body of their own (the board text's colour).
+    const volume = (opts: object) => meshVolume(hung('labelTag', opts).mesh);
     for (const opts of [{}, { style: 'engraved' }, { width: 120, height: 30, text: 'Spare batteries', size: 8 }, { text: '' }]) {
       const { layout, mesh, def, o, body } = hung('labelTag', opts);
       body.delete();
@@ -596,7 +598,7 @@ describe('label tag', () => {
       // The text stands out of the card, or is cut into it.
       const text = (o as { text: string }).text.trim();
       const blank = volume({ ...opts, text: '' });
-      if (text) expect(style === 'raised' ? c.topology.volume - blank : blank - c.topology.volume, JSON.stringify(opts)).toBeGreaterThan(2);
+      if (text) expect(style === 'raised' ? meshVolume(mesh) - blank : blank - meshVolume(mesh), JSON.stringify(opts)).toBeGreaterThan(2);
       expect(def.summary(o)).toBe(text ? `Label “${text}”` : 'Label tag');
     }
     const wide = attachmentDef('labelTag')!;

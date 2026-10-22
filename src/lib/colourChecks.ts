@@ -10,6 +10,7 @@ import { binFrontQr, binUsesInlay } from './geometry/bin';
 import { planLidQr } from './geometry/lid';
 import { qrInlaid } from './geometry/qrCode';
 import { filamentFor } from './bom';
+import { wallInlaid } from './wall/plan';
 
 /**
  * Print checks for multi-colour (colours.ts), printability.ts style: one
@@ -150,7 +151,12 @@ export function colourChecks(job: PrintJob, setup: PrintSetup, estimates: readon
     const inlaid = job.plates.some((pl) =>
       pl.placements.some((p) => {
         const spec = baseSpec(job.meshes[job.parts[p.key].meshKey]);
-        return (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) || (spec?.kind === 'label' && spec.plate.style === 'inlaid') || inlaidQrIn(spec);
+        return (
+          (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) ||
+          (spec?.kind === 'label' && spec.plate.style === 'inlaid') ||
+          inlaidQrIn(spec) ||
+          wallInlaid(spec)
+        );
       }),
     );
     if (inlaid) {
