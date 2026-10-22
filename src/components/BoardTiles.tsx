@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Vec2 } from '../lib/geometry/kernel';
 import type { SkadisPlan } from '../lib/geometry/skadis';
 import type { WallBoard, WallPlacement } from '../lib/wall/plan';
 import { useUnits } from '../state/store';
 import { addTile, removeTile } from '../state/skadisTiles';
+import { isTouch, useCoarsePointer } from './touch';
+import { FINGER_PX, atLeastPx, useMmPerPx } from './wallTouch';
 import './boardTiles.css';
 
 type Grid = NonNullable<SkadisPlan['grid']>;
@@ -32,7 +34,8 @@ const AROUND: Record<'hex' | 'rect', Vec2[]> = {
  * add the tile), and a ✕ on each tile to take it away (or click the tile and
  * press Delete). Its slots and attachments show faintly behind, so it's clear
  * what is on which tile; an attachment a tile taken away leaves without its
- * slots shows red.
+ * slots shows red. On a touch screen the ✕ grows to a fingertip's size, a tile is picked by a tap (a press that
+ * pans or pinches the page picks nothing), and the page still pans and zooms over it.
  */
 export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: WallBoard; placed: WallPlacement[]; hex: boolean }) {
   const [sel, setSel] = useState<string | null>(null);
@@ -62,6 +65,10 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
     return out;
   }, [grid.at, hex]);
   const several = grid.at.length > 1;
+  const svg = useRef<SVGSVGElement>(null);
+  const coarse = useCoarsePointer();
+  // The press under way is a finger's: tiles are picked, and the selection let go, by its tap.
+  const finger = useRef(false);
 
   // Delete takes the selected tile away; Escape lets it go.
   useEffect(() => {
@@ -96,6 +103,10 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
     return board.slots.map(([x, y]) => `M${x - r},${sy(y) - l / 2 + r}a${r},${r} 0 0 1 ${w},0v${l - w}a${r},${r} 0 0 1 ${-w},0z`).join('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.slots, board.ctx.slotW, board.ctx.slotL, Y0, Y1]);
+  // A finger's ✕: drawn at least 22 px across, taking a press 40 px across.
+  const mmPerPx = useMmPerPx(svg, [X0, X1, Y0, Y1]);
+  const rx = coarse ? atLeastPx(unit * 0.06, 11, mmPerPx) : unit * 0.06;
+  const rHit = coarse ? atLeastPx(rx, FINGER_PX / 2, mmPerPx) : 0;
   const what = hex ? 'hexagon' : 'tile';
   const n = grid.at.length;
 
@@ -104,14 +115,17 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
       <div className="pane-head">
         <div className="pane-title">
           {n} {what}
-          {n === 1 ? '' : 's'} · {fmt(board.W)} × {fmt(board.H)} · click + to add a {what}, ✕ to take one away
+          {n === 1 ? '' : 's'} · {fmt(board.W)} × {fmt(board.H)} · {coarse ? 'tap' : 'click'} + to add a {what}, ✕ to take one away
         </div>
       </div>
       <div className="board-tiles">
         <svg
+          ref={svg}
           viewBox={`${X0} ${Y0} ${X1 - X0} ${Y1 - Y0}`}
           preserveAspectRatio="xMidYMid meet"
-          onPointerDown={() => setSel(null)}
+          onPointerDownCapture={(e) => (finger.current = isTouch(e))}
+          onPointerDown={() => finger.current || setSel(null)}
+          onClick={() => finger.current && setSel(null)}
           role="application"
           aria-label={`The board's ${what}s: click + to add one, ✕ to take one away`}
         >
@@ -141,6 +155,10 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
                 points={poly(o)}
                 onPointerDown={(e) => {
                   e.stopPropagation();
+                  if (!finger.current) setSel(key);
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
                   setSel(key);
                 }}
               />
@@ -157,7 +175,7 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
               const [x, y] = place(c);
               const cx = x + box.mid[0];
               const cy = sy(y + box.mid[1] + box.h * 0.3);
-              const r = unit * 0.06;
+              const r = rx;
               return (
                 <g
                   key={String(c)}
@@ -171,6 +189,7 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
                   }}
                 >
                   <title>Take this {what} away</title>
+                  {rHit > r && <circle className="bt-hit" cx={cx} cy={cy} r={rHit} />}
                   <circle cx={cx} cy={cy} r={r} />
                   <path d={`M${cx - r * 0.45},${cy - r * 0.45}l${r * 0.9},${r * 0.9}M${cx + r * 0.45},${cy - r * 0.45}l${-r * 0.9},${r * 0.9}`} />
                 </g>

@@ -9,7 +9,7 @@ import './colours.css';
 import type { BedRect } from '../lib/printers';
 import { useUnits } from '../state/store';
 import { isMod, isTyping, keyLetter } from './shortcuts';
-import { isTouch, tapSlop } from './touch';
+import { HOLD_MS, isTouch, tapSlop } from './touch';
 import {
   AXES,
   LIFT_DEFAULT,
@@ -117,7 +117,8 @@ export interface ViewerProps {
 /**
  * Dragging parts in the 3D view: pressing on a part whose pick id `can` take it drags it instead of orbiting
  * (the camera stays put); a press that doesn't move still picks it. The pointer is followed on the horizontal
- * plane at `planeZ` (scene mm), and every call gets the point there.
+ * plane at `planeZ` (scene mm), and every call gets the point there. A finger drags a selected part at once; on
+ * any other it orbits, as anywhere, unless it's held still a moment (HOLD_MS), which picks the part up.
  */
 export interface ViewerDrag {
   can(id: string): boolean;
@@ -1225,8 +1226,13 @@ function createContext(
     return rayPlaneZ([o.x, o.y, o.z], [v.x, v.y, v.z], z);
   }
 
+  // A finger on a part that isn't selected orbits, unless it's held still till this goes off, which picks the part up.
+  let hold = 0;
+  const unhold = () => clearTimeout(hold);
+
   // Seen before the canvas's own listeners (the orbit controls'), so a press on a part that drags never orbits.
   const onPress = (e: PointerEvent) => {
+    unhold();
     if (dragging) {
       // A second finger calls the drag off, and the view takes it (to orbit, pinch or pan).
       if (e.pointerId !== dragging.pointer) stopDrag(false);
@@ -1240,11 +1246,15 @@ function createContext(
     const id = pickAt(e.clientX, e.clientY);
     const at = id && d.can(id) ? planeAt(e.clientX, e.clientY, d.planeZ) : null;
     if (!id || !at) return;
-    dragging = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false, with: d };
-    controls.enabled = false;
-    renderer.domElement.setPointerCapture(e.pointerId);
-    setCursor('grabbing');
-    d.start(id, at[0], at[1]);
+    const grab = () => {
+      dragging = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false, with: d };
+      controls.enabled = false;
+      renderer.domElement.setPointerCapture(e.pointerId);
+      setCursor('grabbing');
+      d.start(id, at[0], at[1]);
+    };
+    if (!isTouch(e) || last.items.some((it) => it.selected && it.id === id)) return grab();
+    hold = window.setTimeout(grab, HOLD_MS);
   };
 
   function dragMove(e: PointerEvent) {
@@ -1279,6 +1289,7 @@ function createContext(
   };
   const onUp = (e: PointerEvent) => {
     pressed.delete(e.pointerId);
+    unhold();
     if (dragging?.pointer === e.pointerId) {
       // A press on a part that drags and didn't move is a click: it picks below.
       const moved = dragging.moved;
@@ -1305,6 +1316,8 @@ function createContext(
     pick(pickAt(e.clientX, e.clientY));
   };
   const onMove = (e: PointerEvent) => {
+    // A finger that moves before it's held long enough orbits.
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > tapSlop(true)) unhold();
     if (dragging) {
       if (e.pointerId === dragging.pointer) dragMove(e);
       return;
@@ -1327,6 +1340,7 @@ function createContext(
   };
   const onCancel = (e: PointerEvent) => {
     pressed.delete(e.pointerId);
+    unhold();
     down = null;
     if (dragging?.pointer === e.pointerId) stopDrag(false);
   };
@@ -1420,6 +1434,7 @@ function createContext(
       if (lastFit) fit(lastFit.items, lastFit.beds);
     },
     dispose() {
+      unhold();
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();

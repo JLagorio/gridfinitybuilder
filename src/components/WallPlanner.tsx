@@ -42,6 +42,8 @@ import { geometry } from '../worker/client';
 import { Viewer, type SceneBed, type SceneItem } from './Viewer';
 import { LengthInput, Section } from './fields';
 import { isMod, isTyping, keyLetter } from './shortcuts';
+import { isTouch, useCoarsePointer } from './touch';
+import { doubleTapper } from './gestures';
 import './wall.css';
 import './wallPlanner.css';
 
@@ -237,6 +239,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
   );
 
   const tile = useMemo(() => (area ? oneTile(area, state.setup, boardSettings()) : null), [area, state.setup]);
+  const click = useCoarsePointer() ? 'Tap' : 'Click';
 
   return (
     <div className="wall-planner">
@@ -250,7 +253,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
           }
         >
           <p className="field-hint wp-intro">
-            Measure the wall, mark what’s in the way, then drag the project’s boards and wall grids onto it. Click an empty spot to add a board there.
+            Measure the wall, mark what’s in the way, then drag the project’s boards and wall grids onto it. {click} an empty spot to add a board there.
           </p>
           <div className="row3">
             <LengthInput label="Width" value={wall.width} min={100} max={20000} onChange={(width) => setWall({ width })} />
@@ -401,7 +404,7 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
         <div className="split">
           <div className="pane pane-2d">
             <div className="pane-head">
-              <div className="pane-title">The wall from the front: drag boards into place, click an empty spot to add one</div>
+              <div className="pane-title">The wall from the front: drag boards into place, {click.toLowerCase()} an empty spot to add one</div>
               <button className="wp-close-phone" onClick={closeWallView}>
                 Close
               </button>
@@ -469,7 +472,11 @@ export function WallPlanner({ drawerScene }: { drawerScene: DrawerScene }) {
               beds={beds}
               fitKey={`wall-${wall.width}x${wall.height}`}
               onPick={(id) => setSel(id && !id.startsWith('obstacle/') ? { item: id.split('/')[0] } : null)}
-              hint="Drag to orbit · right-drag to pan · scroll to zoom · click a board to select it · Top: the wall from the front"
+              hint={
+                click === 'Tap'
+                  ? 'Drag to orbit · pinch to zoom · drag with two fingers to pan · tap a board to select it · Top: the wall from the front'
+                  : 'Drag to orbit · right-drag to pan · scroll to zoom · click a board to select it · Top: the wall from the front'
+              }
             />
           </div>
         </div>
@@ -583,6 +590,9 @@ function WallFront({
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  // The finger (or mouse) a drag is with: a second finger calls it off. Double taps open a board, as double-clicks do.
+  const finger = useRef<number | null>(null);
+  const [taps] = useState(doubleTapper);
   const uid = useId().replace(/:/g, '');
   const big = Math.max(W, H);
   const M = big * 0.05;
@@ -605,22 +615,32 @@ function WallFront({
     ...obstacles.filter((_, i) => `o${i}` !== skip),
   ];
 
+  /** A second finger: the drag under way is called off. */
+  const second = (e: ReactPointerEvent) => {
+    if (finger.current === null || e.pointerId === finger.current) return false;
+    finger.current = null;
+    setDrag(null);
+    return true;
+  };
   const startMove = (e: ReactPointerEvent, kind: 'item' | 'obstacle', key: string, i: number, r: Rect) => {
     e.stopPropagation();
-    if (e.button !== 0) return;
+    if (second(e) || e.button !== 0) return;
     onSelect(kind === 'item' ? { item: key } : { obstacle: i });
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    finger.current = e.pointerId;
+    taps.down(e);
     const { at } = toWall(e);
     setDrag({ kind, key, i, start: at, from: [r.x, r.y], size: [r.w, r.h], at: [r.x, r.y], guides: {}, moved: false });
   };
   const onDown = (e: ReactPointerEvent) => {
-    if (e.button !== 0) return;
+    if (second(e) || e.button !== 0) return;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    finger.current = e.pointerId;
     const { at } = toWall(e);
     setDrag({ kind: 'area', start: at, at, moved: false });
   };
   const onMove = (e: ReactPointerEvent) => {
-    if (!drag) return;
+    if (!drag || (finger.current !== null && e.pointerId !== finger.current)) return;
     const { at, px } = toWall(e);
     const moved = drag.moved || Math.hypot(at[0] - drag.start[0], at[1] - drag.start[1]) > 4 * px;
     if (drag.kind === 'area') {
@@ -631,12 +651,16 @@ function WallFront({
     const s = snapRect(r, { width: W, height: H }, blocks(drag.kind === 'item' ? drag.key : `o${drag.i}`), gap, 10 * px);
     if (moved !== drag.moved || s.x !== drag.at[0] || s.y !== drag.at[1]) setDrag({ ...drag, at: [s.x, s.y], guides: s.guides, moved });
   };
-  const onUp = () => {
+  const onUp = (e: ReactPointerEvent) => {
+    if (finger.current !== null && e.pointerId !== finger.current) return;
+    finger.current = null;
     const d = drag;
     setDrag(null);
     if (!d) return;
     if (d.kind === 'item') {
+      const twice = isTouch(e) && taps.up(e, d.key);
       if (d.moved) placeOnWall(d.key, d.at[0], d.at[1]);
+      else if (twice) openDrawer(d.key);
       return;
     }
     if (d.kind === 'obstacle') {
@@ -691,7 +715,7 @@ function WallFront({
         preserveAspectRatio="xMidYMid meet"
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerCancel={() => setDrag(null)}
+        onPointerCancel={() => ((finger.current = null), setDrag(null))}
         onPointerDown={() => (onSelect(null), onArea(null))}
         onDragOver={onDragOver}
         onDrop={onDrop}

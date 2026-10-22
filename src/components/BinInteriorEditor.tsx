@@ -71,7 +71,8 @@ import { LayoutActions, copyLayoutOf, dividerHeight, pasteLayoutInto } from './W
 import { isMod } from './shortcuts';
 import { CompartmentInsidePreview, useInsideBadge } from './CompartmentInsidePreview';
 import { stretchOf } from '../lib/geometry/placement';
-import { TouchToggle, fingerPx, isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
+import { TouchToggle, isTouch, tapSlop, useCoarsePointer, useTouchModes } from './touch';
+import { fingerPx } from './gestures';
 
 const T = DIVIDER;
 /** Pointer distances, in screen pixels. */

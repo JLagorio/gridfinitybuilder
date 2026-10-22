@@ -26,7 +26,8 @@ import { bounds, nearestOnPolygon } from '../lib/trace/polygon';
 import { snapStep } from '../lib/units';
 import { isMod, isTyping } from './shortcuts';
 import { usesToolCompartments } from '../lib/geometry/compartments';
-import { doubleTapper, isTouch, tapSlop, useCoarsePointer } from './touch';
+import { isTouch, tapSlop, useCoarsePointer } from './touch';
+import { doubleTapper } from './gestures';
 
 /** dataTransfer type for dragging a library tool into the editor. */
 export const TOOL_DRAG_MIME = 'application/x-gridfit-tool';

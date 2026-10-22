@@ -285,6 +285,26 @@
 .wp-close-phone {
   display: none;
 }
+.wp-front svg {
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fingers: buttons a fingertip finds. */
+@media (pointer: coarse) {
+  .wp-add-obstacle button,
+  .wp-actions button,
+  .wp-area-bar button,
+  .wp-off button {
+    padding: 7px 11px;
+  }
+  .wp-obstacle-head button {
+    padding: 6px 12px;
+  }
+  .wp-mini input {
+    padding: 6px 7px;
+  }
+}
 
 /* Phones: the wall, its 3D view, then its settings, one scroll. */
 @media (max-width: 760px) {
@@ -310,5 +330,19 @@
     display: inline-flex;
     padding: 3px 10px;
     font-size: 12px;
+  }
+  /* The page scrolls past the wall: a finger on an empty part of it pans the page up and down (sideways, it draws
+     an area; a tap picks one), while a board or what's in the way drags. */
+  .wp-front svg {
+    touch-action: pan-y pinch-zoom;
+  }
+  .wp-front .wp-board,
+  .wp-front .wp-obstacle-shape {
+    touch-action: none;
+  }
+}
+@media (max-width: 760px) and (pointer: coarse) {
+  .wp-close-phone {
+    padding: 7px 14px;
   }
 }
