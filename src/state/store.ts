@@ -47,6 +47,11 @@ export interface UIState {
   binPane: BinPane;
   /** A Skådis board's selected attachment (lib/wall), on its Attachments tab. */
   selectedAttachment?: string | null;
+  /**
+   * An attachment being dragged in the 3D view (components/wallDrag.ts): the anchor slot it's shown on, and
+   * whether all its mounts have slots there. The drop moves it (one undo step); this is never saved or undone.
+   */
+  wallDrag?: { id: string; x: number; y: number; fits: boolean } | null;
 }
 
 /**
@@ -333,8 +338,8 @@ function persisted(s: Store) {
     tools: s.tools,
     printed: s.printed,
     onlyChanged: s.onlyChanged,
-    // View-only state (selection, spread pieces, shown plate) starts fresh on every load.
-    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1 },
+    // View-only state (selection, spread pieces, shown plate, a drag in the 3D view) starts fresh on every load.
+    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1, wallDrag: null },
   };
 }
 
