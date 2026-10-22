@@ -20,7 +20,7 @@ export function shareableBin(b: PlacedBin): PlacedBin {
 }
 
 type Board = { attachments?: PlacedAttachment[] };
-type ProjectBins = { bins?: PlacedBin[]; drawer?: Board; drawers?: { bins: PlacedBin[]; drawer?: Board }[] };
+type ProjectBins = { bins?: PlacedBin[]; drawer?: Board; drawers?: { bins: PlacedBin[]; drawer?: Board }[]; wall?: { photo?: { hash?: string } } };
 
 /** An imported model on a board (its options' `mesh`) as a link carries it: its file name, size and flat faces, not its mesh's hash, so a box of its size stands in. */
 export function shareableAttachment(a: PlacedAttachment): PlacedAttachment {
@@ -34,9 +34,11 @@ export function shareableAttachment(a: PlacedAttachment): PlacedAttachment {
  * A project file as a share link carries it (shareableBin, shareableAttachment):
  * imported meshes become boxes of their footprint and height, and models on
  * boards boxes of their size. `dropped`: how many bins' meshes that left
- * behind, `models` how many models' (each counted).
+ * behind, `models` how many models' (each counted). The wall planner's photo
+ * (lib/wallPlanner/photoStore.ts) stays behind too: the wall keeps how it was
+ * lined up, without its hash (`photo`: whether there was one to leave).
  */
-export function shareableProject<T extends ProjectBins>(file: T): { file: T; dropped: number; models: number } {
+export function shareableProject<T extends ProjectBins>(file: T): { file: T; dropped: number; models: number; photo: boolean } {
   const strip = (bins: PlacedBin[]) => bins.map(shareableBin);
   const meshes = (bins: PlacedBin[] = []) => bins.filter((b) => b.external?.mesh).length;
   const board = <B extends Board | undefined>(d: B): B => (d?.attachments ? { ...d, attachments: d.attachments.map(shareableAttachment) } : d);
@@ -49,8 +51,10 @@ export function shareableProject<T extends ProjectBins>(file: T): { file: T; dro
       ...(file.bins ? { bins: strip(file.bins) } : {}),
       ...(file.drawer ? { drawer: board(file.drawer) } : {}),
       ...(file.drawers ? { drawers: file.drawers.map((d) => ({ ...d, bins: strip(d.bins), ...(d.drawer ? { drawer: board(d.drawer) } : {}) })) } : {}),
+      ...(file.wall?.photo ? { wall: { ...file.wall, photo: { ...file.wall.photo, hash: '' } } } : {}),
     },
     dropped,
     models: file.drawers ? file.drawers.reduce((t, d) => t + models(d.drawer), 0) : models(file.drawer),
+    photo: !!file.wall?.photo?.hash,
   };
 }

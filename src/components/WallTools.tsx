@@ -4,7 +4,7 @@
  * the sidebar fields of a diagonal / curved wall.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { activeDrawer, allDrawers, useStore, useUnits, type CopyLayoutReport, type LayoutSource, type LayoutTarget } from '../state/store';
+import { activeDrawer, allDrawers, useStore, useUnits, type CopyLayoutReport, type LayoutTarget } from '../state/store';
 import { binLabel, type BinOptions } from '../lib/geometry/bin';
 import { binBodyHeight, binFloorZ } from '../lib/geometry/variants';
 import { LIP_SUPPORT_HEIGHT } from '../lib/geometry/spec';
@@ -31,27 +31,10 @@ export function dividerHeight(o: BinOptions): number {
 }
 
 // ---------------------------------------------------------------------------
-// Layout clipboard (Ctrl/Cmd+C / V in the compartment editor, Ctrl/Cmd+Shift+V on the drawer grid)
+// Layout clipboard (Ctrl/Cmd+C / V in the compartment editor, Ctrl/Cmd+Shift+V on the drawer grid): layoutClip.ts
 // ---------------------------------------------------------------------------
 
-let clip: LayoutSource | null = null;
-
-/** Remember a bin's layout (or its columns × rows) for pasting into other bins. */
-export function copyLayoutOf(o: BinOptions) {
-  clip = { layout: o.layout ? structuredClone(o.layout) : null, divX: o.divX, divY: o.divY };
-}
-
-export const hasLayoutClip = () => !!clip;
-
-/** Paste the remembered layout into bins of the active drawer (one undo step). */
-export function pasteLayoutInto(binIds: string[]): CopyLayoutReport | null {
-  if (!clip || !binIds.length) return null;
-  const s = useStore.getState();
-  return s.copyLayout(
-    clip,
-    binIds.map((binId) => ({ drawerId: s.activeDrawerId, binId })),
-  );
-}
+export { copyLayoutOf, hasLayoutClip, pasteLayoutInto } from './layoutClip';
 
 /** "Copied to 3 bins · 1 bin left out 2 fixed-size walls that don't fit." */
 export function reportText(r: CopyLayoutReport | null): string {

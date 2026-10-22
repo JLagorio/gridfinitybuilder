@@ -3,6 +3,7 @@
  * template, or a template's parts on the active board, each one undo step.
  */
 import { history, projectOf, useStore } from './store';
+import { oneStep } from './oneStep';
 import { planJob } from '../lib/project';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
 import { boardOf, fitTemplate, templateSkadis, type BoardTemplate } from '../lib/wall/templates';
@@ -15,16 +16,17 @@ export interface TemplateResult {
 
 /** A new board the template's size, named after it, with its parts on; the Attachments tab open. */
 export function newBoardFromTemplate(t: BoardTemplate): TemplateResult {
-  history.checkpoint();
-  useStore.getState().addDrawer(t.name, { skadis: true });
-  const s = useStore.getState();
-  const skadis = templateSkadis(t, sanitizeSkadis(s.drawer.skadis), s.setup);
-  const board = boardOf(skadis, s.setup);
-  const fit = board ? fitTemplate(t, board) : { list: [], left: t.items.map((i) => i.name ?? i.type) };
-  s.setDrawer({ skadis, attachments: fit.list });
-  useStore.getState().setUI({ tab: 'bins', selectedAttachment: null });
-  history.checkpoint();
-  return { added: fit.list.length, left: fit.left };
+  // Planning the new board can take a while: one undo step all the same.
+  return oneStep(() => {
+    useStore.getState().addDrawer(t.name, { skadis: true });
+    const s = useStore.getState();
+    const skadis = templateSkadis(t, sanitizeSkadis(s.drawer.skadis), s.setup);
+    const board = boardOf(skadis, s.setup);
+    const fit = board ? fitTemplate(t, board) : { list: [], left: t.items.map((i) => i.name ?? i.type) };
+    s.setDrawer({ skadis, attachments: fit.list });
+    useStore.getState().setUI({ tab: 'bins', selectedAttachment: null });
+    return { added: fit.list.length, left: fit.left };
+  });
 }
 
 /**

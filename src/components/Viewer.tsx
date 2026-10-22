@@ -92,6 +92,8 @@ export interface SceneBed {
   label: string;
   /** Areas the printer keeps free (printers.ts `exclude`), on the bed: drawn hatched. */
   exclude?: readonly BedRect[];
+  /** A picture over the whole bed, its top row at the back (the wall planner's photo); a new `key` redraws it. */
+  image?: { src: CanvasImageSource; key: string };
 }
 
 export interface ViewerProps {
@@ -905,7 +907,7 @@ function createContext(
       }
     }
 
-    const bedKey = beds.map((b) => `${b.x},${b.y},${b.w},${b.d},${b.label},${JSON.stringify(b.exclude ?? [])}`).join('|');
+    const bedKey = beds.map((b) => `${b.x},${b.y},${b.w},${b.d},${b.label},${JSON.stringify([b.exclude, b.image?.key])}`).join('|');
     if (bedKey !== lastBedKey) {
       lastBedKey = bedKey;
       disposeTree(bedGroup);
@@ -1514,21 +1516,12 @@ function makeBed(b: SceneBed) {
   const c = canvas.getContext('2d')!;
   c.fillStyle = '#2a2f38';
   c.fillRect(0, 0, canvas.width, canvas.height);
-  c.strokeStyle = 'rgba(255,255,255,0.07)';
-  c.lineWidth = 1;
+  if (b.image) c.drawImage(b.image.src, 0, 0, canvas.width, canvas.height);
+  // A line a pixel wide every 10 mm (filled where a stroke would cover it: one call each).
+  c.fillStyle = 'rgba(255,255,255,0.07)';
   const step = (canvas.width / b.w) * 10;
-  for (let x = 0; x < canvas.width; x += step) {
-    c.beginPath();
-    c.moveTo(x, 0);
-    c.lineTo(x, canvas.height);
-    c.stroke();
-  }
-  for (let y = 0; y < canvas.height; y += step) {
-    c.beginPath();
-    c.moveTo(0, y);
-    c.lineTo(canvas.width, y);
-    c.stroke();
-  }
+  for (let x = 0; x < canvas.width; x += step) c.fillRect(x - 0.5, 0, 1, canvas.height);
+  for (let y = 0; y < canvas.height; y += step) c.fillRect(0, y - 0.5, canvas.width, 1);
   // The areas the printer keeps free, hatched (canvas top = back of the bed).
   const k = canvas.width / b.w;
   for (const e of b.exclude ?? []) {

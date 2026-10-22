@@ -332,12 +332,13 @@
     font-size: 12px;
   }
   /* The page scrolls past the wall: a finger on an empty part of it pans the page up and down (sideways, it draws
-     an area; a tap picks one), while a board or what's in the way drags. */
+     an area; a tap picks one), while a board, what's in the way, or the photo being moved drags. */
   .wp-front svg {
     touch-action: pan-y pinch-zoom;
   }
   .wp-front .wp-board,
-  .wp-front .wp-obstacle-shape {
+  .wp-front .wp-obstacle-shape,
+  .wp-front .wph-move {
     touch-action: none;
   }
 }

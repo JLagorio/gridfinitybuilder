@@ -34,6 +34,8 @@ const root = resolve(__dirname, '..');
  * (lib/wall/build.ts) with the mesh builders. The kinds' own planning (lib/wall/kinds/all.ts)
  * loads with the first board (lib/wall/ready.ts), so new kinds don't add to the first screen: with
  * the boards' slot patterns, frame, zones and ways to hang, ~636 kB.
+ * The boards' own planning loads with the first board too (lib/skadisBoards.ts), and the divider-wall
+ * tools with the compartment editor: ~611 kB.
  */
 const FIRST_SCREEN_BUDGET = 660_000;
 const VENDOR = ['react', 'three'];
@@ -117,6 +119,14 @@ describe('bundle', () => {
       'src/lib/wall/ui.ts',
       'src/lib/wall/kinds/all.ts',
       'src/state/wall.ts',
+      // Skådis boards' planning and the attachments' (the slots, the mount standard): with the first board (lib/skadisBoards.ts).
+      'src/lib/skadisBoardPlan.ts',
+      'src/lib/geometry/skadis.ts',
+      'src/lib/geometry/skadisTiles.ts',
+      'src/lib/wall/plan.ts',
+      'src/lib/wall/mount.ts',
+      // The divider-wall tools (the drawer grid's paste-layout shortcut has its clipboard on its own: layoutClip.ts).
+      'src/components/WallTools.tsx',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).

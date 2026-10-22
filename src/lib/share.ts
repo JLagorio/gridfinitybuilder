@@ -36,6 +36,16 @@ export function shareUrl(project: unknown, base: string): string {
   return u.toString();
 }
 
+/**
+ * The question before a shared project opens (components/ShareLink.tsx), with what the link left behind: the wall
+ * planner's photo (lib/externalShare.ts). Null when there's no project to open.
+ */
+export function openQuestion(project: unknown): string | null {
+  if (project == null) return null;
+  const photo = (project as { wall?: { photo?: unknown } }).wall?.photo;
+  return `Open the project from this link? It replaces the project you have open. (Undo brings yours back.)${photo ? ' The photo of the wall stayed behind: links don’t carry photos.' : ''}`;
+}
+
 /** The project in a URL hash, or null when there isn't one. Throws when the link is damaged. */
 export function projectFromHash(hash: string): unknown {
   const h = hash.replace(/^#/, '');
