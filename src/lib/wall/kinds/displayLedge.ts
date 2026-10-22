@@ -128,6 +128,14 @@ registerAttachment<DisplayLedgeOptions>({
     if (o.mode === 'studs') return `${o.system === 'lego' ? 'LEGO' : 'Duplo'} stud ledge ${o.columns} × ${o.rows}${tiers}`;
     return `${NAMES[o.mode]} ${o.mode === 'bases' ? `⌀${+o.base.toFixed(1)} × ${o.columns}` : `${o.columns} wide`}${tiers}`;
   },
+  labelFace(o, l) {
+    // The bottom tier's front, with its lip.
+    const p = ledgePlan(o);
+    const h = p.t + (p.lipT ? o.lip : 0);
+    return h >= 6 ? { x: LEDGE.end, y: 0.6, w: p.w - 2 * LEDGE.end, h: h - 1.2, z: l.depth, normal: 'front' } : null;
+  },
+  // The tiers stand in front of the back up to the top one, and the clips take the strip over it.
+  backPlate: () => null,
   notes: (o, ctx) => leverNotes(ledgePlan(o).depth, ledgeHeight(o, ctx)),
   parts(o): AttachmentPart[] {
     if (o.mode !== 'studs') return [];

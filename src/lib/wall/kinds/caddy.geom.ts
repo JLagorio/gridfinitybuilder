@@ -14,17 +14,13 @@ import { Scope, type Manifold, type Vec2, type Wasm } from '../../geometry/kerne
 import { boxAt } from '../../geometry/shapes';
 import { prismX } from '../mount';
 import { posed, type AttachmentBuilder } from '../build';
-import { CADDY, caddyPlan, type CaddyOptions } from './caddy';
+import { CADDY, CADDY_BUMP, HOOK, caddyPlan, type CaddyOptions } from './caddy';
 
-/**
- * The cleats and hooks, mm: a cleat's width, the hook's bar over it, the
- * clearances (behind the finger, over the cleat's top, each side), a rib's
- * thickness; the caddy's walls and floor, its dividers, the handle's wall and
- * grip; the bumper's height and how close it comes to the caddy.
- */
-export const HOOK = { tooth: 8, bar: 5, back: 0.5, over: 0.5, side: 0.5, rib: 3 } as const;
+export { HOOK };
+
+/** The caddy's walls and floor, its dividers, the handle's wall and grip, mm (the cleats', hooks' and bumper's are caddy.ts's). */
 const BOX = { wall: 2, floor: 2, divider: 2, handle: 4, grip: 12 } as const;
-const BUMP = { h: 12, gap: 0.5 } as const;
+const BUMP = CADDY_BUMP;
 
 /** Points in (z, y) to prismX's (d, y). */
 const zy = (pts: Vec2[]): Vec2[] => pts.map(([z, y]) => [-z, y]);

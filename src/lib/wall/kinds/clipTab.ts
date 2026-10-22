@@ -62,5 +62,12 @@ registerAttachment<ClipTabOptions>({
     return { w: p.W, h: p.H, depth: p.D, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => (o.count > 1 ? `Clip tabs ${o.count} × ${Math.round(o.width)} mm` : `Clip tab ${Math.round(o.width)} mm`),
+  backPlate(o, l) {
+    // Beside the tongues, and over them.
+    const P = Math.max(o.pitch, o.width + 4);
+    const xs = [0, ...Array.from({ length: o.count }, (_, k) => l.w / 2 + (k - (o.count - 1) / 2) * P).flatMap((x) => [x - o.width / 2, x + o.width / 2]), l.w];
+    const plate = (x0: number, x1: number, y0: number) => ({ x0, x1, y0, y1: l.h, z: TAB.back });
+    return [...Array.from({ length: xs.length / 2 }, (_, k) => plate(xs[2 * k], xs[2 * k + 1], 0)), plate(0, l.w, TAB.foot + o.length)];
+  },
   notes: (o) => (o.bump > o.gap - 0.8 ? [`The bump is cut to ${Math.max(0, Math.round((o.gap - 0.8) * 10) / 10)} mm, to leave the clip 0.8 mm past it.`] : []),
 });

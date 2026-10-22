@@ -70,6 +70,14 @@ registerAttachment<ToolDockOptions>({
     return { w, h, depth: o.reach, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Drill dock${o.count > 1 ? `, ${o.count} tools` : ''}, battery ${o.battery}`,
+  backPlate(o, l) {
+    // Over the fork's tips (its top rises toward them) and the fillet, between the gussets at the ends and between the tools.
+    const T = TOOL_DOCK;
+    const y0 = Math.max(T.ledge + o.reach * Math.tan((o.tilt * Math.PI) / 180), T.ledge + 4);
+    const x0 = (l.w - o.count * o.pitch) / 2;
+    const xs = [0, ...Array.from({ length: o.count - 1 }, (_, i) => x0 + (i + 1) * o.pitch - T.gusset / 2), l.w - T.gusset];
+    return xs.slice(1).map((x, i) => ({ x0: xs[i] + T.gusset, x1: x, y0, y1: l.h, z: T.back }));
+  },
   notes(o, ctx) {
     const out = leverNotes(o.reach, toolDockHeight(o, ctx));
     if (o.gap < 45) out.push('Under 45 mm most drill handles won’t drop in: measure yours just under the head.');

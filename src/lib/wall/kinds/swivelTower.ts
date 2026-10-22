@@ -102,6 +102,11 @@ registerAttachment<SwivelTowerOptions>({
     return { w: p.w, h, depth: p.za + p.ra, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Swivel tower, ${o.count} tray${o.count > 1 ? 's' : ''} ${Math.round(o.length)} × ${Math.round(o.width)}`,
+  backPlate(o, l) {
+    // Beside the arms, over the foot along the bottom: swing the trays out to reach it.
+    const p = swivelPlan(o);
+    return { x0: p.xa + p.ra, x1: l.w, y0: SWIVEL.arm, y1: l.h, z: SWIVEL.back };
+  },
   notes(o) {
     const p = swivelPlan(o);
     const out = leverNotes(p.za + p.b, p.h);

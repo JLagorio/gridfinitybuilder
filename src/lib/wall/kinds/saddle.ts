@@ -166,6 +166,18 @@ registerAttachment<SaddleOptions>({
     o.mode === 'yoke'
       ? `${o.heavy ? 'Guitar' : 'Yoke'} hanger, ${Math.round(o.gap)} mm gap`
       : `Headphone hanger${o.count > 1 ? ` × ${o.count}` : ` ${Math.round(o.width)} mm`}`,
+  backPlate(o, l) {
+    const B = SADDLE.back;
+    // A yoke: between the prongs (a guitar's neck hangs there: screw it on first).
+    if (o.mode === 'yoke') return { x0: o.prong, x1: l.w - o.prong, y0: 0, y1: l.h, z: B };
+    // A saddle: under the arm's brace and its cable cleat, over the shelf (the arm and its lip take the rest).
+    const r = saddleRun(o);
+    const yA = l.h - Math.max(o.lip, r.rh) - o.arm - r.sag;
+    const brace = Math.min(30, 0.4 * (r.D - B));
+    const shelf = Math.max(o.shelf, B + 10);
+    const y0 = o.shelf > 0 ? SADDLE.floor + Math.max(SADDLE.shelfLip, Math.min(12, shelf - B - 4)) : 0;
+    return { x0: 0, x1: l.w, y0, y1: yA - Math.max(brace + 0.5, o.cleat ? SADDLE.cleat : 0), z: B };
+  },
   notes(o, ctx) {
     if (o.mode === 'yoke') {
       const y = yokeShape(o, ctx);

@@ -18,7 +18,7 @@
  * through it near the clips, so it can be bolted through as well.
  */
 import { backMounts, minHeight } from '../mount';
-import { bool, int, num, obj, pick, registerAttachment, type AttachmentPart, type MountCtx } from '../registry';
+import { bool, int, num, obj, pick, registerAttachment, type AttachmentPart, type BackPlate, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
 
 export interface BatteryDockOptions {
@@ -101,6 +101,15 @@ export function railSection(o: BatteryDockOptions, c = o.clearance) {
   return { channel, room, gap: o.spacing + 2 * c, rail, width: channel + 2 * BATTERY.wall, front: BATTERY.back + room + rail };
 }
 
+/** A bay's width, all the bays' (with a pocket's walls), and how much of a pack a pocket covers. */
+function dockBays(o: BatteryDockOptions) {
+  const c = o.clearance;
+  const B = BATTERY;
+  const body = o.mode === 'body';
+  const bay = body ? o.packW + 2 * c : Math.max(o.packW + B.gap, o.mode === 'rail' ? railSection(o).width + B.gap : o.stemW + 2 * c + 2 * B.edge);
+  return { bay, bays: body ? o.count * bay + (o.count + 1) * B.side : o.count * bay, cover: body ? Math.min(o.packL, Math.max(40, 0.6 * o.packL)) : 0 };
+}
+
 /**
  * A bay's width, where the first starts, the part's width (the bays, or two clip columns a bay: two lattice
  * steps apart, and room for the outer clips' barbs), height and depth out from the board; a pocket's height.
@@ -109,11 +118,9 @@ export function dockSize(o: BatteryDockOptions, ctx: MountCtx) {
   const c = o.clearance;
   const B = BATTERY;
   const body = o.mode === 'body';
-  const bay = body ? o.packW + 2 * c : Math.max(o.packW + B.gap, o.mode === 'rail' ? railSection(o).width + B.gap : o.stemW + 2 * c + 2 * B.edge);
-  const bays = body ? o.count * bay + (o.count + 1) * B.side : o.count * bay;
+  const { bay, bays, cover } = dockBays(o);
   const w = Math.max(bays, (2 * o.count - 1) * 2 * ctx.pitch + 10.5);
   const x0 = (w - bays) / 2;
-  const cover = body ? Math.min(o.packL, Math.max(40, 0.6 * o.packL)) : 0;
   const h = body ? B.floor + cover : o.mode === 'stem' ? 60 : B.stop + o.length;
   const depth = body
     ? B.back + o.packD + 2 * c + B.side
@@ -156,6 +163,43 @@ registerAttachment<BatteryDockOptions>({
     return { w: z.w, h: z.h, depth: z.depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `${NAMES[o.mode]}${o.count > 1 ? `, ${o.count} bays` : ''}`,
+  labelFace(o, l) {
+    // A pocket's front lip, or the stem ledge's front (a slide rail's stop is too low for one).
+    if (o.mode === 'rail') return null;
+    const h = o.mode === 'body' ? BATTERY.floor + Math.min(dockBays(o).cover, BATTERY.lip) : BATTERY.stemLedge;
+    return { x: 2, y: 0.6, w: l.w - 4, h: h - 1.2, z: l.depth, normal: 'front' };
+  },
+  backPlate(o, l) {
+    const B = BATTERY;
+    const { bay, bays, cover } = dockBays(o);
+    const x0 = (l.w - bays) / 2;
+    const plate = (xa: number, xb: number, ya: number, yb = l.h) => ({ x0: xa, x1: xb, y0: ya, y1: yb, z: B.back });
+    if (o.mode === 'body') {
+      // In each pocket over its front lip (a screwdriver reaches in over it), and over the block where the back stands above it.
+      const lip = B.floor + Math.min(cover, B.lip);
+      const pockets = Array.from({ length: o.count }, (_, k) => x0 + B.side + k * (bay + B.side));
+      return [...pockets.map((x) => plate(x, x + bay, lip)), plate(0, l.w, B.floor + cover)];
+    }
+    if (o.mode === 'stem') {
+      // Over the ledge, between the gussets at the ends and between the bays.
+      const xs = [0, ...Array.from({ length: o.count - 1 }, (_, k) => x0 + (k + 1) * bay - 1.5), l.w - 3];
+      return xs.slice(1).map((x, k) => plate(xs[k] + 3, x, B.stemLedge));
+    }
+    // Above the stop: between the rails (round the latch's recess, where the deck is thinner) and between the receivers.
+    const r = railSection(o);
+    const hw = Math.min(B.latchW, r.gap - 4) / 2;
+    const out: BackPlate[] = [];
+    for (let k = 0; k < o.count; k++) {
+      const cx = x0 + (k + 0.5) * bay;
+      const [g0, g1] = [cx - r.gap / 2, cx + r.gap / 2];
+      const ya = Math.min(l.h, B.stop + o.latchAt - B.latchL / 2);
+      if (o.latch === 'recess') out.push(plate(g0, g1, B.stop, ya), plate(g0, g1, ya + B.latchL), plate(g0, cx - hw, B.stop), plate(cx + hw, g1, B.stop));
+      else out.push(plate(g0, g1, B.stop));
+      out.push(plate(k ? cx - bay + r.width / 2 : 0, cx - r.width / 2, B.stop));
+    }
+    out.push(plate(x0 + (o.count - 0.5) * bay + r.width / 2, l.w, B.stop));
+    return out;
+  },
   notes(o, ctx) {
     const z = dockSize(o, ctx);
     const out = leverNotes(z.depth, z.h);

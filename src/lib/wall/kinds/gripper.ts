@@ -91,6 +91,19 @@ registerAttachment<GripperOptions>({
     return { w: g.w, h: g.h, depth: g.depth, anchor: m.anchor, mounts: m.mounts, pose: side ? 'side' : 'upright' };
   },
   summary: (o) => `${o.count > 1 ? `${o.count} grippers` : 'Gripper'} ⌀${Math.round(o.diameter * 10) / 10}`,
+  backPlate(o, l) {
+    // Beside each C (and over them, upright; past their ends, on its side).
+    const R = o.diameter / 2 + GRIP.fit + o.arm;
+    const P = Math.max(o.pitch, 2 * R + 2);
+    const side = o.axis === 'horizontal';
+    const span = side ? l.h : l.w;
+    const c0 = (span - ((o.count - 1) * P + 2 * R)) / 2 + R;
+    const e = [0, ...Array.from({ length: o.count }, (_, k) => c0 + k * P).flatMap((c) => [c - R, c + R]), span];
+    const gaps = Array.from({ length: e.length / 2 }, (_, k) => [e[2 * k], e[2 * k + 1]]);
+    const z = GRIP.back;
+    if (side) return [...gaps.map(([y0, y1]) => ({ x0: 0, x1: l.w, y0, y1, z })), { x0: o.length, x1: l.w, y0: 0, y1: l.h, z }];
+    return [...gaps.map(([x0, x1]) => ({ x0, x1, y0: 0, y1: l.h, z })), { x0: 0, x1: l.w, y0: o.length, y1: l.h, z }];
+  },
   notes(o, ctx) {
     const g = gripGeometry(o, ctx);
     const out = leverNotes(g.depth, g.h);

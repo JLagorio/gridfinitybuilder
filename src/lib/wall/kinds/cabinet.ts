@@ -105,6 +105,14 @@ registerAttachment<CabinetOptions>({
   },
   summary: (o) =>
     `Cabinet ${Math.round(o.width)} × ${Math.round(o.depth)} × ${Math.round(o.height)}${o.shelves ? `, ${o.shelves} shel${o.shelves > 1 ? 'ves' : 'f'}` : ''}`,
+  backPlate(o, l) {
+    // With the door open: between the shelves' ledges (clear of the hinge), over the floor (and the magnet's block),
+    // under the top plate's rail. Lift the shelves out first.
+    const p = cabPlan(o);
+    const [a, b] = [p.x0 + CAB.ledge, l.w - o.wall - CAB.ledge];
+    const [x0, x1] = o.door === 'right' ? [l.w - b, l.w - a] : [a, b];
+    return { x0, x1, y0: LID.floor + (o.magnets ? 8 : 0), y1: p.hinge, z: LID.back };
+  },
   notes(o) {
     const out = leverNotes(o.depth, o.height);
     if (o.shelves && cabPlan(o).gap < 20) out.push('Shelves under 20 mm apart are hard to reach between.');

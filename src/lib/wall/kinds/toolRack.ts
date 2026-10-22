@@ -202,7 +202,14 @@ registerAttachment<ToolRackOptions>({
     const t = toolLayout(o).t;
     return o.mode === 'wrenches' ? null : { x: 2, y: 0.8, w: l.w - 4, h: t - 1.6, z: l.depth, normal: 'front' };
   },
-  backPlate: (o, l) => ({ x0: TOOL.end + 0.5, x1: l.w - TOOL.end - 0.5, y0: toolLayout(o).t + 3.5, y1: l.h, z: TOOL.back }),
+  // Over the ledge's fillet (and over the socket posts standing on it), between the end gussets.
+  backPlate: (o, l) => ({
+    x0: TOOL.end + 0.5,
+    x1: l.w - TOOL.end - 0.5,
+    y0: toolLayout(o).t + Math.max(3.5, o.mode === 'sockets' ? DRIVES[o.drive][1] + 0.5 : 0),
+    y1: l.h,
+    z: TOOL.back,
+  }),
   notes(o, ctx) {
     const l = toolLayout(o);
     const out = leverNotes(l.d, toolRackHeight(o, ctx));

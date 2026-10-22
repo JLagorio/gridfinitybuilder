@@ -47,5 +47,7 @@ registerAttachment<PegboardBridgeOptions>({
     return { w, h, depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `1″ pegboard ${o.columns} × ${o.rows}`,
+  // Its pegboard face covers the whole back.
+  backPlate: () => null,
   notes: (o) => (o.cavity < 6 ? ['Most hooks’ tails need about 6 mm behind the face: make the cavity deeper.'] : []),
 });

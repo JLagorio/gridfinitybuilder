@@ -84,6 +84,9 @@ export const SPOOL = {
   bw: 7,
 } as const;
 
+/** The teeth along the guard's top: pitch and height, mm. */
+export const SPOOL_TEETH = { p: 3, h: 1.5 } as const;
+
 /** How far below its axis a printed axle is cut flat to lie on the bed, as a share of its radius. */
 export const SPOOL_FLAT = 0.6;
 
@@ -171,6 +174,23 @@ registerAttachment<SpoolRackOptions>({
     return { w: g.w, h, depth: g.reach, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => (o.mode === 'pegs' ? `Thread rack, ${o.count * o.rows} pegs` : `Spool rack, ${o.count} × ⌀${Math.round(o.diameter)}`),
+  labelFace(o, l) {
+    // The guard (under its feed holes).
+    if (o.mode === 'pegs' || !o.guard) return null;
+    const g = spoolPlan(o);
+    const h = Math.min(12, (o.eyelet ? g.yc - o.eyelet / 2 : g.hg) - 2);
+    return h >= 5 ? { x: 2, y: 1, w: l.w - 4, h, z: g.reach, normal: 'front' } : null;
+  },
+  backPlate(o, l) {
+    // Pegs: over them, between the end gussets. An axle: between the arms, over the guard (and its teeth); the spools
+    // lift out with the axle.
+    if (o.mode === 'pegs') {
+      const g = pegPlan(o);
+      return { x0: 3, x1: l.w - 3, y0: 3 + g.h, y1: l.h, z: SPOOL.back };
+    }
+    const g = spoolPlan(o);
+    return { x0: g.arm, x1: l.w - g.arm, y0: o.guard ? g.hg + (o.teeth ? SPOOL_TEETH.h : 0) : 0, y1: l.h, z: SPOOL.back };
+  },
   notes(o, ctx) {
     if (o.mode === 'pegs') return pegPlan(o).r < 2 ? ['Pegs under 4 mm thick snap easily: print them in PETG, or with more walls.'] : [];
     const g = spoolPlan(o);

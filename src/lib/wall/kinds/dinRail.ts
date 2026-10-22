@@ -15,8 +15,8 @@
  * pegboard hook at the left of the top row holds it on, studs in the free
  * slots further along keep it flat on the board.
  */
-import { backMounts, minHeight } from '../mount';
-import { bool, num, obj, pick, registerAttachment } from '../registry';
+import { backMounts, minHeight, mountBox } from '../mount';
+import { bool, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
 import { addStuds } from './grid';
 
 export interface DinRailOptions {
@@ -36,8 +36,16 @@ export const DIN_DEFAULTS: DinRailOptions = { length: 100, depth: '7.5', stops: 
  */
 export const DIN = { width: 35, hat: 27, wall: 2, flange: 1.5, plate: 4, stop: 6, ramp: 8, stopOut: 8 } as const;
 
-/** The plate's height: room for the rail and a margin, and for the hook and a stud below it. */
-export const dinHeight = (ctx: Parameters<typeof minHeight>[0]) => Math.max(DIN.width + 16, minHeight(ctx, 'hook') + 2 * ctx.pitch);
+/**
+ * The plate's height: room for the rail and a margin, and for the hook and a stud below it; its middle (the rail's)
+ * on a row of slots, so a bolt can go through the plate between the rail's walls, as a steel rail is screwed on.
+ */
+export function dinHeight(ctx: MountCtx): number {
+  const least = Math.max(DIN.width + 16, minHeight(ctx, 'hook') + 2 * ctx.pitch);
+  // The hook's slot is `over` above the plate's top, a row of slots every lattice step below it: h / 2 = j steps − over.
+  const over = -mountBox('hook', [0, 0], ctx).y1;
+  return 2 * (Math.ceil((least / 2 + over) / ctx.pitch - 1e-9) * ctx.pitch - over);
+}
 
 registerAttachment<DinRailOptions>({
   type: 'dinRail',
@@ -54,5 +62,15 @@ registerAttachment<DinRailOptions>({
     return { w: o.length, h, depth: DIN.plate + +o.depth + (o.stops ? DIN.stopOut : 0), anchor: m.anchor, mounts: m.mounts, pose: 'side' };
   },
   summary: (o) => `DIN rail ${Math.round(o.length)} mm${o.depth === '15' ? ', 15 deep' : ''}`,
+  backPlate(_o, l) {
+    // Between the rail's walls (a module covers it: screw it on first), and above and below the rail.
+    const yc = l.h / 2;
+    const [a, b] = [DIN.hat / 2 - DIN.wall, DIN.width / 2];
+    return [
+      { x0: 0, x1: l.w, y0: yc - a, y1: yc + a, z: DIN.plate },
+      { x0: 0, x1: l.w, y0: 0, y1: yc - b, z: DIN.plate },
+      { x0: 0, x1: l.w, y0: yc + b, y1: l.h, z: DIN.plate },
+    ];
+  },
   notes: (o) => (o.length > 200 ? [`It prints standing on its end, ${Math.round(o.length)} mm tall: check your printer takes it.`] : []),
 });

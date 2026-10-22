@@ -141,6 +141,32 @@ registerAttachment<CellDispenserOptions>({
     const what = name || (block ? `${o.length} × ${o.diameter} × ${o.thick}` : `⌀${o.diameter} × ${size}`);
     return `${what} dispenser, ${o.columns} × ${o.capacity}`;
   },
+  labelFace(o, l) {
+    // On the front wall at the top: across the chutes, or with windows down them, beside the first one's.
+    const p = cellPlan(o);
+    const H = l.h;
+    const win = Math.min(o.window, 0.5 * p.a);
+    const coin = o.shape === 'coin';
+    const y1 = H - 3 - win / 2;
+    const low = coin ? p.gate + CELL.bar : p.gate + (p.across - win) / 2;
+    const windows = win > 0 && (coin ? y1 >= low + 2 : y1 > low + 1);
+    const y0 = windows ? low : coin ? p.gate + CELL.bar : p.gate + p.across / 2;
+    const top = windows ? y1 : H;
+    const h = Math.min(12, top - y0 - 2);
+    const w = windows ? CELL.wall + (p.across - win) / 2 - 2 : p.chutes - 2;
+    const zt = p.zf + CELL.wall;
+    return h >= 5 && w >= 12 ? { x: p.x0 + 1, y: top - 1 - h, w, h, z: zt, normal: 'front' } : null;
+  },
+  backPlate(o, l) {
+    // Beside the chutes, when it's wider than they are; their front wall is in front of the rest.
+    const p = cellPlan(o);
+    return p.x0 >= 9
+      ? [
+          { x0: 0, x1: p.x0, y0: 0, y1: l.h, z: CELL.back },
+          { x0: p.x0 + p.chutes, x1: l.w, y0: 0, y1: l.h, z: CELL.back },
+        ]
+      : null;
+  },
   notes(o, ctx) {
     const h = cellHeight(o, ctx);
     const out = leverNotes(cellPlan(o).D, h);

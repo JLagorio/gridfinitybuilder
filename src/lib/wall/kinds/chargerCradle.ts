@@ -31,6 +31,9 @@ export const CHARGER_DEFAULTS: ChargerCradleOptions = { width: 145, depth: 115, 
 /** Back plate, floor, side and front walls, clearance each side, the cord's slot (width, length), mm. */
 export const CHARGER = { back: 4, floor: 4, side: 3, front: 3, fit: 1, cord: 14, cordL: 22 } as const;
 
+/** The front lip's height above the floor (no taller than the charger). */
+const chargerLip = (o: ChargerCradleOptions) => Math.min(o.lip, o.stand === 'flat' ? o.height : o.depth);
+
 /** The pocket: across x0..x1, out z0..z1, how tall the charger stands in it, the lip; the part's size. */
 export function chargerPocket(o: ChargerCradleOptions, ctx: MountCtx) {
   const c = CHARGER;
@@ -38,7 +41,7 @@ export function chargerPocket(o: ChargerCradleOptions, ctx: MountCtx) {
   const tall = o.stand === 'flat' ? o.height : o.depth;
   const x1 = c.side + o.width + 2 * c.fit;
   const z1 = c.back + out + 2 * c.fit;
-  const lip = Math.min(o.lip, tall);
+  const lip = chargerLip(o);
   const h = Math.max(o.back, minHeight(ctx), c.floor + lip);
   return { x0: c.side, x1, z0: c.back, z1, tall, lip, w: x1 + c.side, d: z1 + c.front, h };
 }
@@ -65,6 +68,15 @@ registerAttachment<ChargerCradleOptions>({
     return { w: p.w, h: p.h, depth: p.d, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Charger cradle ${Math.round(o.width)} × ${Math.round(o.depth)}${o.stand === 'upright' ? ', on its end' : ''}`,
+  labelFace(o, l) {
+    // The front lip.
+    const lip = CHARGER.floor + chargerLip(o);
+    return { x: CHARGER.side + 1, y: 0.6, w: l.w - 2 * CHARGER.side - 2, h: lip - 1.2, z: l.depth, normal: 'front' };
+  },
+  backPlate(o, l) {
+    // Over the front lip (a screwdriver reaches in over it), between the side walls.
+    return { x0: CHARGER.side, x1: l.w - CHARGER.side, y0: CHARGER.floor + chargerLip(o), y1: l.h, z: CHARGER.back };
+  },
   notes(o, ctx) {
     const p = chargerPocket(o, ctx);
     return leverNotes(p.d, p.h);

@@ -126,7 +126,11 @@ registerAttachment<PlateOptions>({
     if (/vesa/.test(o.pattern)) out.push('For a monitor: keep it to 2 kg, and screw the board to the wall studs.');
     return out;
   },
-  labelFace: (o, l) => (o.tape || o.pattern !== 'grid' ? null : { x: 3, y: 1.5, w: l.w - 6, h: Math.min(8, l.h / 4), z: o.thick, normal: 'front' }),
+  labelFace(o, l) {
+    // Along the bottom, clear of the magnets' pockets in the front corners.
+    const x = o.magnets ? 13 : 3;
+    return o.tape || o.pattern !== 'grid' || l.w - 2 * x < 12 ? null : { x, y: 1.5, w: l.w - 2 * x, h: Math.min(8, l.h / 4), z: o.thick, normal: 'front' };
+  },
   backPlate: (o, l) => ({ x0: 0, x1: l.w, y0: 0, y1: l.h, z: o.thick }),
   hardware(o) {
     const out: AttachmentHardware[] = [];

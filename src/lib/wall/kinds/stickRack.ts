@@ -8,7 +8,7 @@
  * bristles down by the swell of the handle, and dry).
  */
 import { bool, int, num, obj, pick, registerAttachment, str } from '../registry';
-import { gridRows, rackLayout, rackNotes, type RackSpec } from './bottleRack';
+import { gridRows, rackBack, rackLayout, rackNotes, type RackSpec } from './bottleRack';
 import { parseSizes } from './toolRack';
 
 export interface StickRackOptions {
@@ -95,6 +95,7 @@ registerAttachment<StickRackOptions>({
     };
   },
   layout: (o, ctx) => rackLayout(stickSpec(o), ctx),
+  backPlate: (o, l) => rackBack(stickSpec(o), l),
   summary(o) {
     const n = stickSpec(o).rows.reduce((t, r) => t + r.length, 0);
     return o.mode === 'list' ? `Stick rack, ${n} hole${n === 1 ? '' : 's'}` : `Stick rack, ${n} × ⌀${Math.round(o.diameter * 10) / 10}`;

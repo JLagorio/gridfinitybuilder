@@ -14,11 +14,10 @@ import { boxAt, cylinderAt } from '../../geometry/shapes';
 import { prismX, prismZ } from '../mount';
 import type { AttachmentBuilder } from '../build';
 import { cornerGusset } from './shelf.geom';
-import { SPOOL, SPOOL_FLAT, pegPlan, spoolPlan, type SpoolRackOptions } from './spoolRack';
+import { SPOOL, SPOOL_FLAT, SPOOL_TEETH, pegPlan, spoolPlan, type SpoolRackOptions } from './spoolRack';
 
 const SEGS = 48;
-/** Teeth: pitch and height, mm. */
-const TOOTH = { p: 3, h: 1.5 } as const;
+const TOOTH = SPOOL_TEETH;
 
 /** (z, y) points to prismX's (d, y). */
 const zy = (pts: Vec2[]): Vec2[] => pts.map(([z, y]) => [-z, y]);
