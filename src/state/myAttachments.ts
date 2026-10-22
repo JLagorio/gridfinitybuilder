@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { history, projectOf, useStore } from './store';
+import { oneStep } from './oneStep';
 import { planJob } from '../lib/project';
 import { newId } from '../lib/bins';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
@@ -308,29 +309,6 @@ export function activeBoard(): { board: WallBoard; placed: WallPlacement[] } | n
   const s = useStore.getState();
   if (s.drawer.enclosure !== 'skadis') return null;
   return planJob(projectOf(s)).drawers[0]?.enclosure?.wall ?? null;
-}
-
-/**
- * What `fn` changes in the project, as one undo step however long it takes (the history groups changes made close
- * together, and planning a new board can take a while on a slow machine): made unrecorded, then put back and made
- * again in one go.
- */
-function oneStep<T>(fn: () => T): T {
-  const before = useStore.getState();
-  let after = before;
-  let out!: T;
-  history.silently(() => {
-    try {
-      out = fn();
-    } finally {
-      after = useStore.getState();
-      useStore.setState(before, true);
-    }
-  });
-  history.checkpoint();
-  if (after !== before) useStore.setState(after, true);
-  history.checkpoint();
-  return out;
 }
 
 /** Whether these entries all go on free spots of the active board, one after another. */
