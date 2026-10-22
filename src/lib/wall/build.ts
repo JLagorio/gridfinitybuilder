@@ -61,6 +61,7 @@ import { lidBoxBuilder } from './kinds/lidBox.geom';
 import { cabinetBuilder } from './kinds/cabinet.geom';
 import { swivelTowerBuilder } from './kinds/swivelTower.geom';
 import { foldHookBuilder } from './kinds/foldHook.geom';
+import { modelBuilder } from './kinds/model.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -128,6 +129,7 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   cabinet: cabinetBuilder as AttachmentBuilder<never>,
   swivelTower: swivelTowerBuilder as AttachmentBuilder<never>,
   foldHook: foldHookBuilder as AttachmentBuilder<never>,
+  model: modelBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {

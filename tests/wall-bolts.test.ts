@@ -176,6 +176,7 @@ const NO_BOLT = [
   'stickRack',
   'lidBox',
   'planter',
+  'model',
 ];
 
 /**
@@ -369,6 +370,7 @@ const NO_LABEL = [
   'cabinet',
   'swivelTower',
   'foldHook',
+  'model',
 ];
 
 describe('labels', () => {

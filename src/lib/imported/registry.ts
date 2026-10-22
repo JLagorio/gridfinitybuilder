@@ -6,7 +6,8 @@ import { decimate, placeMesh } from './meshOps';
  * page (filled from IndexedDB or a project file, imported/meshStore.ts) and
  * in the geometry worker (sent there by worker/client.ts before any request
  * that needs one). Each mesh is welded and centred: x = y = 0 at the middle
- * of its footprint, its bottom at z = 0.
+ * of its footprint, its bottom at z = 0. Imported bins use them, and so do
+ * models hung on a board (wall/kinds/model.ts, by their options' `mesh`).
  */
 
 const meshes = new Map<string, MeshData>();
@@ -29,6 +30,12 @@ export function dropImported(hash: string): void {
 }
 
 export const importedMesh = (hash: string): MeshData | undefined => meshes.get(hash);
+
+/** The imported mesh an attachment's options name, by hash: an imported model's `mesh` (wall/kinds/model.ts). */
+export function optsMeshHash(opts: unknown): string | undefined {
+  const m = (opts as { mesh?: { hash?: unknown } | null } | null)?.mesh;
+  return typeof m?.hash === 'string' ? m.hash : undefined;
+}
 export const hasImported = (hash: string): boolean => meshes.has(hash);
 export const importedHashes = (): string[] => [...meshes.keys()];
 

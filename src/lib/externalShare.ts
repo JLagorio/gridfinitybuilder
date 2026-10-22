@@ -1,11 +1,13 @@
 /**
  * Share links and bins from elsewhere (external.ts): a link can't hold a
  * mesh, so an imported bin goes as a placeholder box of its footprint and
- * height. Loaded when a link is copied.
+ * height, and a model hung on a board (wall/kinds/model.ts) as a box of its
+ * size, its clips where they were. Loaded when a link is copied.
  */
 import { lipRise } from './geometry/variants';
 import { externalOpts, meshSize } from './external';
 import type { PlacedBin } from './project';
+import type { PlacedAttachment } from './wall/registry';
 
 /** The bin as a share link carries it: a mesh can't go in a link, so it's a placeholder box of the same footprint and height. */
 export function shareableBin(b: PlacedBin): PlacedBin {
@@ -17,20 +19,38 @@ export function shareableBin(b: PlacedBin): PlacedBin {
   return { ...b, external: rest, opts: externalOpts({ unitsX: b.opts.unitsX, unitsY: b.opts.unitsY, heightUnits: units, stackable: b.opts.lip }) };
 }
 
-type ProjectBins = { bins?: PlacedBin[]; drawers?: { bins: PlacedBin[] }[] };
+type Board = { attachments?: PlacedAttachment[] };
+type ProjectBins = { bins?: PlacedBin[]; drawer?: Board; drawers?: { bins: PlacedBin[]; drawer?: Board }[] };
+
+/** An imported model on a board (its options' `mesh`) as a link carries it: its file name, size and flat faces, not its mesh's hash, so a box of its size stands in. */
+export function shareableAttachment(a: PlacedAttachment): PlacedAttachment {
+  const m = a.opts.mesh as { hash?: string } | null | undefined;
+  if (!m || typeof m !== 'object' || !m.hash) return a;
+  const { hash: _, ...rest } = m;
+  return { ...a, opts: { ...a.opts, mesh: rest } };
+}
 
 /**
- * A project file as a share link carries it (shareableBin): imported meshes
- * become boxes of their footprint and height. `dropped`: how many meshes
- * that left behind (each bin counted).
+ * A project file as a share link carries it (shareableBin, shareableAttachment):
+ * imported meshes become boxes of their footprint and height, and models on
+ * boards boxes of their size. `dropped`: how many bins' meshes that left
+ * behind, `models` how many models' (each counted).
  */
-export function shareableProject<T extends ProjectBins>(file: T): { file: T; dropped: number } {
+export function shareableProject<T extends ProjectBins>(file: T): { file: T; dropped: number; models: number } {
   const strip = (bins: PlacedBin[]) => bins.map(shareableBin);
   const meshes = (bins: PlacedBin[] = []) => bins.filter((b) => b.external?.mesh).length;
-  // The top-level bins are the active drawer's again (store.ts projectFile): count the drawers'.
+  const board = <B extends Board | undefined>(d: B): B => (d?.attachments ? { ...d, attachments: d.attachments.map(shareableAttachment) } : d);
+  const models = (d?: Board) => (d?.attachments ?? []).filter((a) => shareableAttachment(a) !== a).length;
+  // The top-level bins and drawer are the active drawer's again (store.ts projectFile): count the drawers'.
   const dropped = file.drawers ? file.drawers.reduce((t, d) => t + meshes(d.bins), 0) : meshes(file.bins);
   return {
-    file: { ...file, ...(file.bins ? { bins: strip(file.bins) } : {}), ...(file.drawers ? { drawers: file.drawers.map((d) => ({ ...d, bins: strip(d.bins) })) } : {}) },
+    file: {
+      ...file,
+      ...(file.bins ? { bins: strip(file.bins) } : {}),
+      ...(file.drawer ? { drawer: board(file.drawer) } : {}),
+      ...(file.drawers ? { drawers: file.drawers.map((d) => ({ ...d, bins: strip(d.bins), ...(d.drawer ? { drawer: board(d.drawer) } : {}) })) } : {}),
+    },
     dropped,
+    models: file.drawers ? file.drawers.reduce((t, d) => t + models(d.drawer), 0) : models(file.drawer),
   };
 }

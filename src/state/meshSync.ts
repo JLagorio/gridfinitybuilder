@@ -1,4 +1,4 @@
-import { cleanupMeshes, syncMeshes } from '../lib/imported/meshStore';
+import { attachmentMeshHashes, cleanupMeshes, syncMeshes } from '../lib/imported/meshStore';
 import type { PlacedBin } from '../lib/project';
 import { allDrawers, useStore } from './store';
 
@@ -15,8 +15,11 @@ export function meshHashes(bins: readonly Pick<PlacedBin, 'external'>[]): string
   return [...new Set(bins.flatMap((b) => (b.external?.mesh ? [b.external.mesh.hash] : [])))];
 }
 
-/** Every mesh the project's drawers use. */
-export const projectMeshes = () => meshHashes(allDrawers(useStore.getState()).flatMap((d) => d.bins));
+/** Every mesh the project's drawers use: their imported bins', and their boards' imported models'. */
+export const projectMeshes = () => {
+  const drawers = allDrawers(useStore.getState());
+  return [...new Set([...meshHashes(drawers.flatMap((d) => d.bins)), ...attachmentMeshHashes(drawers.flatMap((d) => d.drawer.attachments ?? []))])];
+};
 
 export function startMeshSync(firstView: Promise<unknown>): void {
   syncMeshes((fn) => useStore.subscribe(fn), projectMeshes);

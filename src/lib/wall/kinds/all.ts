@@ -54,6 +54,7 @@ import './lidBox';
 import './cabinet';
 import './swivelTower';
 import './foldHook';
+import './model';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();
