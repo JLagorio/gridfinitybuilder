@@ -16,6 +16,7 @@ import { MEDIA_DEFAULTS, mediaPlan, type MediaBlockOptions } from '../src/lib/wa
 import { SPOOL, SPOOL_DEFAULTS, pegPlan, spoolPlan, type SpoolRackOptions } from '../src/lib/wall/kinds/spoolRack';
 import { BOX, BOX_DEFAULTS, boxPlan, type BoxSleeveOptions } from '../src/lib/wall/kinds/boxSleeve';
 import { LEAD_DEFAULTS, leadPlan, type LeadHangerOptions } from '../src/lib/wall/kinds/leadHanger';
+import { fitted } from './wallFit';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -570,7 +571,8 @@ describe('on a 560 × 560 board', () => {
       baseplate: DEFAULT_BASEPLATE,
       bins: [],
     };
-    const job = planPrint([d], DEFAULT_SETUP, { baseplate: true, bins: true });
+    // Each where it fits nearest where it is put (planning leaves it where it is put: tests/wallFit.ts).
+    const job = planPrint([fitted(d)], DEFAULT_SETUP, { baseplate: true, bins: true });
     expect(job.warnings).toEqual([]);
     const wall = job.drawers[0].enclosure!.wall!;
     expect(wall.placed.map((p) => p.ok)).toEqual(atts.map(() => true));

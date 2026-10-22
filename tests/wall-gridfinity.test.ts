@@ -345,10 +345,10 @@ describe('Gridfinity on a board', () => {
 
   it('every kind places on a 560 × 560 board, where it is put, without warnings', () => {
     const list = [
-      att('s', 'gridShelf', 60, 500),
+      att('s', 'gridShelf', 40, 480),
       att('p', 'gridPlate', 300, 500),
       att('l', 'gridClip', 100, 300),
-      att('c', 'gridClip', 300, 300, { style: 'cradle', cells: 2, units: 3 }),
+      att('c', 'gridClip', 280, 280, { style: 'cradle', cells: 2, units: 3 }),
       att('t', 'gridShelf', 60, 200, { tilt: '15', cellsX: 2, lip: 10 }),
     ];
     const job = planPrint([board(list)], DEFAULT_SETUP, { baseplate: true, bins: true });

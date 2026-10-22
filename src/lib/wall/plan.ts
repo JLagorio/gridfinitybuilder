@@ -78,6 +78,10 @@ export interface WallPlacement {
   depth: number;
   /** Every mount on a slot of the board. */
   ok: boolean;
+  /** One that isn't ok: the nearest spot (anchor slot) where it would fit, clear of the others when there's one; null: nowhere on this board. */
+  fit?: Vec2 | null;
+  /** How high it takes the board, when its lock keys stand above it. */
+  top?: number;
   /** Its mounts, wall coordinates. */
   mounts: { x: number; y: number; kind: MountKind }[];
   layout: AttachmentLayout;
@@ -330,6 +334,53 @@ export function attachmentLayout(a: Pick<PlacedAttachment, 'type' | 'opts'>, ctx
   return { opts, layout: def.layout(opts, ctx) };
 }
 
+/** A part's front view on the board, wall coordinates. */
+export interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** Whether two front views overlap (by more than half a millimetre). */
+export const overlaps = (p: Box, q: Box) => p.x0 < q.x1 - 0.5 && q.x0 < p.x1 - 0.5 && p.y0 < q.y1 - 0.5 && q.y0 < p.y1 - 0.5;
+
+/** Whether a front view is on the board, off its frame's rim. */
+export const onBoard = (b: Box, board: Pick<WallBoard, 'W' | 'H' | 'rim'>, r = board.rim ?? 0) =>
+  b.x0 > r - 0.5 && b.y0 > r - 0.5 && b.x1 < board.W - r + 0.5 && b.y1 < board.H - r + 0.5;
+
+/**
+ * The nearest slot to a part's anchor where it would fit (its anchor there): on the board and clear of `others` when
+ * there's one, else the nearest where its mounts all find slots; null: nowhere. `box`: its front view where it is.
+ */
+export function nearestFit(
+  board: Pick<WallBoard, 'slots' | 'ctx' | 'W' | 'H' | 'rim'>,
+  keys: ReadonlySet<string>,
+  p: Pick<WallPlacement, 'x' | 'y' | 'layout'>,
+  box: Box,
+  others: readonly Box[],
+): Vec2 | null {
+  let fit: Vec2 | null = null;
+  let clear: Vec2 | null = null;
+  let df = Infinity;
+  let dc = Infinity;
+  for (const s of board.slots) {
+    const dx = s[0] - p.x;
+    const dy = s[1] - p.y;
+    const d = dx * dx + dy * dy;
+    if (d >= dc || !fitsAt(keys, p.layout, board.ctx, s[0], s[1])) continue;
+    if (d < df) [fit, df] = [s, d];
+    const b = { x0: box.x0 + dx, y0: box.y0 + dy, x1: box.x1 + dx, y1: box.y1 + dy };
+    if (onBoard(b, board) && !others.some((q) => overlaps(b, q))) [clear, dc] = [s, d];
+  }
+  return clear ?? fit;
+}
+
+/**
+ * Plans a board's attachments. Each stays on the slot it was put on (its anchor; one saved off the slots, from
+ * before the board changed, goes to the nearest): where its mounts don't all find slots there it isn't ok, shows
+ * red, and `fit` says the nearest spot where it would fit, for the board editor to offer.
+ */
 export function placeAttachments(list: readonly PlacedAttachment[], board: WallBoard): { placed: WallPlacement[]; warnings: string[] } {
   const keys = slotKeys(board.slots);
   const warnings: string[] = [];
@@ -344,13 +395,8 @@ export function placeAttachments(list: readonly PlacedAttachment[], board: WallB
       continue;
     }
     const name = a.name?.trim() || def.summary(l.opts as never);
-    const at = snapAnchor(board.slots, keys, l.layout, board.ctx, a.x, a.y);
-    const ok = !!at;
-    // Planning puts it on the nearest slot where it fits, anywhere: one that doesn't fit, fits nowhere on this board.
-    if (!ok)
-      warnings.push(
-        `${name} doesn't fit anywhere on this board: no spot has slots for all its mounts${board.hex ? ' (each hexagon has slots of its own, so it must fit on one)' : ''}. Make it narrower or shorter.`,
-      );
+    const at = keys.has(keyOf(a.x, a.y)) ? ([a.x, a.y] as Vec2) : nearestSlot(board.slots, a.x, a.y);
+    const ok = !!at && fitsAt(keys, l.layout, board.ctx, at[0], at[1]);
     const [x, y] = at ?? [a.x, a.y];
     const ox = x - l.layout.anchor[0];
     const oy = y - l.layout.anchor[1];
@@ -383,16 +429,31 @@ export function placeAttachments(list: readonly PlacedAttachment[], board: WallB
       opts: l.opts,
       ...(e.extras ? { extras: e.extras } : {}),
       ...(e.lock ? { lock: true } : {}),
+      ...(tops[tops.length - 1] > oy + b.y1 + 0.01 ? { top: r2(tops[tops.length - 1]) } : {}),
     });
   }
+  const boxes = placed.map((p, i) => ({ x0: p.x0, y0: p.y0, x1: p.x1, y1: tops[i] }));
+  // One that doesn't fit where it is: the nearest spot where it would (first in the list, being the thing to fix).
+  const misfits: string[] = [];
+  placed.forEach((p, i) => {
+    if (p.ok) return;
+    p.fit = nearestFit(
+      board,
+      keys,
+      p,
+      boxes[i],
+      boxes.filter((_, j) => j !== i),
+    );
+    misfits.push(
+      p.fit
+        ? `${p.name} doesn't fit where it is: its mounts don't all find slots there. Drag it, or move it to the nearest spot that fits.`
+        : `${p.name} doesn't fit anywhere on this board: no spot has slots for all its mounts${board.hex ? ' (each hexagon has slots of its own, so it must fit on one)' : ''}. Make it narrower or shorter.`,
+    );
+  });
+  warnings.unshift(...misfits);
   // Two in the same place (lock keys included).
-  for (let i = 0; i < placed.length; i++) {
-    for (let j = i + 1; j < placed.length; j++) {
-      const p = placed[i];
-      const q = placed[j];
-      if (p.x0 < q.x1 - 0.5 && q.x0 < p.x1 - 0.5 && p.y0 < tops[j] - 0.5 && q.y0 < tops[i] - 0.5) warnings.push(`${p.name} and ${q.name} overlap.`);
-    }
-  }
+  for (let i = 0; i < placed.length; i++)
+    for (let j = i + 1; j < placed.length; j++) if (overlaps(boxes[i], boxes[j])) warnings.push(`${placed[i].name} and ${placed[j].name} overlap.`);
   // A frame's rim stands proud of the front round the edge.
   const r = board.rim ?? 0;
   placed.forEach((p, i) => {

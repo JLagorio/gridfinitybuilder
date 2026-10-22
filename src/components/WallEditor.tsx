@@ -1,13 +1,30 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import type { Vec2 } from '../lib/geometry/kernel';
 import { attachmentDef } from '../lib/wall';
 import { attachmentUi } from '../lib/wall/ui';
 import '../lib/wall/kinds/all';
 import { partBounds, siteAt } from '../lib/wall/mount';
-import { dragAnchor, nearestSlot, slotKeys, type WallBoard, type WallPlacement } from '../lib/wall/plan';
+import { dragAnchor, nearestSlot, slotKeys, type Box, type WallBoard, type WallPlacement } from '../lib/wall/plan';
+import { bounds, dragGuides, dragGroup, type Move } from '../lib/wall/arrange';
 import { resizeAxes, resized, type ResizeAxis } from '../lib/wall/resize';
-import { useStore, useUnits } from '../state/store';
-import { moveAttachment, removeAttachment, selectAttachment, updateAttachment } from '../state/wall';
+import { attachmentSelection, useStore, useUnits } from '../state/store';
+import {
+  copyAttachments,
+  duplicateAttachments,
+  moveAttachments,
+  moveToFit,
+  pasteAttachments,
+  removeAttachments,
+  selectAllAttachments,
+  selectAttachment,
+  selectAttachments,
+  toggleAttachment,
+  updateAttachment,
+} from '../state/wall';
+import { isMod, isTyping, keyLetter } from './shortcuts';
+import { isTouch, tapSlop } from './touch';
+import { dragMoves } from './wallDrag';
 import './wall.css';
 
 /** A resize in progress: which edge, where it started, the options that size the part, and its left and top edges (they stay put). */
@@ -22,17 +39,52 @@ interface Resize {
 }
 
 /**
- * A Skådis board seen from the front, on its Attachments tab: the tiles, every
- * slot, and the attachments on it. Click one to select it, drag it to move it
- * (it snaps to slots where all its mounts fit; where they don't, it follows
- * the pointer in red), drag the selected one's right or bottom edge to resize
- * it, Delete removes it, the arrow keys move it one slot over.
+ * Parts being dragged: the one pressed (`held`) and the rest of the selection with it, where the press was (board
+ * mm and screen px), and where they're shown once the pointer has moved past a tap. A press with Shift or Ctrl on a
+ * selected part that doesn't move takes it out of the selection (`toggle`); a plain one picks just it.
  */
-export function WallEditor({ board, placed, selected }: { board: WallBoard; placed: WallPlacement[]; selected: string | null }) {
+interface Drag {
+  held: string;
+  ids: string[];
+  start: Vec2;
+  screen: Vec2;
+  slop: number;
+  moves: Move[] | null;
+  additive: boolean;
+  toggle: boolean;
+}
+
+/** A box being dragged out over the board to select what it touches, added to `base` (Shift or Ctrl). */
+interface Marquee {
+  start: Vec2;
+  now: Vec2;
+  screen: Vec2;
+  slop: number;
+  base: string[];
+}
+
+const ARROWS: Record<string, Vec2> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+
+/**
+ * A Skådis board seen from the front, on its Attachments tab: the tiles, every slot, and the attachments on it.
+ * Click one to select it (Shift or Ctrl-click to add it, or take it out; drag over the empty board to select what
+ * the box touches; Ctrl+A for all), drag to move the selection (it snaps to slots, where all its mounts fit if
+ * there's such a spot near; where they don't, it follows the pointer and stays where it's dropped, red), with guides
+ * where its edges line up with another part's and the gaps to its neighbours. Drag a single selected part's right
+ * or bottom edge to resize it. Delete removes the selection, the arrow keys move it one slot over, Ctrl+C / V / D
+ * copy, paste (at the pointer) and duplicate (lib/wall/arrange.ts, state/wall.ts).
+ */
+export function WallEditor({ board, placed }: { board: WallBoard; placed: WallPlacement[] }) {
   const svg = useRef<SVGSVGElement>(null);
   const keys = useMemo(() => slotKeys(board.slots), [board.slots]);
-  const [drag, setDrag] = useState<{ id: string; start: Vec2; from: Vec2; at: Vec2 | null; fits: boolean } | null>(null);
+  // Every selected part on this board, primary first.
+  const picked = useStore(useShallow((s) => attachmentSelection(s.ui)));
+  const sel = useMemo(() => picked.filter((id) => placed.some((p) => p.id === id)), [picked, placed]);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [marquee, setMarquee] = useState<Marquee | null>(null);
   const [resize, setResize] = useState<Resize | null>(null);
+  // The pointer over the board (board mm), for pasting there.
+  const hover = useRef<Vec2 | null>(null);
   // A part being dragged in the 3D view (App.tsx): shown where it's going here too.
   const wallDrag = useStore((s) => s.ui.wallDrag ?? null);
   const { fmt } = useUnits();
@@ -52,12 +104,12 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
     return [p.x, H - p.y];
   };
 
-  /** The selected part's size handles: which options size it (none for a part no option sizes). */
-  const sel = placed.find((p) => p.id === selected) ?? null;
+  /** The selected part's size handles (a single selection): which options size it (none for a part no option sizes). */
+  const single = sel.length === 1 ? (placed.find((p) => p.id === sel[0]) ?? null) : null;
   const axes = useMemo(() => {
-    const def = sel && attachmentDef(sel.type);
-    return def && sel ? resizeAxes(def, attachmentUi(sel.type), sel.opts, board.ctx) : { w: null, h: null };
-  }, [sel, board.ctx]);
+    const def = single && attachmentDef(single.type);
+    return def && single ? resizeAxes(def, attachmentUi(single.type), single.opts, board.ctx) : { w: null, h: null };
+  }, [single, board.ctx]);
 
   /** What a resize would make of a part: its options, front view and mounts, its left and top edges where they were. */
   const resizedView = (p: WallPlacement, r: Resize) => {
@@ -81,9 +133,20 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
 
   const onDown = (e: ReactPointerEvent, p: WallPlacement) => {
     e.stopPropagation();
-    selectAttachment(p.id);
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    setDrag({ id: p.id, start: toBoard(e), from: [p.x, p.y], at: null, fits: p.ok });
+    if (e.button !== 0 || !e.isPrimary) return;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    const had = sel.includes(p.id);
+    // Grabbing a selected part drags the whole selection; Shift or Ctrl adds one to it.
+    const ids = had ? sel : additive ? [p.id, ...sel] : [p.id];
+    if (!had) selectAttachments(ids, p.id);
+    svg.current?.setPointerCapture?.(e.pointerId);
+    setDrag({ held: p.id, ids, start: toBoard(e), screen: [e.clientX, e.clientY], slop: tapSlop(isTouch(e)), moves: null, additive, toggle: additive && had });
+  };
+  const onBoardDown = (e: ReactPointerEvent) => {
+    if (e.button !== 0 || !e.isPrimary) return;
+    svg.current?.setPointerCapture?.(e.pointerId);
+    const at = toBoard(e);
+    setMarquee({ start: at, now: at, screen: [e.clientX, e.clientY], slop: tapSlop(isTouch(e)), base: e.shiftKey || e.ctrlKey || e.metaKey ? sel : [] });
   };
   const onHandle = (e: ReactPointerEvent, p: WallPlacement, edge: Resize['edge']) => {
     e.stopPropagation();
@@ -91,11 +154,16 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
     setResize({ id: p.id, edge, start: toBoard(e), axes, x0: p.x0, y1: p.y1, patch: {} });
   };
   const onMove = (e: ReactPointerEvent) => {
+    const now = toBoard(e);
+    hover.current = now;
+    if (marquee) {
+      setMarquee({ ...marquee, now });
+      return;
+    }
     if (resize) {
       const p = placed.find((q) => q.id === resize.id);
       const def = p && attachmentDef(p.type);
       if (!p || !def) return;
-      const now = toBoard(e);
       const dw = resize.edge === 's' ? 0 : now[0] - resize.start[0];
       // Down the screen is a taller part (its top stays).
       const dh = resize.edge === 'e' ? 0 : resize.start[1] - now[1];
@@ -104,13 +172,30 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
       return;
     }
     if (!drag) return;
-    const p = placed.find((q) => q.id === drag.id);
-    if (!p) return;
-    const now = toBoard(e);
-    const r = dragAnchor(board.slots, keys, p.layout, board.ctx, drag.from[0] + now[0] - drag.start[0], drag.from[1] + now[1] - drag.start[1]);
-    if (r && (r.at[0] !== drag.at?.[0] || r.at[1] !== drag.at?.[1])) setDrag({ ...drag, at: r.at, fits: r.fits });
+    // A press that stays put is a click: nothing moves.
+    if (!drag.moves && Math.hypot(e.clientX - drag.screen[0], e.clientY - drag.screen[1]) <= drag.slop) return;
+    const h = placed.find((q) => q.id === drag.held);
+    if (!h) return;
+    const x = h.x + now[0] - drag.start[0];
+    const y = h.y + now[1] - drag.start[1];
+    const parts = placed.filter((q) => drag.ids.includes(q.id));
+    let moves: Move[] | null;
+    if (parts.length > 1) moves = dragGroup(board, keys, parts, h.id, x, y);
+    else {
+      const r = dragAnchor(board.slots, keys, h.layout, board.ctx, x, y);
+      moves = r && [{ id: h.id, x: r.at[0], y: r.at[1], fits: r.fits }];
+    }
+    if (moves && JSON.stringify(moves) !== JSON.stringify(drag.moves)) setDrag({ ...drag, moves });
   };
-  const onUp = () => {
+  const onUp = (e: ReactPointerEvent) => {
+    if (marquee) {
+      const click = Math.hypot(e.clientX - marquee.screen[0], e.clientY - marquee.screen[1]) <= marquee.slop;
+      // A plain click on the empty board clears the selection.
+      if (!click) selectAttachments([...marquee.base, ...marqueeHits], sel[0] && marquee.base.includes(sel[0]) ? sel[0] : undefined);
+      else if (!marquee.base.length) selectAttachment(null);
+      setMarquee(null);
+      return;
+    }
     if (resize) {
       const p = placed.find((q) => q.id === resize.id);
       if (p && Object.keys(resize.patch).length) {
@@ -123,28 +208,55 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
       setResize(null);
       return;
     }
-    if (drag?.at) moveAttachment(drag.id, drag.at[0], drag.at[1]);
+    if (!drag) return;
+    if (drag.moves) moveAttachments(drag.moves);
+    else if (drag.toggle) toggleAttachment(drag.held);
+    // A click on one of several selected picks just it.
+    else if (!drag.additive && sel.length > 1) selectAttachment(drag.held);
     setDrag(null);
   };
 
-  // Keys: Delete, arrows (one slot along the row or column: two lattice steps).
+  // Keys: Delete, arrows (one slot along the row or column: two lattice steps), Escape, and copy, paste, duplicate, select all.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (!selected || e.defaultPrevented || t.closest('input, textarea, select, [role="combobox"], [contenteditable]')) return;
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        removeAttachment(selected);
+      if (e.defaultPrevented || e.altKey || isTyping(e.target)) return;
+      const k = keyLetter(e);
+      if (isMod(e) && !e.shiftKey) {
+        // Leave copying selected page text to the browser.
+        const text = !!window.getSelection()?.toString();
+        if (k === 'a' && !text) selectAllAttachments();
+        else if ((k === 'c' || k === 'x') && !text && sel.length) {
+          copyAttachments(sel);
+          if (k === 'x') removeAttachments(sel);
+        } else if (k === 'v') pasteAttachments(board, hover.current);
+        else if (k === 'd' && sel.length) duplicateAttachments(sel, board);
+        else return;
         e.preventDefault();
         return;
       }
+      if (!sel.length || isMod(e)) return;
+      if (e.key === 'Escape') {
+        selectAttachment(null);
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        removeAttachments(sel);
+        e.preventDefault();
+        return;
+      }
+      // Sliders, checkboxes and selects keep their own arrow keys.
+      const d = ARROWS[e.key];
+      if (!d || (e.target as HTMLElement | null)?.closest?.('input, select, textarea')) return;
       const step = 2 * board.ctx.pitch;
-      const d: Record<string, Vec2> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
-      const v = d[e.key];
-      const p = placed.find((q) => q.id === selected);
-      if (!v || !p) return;
-      // The slot that far over, whether the part fits there or not (planning moves it to the nearest place it does).
-      const at = nearestSlot(board.slots, p.x + v[0], p.y + v[1]);
-      if (at && Math.hypot(at[0] - p.x - v[0], at[1] - p.y - v[1]) < board.ctx.pitch) moveAttachment(p.id, at[0], at[1]);
+      // The slots that far over, whether the parts fit there or not (they show red where they don't); none past the edge.
+      const moves = placed
+        .filter((p) => sel.includes(p.id))
+        .map((p) => {
+          const want: Vec2 = [p.x + d[0] * step, p.y + d[1] * step];
+          const at = nearestSlot(board.slots, ...want);
+          return at && Math.hypot(at[0] - want[0], at[1] - want[1]) < board.ctx.pitch ? { id: p.id, x: at[0], y: at[1] } : null;
+        });
+      if (moves.every((m) => m)) moveAttachments(moves as { id: string; x: number; y: number }[]);
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
@@ -160,6 +272,19 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.slots, board.ctx.slotW, board.ctx.slotL, H]);
 
+  // What the box being dragged out touches.
+  const mbox = marquee && {
+    x0: Math.min(marquee.start[0], marquee.now[0]),
+    x1: Math.max(marquee.start[0], marquee.now[0]),
+    y0: Math.min(marquee.start[1], marquee.now[1]),
+    y1: Math.max(marquee.start[1], marquee.now[1]),
+  };
+  const marqueeHits = mbox ? placed.filter((p) => p.x0 < mbox.x1 && p.x1 > mbox.x0 && p.y0 < mbox.y1 && p.y1 > mbox.y0).map((p) => p.id) : [];
+  const shownSel = new Set(marquee ? [...marquee.base, ...marqueeHits] : sel);
+
+  // Where parts are being moved to: by a drag here, or one in the 3D view.
+  const moving = new Map((drag?.moves ?? dragMoves(wallDrag)).map((m) => [m.id, m]));
+
   /** A part as drawn: where it's being dragged or resized to. */
   const shown = (p: WallPlacement): { p: WallPlacement; bad: boolean; size?: string } => {
     if (resize?.id === p.id && Object.keys(resize.patch).length) {
@@ -167,32 +292,46 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
       const size = `${fmt(v.box.x1 - v.box.x0)} × ${fmt(v.box.y1 - v.box.y0)}`;
       return { p: { ...p, ...v.box, mounts: v.mounts }, bad: false, size };
     }
-    const moving =
-      drag?.id === p.id && drag.at
-        ? { at: drag.at, fits: drag.fits }
-        : wallDrag?.id === p.id
-          ? { at: [wallDrag.x, wallDrag.y] as Vec2, fits: wallDrag.fits }
-          : null;
-    if (!moving) return { p, bad: !p.ok };
-    const dx = moving.at[0] - p.x;
-    const dy = moving.at[1] - p.y;
+    const m = moving.get(p.id);
+    if (!m) return { p, bad: !p.ok };
+    const dx = m.x - p.x;
+    const dy = m.y - p.y;
     return {
       p: {
         ...p,
-        x: moving.at[0],
-        y: moving.at[1],
+        x: m.x,
+        y: m.y,
         x0: p.x0 + dx,
         x1: p.x1 + dx,
         y0: p.y0 + dy,
         y1: p.y1 + dy,
-        mounts: p.mounts.map((m) => ({ ...m, x: m.x + dx, y: m.y + dy })),
+        mounts: p.mounts.map((q) => ({ ...q, x: q.x + dx, y: q.y + dy })),
       },
-      bad: !moving.fits,
+      bad: !m.fits,
     };
   };
+  const views = placed.map((raw) => ({ raw, ...shown(raw) }));
+
+  // Guides while moving: where the moving parts' edges or centres line up with another's, and the gaps to their neighbours.
+  const guides = useMemo(() => {
+    const boxes = (ids: (id: string) => boolean): Box[] => views.filter((v) => ids(v.raw.id)).map((v) => v.p);
+    const mine = boxes((id) => moving.has(id));
+    return mine.length && moving.size
+      ? dragGuides(
+          bounds(mine),
+          boxes((id) => !moving.has(id)),
+        )
+      : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag?.moves, wallDrag, placed]);
 
   /** Handle size on screen: about 8 px, whatever the zoom. */
   const hs = Math.max(4, Math.min(10, Math.max(W, H) / 70));
+  /** Guide labels: about 11 px. */
+  const gs = Math.max(5, Math.min(14, Math.max(W, H) / 55));
+
+  // Selected parts that don't fit where they are, and could.
+  const misfits = placed.filter((p) => sel.includes(p.id) && !p.ok && p.fit);
 
   return (
     <div className="wall-editor">
@@ -203,19 +342,20 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
-        onPointerDown={() => selectAttachment(null)}
+        onPointerDown={onBoardDown}
+        onPointerLeave={() => (hover.current = null)}
         role="application"
-        aria-label="Board: click an attachment to select it, drag to move it, drag its right or bottom edge to resize it"
+        aria-label="Board: click an attachment to select it (Shift or Ctrl-click for several, or drag a box round them), drag to move the selection, drag its right or bottom edge to resize it"
       >
         {board.outlines.map((o, i) => (
           <polygon key={i} className="we-tile" points={o.map(([x, y]) => `${x},${sy(y)}`).join(' ')} />
         ))}
         <path className="we-slots" d={slotPath} />
-        {placed.map((raw) => {
-          const { p, bad, size } = shown(raw);
-          const isSel = p.id === selected;
+        {views.map(({ raw, p, bad, size }) => {
+          const isSel = shownSel.has(p.id);
           const w = p.x1 - p.x0;
           const h = p.y1 - p.y0;
+          const handles = single?.id === p.id && !drag && !marquee;
           return (
             <g key={p.id} className={`we-att${isSel ? ' selected' : ''}${bad ? ' bad' : ''}`} onPointerDown={(e) => onDown(e, raw)}>
               <rect className="we-body" x={p.x0} y={sy(p.y1)} width={w} height={h} rx={2} />
@@ -225,7 +365,7 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
               <text x={(p.x0 + p.x1) / 2} y={sy((p.y0 + p.y1) / 2)} fontSize={Math.max(5, Math.min(12, w / 8, h * 0.55))}>
                 {size ?? p.name}
               </text>
-              {isSel && !drag && (
+              {handles && (
                 <>
                   {axes.w && (
                     <rect
@@ -262,7 +402,45 @@ export function WallEditor({ board, placed, selected }: { board: WallBoard; plac
             </g>
           );
         })}
+        {guides && (
+          <g className="we-guides">
+            {guides.lines.map((g, i) =>
+              g.axis === 'x' ? (
+                <line key={`l${i}`} x1={g.at} x2={g.at} y1={sy(g.from) + 4} y2={sy(g.to) - 4} />
+              ) : (
+                <line key={`l${i}`} x1={g.from - 4} x2={g.to + 4} y1={sy(g.at)} y2={sy(g.at)} />
+              ),
+            )}
+            {guides.gaps.map((g, i) => {
+              const [x1, y1, x2, y2] = g.axis === 'x' ? [g.from, sy(g.at), g.to, sy(g.at)] : [g.at, sy(g.from), g.at, sy(g.to)];
+              return (
+                <g key={`g${i}`} className="we-gap">
+                  <line x1={x1} y1={y1} x2={x2} y2={y2} />
+                  <text x={(x1 + x2) / 2} y={(y1 + y2) / 2} fontSize={gs} dy={g.axis === 'x' ? -gs * 0.6 : 0} dx={g.axis === 'y' ? gs * 0.4 : 0}>
+                    {fmt(g.mm)}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        )}
+        {mbox && <rect className="we-marquee" x={mbox.x0} y={sy(mbox.y1)} width={mbox.x1 - mbox.x0} height={mbox.y1 - mbox.y0} />}
       </svg>
+      {misfits.length > 0 && !drag && (
+        <div className="we-fit" role="status">
+          <span>{misfits.length === 1 ? `${misfits[0].name} doesn’t fit here.` : `${misfits.length} of these don’t fit where they are.`}</span>
+          <button
+            onClick={() =>
+              moveToFit(
+                misfits.map((p) => p.id),
+                board,
+              )
+            }
+          >
+            {misfits.length === 1 ? 'Move to the nearest spot that fits' : 'Move them to the nearest spots that fit'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

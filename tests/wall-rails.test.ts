@@ -357,7 +357,7 @@ describe('storage rail: on a board', () => {
   it('drawers on two rails beside a neighbour: no warnings, and overlap is caught', () => {
     const ok = plan(
       board([
-        { id: 'r', type: 'rail', x: 140, y: 300, opts: { rows: 2, kind: 'drawer', length: 3 } },
+        { id: 'r', type: 'rail', x: 120, y: 280, opts: { rows: 2, kind: 'drawer', length: 3 } },
         { id: 'b', type: 'bin', x: 440, y: 300, opts: {} },
       ]),
     );

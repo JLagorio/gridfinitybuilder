@@ -20,6 +20,7 @@ import { DIN, type DinRailOptions } from '../src/lib/wall/kinds/dinRail';
 import { BOSS_BACK, bossPlan, type MountBossOptions } from '../src/lib/wall/kinds/mountBoss';
 import { ARCA, BOSS_BOLTS, GOPRO, SHOE } from '../src/lib/wall/kinds/mountBoss.geom';
 import { HOLE_PATTERNS, PI_STANDOFF, PLATE_SCREWS, patternHoles, type PlateOptions } from '../src/lib/wall/kinds/plate';
+import { fitted } from './wallFit';
 
 let w: Wasm;
 beforeAll(async () => {
@@ -641,7 +642,8 @@ describe('on a 560 × 560 board', () => {
       baseplate: DEFAULT_BASEPLATE,
       bins: [],
     };
-    const job = planPrint([d], DEFAULT_SETUP, { baseplate: true, bins: true });
+    // Each where it fits nearest where it is put (planning leaves it where it is put: tests/wallFit.ts).
+    const job = planPrint([fitted(d)], DEFAULT_SETUP, { baseplate: true, bins: true });
     expect(job.warnings).toEqual([]);
     const wall = job.drawers[0].enclosure!.wall!;
     expect(wall.placed.every((p) => p.ok)).toBe(true);
