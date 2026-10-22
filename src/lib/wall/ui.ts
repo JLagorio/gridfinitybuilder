@@ -21,3 +21,8 @@ import './kinds/cableComb.ui';
 import './kinds/gridShelf.ui';
 import './kinds/gridPlate.ui';
 import './kinds/gridClip.ui';
+import './kinds/receiver.ui';
+import './kinds/pegboardBridge.ui';
+import './kinds/cleatStrip.ui';
+import './kinds/dinRail.ui';
+import './kinds/mountBoss.ui';

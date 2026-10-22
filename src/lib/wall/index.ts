@@ -22,3 +22,8 @@ import './kinds/cableComb';
 import './kinds/gridShelf';
 import './kinds/gridPlate';
 import './kinds/gridClip';
+import './kinds/receiver';
+import './kinds/pegboardBridge';
+import './kinds/cleatStrip';
+import './kinds/dinRail';
+import './kinds/mountBoss';
