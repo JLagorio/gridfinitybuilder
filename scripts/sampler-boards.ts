@@ -22,6 +22,8 @@
  * parts (`baseplate`), attachments their parts and nothing of the board
  * (`bins`). Planning only: the jobs build when the sampler asks.
  */
+// Every attachment kind and the Skådis boards' planning (kinds/all.ts brings skadisBoardPlan.ts): without it a board
+// plans bare, no tiles and no attachments.
 import '../src/lib/wall/kinds/all';
 // openGrid and Multiboard planning, as the app loads it with the first such board.
 import '../src/lib/gridBoardPlan';
@@ -447,8 +449,74 @@ export const ATTACHMENT_GROUPS: SampleGroup[] = attachmentGroups();
 
 /** Boards' and attachments' findings that are there by design (sampler-cases.ts KNOWN_FINDINGS; docs/print-check.md). */
 export const BOARD_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
-  { file: /^attachments\/tools\/magnet-bar-.*skin/, what: /^thin$/, why: 'the magnets under a 0.5 mm skin (an option, 0.3–1 mm): thinner pulls harder; the print pauses to drop them in' },
-  { file: /^attachments\/adapters\/receiver-.*(mp|multipoint)/, what: /^thin$/, why: 'a Multipoint head’s rim is 0.4 mm, as the system has it: its top is one line' },
+  {
+    file: /^attachments\/tools\/magnet-bar-.*skin/,
+    what: /^thin$/,
+    why: 'the magnets under a 0.5 mm skin (an option, 0.3–1 mm): thinner pulls harder; the print pauses to drop them in',
+  },
+  {
+    file: /^attachments\/adapters\/receiver-.*(mp|multipoint)/,
+    what: /^thin$/,
+    why: 'a Multipoint head’s rim is 0.4 mm, as the system has it: its top is one line',
+  },
   { file: /^attachments\/tools\/shadow-board-tools/, what: /^contact$/, why: 'a board as tall as its tools prints upright on its 5 mm edge: a brim helps' },
+  {
+    file: /^attachments\//,
+    what: /Low bed adhesion/,
+    why: 'printed upright on a narrow foot (a back plate’s edge, open-bottomed cups) or small (lock keys, pins, fit-test tabs, label tags): a brim helps',
+  },
+  {
+    file: /^attachments\/power\/led-bar-.*\.diffuser/,
+    what: /Long bridging extrusions/,
+    why: 'the diffuser’s hooks stand 1 mm out along its length, their flat faces the ones that hold it (a ledge: the mesh checks allow 3 mm)',
+  },
+  {
+    file: /^attachments\/containers\/rail-.*drawer.*\.c\d/,
+    what: /Long bridging extrusions/,
+    why: 'a drawer housing’s roof bridges its open front, a drawer wide (under 40 mm)',
+  },
+  {
+    file: /^attachments\/hobby\/(stick|bottle)-rack/,
+    what: /Long bridging extrusions/,
+    why: 'the hollow under each cup’s floor closes in at 45° to a bridged top, 10 mm across at most',
+  },
+  {
+    file: /^attachments\/adapters\/receiver-/,
+    what: /Collapsing overhang/,
+    why: 'a round head’s rim (1 mm, Multipoint’s 0.4, as the systems have them) stands out round its 45° flare; the head’s underside is cut at 45° and the mesh checks find no ledge',
+  },
+  {
+    file: /^attachments\/gridfinity\/grid-plate/,
+    what: /Long bridging extrusions/,
+    why: 'a Gridfinity plate standing up: the receptacles’ profile bridges each 42 mm cell',
+  },
+  {
+    file: /^attachments\/tools\/magnet-bar-preset-b60/,
+    what: /Long bridging extrusions/,
+    why: 'the pocket for a 60 mm block magnet: its roof bridges the magnet’s length',
+  },
+  {
+    file: /^boards\/multiboard\/threads|^attachments\/display\/display-ledge-/,
+    what: /parts \(expected/,
+    why: 'a few zero-area triangles in float32 (thousands in the threads) that PrusaSlicer counts as shells of their own; split, they come to nothing: one object, the same volume',
+  },
+  // Faces past 45° (sampler-steep.ts), listed for a look.
+  {
+    file: /^attachments\/power\/led-bar-angle-60/,
+    what: /^steep$/,
+    why: 'the strip’s face aimed 60° down overhangs 60°: its note says so (a good fan, or aim it 45°)',
+  },
+  { file: /^attachments\/adapters\/plate-(preset|pattern)-pi/, what: /^steep$/, why: 'the undersides of the ⌀6 standoffs lying down, 5 mm out from the plate' },
+  { file: /^attachments\/adapters\/mount-boss-(fixing-gopro|preset-action)/, what: /^steep$/, why: 'the top of the ⌀5.3 bolt hole through each finger' },
+  {
+    file: /^attachments\/adapters\/mount-boss-preset-webcam/,
+    what: /^steep$/,
+    why: 'the platform tilted 15°: the hex pocket’s roof tilts with it, a bridge on a slant',
+  },
+  { file: /^attachments\/storage\/tilt-bin-.*\.b\d/, what: /^steep$/, why: 'the top of the ⌀4.6 pivot hole through each side' },
+  {
+    file: /^boards\/skadis\/desk-clamp/,
+    what: /^steep$/,
+    why: 'the M6 nut’s pocket stands on a corner (60° faces, 3 mm high), and the top of the bolt’s hole',
+  },
 ];
-

@@ -87,12 +87,18 @@ placed by the job's scene items) and no two of its pieces may share more than
 ## Running it
 
 ```bash
-npm run sampler -- out/sampler            # build and check every part (about 2½ minutes)
-npm run sampler -- out/sampler --slice    # and slice each with PrusaSlicer (8–10 minutes more with --jobs 3)
+npm run sampler -- out/sampler            # build and check every part (about 11 minutes, boards and attachments 9 of them)
+npm run sampler -- out/sampler --slice    # and slice each with PrusaSlicer (much longer: board tiles take a minute or more each)
 npm run sampler -- out/sampler --only labels/        # just the parts whose path has this in it
+npm run sampler -- out/sampler --only attachments/   # the wall attachments (boards/: the boards)
 npm run sampler -- --report out/sampler/report.json  # write report.md again from a run
 PRUSA_SLICER=/path/to/prusa-slicer npm run sampler -- out/sampler --slice
 ```
+
+`--slice` runs `/usr/bin/prusa-slicer` (or `PRUSA_SLICER`); on Ubuntu 24.04
+`apt-get install prusa-slicer` installs the same 2.7.2. Without it, leave
+`--slice` off: the mesh checks, faces past 45° and assembled attachments
+don't need it.
 
 Each part is written as its own binary STL (`<group>/<sample>.<part>.stl`,
 overlays included as the app's STL export writes them) and each baseplate
@@ -271,3 +277,133 @@ island; the `removable-tab-*` cases now hold it.
 The printability warnings in the UI could pick up from here: a stretched
 bin needs supports under its overhang, and a tab in front of a removable
 divider in a wide compartment is a long bridge.
+
+## Boards and attachments
+
+### What the sampler covers
+
+`scripts/sampler-boards.ts`, 731 parts in 17 groups. Each sample is a board
+of its own planned with `planPrint`: a board prints its tiles and board parts,
+an attachment its parts and nothing of the board (planned on a bed nothing is
+too big for, so the sample board is one tile with every slot).
+
+- **boards/skadis** (86 parts): a 600 × 400 space filled (3 × 2 tiles, level
+  and upright seams, tabs and joint plates where they cross) on posts, on
+  spacers with plates only, with tabs and screw covers, flat on the wall with
+  no joints and no numbers; hexagons filling a space; built from tiles (an L
+  of rectangles, two small ones, an L of hexagons, hexagons on a square
+  grid); the square pattern at 14 mm and the dense one; an 8 mm board with a
+  loose fit and a 1 mm chamfer; frame rim strips, with and without the LED
+  channel; zones (engraved and inlaid text, magnets, blank); a French cleat,
+  door hooks, desk feet and clamps.
+- **boards/opengrid** (13) and **boards/multiboard** (8): openGrid lite and
+  full, corner and grid screws, chamfered corners or not, connectors (snug,
+  normal, loose) and tiles of 3 squares; Multiboard plain and threaded (big
+  and peg threads), grid screws, small tiles; each one's test tile.
+- **attachments/…** (624 parts, one group per picker group): every
+  kind at its defaults, each of its presets, each other value of each select
+  and each toggle flipped (a field that shows only for another option's value:
+  with it, so a battery dock's stem and body packs are sampled too); sizes
+  picked by hand (long hooks, 0.8 mm walls, many dividers, wide shelves, two
+  rows of drawers, stacks of tip-out bins, eight swivel trays, …); the common
+  options (lock keys on every part with hooks, M3 and M4 bolts with their
+  T-nuts, labels engraved, raised and inlaid, barbs); traced tools on shadow
+  boards (standing up, across with two-colour shadows, kept where they were)
+  and tool cradles; a model as the box that stands in for a missing mesh and
+  as a real mesh, on clips and on a plate. Every extra part prints too:
+  containers and drawers on rails, lids, doors, shelves, pins, diffusers,
+  rods, axles, trays, saucers, caddies and fit coupons. A preset whose part is
+  bigger than the bed at the kind's defaults (a cradle for a 13" tablet, a
+  bottle rack of aerosol cans, …: the planner warns and leaves it out) is
+  sampled with fewer columns or a shorter length, which its file name says
+  (`bottle-rack-preset-aerosol-columns-3`).
+
+### What was found and fixed
+
+| Defect | Where | Cause | Fix | Test |
+|---|---|---|---|---|
+| T-nut bosses beside the screw were 0.65 mm thick for an M3 and 0.1 mm for an M4 in a standard slot: the M4's don't print at all, the M3's as one line. | `tNutSolid` in `wall/mount.ts` | The boss is as wide as the slot lets it be (4.7 mm), and the screw goes through it. | Where its walls would be thinner than two lines (`TNUT_MIN_WALL`), the boss is two blocks, above and below the screw: what would print anyway, without slivers. In a wider slot it keeps its walls. | `wall-print`: T-nuts |
+| Tip-out bins with Lift off: a knife edge of side wall (0.9 mm thinning to nothing over a millimetre) where the stop pin's arc slot leaves its slot down to the bin's bottom. | `tiltBinSolid` in `kinds/tiltBin.geom.ts` | Two slots as wide as each other part from one circle at an angle. | The wall between them is taken off as far as it's under 1 mm thick (a hull of the first few millimetres of both): they meet cleanly. | `wall-print`: tip-out bin with lift off (30°, 45°, 60°) |
+| Wall bins: the sides' slope ran on across the front wall, so its top tapered to an edge: on a tall bin with a low front its top 1 mm was thinner than a line (0.8 mm of it at the defaults). | `binBuilder` in `kinds/bin.geom.ts` | The slope's line reached the outside of the front. | The slope ends at the front wall's inside; the front's top is flat at its height. | `wall-print`: wall bin |
+
+Every board part passed every mesh check from the start; so did every
+attachment but these and the ones below, and every attachment put together
+as it sits (114 with extra parts) has no two pieces running into each other.
+
+### By design, and what is left
+
+- **A Multipoint receiver's heads** have a 0.4 mm rim, as the system has it:
+  its top is one line.
+- **A magnetic bar with the magnets under a skin** (Fix: Skin) has a 0.5 mm
+  skin over each pocket, an option from 0.3 to 1 mm: thinner pulls harder.
+  The print pauses to drop the magnets in (its note says where).
+- **Tall shadow boards** (a board as tall as its tools, 200–230 mm) print
+  upright on their 5 mm edge: a brim helps.
+- **"Low bed adhesion"** in PrusaSlicer: small parts (lock keys, pins, fit-test
+  tabs, label tags) and parts printed upright on a narrow foot (a fold-away
+  hook, a swivel tower's frame, cups open at the bottom). A brim helps.
+- **Faces past 45°** in attachments: an LED bar aimed 60° down (its note says
+  so: a good fan, or aim it 45°); the undersides of a Raspberry Pi plate's
+  ⌀6 standoffs, 5 mm out from the plate; the tops of round holes lying down
+  (a GoPro mount's ⌀5.3 bolt hole, a tip-out bin's ⌀4.6 pivots); a webcam
+  mount's hex pocket, its roof tilted 15° with the platform; a desk clamp's
+  M6 nut pocket standing on a corner (60° faces, 3 mm high). In the earlier
+  parts: Gridfinity label tabs' undersides (54°) and the hex wall pattern's
+  holes standing on a point (60°).
+- **PrusaSlicer on boards**: "Long bridging extrusions" on the tiles with
+  zones and "Floating bridge anchors" on an openGrid tile, its heuristics on
+  short bridges (no ledge, bridge or island in the mesh checks); the threaded
+  Multiboard tile is "4 parts": the threads leave thousands of zero-area
+  facets in float32, which PrusaSlicer removes, and it counts the few
+  zero-volume scraps left as shells.
+- **PrusaSlicer on attachments**: "Long bridging extrusions" on an LED bar's
+  diffuser, whose hooks stand 1 mm out along its whole length (their flat
+  faces, the ones that hold it, are 1 mm ledges as it prints face down: the
+  mesh checks allow 3 mm; a chamfer there would weaken the snap, so it's left
+  as it is), on drawer housings' roofs over their open fronts (a drawer
+  wide), on the pocket of a 60 mm block magnet, on Gridfinity wall plates
+  standing up (the receptacles' profile bridges each 42 mm cell) and on the
+  racks' hollow floors (10 mm at most); "Collapsing overhang" on Multiconnect
+  and Multipoint receivers, whose heads' rims (1 mm and 0.4 mm, the systems'
+  own) stand out round their 45° flares: not changed, the heads are the
+  systems' profile and their undersides are already cut at 45°. A few
+  display ledges are "3–5 parts": zero-area scraps, as the threaded
+  Multiboard tile's.
+- **Shadow boards with overlapping tools** (Arrange: as in the file, tools on
+  top of each other: the planner says so and asks to space them out) leave a
+  0.1 mm closed void under a tool's engraved name where another tool's peg or
+  ledge covers it, which the mesh checks report as a loose piece of negative
+  volume. Not fixed: it only happens with tools overlapping, which is to be
+  fixed in the layout, and the void is closed inside the plate. The sampler
+  keeps its tools apart.
+- **Presets bigger than the bed** at the kind's defaults (bottle racks of
+  spice jars and aerosols, cradles for a Steam Deck, Switch or tablet, box
+  sleeves for glove and tissue boxes, the widest roll holders, display
+  ledges in bases, cars and steps mode): the planner warns and leaves them
+  out until they're narrowed; the sampler narrows them.
+- **Not checked**: that a part does what it's for (the kinds' own tests
+  check fits), and every combination of options (one of each).
+
+### Results of the last run
+
+On the final code (`npm run sampler -- <dir> --only boards/ --slice`, and
+`--only attachments/`; the whole run checks 1042 parts):
+
+| | Boards | Attachments |
+|---|---|---|
+| Parts | 107 | 624 (114 with extra parts put together) |
+| Mesh errors (invalid, loose pieces, off the bed, islands, too big) | 0 | 0 (1 before: the overlapping shadow-board tools above, now laid out apart) |
+| Parts with thin-wall warnings | 0 | 2, by design (a magnet skin, Multipoint rims); 7 before the fixes (those two, three T-nuts, a tip-out bin, a wall bin) |
+| Parts with overhang warnings | 0 | 0 |
+| Parts with first-layer warnings | 0 | 3 tall shadow boards (a brim helps) |
+| Assembled: pieces that run into each other | — | 0 |
+| Parts with faces past 45° (for a look) | 2 (a desk clamp's nut pocket) | 13 (above) |
+| PrusaSlicer: failed, not manifold | 0 | 0 |
+| PrusaSlicer: shells other than 1 + overlay bodies | 1 (zero-area scraps) | 4 (display ledges: zero-area scraps) |
+| PrusaSlicer: stability notices | 3 parts: 2 "Long bridging extrusions" (zones), 1 "Floating bridge anchors" | 175 "Low bed adhesion", 20 "Long bridging extrusions" (LED diffusers' hooks, drawer housings, a 60 mm block magnet's pocket, Gridfinity wall plates, racks' hollow floors, a planter), 8 "Floating bridge anchors", 3 "Collapsing overhang" (receivers' rims) |
+| Findings not marked as by design | 0 | 0 |
+
+Every part sliced without errors, and fits the 256 × 256 × 256 mm bed (the
+largest attachment 235 mm across, the tallest 242 mm). Slicing took 29
+minutes for the boards' 107 parts and 52 for the attachments', on a machine
+shared with other work.

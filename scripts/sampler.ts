@@ -36,6 +36,8 @@ import { buildMesh, setWallBuilders, type PrintJob } from '../src/lib/project';
 import * as wallBuild from '../src/lib/wall/build';
 import { setGridBoardBuilders } from '../src/lib/gridBoards';
 import * as gridBuild from '../src/lib/geometry/gridBoardBuild';
+import { setSkadisBoardBuilders } from '../src/lib/skadisBoards';
+import * as skadisBuild from '../src/lib/geometry/skadisBuild';
 import { exportPlate3MF } from '../src/lib/export/threemf';
 import { meshBodySlots, plateChanges } from '../src/lib/export/colourExport';
 import { LAYERS, layerTop, paletteOf, strategyOf } from '../src/lib/colours';
@@ -67,8 +69,10 @@ const wasm = await Module();
 const fontBytes = readFileSync(resolve('public', FONT_URL_PATH));
 registerFont(fontBytes.buffer.slice(fontBytes.byteOffset, fontBytes.byteOffset + fontBytes.byteLength));
 wasm.setup();
-// Attachments' and grid boards' builders, as the geometry worker hands them to buildMesh; an imported model's sample needs the kernel to plan.
+// Attachments' and boards' builders, as the geometry worker hands them to buildMesh (sampler-boards.ts loads their
+// planning); an imported model's sample needs the kernel to plan.
 setWallBuilders(wallBuild);
+setSkadisBoardBuilders(skadisBuild);
 setGridBoardBuilders(gridBuild);
 setSamplerWasm(wasm);
 

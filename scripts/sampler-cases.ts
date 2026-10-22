@@ -565,6 +565,11 @@ export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
   { file: /^colours\/vase-by-height\/drawer\.vase/, what: /^thin$/, why: 'a vase-mode bin (as vase/): one line of wall above the bottom layers' },
   { file: /^colours\/vase-by-height\/drawer\.vase/, what: /^thin$/, why: 'a vase-mode bin (as vase/): one line of wall above the bottom layers' },
   { file: /\.(key|lidkey|pin)-\d|spacer-(front|back)-|\.foot-/, what: /Low bed adhesion/, why: 'small or narrow part: a brim helps' },
+  // Faces past 45° (sampler-steep.ts), listed for a look.
+  { file: /pattern/, what: /^steep$/, why: 'the hex wall pattern’s holes stand on a point (60° faces), as Gridfinity Extended’s do; a label tab’s underside is 54°' },
+  { file: /^(labels|compartments|walls|placement|colours)\//, what: /^steep$/, why: 'a label tab’s underside at 54° from upright (36° off flat), as Gridfinity tabs are: it prints without support' },
+  { file: /^accessories\/tray-3/, what: /^steep$/, why: 'a few mm² at 51° in each corner, just past the scan’s 50°' },
+  { file: /^enclosures\/case-default\.lid/, what: /^steep$/, why: '4 mm², under a millimetre high' },
   // Boards and attachments (sampler-boards.ts), before the catch-alls below.
   ...BOARD_FINDINGS,
   { file: /./, what: /Long bridging extrusions/, why: 'bridges in the design (weight pockets, keyhole slots, hole roofs, half-grid foot gaps): PrusaSlicer flags any long bridge' },

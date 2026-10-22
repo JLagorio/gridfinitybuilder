@@ -143,12 +143,14 @@ describe('the sampler', () => {
       const same = (set: object) => JSON.stringify(def.sanitize({ ...def.defaults, ...set })) === JSON.stringify(def.sanitize(def.defaults));
       for (const f of ui.fields)
         if (f.kind === 'preset')
-          for (const p of f.presets) expect(same(p.set) || mine.some((s) => s.id.includes(`${slug(f.key)}-${slug(p.value)}`)), `${def.type} ${p.value}`).toBe(true);
+          for (const p of f.presets)
+            expect(same(p.set) || mine.some((s) => s.id.includes(`${slug(f.key)}-${slug(p.value)}`)), `${def.type} ${p.value}`).toBe(true);
       // Its body and every extra part print (at its defaults).
       const at = `attachments/${ui.group}/${slug(def.type)}-default`;
       expect(files.has(`${at}.stl`), def.type).toBe(true);
       const o = def.sanitize(def.defaults);
-      for (const p of def.parts?.(o, CTX) ?? []) expect(meshes.has(`attpart|${def.type}|${JSON.stringify(p.spec)}|${JSON.stringify(CTX)}`), `${def.type} ${p.key}`).toBe(true);
+      for (const p of def.parts?.(o, CTX) ?? [])
+        expect(meshes.has(`attpart|${def.type}|${JSON.stringify(p.spec)}|${JSON.stringify(CTX)}`), `${def.type} ${p.key}`).toBe(true);
     }
     expect([...files].some((f) => /\.lock0\.stl$/.test(f))).toBe(true);
     expect([...files].filter((f) => /\.tnut0\.stl$/.test(f)).length).toBeGreaterThanOrEqual(2);
