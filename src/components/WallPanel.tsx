@@ -204,6 +204,23 @@ export function AttachmentFields({
             return <Toggle key={f.key} label={f.label} checked={!!o[f.key]} hint={f.hint} onChange={set} />;
           case 'text':
             return <TextInput key={f.key} label={f.label} value={String(o[f.key] ?? '')} placeholder={f.placeholder} hint={f.hint} onChange={set} />;
+          case 'preset': {
+            // The preset whose sizes the options have now, else Custom.
+            const now = f.presets.find((p) => Object.entries(def.sanitize({ ...o, ...p.set }) as Record<string, unknown>).every(([k, v]) => o[k] === v));
+            return (
+              <Select
+                key={f.key}
+                label={f.label}
+                value={now?.value ?? ''}
+                options={[...(now ? [] : [{ value: '', label: 'Custom' }]), ...f.presets.map((p) => ({ value: p.value, label: p.label, title: p.title }))]}
+                hint={f.hint}
+                onChange={(v) => {
+                  const p = f.presets.find((q) => q.value === v);
+                  if (p) onChange(p.set);
+                }}
+              />
+            );
+          }
         }
       })}
     </>

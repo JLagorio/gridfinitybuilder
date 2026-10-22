@@ -17,7 +17,11 @@ export const GROUP_LABELS: Record<AttachmentGroup, string> = {
   shelves: 'Shelves',
   tools: 'Tools',
   devices: 'Devices',
+  hobby: 'Hobby & craft',
+  kitchen: 'Kitchen',
+  display: 'Display',
   power: 'Lighting and cables',
+  adapters: 'Adapters & mounts',
   other: 'Other',
 };
 

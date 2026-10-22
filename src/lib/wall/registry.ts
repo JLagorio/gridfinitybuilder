@@ -83,7 +83,20 @@ export type AttachmentField =
   | { key: string; label: string; kind: 'number'; min: number; max: number; step?: number; suffix?: string; hint?: string; when?: (o: never) => boolean }
   | { key: string; label: string; kind: 'select'; options: { value: string; label: string; title?: string }[]; hint?: string; when?: (o: never) => boolean }
   | { key: string; label: string; kind: 'toggle'; hint?: string; when?: (o: never) => boolean }
-  | { key: string; label: string; kind: 'text'; placeholder?: string; hint?: string; when?: (o: never) => boolean };
+  | { key: string; label: string; kind: 'text'; placeholder?: string; hint?: string; when?: (o: never) => boolean }
+  /**
+   * Sizes of a known thing in one pick ("Vallejo dropper bottle"): each preset sets several options at
+   * once. It shows the preset the options match, or "Custom" once one is edited; `key` only names the field.
+   */
+  | { key: string; label: string; kind: 'preset'; presets: AttachmentPreset[]; hint?: string; when?: (o: never) => boolean };
+
+/** One choice of a 'preset' field: the options it sets. */
+export interface AttachmentPreset {
+  value: string;
+  label: string;
+  title?: string;
+  set: Record<string, unknown>;
+}
 
 /** An extra printed part of an attachment (dividers, a drawer, a diffuser, …). */
 export interface AttachmentPart {
@@ -111,7 +124,21 @@ export interface AttachmentHardware {
   note?: string;
 }
 
-export type AttachmentGroup = 'hooks' | 'storage' | 'gridfinity' | 'containers' | 'shelves' | 'tools' | 'devices' | 'board' | 'other' | 'power';
+export type AttachmentGroup =
+  | 'hooks'
+  | 'storage'
+  | 'gridfinity'
+  | 'containers'
+  | 'shelves'
+  | 'tools'
+  | 'devices'
+  | 'board'
+  | 'other'
+  | 'power'
+  | 'hobby'
+  | 'kitchen'
+  | 'display'
+  | 'adapters';
 
 export interface AttachmentDef<O extends object = Record<string, unknown>> {
   type: string;

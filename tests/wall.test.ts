@@ -114,8 +114,11 @@ describe('the tab', () => {
     );
     for (const u of attachmentUis()) {
       const d = attachmentDefs().find((x) => x.type === u.type)!;
-      // Every field edits an option the kind has.
-      for (const f of u.fields) expect(Object.keys(d.defaults), `${u.type}.${f.key}`).toContain(f.key);
+      // Every field edits an option the kind has (a preset, the options it sets).
+      for (const f of u.fields) {
+        if (f.kind !== 'preset') expect(Object.keys(d.defaults), `${u.type}.${f.key}`).toContain(f.key);
+        else for (const p of f.presets) for (const k of Object.keys(p.set)) expect(Object.keys(d.defaults), `${u.type}.${f.key}.${p.value}.${k}`).toContain(k);
+      }
     }
   });
 });
