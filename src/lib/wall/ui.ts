@@ -35,3 +35,8 @@ import './kinds/pegboardBridge.ui';
 import './kinds/cleatStrip.ui';
 import './kinds/dinRail.ui';
 import './kinds/mountBoss.ui';
+import './kinds/slotRack.ui';
+import './kinds/displayLedge.ui';
+import './kinds/planter.ui';
+import './kinds/caddy.ui';
+import './kinds/faceout.ui';

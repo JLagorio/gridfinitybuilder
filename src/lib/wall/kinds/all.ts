@@ -34,6 +34,11 @@ import './pegboardBridge';
 import './cleatStrip';
 import './dinRail';
 import './mountBoss';
+import './slotRack';
+import './displayLedge';
+import './planter';
+import './caddy';
+import './faceout';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();
