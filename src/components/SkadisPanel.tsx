@@ -1,7 +1,22 @@
 import { useStore, useUnits } from '../state/store';
 import { Group, LengthInput, NumberInput, Section, Segmented, TextInput, Toggle } from './fields';
-import { DEFAULT_SKADIS, headDiameter, ledChannel, plannedSkadis, rimWidth, sanitizeSkadis, type SkadisOptions, type SkadisZone } from '../lib/geometry/skadis';
+import {
+  DEFAULT_SKADIS,
+  SKADIS,
+  cellsFull,
+  headDiameter,
+  ledChannel,
+  planSkadis,
+  plannedSkadis,
+  rimWidth,
+  sanitizeSkadis,
+  type SkadisCell,
+  type SkadisOptions,
+  type SkadisZone,
+} from '../lib/geometry/skadis';
 import type { PrintJob } from '../lib/project';
+import { skadisAreas } from '../lib/enclosures';
+import { hexCells } from '../lib/geometry/skadisTiles';
 import { Find } from './findContext';
 import { FindPanel, MoreInAll } from './find';
 import { SKADIS_INDEX } from './skadisIndex';
@@ -13,10 +28,13 @@ const STANDARD_BOARDS: [number, number][] = [
   [760, 560],
 ];
 
+/** Rectangle tile sizes to pick from, mm (in whole steps). */
+const TILE_SIZES = [120, 160, 200, 240];
+
 /**
- * The Drawer tab of a Skådis board (drawer.enclosure 'skadis'): the space on
- * the wall, the tiles and their slot pattern, how they join and hang, and the
- * board itself (its slots, frame and solid zones).
+ * The Drawer tab of a Skådis board (drawer.enclosure 'skadis'): its tiles (or
+ * the space on the wall it fills) and their slot pattern, how they join and
+ * hang, and the board itself (its slots, frame and solid zones).
  */
 export function SkadisPanel({ job }: { job: PrintJob }) {
   const drawer = useStore((s) => s.drawer);
@@ -34,6 +52,26 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
   const changed = (...keys: (keyof SkadisOptions)[]) => keys.some((k) => o[k] !== DEFAULT_SKADIS[k]);
   const tiles = info?.tiles ?? 0;
   const several = tiles > 1;
+  // Built from tiles (BoardTiles.tsx adds and takes them away); its tiles make a whole rectangle (for a frame or other hanging).
+  const byTiles = o.layout === 'tiles';
+  const whole = !byTiles || cellsFull(o.tiles);
+  const what = hex ? 'hexagon' : 'tile';
+  const setup = useStore((s) => s.setup);
+  const areas = skadisAreas(setup);
+  const sizes = tileSizes(o, areas);
+  /** Built from tiles from now on: a board of one tile gets as many as about fill its space (a honeycomb's rows half a hexagon over in turn). */
+  const toTiles = () => {
+    const g = o.tiles.length === 1 ? planSkadis({ ...o, layout: 'tiles' }, areas).grid : undefined;
+    const [nx, ny] = g ? [Math.max(1, Math.round(o.width / g.q[0])), Math.max(1, Math.round(o.height / g.r[1]))] : [1, 1];
+    const tiles = g
+      ? Array.from({ length: nx * ny }, (_, k): SkadisCell => {
+          const [c, r] = [k % nx, Math.floor(k / nx)];
+          return hex ? [c - Math.floor(r / 2), r] : [c, r];
+        })
+      : o.tiles;
+    set({ layout: 'tiles', tiles });
+  };
+  const sizeKey = !o.tileSize ? 'auto' : sizes.some((v) => v === o.tileSize) ? String(o.tileSize) : 'other';
   // As planned: the dense step, the LED frame's border, what a board that isn't screwed up rests on.
   const p = plannedSkadis(o);
   const setZone = (i: number, z: Partial<SkadisZone>) => set({ zones: o.zones.map((q, k) => (k === i ? { ...q, ...z } : q)) });
@@ -54,11 +92,15 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
         : 'Clamps on the desk’s back edge, screwed to the back of the board, an M6 bolt each.',
   }[o.hang];
 
-  const joinHint = !several
-    ? 'The board prints in one piece: no seams to join.'
-    : o.join === 'none'
-      ? 'Tiles butt together; each is screwed up on its own.'
-      : `${info?.tabs ?? 0} dovetail tabs and ${info?.plates ?? 0} joint plates. Tabs lock the tiles together in the board's plane; plates press into pockets on the back across the seams and keep it flat (always where seams cross).`;
+  const joinHint = hex
+    ? o.join === 'none'
+      ? 'Each hexagon is screwed up on its own: line them up carefully for a part to span two.'
+      : `${info?.plates ?? 0} joint plates on the back across the gaps between hexagons side by side hold them in line, so a part can span two. Every hexagon has the pockets, so they stay one part.`
+    : !several
+      ? 'The board prints in one piece: no seams to join.'
+      : o.join === 'none'
+        ? 'Tiles butt together; each is screwed up on its own.'
+        : `${info?.tabs ?? 0} dovetail tabs and ${info?.plates ?? 0} joint plates. Tabs lock the tiles together in the board's plane; plates press into pockets on the back across the seams and keep it flat (always where seams cross).`;
 
   return (
     <FindPanel index={SKADIS_INDEX} placeholder="Find a setting…">
@@ -83,7 +125,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
               {STANDARD_BOARDS.map(([bw, bh]) => (
                 <button
                   key={`${bw}x${bh}`}
-                  onClick={() => set({ width: bw, height: bh, thickness: 5.1, slotW: 5.1, slotL: 15.2, pattern: 'skadis', pitch: 20 })}
+                  onClick={() => set({ layout: undefined, width: bw, height: bh, thickness: 5.1, slotW: 5.1, slotL: 15.2, pattern: 'skadis', pitch: 20 })}
                   title={`A standard ${bw / 10} × ${bh / 10} cm board: 5.1 mm thick, 5.1 × 15.2 mm slots`}
                 >
                   {bw / 10} × {bh / 10} cm
@@ -97,16 +139,35 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             <TextInput label="Name" value={active.name} onChange={(name) => renameDrawer(active.id, name)} placeholder="Workbench wall" />
           </Find>
         )}
-        <Find id="skadis-space">
-          <div className="row2">
-            <LengthInput label="Space width" value={o.width} min={60} onChange={(width) => set({ width })} />
-            <LengthInput label="Space height" value={o.height} min={60} onChange={(height) => set({ height })} />
-          </div>
-          <div className="field-hint">
-            The space on the wall. {hex ? 'Whole hexagons fit in it, centred.' : 'The board fills it, the slots centred with at least the border around them.'}{' '}
-            Standard boards are 56 × 56, 76 × 56 and 36 × 56 cm.
-          </div>
+        <Find id="skadis-layout">
+          <Segmented
+            label="Board"
+            value={byTiles ? 'tiles' : 'space'}
+            options={[
+              { value: 'tiles', label: 'Tiles', title: 'Tiles of one size, added one by one on the picture of the board' },
+              { value: 'space', label: 'Fill a space', title: 'A width and a height on the wall, filled with tiles or hexagons' },
+            ]}
+            onChange={(v) => (v === 'tiles' ? toTiles() : set({ layout: undefined }))}
+            hint={
+              byTiles
+                ? `Click + by the board’s edge on its picture to add a ${what}, ✕ to take one away. Every ${what}’s slots are on one lattice, so a part can span two.`
+                : 'The board fills a space on the wall: give its width and height.'
+            }
+          />
         </Find>
+        {!byTiles && (
+          <Find id="skadis-space">
+            <div className="row2">
+              <LengthInput label="Space width" value={o.width} min={60} onChange={(width) => set({ width })} />
+              <LengthInput label="Space height" value={o.height} min={60} onChange={(height) => set({ height })} />
+            </div>
+            <div className="field-hint">
+              The space on the wall.{' '}
+              {hex ? 'Whole hexagons fit in it, centred.' : 'The board fills it, the slots centred with at least the border around them.'} Standard boards are
+              56 × 56, 76 × 56 and 36 × 56 cm.
+            </div>
+          </Find>
+        )}
         <Find id="skadis-shape">
           <Segmented
             label="Tiles"
@@ -118,7 +179,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             onChange={(shape) => set({ shape })}
             hint={
               hex
-                ? 'Each hexagon is a board of its own, screwed up in its left and right corners. Frames, zones and other ways to hang are for rectangles.'
+                ? `Each hexagon is a board of its own, screwed up in its ${byTiles ? 'top and bottom corners, every one the same part' : 'left and right corners'}. Frames, zones and other ways to hang are for rectangles.`
                 : o.pattern === 'square'
                   ? 'Seams run along the empty columns and rows between the slots.'
                   : o.pattern === 'dense'
@@ -149,28 +210,83 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
             hint="The lattice the slots are on (standard: 20 mm). Attachments’ mounts are two steps apart."
           />
         </Find>
+        {byTiles && (
+          <Find id="skadis-tile-size" set={o.tileSize > 0}>
+            <Segmented
+              label={hex ? 'Hexagon size' : 'Tile size'}
+              value={sizeKey}
+              options={[
+                { value: 'auto', label: 'Largest', title: `The largest ${what} your printer takes` },
+                ...sizes.map((v) => ({ value: String(v), label: fmt(v), title: hex ? `${fmt(v)} from the top corner to the bottom one` : `${fmt(v)} square` })),
+                { value: 'other', label: 'Other' },
+              ]}
+              onChange={(v) =>
+                set(
+                  v === 'auto'
+                    ? { tileSize: 0, tileHeight: 0 }
+                    : v === 'other'
+                      ? { tileSize: (hex ? info?.hexH : info?.tileW) ?? 200 }
+                      : { tileSize: Number(v), tileHeight: 0 },
+                )
+              }
+              hint={
+                hex
+                  ? `Top corner to bottom corner${info?.hexW && info.hexH ? ` (${fmt(info.hexH)}, ${fmt(info.hexW)} across, now)` : ''}. Hexagons come in the sizes that keep every one’s slots on one lattice.`
+                  : `In whole steps of the lattice${info?.tileW ? ` (${fmt(info.tileW)} × ${fmt(info.tileD)} printed now, with its tabs)` : ''}.`
+              }
+            />
+            {sizeKey === 'other' && (
+              <div className="row2">
+                <LengthInput
+                  label={hex ? 'Corner to corner' : 'Tile width'}
+                  value={o.tileSize}
+                  min={60}
+                  max={1000}
+                  onChange={(tileSize) => set({ tileSize })}
+                />
+                {!hex && (
+                  <LengthInput
+                    label="Tile height"
+                    value={o.tileHeight}
+                    allowEmpty
+                    placeholder="as wide"
+                    min={60}
+                    max={1000}
+                    onChange={(tileHeight) => set({ tileHeight })}
+                  />
+                )}
+              </div>
+            )}
+          </Find>
+        )}
         {hex && (
           <Find id="skadis-hex">
             <div className="row2">
-              <LengthInput
-                label="Hexagon width"
-                value={o.hexWidth}
-                allowEmpty
-                placeholder={info?.hexW ? `auto (${fmt(info.hexW)})` : 'auto'}
-                min={60}
-                max={1000}
-                onChange={(hexWidth) => set({ hexWidth })}
-              />
+              {!byTiles && (
+                <LengthInput
+                  label="Hexagon width"
+                  value={o.hexWidth}
+                  allowEmpty
+                  placeholder={info?.hexW ? `auto (${fmt(info.hexW)})` : 'auto'}
+                  min={60}
+                  max={1000}
+                  onChange={(hexWidth) => set({ hexWidth })}
+                />
+              )}
               <LengthInput label="Gap between" value={o.hexGap} min={0} max={50} onChange={(hexGap) => set({ hexGap })} />
             </div>
-            <div className="field-hint">Corner to corner. Empty: the largest the bed and the space take.</div>
+            <div className="field-hint">{byTiles ? 'Between neighbouring hexagons.' : 'Corner to corner. Empty: the largest the bed and the space take.'}</div>
           </Find>
         )}
         <div className="summary">
           <div className="summary-big">
-            {hex ? (
+            {hex || byTiles ? (
               <>
-                {tiles} <small>hexagon{tiles === 1 ? '' : 's'}</small>
+                {tiles}{' '}
+                <small>
+                  {what}
+                  {tiles === 1 ? '' : 's'}
+                </small>
               </>
             ) : (
               <>
@@ -184,7 +300,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
               <dd>
                 {fmt(info.boardW)} × {fmt(info.boardH)}
               </dd>
-              <dt>{hex ? 'Hexagon' : 'Largest tile'}</dt>
+              <dt>{hex ? 'Hexagon' : byTiles ? 'Tile' : 'Largest tile'}</dt>
               <dd>{hex && info.hexW && info.hexH ? `${fmt(info.hexW)} × ${fmt(info.hexH)}` : `${fmt(info.tileW)} × ${fmt(info.tileD)}`}</dd>
               <dt>Slots</dt>
               <dd>{info.slots}</dd>
@@ -196,16 +312,16 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
       </Section>
 
       <Section title="Joining and hanging" find="skadis-mount">
-        {!hex && (
+        {(!hex || byTiles) && (
           <Find id="skadis-join">
             <Segmented
-              label="Join the tiles with"
-              value={o.join}
+              label={`Join the ${what}s with`}
+              value={hex && o.join !== 'none' ? 'plates' : o.join}
               options={[
-                { value: 'both', label: 'Tabs & plates', title: 'Dovetail tabs along the seams, and plates on the back with pins' },
-                { value: 'tabs', label: 'Tabs', title: 'Dovetail tabs along the seams' },
+                ...(hex ? [] : [{ value: 'both' as const, label: 'Tabs & plates', title: 'Dovetail tabs along the seams, and plates on the back with pins' }]),
+                ...(hex ? [] : [{ value: 'tabs' as const, label: 'Tabs', title: 'Dovetail tabs along the seams' }]),
                 { value: 'plates', label: 'Plates', title: 'Plates pressed into pockets on the back, with pins' },
-                { value: 'none', label: 'Nothing', title: 'Tiles butt together; each is screwed up on its own' },
+                { value: 'none', label: 'Nothing', title: `${hex ? 'Hexagons' : 'Tiles'} each screwed up on their own` },
               ]}
               onChange={(join) => set({ join })}
               hint={joinHint}
@@ -224,7 +340,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
                 { value: 'desk', label: 'On a desk', title: 'Feet it stands in, or clamps on the desk’s edge' },
               ]}
               onChange={(hang) => set({ hang })}
-              hint={hangHint}
+              hint={whole ? hangHint : 'Other ways to hang need the tiles to make a whole rectangle: this board is screwed to the wall.'}
             />
             {o.hang === 'door' && (
               <LengthInput
@@ -316,7 +432,7 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
           </div>
           <div className="field-hint">
             {hex
-              ? `Two per hexagon, in its side corners${o.standoff === 'spacers' ? ', plus one in each other corner to hold its spacer' : ''}.`
+              ? `Two per hexagon, in its ${byTiles ? 'top and bottom' : 'side'} corners${o.standoff === 'spacers' ? ', plus one in each other corner to hold its spacer' : ''}.`
               : p.hang === 'screws'
                 ? 'Every tile is screwed near its corners, and between them about this far apart; always where there is no slot.'
                 : `The screws go through the board from the front into the ${p.hang === 'cleat' ? 'cleat' : p.hang === 'door' ? 'hooks' : o.deskMount === 'stand' ? 'feet' : 'clamps'}, where there is no slot; the wall takes no screws${p.hang === 'cleat' ? ' but the wall cleat’s' : ''}.`}
@@ -385,13 +501,15 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
               ]}
               onChange={(frame) => set({ frame })}
               hint={
-                o.frame === 'none'
-                  ? 'A rim round the front edge makes the board look finished.'
-                  : `Strips ${rimWidth(p)} mm wide on the front border, printed flat and pressed on with pins (tiles print face down, so a rim can’t be part of them); they cross the seams, so they help hold the tiles in line.${
-                      o.frame === 'led'
-                        ? ` The tiles get a ${ledChannel(p)} mm channel round the back edge for the LED strip, LEDs toward the wall for a glow round the board, deeper at the corners for the wire joints.`
-                        : ''
-                    }`
+                !whole
+                  ? 'A frame needs the tiles to make a whole rectangle.'
+                  : o.frame === 'none'
+                    ? 'A rim round the front edge makes the board look finished.'
+                    : `Strips ${rimWidth(p)} mm wide on the front border, printed flat and pressed on with pins (tiles print face down, so a rim can’t be part of them); they cross the seams, so they help hold the tiles in line.${
+                        o.frame === 'led'
+                          ? ` The tiles get a ${ledChannel(p)} mm channel round the back edge for the LED strip, LEDs toward the wall for a glow round the board, deeper at the corners for the wire joints.`
+                          : ''
+                      }`
               }
             />
             {o.frame !== 'none' && (
@@ -477,4 +595,18 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
       </Section>
     </FindPanel>
   );
+}
+
+/** Tile sizes to pick from that fit the bed, mm: hexagons that keep one lattice, corner to corner (the four largest), or rectangles in whole steps. */
+function tileSizes(o: SkadisOptions, areas: { w: number; d: number }[]): number[] {
+  const P = plannedSkadis(o).pitch;
+  if (o.shape === 'hex') {
+    const cells = hexCells({ ...o, pitch: P }, areas).filter((c) => c.fits && c.off < 0.08);
+    return [...new Set(cells.map((c) => Math.round(c.h * 10) / 10))].slice(-4);
+  }
+  const reach = o.join === 'both' || o.join === 'tabs' ? SKADIS.tab.depth + SKADIS.tab.gap : 0;
+  const even = o.pattern === 'square';
+  const snap = (v: number) => Math.round(Math.max(2, even ? 2 * Math.round(v / P / 2) : Math.round(v / P)) * P * 10) / 10;
+  const fits = (v: number) => areas.some((a) => v + reach <= Math.min(a.w, a.d) + 1e-6);
+  return [...new Set(TILE_SIZES.map(snap))].filter(fits);
 }
