@@ -84,5 +84,16 @@ registerAttachment<SlotRackOptions>({
     return { w: o.width, h, depth: rackPlan(o).depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Slot rack ${o.count} × ${+o.slot.toFixed(1)} mm`,
+  labelFace(o) {
+    // Low on the front wall, under the finger notch: it leans back with the dividers, so the text goes in deeper at
+    // its foot (where the face stands furthest out) to reach the face all the way up, the wall staying 1.2 mm thick.
+    const p = rackPlan(o);
+    const tan = Math.tan(p.a);
+    const top = Math.min(p.front, o.notch && o.height >= 25 ? p.top - 0.45 * o.height : Infinity) - 1;
+    const h = Math.min(10, top - 1, tan > 0 ? (p.t / Math.cos(p.a) - 1.8) / tan : Infinity);
+    return h >= 5 ? { x: 2, y: 1, w: o.width - 4, h, z: p.depth - tan, normal: 'front', depth: 0.6 + h * tan } : null;
+  },
+  // Its first divider leans in front of the whole back (the finger notch stops at it).
+  backPlate: () => null,
   notes: (o, ctx) => leverNotes(rackPlan(o).depth, rackHeight(o, ctx)),
 });

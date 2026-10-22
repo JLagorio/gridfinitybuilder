@@ -191,6 +191,29 @@ registerAttachment<MeasureHangerOptions>({
     return { w: p.w, h, depth: p.d, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => (o.tool === 'ruler' && o.count > 1 ? `${NAMES.ruler}, ${o.count} rulers` : NAMES[o.tool]),
+  labelFace(o, l) {
+    // The front: of the ruler block, or of the pocket's walls under its lower front (beside a beam's slot, where it's widest).
+    const p = measurePlan(o);
+    const q = p.pocket;
+    if (!q) return o.tool === 'ruler' ? { x: 1, y: p.top - 12.6, w: l.w - 2, h: 12, z: p.d, normal: 'front' } : null;
+    let [x0, x1] = [Math.max(0, q.x0 - MEASURE.wall), Math.min(l.w, q.x1 + MEASURE.wall)];
+    const s = o.tool === 'tape' ? null : p.slots[0];
+    if (s) [x0, x1] = Math.min(x1, s.x0) - x0 >= x1 - Math.max(x0, s.x1) ? [x0, Math.min(x1, s.x0)] : [Math.max(x0, s.x1), x1];
+    const h = Math.min(12, p.front - 1.2);
+    return h >= 5 && x1 - x0 >= 14 ? { x: x0 + 1, y: 0.6, w: x1 - x0 - 2, h, z: p.d, normal: 'front' } : null;
+  },
+  backPlate(o, l) {
+    // Over the holder; in the pocket over its lower front and down a beam's slot (take the tool out first); beside
+    // the pocket's walls on a holder wider than they are.
+    const p = measurePlan(o);
+    const q = p.pocket;
+    const plate = (x0: number, x1: number, y0: number) => ({ x0, x1, y0, y1: l.h, z: MEASURE.back });
+    const out = [plate(0, l.w, p.top)];
+    if (!q) return out;
+    out.push(plate(q.x0, q.x1, p.front), plate(0, q.x0 - MEASURE.wall, p.floor), plate(q.x1 + MEASURE.wall, l.w, p.floor));
+    if (o.tool !== 'tape') out.push(plate(p.slots[0].x0, p.slots[0].x1, 0));
+    return out;
+  },
   notes(o, ctx) {
     const out = leverNotes(measurePlan(o).d, measureHeight(o, ctx));
     if ((o.tool === 'caliper' || o.tool === 'square') && o.beamAt > o.bodyW)

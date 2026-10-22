@@ -34,6 +34,15 @@ export const CADDY_DEFAULTS: CaddyOptions = { width: 160, depth: 90, height: 70,
 /** The dock's back plate, how far its cleats stand out, the gap between them and the caddy, the caddy's floor above the dock's foot; mm. */
 export const CADDY = { back: 3, cleat: 8, gap: 0.5, foot: 2 } as const;
 
+/**
+ * The cleats and hooks, mm: a cleat's width, the hook's bar over it, the clearances (behind the finger, over the
+ * cleat's top, each side), a rib's thickness.
+ */
+export const HOOK = { tooth: 8, bar: 5, back: 0.5, over: 0.5, side: 0.5, rib: 3 } as const;
+
+/** The bumper along the dock's foot: its height over the caddy's floor and how close it comes to the caddy, mm. */
+export const CADDY_BUMP = { h: 12, gap: 0.5 } as const;
+
 /** Where the caddy is on the dock, mm: its back `zc`, its foot, rim and handle's top, and its hooks' centres across. */
 export function caddyPlan(o: CaddyOptions) {
   const y0 = CADDY.foot;
@@ -70,6 +79,20 @@ registerAttachment<CaddyOptions>({
     return { w: o.width, h, depth: CADDY.back + CADDY.cleat, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Lift-off caddy ${Math.round(o.width)} × ${Math.round(o.depth)}`,
+  backPlate(o, l) {
+    // Over the bumper: between the cleats, and under and over their row (lift the caddy off first).
+    const p = caddyPlan(o);
+    const c = CADDY.cleat;
+    const top = p.rim - HOOK.bar - HOOK.over;
+    const y0 = p.y0 + CADDY_BUMP.h;
+    const plate = (x0: number, x1: number, ya: number, yb: number) => ({ x0, x1, y0: ya, y1: yb, z: CADDY.back });
+    const xs = [0, ...p.hooks.flatMap((x) => [x - HOOK.tooth / 2, x + HOOK.tooth / 2]), l.w];
+    return [
+      ...Array.from({ length: xs.length / 2 }, (_, k) => plate(xs[2 * k], xs[2 * k + 1], y0, l.h)),
+      plate(0, l.w, y0, top - 2 * c - 4.5),
+      plate(0, l.w, top, l.h),
+    ];
+  },
   notes: (o) => leverNotes(caddyPlan(o).zc + o.depth, dockHeight(o)),
   parts(o) {
     const p = caddyPlan(o);

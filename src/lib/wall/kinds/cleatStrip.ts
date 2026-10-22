@@ -72,6 +72,8 @@ registerAttachment<CleatStripOptions>({
     return { w: o.length, h, depth: o.size, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `French cleat ${Math.round(o.length)} mm`,
+  // Through the strip under the bevel (it is solid all through), the head flush with its front.
+  backPlate: (o, l) => ({ x0: 0, x1: l.w, y0: 0, y1: l.h - (o.size - CLEAT_FLAT) * Math.tan((o.angle * Math.PI) / 180), z: o.size }),
   notes: (o) => (o.length > 250 ? ["Over 250 mm long: if it doesn't fit your printer, hang two strips end to end."] : []),
   parts(o, ctx) {
     if (!o.hanger) return [];

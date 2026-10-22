@@ -67,6 +67,11 @@ registerAttachment<LeadHangerOptions>({
     return { w: p.W, h, depth: p.D, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Lead hanger, ${o.count} × ⌀${o.pocket}`,
+  backPlate(o, l) {
+    // Over the comb and its fillet, between the end gussets.
+    const t = leadPlan(o).t;
+    return { x0: LEAD.end, x1: l.w - LEAD.end, y0: t + Math.min(LEAD.fillet, l.h - t - 0.5), y1: l.h, z: LEAD.back };
+  },
   notes(o, ctx) {
     const out = leverNotes(leadPlan(o).D, leadHeight(o, ctx));
     if (o.slot > o.pocket - 3) out.push('The slot is nearly as wide as the pocket: the plugs may slip through.');

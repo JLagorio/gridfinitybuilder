@@ -85,6 +85,8 @@ registerAttachment<FitTestOptions>({
   },
   layout: (_o, ctx) => fitTabLayout(ctx),
   summary: (o) => (o.steps === 5 ? 'Fit test, slot widths' : 'Fit test tabs'),
+  // A tab to try the clips' fit: it isn't for bolting on.
+  backPlate: () => null,
   parts(o, ctx) {
     const tabs = fitTabs(o, ctx)
       .filter((t) => !own(t, ctx))

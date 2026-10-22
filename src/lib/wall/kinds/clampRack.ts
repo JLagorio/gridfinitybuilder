@@ -84,6 +84,18 @@ registerAttachment<ClampRackOptions>({
     return { w: p.W, h, depth: p.D, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Clamp rack, ${o.count} slot${o.count === 1 ? '' : 's'}${o.springs > 0 ? ' + spring rail' : ''}`,
+  backPlate(o, l) {
+    // Over the ledge and its fillet (and over the spring rail, where it stands in front), between the gussets. The
+    // clamps hang in front: screw it on first.
+    const p = clampPlan(o);
+    const g = CLAMP.gusset;
+    const xs = [...p.gussets].sort((a, b) => a - b);
+    return xs.slice(1).map((x, k) => {
+      const x0 = xs[k] + g;
+      const rail = p.rail && x0 < p.rail.x1 && x > p.rail.x0;
+      return { x0, x1: x, y0: CLAMP.ledge + (rail ? CLAMP.rail : CLAMP.fillet), y1: l.h, z: CLAMP.back };
+    });
+  },
   notes(o, ctx) {
     const out = leverNotes(clampPlan(o).D, clampHeight(o, ctx));
     if (o.pitch < o.barT + 2 * o.clearance + 10) out.push('The slots are closer than the teeth between them can take: space them further apart.');

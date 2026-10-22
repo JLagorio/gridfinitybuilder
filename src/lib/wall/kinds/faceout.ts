@@ -85,6 +85,14 @@ registerAttachment<FaceoutOptions>({
     return { w, h: p.h, depth: o.length, anchor: m.anchor, mounts: m.mounts, pose: 'side' };
   },
   summary: (o) => `Faceout ${Math.round(o.length)} mm${o.notches ? `, ${o.notches} notches` : ''}`,
+  labelFace(o, l) {
+    // The label plate at the tip.
+    if (!o.label) return null;
+    const y = (o.length - FACEOUT.labelT - FACEOUT.back) * Math.tan((o.angle * Math.PI) / 180);
+    return { x: 1.5, y: y + 1.5, w: o.labelW - 3, h: FACEOUT.labelH - 3, z: l.depth, normal: 'front' };
+  },
+  // Its back plate is as narrow as the arm, which stands in front of it: no room for a screw head beside the hook.
+  backPlate: () => null,
   notes(o) {
     const out: string[] = [];
     if (o.length > 30 * o.arm) out.push('A long thin arm bends under weight: make it thicker or shorter.');

@@ -92,6 +92,22 @@ registerAttachment<LidBoxOptions>({
   summary: (o) =>
     `Box with ${o.lid === 'slide' ? 'sliding lid' : o.lid === 'hinge' ? 'hinged lid' : 'flap'} ${Math.round(o.width)} × ${Math.round(o.depth)} × ${Math.round(o.height)}`,
   notes: (o) => leverNotes(o.depth, o.height),
+  labelFace(o, l) {
+    // The front wall at the top (under a hinged lid's finger notch); a flap has its own front, a card slot takes the place.
+    if (o.lid === 'flip' || o.label) return null;
+    const p = lidPlan(o);
+    const top = o.lid === 'hinge' ? p.top - 8 : p.y0 - LID.c;
+    const h = Math.min(12, top - 2);
+    return h >= 6 ? { x: o.wall + 1, y: top - 1 - h, w: l.w - 2 * o.wall - 2, h, z: o.depth, normal: 'front', depth: Math.min(0.6, o.wall / 2) } : null;
+  },
+  backPlate(o, l) {
+    // With the flap down, inside over its knuckles and under the top plate's rails, between the rails (and the magnet
+    // pillars). A box with a front wall has none: the wall is in front of the whole back.
+    if (o.lid !== 'flip') return null;
+    const p = lidPlan(o);
+    const x = o.wall + (o.magnets ? 6 : LID.rail);
+    return { x0: x, x1: l.w - x, y0: p.yh + p.R, y1: p.y0 - LID.c - 3 - LID.rail, z: LID.back };
+  },
   parts(o) {
     const p = lidPlan(o);
     const W = o.width;

@@ -63,8 +63,10 @@ registerAttachment<BinOptions>({
       : null;
   },
   backPlate(o, l) {
-    // Above the front wall (a screwdriver reaches in over it), between the sides and the dividers.
-    const y0 = binFront(o, l.h) + 1;
+    // Above the front wall (a screwdriver reaches in over it; the sides' slope leaves its inside edge a little higher),
+    // between the sides and the dividers.
+    const fh = binFront(o, l.h);
+    const y0 = fh + 1 + (o.wall * (l.h - fh)) / (o.depth - BIN_BACK);
     const t = o.wall;
     const cuts = Array.from({ length: o.dividers }, (_, k) => t + ((l.w - 2 * t) * (k + 1)) / (o.dividers + 1));
     const xs = [t, ...cuts.flatMap((x) => [x - t / 2, x + t / 2]), l.w - t];

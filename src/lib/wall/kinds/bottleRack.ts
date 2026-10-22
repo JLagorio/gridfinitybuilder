@@ -18,7 +18,7 @@
  * low on it: a rack full of paint weighs a couple of kilos.
  */
 import { MOUNT, backMounts, minHeight, mountBox } from '../mount';
-import { bool, int, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
+import { bool, int, num, obj, pick, registerAttachment, type BackPlate, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
 
 export type RackFloor = 'closed' | 'hole' | 'ring' | 'neck';
@@ -136,6 +136,15 @@ export function rackLayout(s: RackSpec, ctx: MountCtx) {
   return { w: p.w, h, depth: p.depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' as const };
 }
 
+/**
+ * Where a rack's back is clear for bolts: over its cups' tops, when the back stands 9 mm or more above them (the
+ * clips need the height); the cups stand in front of the rest of it.
+ */
+export function rackBack(s: RackSpec, l: { w: number; h: number }): BackPlate | null {
+  const top = rackPlan(s, l.w).top;
+  return l.h - top >= 9 ? { x0: 0, x1: l.w, y0: top, y1: l.h, z: RACK.back } : null;
+}
+
 /** Too far out for its back, or a step cut back at this tilt. */
 export function rackNotes(s: RackSpec, ctx: MountCtx): string[] {
   const l = rackLayout(s, ctx);
@@ -231,4 +240,5 @@ registerAttachment<BottleRackOptions>({
   layout: (o, ctx) => rackLayout(bottleSpec(o), ctx),
   summary: (o) => `Bottle rack ${o.columns} × ${o.rows}, ${o.shape === 'square' ? '□' : '⌀'}${Math.round(o.diameter * 10) / 10}`,
   notes: (o, ctx) => rackNotes(bottleSpec(o), ctx),
+  backPlate: (o, l) => rackBack(bottleSpec(o), l),
 });

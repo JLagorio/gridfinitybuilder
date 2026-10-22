@@ -93,6 +93,15 @@ registerAttachment<MediaBlockOptions>({
     return { w: p.W, h: p.H, depth: p.D + (o.label ? 2 : 0), anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Card block, ${o.rows * o.count} slots ${o.width} × ${o.thick}`,
+  labelFace(o, l) {
+    // The front of the block under its front row, or the label ledge on it.
+    const front = l.h - (o.rows - 1) * Math.min(8, Math.max(2, 0.4 * o.depth));
+    const y0 = Math.max(0, front - 12);
+    if (o.label) return front - y0 >= 8 ? { x: 1, y: y0 + 2.5, w: l.w - 2, h: front - y0 - 3, z: l.depth, normal: 'front' } : null;
+    return front >= 6 ? { x: 1, y: Math.max(0.6, front - 12.6), w: l.w - 2, h: Math.min(12, front - 1.2), z: l.depth, normal: 'front' } : null;
+  },
+  // A solid block in front of the whole back.
+  backPlate: () => null,
   notes(o, ctx) {
     const p = mediaPlan(o, ctx);
     const out = leverNotes(p.D, p.H);

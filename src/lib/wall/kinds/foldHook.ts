@@ -104,6 +104,14 @@ registerAttachment<FoldHookOptions>({
     return { w: p.w, h, depth: p.zp + FOLD.boss, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => (o.style === 'cup' ? `Folding cup holder ⌀${Math.round(o.cup)}` : `Folding hook ${Math.round(o.reach)} mm`),
+  backPlate(o, l) {
+    // Over the cheeks, and beside them on a wide base (over its feet): unfold the arm to reach it.
+    const p = foldPlan(o);
+    const xl = p.xc - p.base / 2;
+    const xr = p.xc + p.base / 2;
+    const plate = (x0: number, x1: number, y0: number) => ({ x0, x1, y0, y1: l.h, z: FOLD.back });
+    return [plate(0, l.w, p.yp + FOLD.boss), plate(0, xl, 2), plate(xr, l.w, 2)];
+  },
   parts(o) {
     const p = foldPlan(o);
     const F = FOLD;

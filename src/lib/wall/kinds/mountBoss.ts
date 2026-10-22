@@ -129,6 +129,19 @@ registerAttachment<MountBossOptions>({
     return { w, h, depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Device mount ${NAMES[o.fixing]}`,
+  backPlate(o, l) {
+    // Beside the platform and the arm under it (the arm is never wider than the platform), and over them both: the arm
+    // runs back at 45° from the top of the platform's back edge to the back plate (mountBoss.geom.ts).
+    const p = bossPlan(o);
+    const ya = p.y0 + p.bh * p.cs + (p.bd / 2) * p.sn;
+    const za = p.zc + p.bh * p.sn - (p.bd / 2) * p.cs;
+    const top = Math.min(l.h - 2, ya + za - BOSS_BACK);
+    return [
+      { x0: 0, x1: l.w / 2 - p.bw / 2, y0: 0, y1: l.h, z: BOSS_BACK },
+      { x0: l.w / 2 + p.bw / 2, x1: l.w, y0: 0, y1: l.h, z: BOSS_BACK },
+      { x0: 0, x1: l.w, y0: Math.max(top, p.yMax), y1: l.h, z: BOSS_BACK },
+    ];
+  },
   notes(o, ctx) {
     const s = bossSize(o, ctx);
     return leverNotes(s.depth, s.h);

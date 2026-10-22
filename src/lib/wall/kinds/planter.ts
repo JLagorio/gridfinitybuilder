@@ -37,9 +37,9 @@ export const PLANTER_DEFAULTS: PlanterOptions = { mode: 'pot', shape: 'round', s
 /**
  * Back plate, sleeve wall, its foot round a round pot, how far in from the rim
  * the sleeve's inside is, the saucer's height, the room between it and the
- * pot, the square sleeve's floor, mm.
+ * pot, the square sleeve's floor, the test tubes' ledge, mm.
  */
-export const POT = { back: 3, wall: 2.4, band: 3.6, grip: 2.5, saucer: 14, room: 3, floor: 2 } as const;
+export const POT = { back: 3, wall: 2.4, band: 3.6, grip: 2.5, saucer: 14, room: 3, floor: 2, ledge: 4 } as const;
 
 /** The twist-lock: the lugs' angles seated (degrees round the pot, 0 at the front, 90 to the right), each lug's arc, the turn to lock, its height, its bottom above the saucer's, how far out past the sleeve's inside. */
 export const LUG = { at: [10, 150, 230], arc: 14, turn: 30, h: 4, y: 6, out: 1.2 } as const;
@@ -112,6 +112,28 @@ registerAttachment<PlanterOptions>({
     const out = leverNotes(potPlan(o).d, potHeight(o, ctx));
     if (potPlan(o).w > 250) out.push("Over 250 mm wide: if it doesn't fit your printer, make two racks.");
     return out;
+  },
+  labelFace(o, l) {
+    const p = potPlan(o);
+    // Tubes: the foot's front. A square sleeve: its front over the tray's opening. A round one has no flat face.
+    if (o.mode === 'tubes') return { x: 2, y: 0.6, w: l.w - 4, h: p.foot - 1.2, z: l.depth, normal: 'front' };
+    if (o.shape === 'round') return null;
+    const apex = POT.floor + POT.saucer + 1 + (l.w - 2 * POT.wall) / 2;
+    const h = Math.min(12, l.h - apex - 2);
+    return h >= 6 ? { x: POT.wall + 1, y: l.h - 1 - h, w: l.w - 2 * POT.wall - 2, h, z: l.depth, normal: 'front' } : null;
+  },
+  backPlate(o, l) {
+    const p = potPlan(o);
+    // Tubes: between the foot and the ledge's underside (lift the tubes out). A square sleeve: through the tray's
+    // opening (slide the tray out), its pointed top too. A round sleeve stands in front of the whole back.
+    if (o.mode === 'tubes') return { x0: 0, x1: l.w, y0: p.foot, y1: Math.max(0, p.h - POT.ledge - (p.d - POT.back)), z: POT.back };
+    if (o.shape === 'round') return null;
+    const t = POT.wall;
+    const yo = POT.floor + POT.saucer + 1;
+    return [
+      { x0: t, x1: l.w - t, y0: POT.floor, y1: yo, z: p.z0 },
+      { x0: l.w / 2 - 6, x1: l.w / 2 + 6, y0: POT.floor, y1: yo + l.w / 2 - t - 6, z: p.z0 },
+    ];
   },
   parts(o): AttachmentPart[] {
     if (o.mode === 'tubes') return [];

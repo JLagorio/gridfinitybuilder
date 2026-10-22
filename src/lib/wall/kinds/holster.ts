@@ -73,9 +73,9 @@ export function obround(wid: number, dep: number, segs = 64): Vec2[] {
 /**
  * The ring: its wall, the opening (grown for heat-safe ribs), the outside, the gap to the board, the axis's tilt and
  * where it meets the ring's top (`oy`, `oz`: the top passes through the back plate's front at `ring` high), how far
- * the ring reaches forward in its own plane past the slot, and the part's size.
+ * the ring reaches forward in its own plane past the slot, its top's highest point (there), and how far out it reaches.
  */
-export function holsterGeometry(o: HolsterOptions, ctx: MountCtx) {
+function holsterRing(o: HolsterOptions) {
   const t = Math.min(10, Math.max(4, 0.12 * Math.max(o.width, o.depth)));
   const grow = o.heat ? HOLSTER.rib : 0;
   const cw = o.width + 2 * grow;
@@ -98,13 +98,16 @@ export function holsterGeometry(o: HolsterOptions, ctx: MountCtx) {
     // Where an edge crosses the slot's sides.
     for (const e of [slot / 2, -slot / 2]) if ((a[0] - e) * (b[0] - e) < 0) front = Math.max(front, -(a[1] + ((e - a[0]) / (b[0] - a[0])) * (b[1] - a[1])));
   }
+  return { t, grow, cw, cd, ow, od, gap, slot, oy, oz, front, top: oy + front * sin, depth: oz + oy * tan + front / cos };
+}
+
+/** The ring (holsterRing) and the part's size. */
+export function holsterGeometry(o: HolsterOptions, ctx: MountCtx) {
+  const g = holsterRing(o);
   // Three clip columns for a big ring, two for a small one.
   const cols = Math.max(o.width, o.depth) >= 50 ? 3 : 2;
   const minW = (cols - 1) * 2 * ctx.pitch + 2 * (mountBox('clip', [0, 0], ctx).x1 + MOUNT.margin);
-  const w = Math.max(ow, minW);
-  const depth = oz + oy * tan + front / cos;
-  const h = Math.max(o.back, oy + front * sin, minHeight(ctx) + 2 * ctx.pitch);
-  return { t, grow, cw, cd, ow, od, gap, slot, oy, oz, front, w, h, depth };
+  return { ...g, w: Math.max(g.ow, minW), h: Math.max(o.back, g.top, minHeight(ctx) + 2 * ctx.pitch) };
 }
 
 registerAttachment<HolsterOptions>({
@@ -132,6 +135,21 @@ registerAttachment<HolsterOptions>({
   },
   summary: (o) =>
     `Holster ${o.width === o.depth ? `⌀${Math.round(o.width)}` : `${Math.round(o.width)} × ${Math.round(o.depth)}`}${o.heat ? ', heat-safe' : ''}`,
+  backPlate(o, l) {
+    // Over the ring's top (the tool stands above it: take it out first), and over the gussets by the back plate;
+    // beside the ring on a back wider than it.
+    const g = holsterRing(o);
+    const B = HOLSTER.back;
+    const [x0, x1] = [(l.w - g.ow) / 2, (l.w + g.ow) / 2];
+    const gs = Math.max(0, Math.min(l.h - o.ring - 2, 0.75 * (g.oz - B), 60));
+    const plate = (xa: number, xb: number, y0: number) => ({ x0: xa, x1: xb, y0, y1: l.h, z: B });
+    return [
+      plate(x0 + HOLSTER.gusset, x1 - HOLSTER.gusset, g.top),
+      plate(0, l.w, Math.max(g.top, gs > 2 ? o.ring + gs : 0)),
+      plate(0, x0, 0),
+      plate(x1, l.w, 0),
+    ];
+  },
   notes(o, ctx) {
     const g = holsterGeometry(o, ctx);
     const out = leverNotes(g.depth, g.h);

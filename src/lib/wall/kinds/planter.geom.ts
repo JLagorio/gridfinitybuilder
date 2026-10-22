@@ -18,7 +18,7 @@ import { posed, type AttachmentBuilder } from '../build';
 import { LUG, POT, lugOutline, potPlan, type PlanterOptions } from './planter';
 
 /** A window each side of a round sleeve's foot (a share of the radius each side of centre, at most 12 mm), how deep a slot reaches past the inside, the tubes' clearances; mm. */
-export const PLANTER = { window: 0.3, windowMax: 12, slot: 1.6, cup: 0.8, hole: 1.2, ledge: 4 } as const;
+export const PLANTER = { window: 0.3, windowMax: 12, slot: 1.6, cup: 0.8, hole: 1.2, ledge: POT.ledge } as const;
 
 /** A cylinder standing on y0, `h` tall, its axis at (x, z). */
 function upright(w: Wasm, s: Scope, x: number, z: number, y0: number, h: number, r: number, segs = 96): Manifold {

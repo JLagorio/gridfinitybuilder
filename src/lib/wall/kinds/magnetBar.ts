@@ -66,6 +66,22 @@ export function magnetRow(o: MagnetBarOptions) {
   return { px, n, xs: Array.from({ length: n }, (_, i) => o.length / 2 + (i - (n - 1) / 2) * P) };
 }
 
+/**
+ * Without the board (for its label and back plate): how far up the bar the pockets are, top and bottom (sealed,
+ * exactly; glued, as far as they can be: under the clips, which are at most MOUNT.clip.height tall), the face's
+ * thickness when it doesn't lean, and the lip's height in front of it.
+ */
+function magnetBand(o: MagnetBarOptions, H: number) {
+  const glue = o.fix === 'glue';
+  const tall = o.shape === 'disc' ? o.magD : o.magW;
+  const py0 = tall / 2 + (glue ? MAG.fit : MAG.sealFit);
+  const py1 = glue && o.shape === 'disc' ? py0 * Math.SQRT2 : py0;
+  const mt = o.magT + MAG.depth;
+  const T = glue ? mt + MAG.room + MAG.cover : MAG.back + mt + o.skin;
+  const top = glue ? H - MOUNT.margin - 1 : (H - py0 - py1) / 2 + py0 + py1;
+  return { top, bottom: glue ? top - MOUNT.clip.height - py0 - py1 : top - py0 - py1, T: Math.max(T, 3), lip: o.lip > 0 ? MAG.lipT + MAG.lipUp : 0 };
+}
+
 /** Where the magnets go and the bar's size. */
 export function magnetPlan(o: MagnetBarOptions, ctx: MountCtx) {
   const glue = o.fix === 'glue';
@@ -123,6 +139,27 @@ registerAttachment<MagnetBarOptions>({
   summary(o) {
     const n = magnetRow(o).n;
     return `Magnetic bar ${Math.round(o.length)} mm, ${n} magnet${n === 1 ? '' : 's'}`;
+  },
+  labelFace(o, l) {
+    // On the face under the magnets (glued) or over them (sealed), clear of the pockets; not on a leaning face.
+    if (o.angle > 0) return null;
+    const b = magnetBand(o, l.h);
+    const [y0, y1] = o.fix === 'glue' ? [b.lip, b.bottom] : [b.top, l.h];
+    const h = Math.min(12, y1 - y0 - 2);
+    return h >= 6 ? { x: 2, y: y0 + 1, w: l.w - 4, h, z: b.T, normal: 'front' } : null;
+  },
+  backPlate(o, l) {
+    // Round the pockets (glued ones are open at the back), over the lip: between the magnets, and under them (glued) or
+    // over them (sealed: a vent runs down from each). A face that leans has no flat seat for a countersunk head.
+    if (o.angle > 0) return null;
+    const b = magnetBand(o, l.h);
+    const { px, xs } = magnetRow(o);
+    const edges = [0, ...xs.flatMap((x) => [x - px, x + px]), l.w];
+    const plate = (x0: number, x1: number, y0: number, y1: number) => ({ x0, x1, y0, y1, z: b.T });
+    return [
+      ...Array.from({ length: edges.length / 2 }, (_, k) => plate(edges[2 * k], edges[2 * k + 1], b.lip, l.h)),
+      o.fix === 'glue' ? plate(0, l.w, b.lip, b.bottom) : plate(0, l.w, b.top, l.h),
+    ];
   },
   notes: (o, ctx) =>
     o.fix === 'skin' ? [`Pause the print at Z = ${magnetPlan(o, ctx).pause} mm, before the layer that closes the pockets, and drop the magnets in.`] : [],

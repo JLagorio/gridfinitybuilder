@@ -23,7 +23,7 @@
  * head, so nothing bears there).
  */
 import { backMounts, minHeight } from '../mount';
-import { int, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
+import { int, num, obj, pick, registerAttachment, type BackPlate, type MountCtx } from '../registry';
 import type { Vec2 } from '../../geometry/kernel';
 
 export const RECEIVER_SYSTEMS = ['multiconnect', 'openconnect', 'multipoint'] as const;
@@ -86,4 +86,17 @@ registerAttachment<ReceiverOptions>({
     return { w: p.w, h: p.h, depth: RECEIVER_PLATE + RECEIVER_HEADS[o.system].out, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `${NAMES[o.system]} plate ${o.columns} × ${o.rows}`,
+  backPlate(o, l) {
+    // Between the heads' columns and rows (and round them), the plate's full height or width: screw it on before an
+    // accessory goes over them.
+    const k = RECEIVER_HEADS[o.system];
+    const P = Math.max(o.pitch, 2 * k.side + 2);
+    const xs = Array.from({ length: o.columns }, (_, i) => l.w / 2 + (i - (o.columns - 1) / 2) * P);
+    const ys = Array.from({ length: o.rows }, (_, j) => l.h - EDGE - k.up - j * P).reverse();
+    const out: BackPlate[] = [];
+    for (let i = 0; i <= o.columns; i++)
+      out.push({ x0: i ? xs[i - 1] + k.side : 0, x1: i < o.columns ? xs[i] - k.side : l.w, y0: 0, y1: l.h, z: RECEIVER_PLATE });
+    for (let j = 0; j <= o.rows; j++) out.push({ x0: 0, x1: l.w, y0: j ? ys[j - 1] + k.up : 0, y1: j < o.rows ? ys[j] - k.down : l.h, z: RECEIVER_PLATE });
+    return out;
+  },
 });

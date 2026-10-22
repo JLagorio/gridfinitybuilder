@@ -127,6 +127,8 @@ registerAttachment<TiltBinOptions>({
     return { w: o.width, h, depth: p.depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Tip-out bin${o.stack > 1 ? ` × ${o.stack}` : ''} ${Math.round(o.width)} × ${Math.round(tiltPlan(o).depth)} × ${Math.round(o.height)}`,
+  // The frame's back between its sides, over its floor: the bins come off their pins first.
+  backPlate: (_o, l) => ({ x0: TILT.side, x1: l.w - TILT.side, y0: TILT.floor, y1: l.h, z: TILT.back }),
   notes(o) {
     const p = tiltPlan(o);
     const out = leverNotes(p.depth, p.h);
