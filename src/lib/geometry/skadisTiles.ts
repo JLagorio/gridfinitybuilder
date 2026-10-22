@@ -39,15 +39,38 @@ function planTiles(o: SkadisOptions, areas: BedArea[]): SkadisPlan {
   const [c0, r0] = [0, 1].map((k) => Math.min(...o.tiles.map((t) => t[k])));
   const [nc, nr] = [0, 1].map((k) => Math.max(...o.tiles.map((t) => t[k])) - [c0, r0][k] + 1);
   const on = new Set(o.tiles.map(([c, r]) => `${c - c0},${r - r0}`));
+  // The lattice counts its steps from tile (0, 0)'s corner, whatever is left of or below it: on the standard pattern a
+  // tile an odd number of steps across would otherwise have its slots turned over a step when one is added before it.
+  const [sx, sy] = [(c0 * n) & 1, (r0 * m) & 1];
   const t: RectTiles = {
     o: { ...o, width: r3(nc * cw), height: r3(nr * ch) },
-    L: { ox: -P, oy: -P, nx: nc * n + 3, ny: nr * m + 3, p: P },
+    L: { ox: -P * (1 + sx), oy: -P * (1 + sy), nx: nc * n + 3 + sx, ny: nr * m + 3 + sy, p: P },
     xs: Array.from({ length: nc + 1 }, (_, k) => r3(k * cw)),
     ys: Array.from({ length: nr + 1 }, (_, k) => r3(k * ch)),
     grid: { origin: [r3(-c0 * cw), r3(-r0 * ch)], q: [cw, 0], r: [0, ch], at: [] },
     has: (c, r) => on.has(`${c},${r}`),
   };
-  return planRect(o, areas, t);
+  return asAdded(planRect(o, areas, t), o.tiles);
+}
+
+/**
+ * Rectangle tiles numbered in the order they were added, as hexagons are, rather than row by row: a tile added later,
+ * even below or left of the others, never changes another's number on its back, so tiles printed already stay printed
+ * (lib/printed.ts). A board laid out row by row (a starter board's) numbers as before.
+ */
+function asAdded(plan: SkadisPlan, cells: SkadisCell[]): SkadisPlan {
+  const g = plan.grid;
+  if (!g) return plan;
+  const rank = new Map(cells.map((c, i) => [String(c), i]));
+  const at = (i: number) => rank.get(String(g.at[i])) ?? i;
+  const order = plan.tiles.map((_, i) => i).sort((a, b) => at(a) - at(b));
+  const id = new Map(order.map((i, k) => [plan.tiles[i].id, k + 1]));
+  return {
+    ...plan,
+    tiles: order.map((i, k) => ({ ...plan.tiles[i], id: k + 1 })),
+    mounts: plan.mounts.map((m) => ({ ...m, tile: id.get(m.tile) ?? m.tile })),
+    grid: { ...g, at: order.map((i) => g.at[i]) },
+  };
 }
 
 /** Rectangle tiles n × m steps each (an even number on a square grid, so seams run between its slots), and whether they fit the bed. */

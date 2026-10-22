@@ -686,7 +686,7 @@ export default function App() {
                 </div>
                 {viewJob.drawers[0]?.enclosure?.wall && (
                   <LazyPart scope="The board editor">
-                    <WallEditor board={viewJob.drawers[0].enclosure.wall.board} placed={viewJob.drawers[0].enclosure.wall.placed} />
+                    <WallEditor board={viewJob.drawers[0].enclosure.wall.board} placed={viewJob.drawers[0].enclosure.wall.placed} job={viewJob} />
                   </LazyPart>
                 )}
               </div>
@@ -727,7 +727,7 @@ export default function App() {
             <div className="split">
               <div className="pane pane-2d">
                 <LazyPart scope="The board's tiles">
-                  <BoardTiles grid={tileGrid} board={wall.board} placed={wall.placed} hex={boardInfo?.shape === 'hex'} />
+                  <BoardTiles grid={tileGrid} board={wall.board} placed={wall.placed} hex={boardInfo?.shape === 'hex'} job={viewJob} />
                 </LazyPart>
               </div>
               <div className="pane pane-3d">{viewer}</div>
