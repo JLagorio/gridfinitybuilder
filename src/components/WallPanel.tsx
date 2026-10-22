@@ -3,6 +3,7 @@ import { useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, TextInput, Toggle } from './fields';
 import { attachmentDef, type AttachmentDef, type AttachmentField, type AttachmentGroup } from '../lib/wall';
 import { GROUP_LABELS, attachmentUi, attachmentUis, type AttachmentUi } from '../lib/wall/ui';
+import '../lib/wall/kinds/all';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
 import type { PrintJob } from '../lib/project';
 import { addAttachment, duplicateAttachment, removeAttachment, selectAttachment, setAttachmentOpts, updateAttachment } from '../state/wall';

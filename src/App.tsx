@@ -35,6 +35,7 @@ import { stackPlaces } from './lib/stacking';
 import { PhoneNav, usePhoneView } from './components/PhoneNav';
 import { externalBox, importedSpec } from './lib/external';
 import { hasImported, importedVersion, subscribeImported } from './lib/imported/registry';
+import { kindsVersion, loadKinds, subscribeKinds } from './lib/wall';
 import { useCoarsePointer } from './components/touch';
 import './components/workflow.css';
 
@@ -309,10 +310,16 @@ export default function App() {
   const interiorBin = useInteriorPane();
   // Plan with bins always included so the drawer view can show them.
   const project = projectOf(state);
+  // A board's attachments plan once their kinds have loaded (lib/wall/ready.ts): load them with the first board.
+  const kinds = useSyncExternalStore(subscribeKinds, kindsVersion);
+  const hasBoard = state.drawer.enclosure === 'skadis' || state.drawers.some((d) => d.drawer.enclosure === 'skadis');
+  useEffect(() => {
+    if (hasBoard) void loadKinds();
+  }, [hasBoard]);
   const job = useMemo(
     () => planJob(project),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.drawer, state.baseplate, state.setup, state.bins, state.include],
+    [state.drawer, state.baseplate, state.setup, state.bins, state.include, kinds],
   );
   const viewJob = useMemo(
     () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } })),

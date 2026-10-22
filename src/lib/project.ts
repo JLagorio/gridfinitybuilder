@@ -93,9 +93,9 @@ import { groupName, plateGroup, plateGroups, soloGroup, tagColours, useSplitMesh
 import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
 import { buildImported, type ImportedSpec } from './imported/registry';
 import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
-import { attachmentDef, type AttachmentLayout, type MountCtx } from './wall';
+import { attachmentDef, kindsReady, type AttachmentLayout, type MountCtx } from './wall';
 import { attachmentKey, attachmentView, placeAttachments } from './wall/plan';
-import { buildAttachment, buildAttachmentPart } from './wall/build';
+import type * as WallBuild from './wall/build';
 import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
@@ -596,7 +596,8 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
     // A Skådis board holds attachments (lib/wall), not bins: they print with the bins, on shared plates.
     if (enc?.kind === 'skadis') {
       if (enc.wall) {
-        const { placed, warnings: notes } = placeAttachments(d.drawer.attachments ?? [], enc.wall);
+        // Until the kinds have loaded (wall/ready.ts) the board plans bare; App plans again once they're in.
+        const { placed, warnings: notes } = placeAttachments(kindsReady() ? (d.drawer.attachments ?? []) : [], enc.wall);
         for (const msg of notes) warn(msg);
         const scene = drawerJobs[drawerJobs.length - 1].enclosure!;
         drawerJobs[drawerJobs.length - 1].enclosure = { ...scene, wall: { board: enc.wall, placed }, items: [...scene.items] };
@@ -954,6 +955,20 @@ function sharePlates(
   return out;
 }
 
+/**
+ * The attachments' builders (wall/build.ts), handed in by whoever builds meshes (the geometry
+ * worker, the tests, the scripts): importing them here would pull every attachment kind's
+ * planning onto the first screen with them (their planning registers itself; wall/ready.ts).
+ */
+let wallBuild: typeof WallBuild | null = null;
+export function setWallBuilders(b: typeof WallBuild): void {
+  wallBuild = b;
+}
+function wallBuilders(): typeof WallBuild {
+  if (!wallBuild) throw new Error('Attachment builders not set (setWallBuilders).');
+  return wallBuild;
+}
+
 /** Build a mesh with its footprint's min corner at the origin and its bottom at z = 0. */
 export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'split') return splitByRoles(w, buildMesh(w, spec.base), spec.base);
@@ -970,8 +985,8 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
   if (spec.kind === 'insertPart') return buildInsertPart(w, spec.part);
   if (spec.kind === 'imported') return buildImported(spec);
-  if (spec.kind === 'attachment') return buildAttachment(w, spec);
-  if (spec.kind === 'attachmentPart') return buildAttachmentPart(w, spec);
+  if (spec.kind === 'attachment') return wallBuilders().buildAttachment(w, spec);
+  if (spec.kind === 'attachmentPart') return wallBuilders().buildAttachmentPart(w, spec);
   if (spec.kind === 'container') {
     const def = containerDef(spec.type);
     if (!def?.buildPart) throw new Error(`No part builder for container type “${spec.type}”.`);

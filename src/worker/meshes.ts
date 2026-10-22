@@ -2,7 +2,8 @@
 import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import { cloneMesh, type MeshData, type Wasm } from '../lib/geometry/kernel';
-import { buildMesh, type MeshSpec, type PrintJob } from '../lib/project';
+import { buildMesh, setWallBuilders, type MeshSpec, type PrintJob } from '../lib/project';
+import * as wallBuild from '../lib/wall/build';
 import { splitByRoles } from '../lib/geometry/colourRegions';
 import { printedVolume } from '../lib/geometry/volume';
 import type { MeshPrintStats } from '../lib/estimate';
@@ -10,6 +11,9 @@ import type { WorkerRequest, WorkerResponse } from './protocol';
 import { FONT_URL_PATH, registerFont } from '../lib/geometry/text';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { putImported } from '../lib/imported/registry';
+
+// Attachments' builders: project.ts doesn't import them (the first screen would get every kind's planning).
+setWallBuilders(wallBuild);
 
 /**
  * The geometry worker's work: builds meshes with Manifold and answers the

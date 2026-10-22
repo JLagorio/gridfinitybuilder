@@ -1,24 +1,12 @@
 /**
- * Registers every attachment kind (planning side). Import this once (project.ts
- * does) before planning attachments; registry.ts holds the lookups and
- * build.ts the geometry.
+ * Attachments' planning side: the registry (registry.ts) and, loaded on demand, the kinds
+ * (kinds/all.ts): they aren't on the first screen, so the app loads them once the project has a
+ * board (ready.ts). build.ts has their geometry, ui.ts their forms.
  */
 export * from './registry';
-import './kinds/hook';
-import './kinds/bin';
-import './kinds/cup';
-import './kinds/fitTest';
-import './kinds/shelf';
-import './kinds/rod';
-import './kinds/toolRack';
-import './kinds/cradle';
-import './kinds/plate';
-import './kinds/rail';
-import './kinds/ledBar';
-import './kinds/cableClip';
-import './kinds/cableChannel';
-import './kinds/powerStrip';
-import './kinds/cableComb';
-import './kinds/gridShelf';
-import './kinds/gridPlate';
-import './kinds/gridClip';
+export { kindsReady, kindsVersion, subscribeKinds } from './ready';
+
+let loading: Promise<unknown> | null = null;
+
+/** Load every kind's planning (once). */
+export const loadKinds = () => (loading ??= import('./kinds/all'));

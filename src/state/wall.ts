@@ -5,6 +5,7 @@
 import { history, useStore } from './store';
 import { newId } from '../lib/bins';
 import { attachmentDef, type PlacedAttachment } from '../lib/wall';
+import '../lib/wall/kinds/all';
 import { attachmentLayout, slotKeys, snapAnchor, type WallBoard, type WallPlacement } from '../lib/wall/plan';
 import { partBounds } from '../lib/wall/mount';
 
