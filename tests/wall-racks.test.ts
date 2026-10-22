@@ -522,7 +522,8 @@ describe('on a 560 × 560 board', () => {
     expect(job.warnings).toEqual([]);
     const wall = job.drawers[0].enclosure!.wall!;
     expect(wall.placed.map((p) => p.ok)).toEqual(list.map(() => true));
-    const parts = Object.values(job.parts).filter((p) => p.kind === 'attachment');
+    // (Lock keys aside: parts with hooks bring theirs.)
+    const parts = Object.values(job.parts).filter((p) => p.kind === 'attachment' && !p.name.startsWith('Lock key'));
     expect(parts).toHaveLength(list.length);
     const onPlates = new Set(job.plates.flatMap((p) => p.placements.map((q) => q.key)));
     for (const p of parts) expect(onPlates.has(p.key), p.key).toBe(true);

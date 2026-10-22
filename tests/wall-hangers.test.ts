@@ -539,7 +539,8 @@ describe('hangers on a board', () => {
     const wall = job.drawers[0].enclosure!.wall!;
     expect(job.warnings).toEqual([]);
     expect(wall.placed.every((p) => p.ok)).toBe(true);
-    const parts = Object.values(job.parts).filter((p) => p.kind === 'attachment');
+    // (Lock keys aside: parts with hooks bring theirs.)
+    const parts = Object.values(job.parts).filter((p) => p.kind === 'attachment' && !p.name.startsWith('Lock key'));
     expect(parts).toHaveLength(list.length);
     const onPlates = new Set(job.plates.flatMap((p) => p.placements.map((q) => q.key)));
     for (const p of parts) expect(onPlates.has(p.key), p.key).toBe(true);
