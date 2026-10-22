@@ -54,6 +54,7 @@ export const SKADIS_INDEX: FindEntry[] = [
         words: ['standoff', 'spacer', 'post', 'riser', 'gap', 'depth', 'behind', 'clearance', 'hook room', 'distance from wall'],
       },
       { id: 'skadis-screws', title: 'Screws', words: ['screw', 'screws', 'countersunk', 'mount', 'fix', 'hang', 'wall plug', 'anchor', 'how many'] },
+      { id: 'skadis-covers', title: 'Screw covers', words: ['cover', 'covers', 'cap', 'caps', 'screw cover', 'screw cap', 'hide', 'snap', 'finish', 'tidy'] },
     ],
   },
   {

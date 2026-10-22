@@ -7,7 +7,11 @@
  * - wrenches: a comb open at the front, the handle slides in and the ring end
  *   rests on the teeth (head sizes as the Gridfinity rack's `wrenchHead`);
  * - bits: blind sockets for 1/4″ hex bits, in rows;
- * - hex keys: hex holes for a set, long legs down.
+ * - hex keys: hex holes for a set, long legs down;
+ * - sockets: square posts (1/4″, 3/8″ or 1/2″ drive) the sockets press onto,
+ *   spaced by their outside diameters;
+ * - drill index: blind holes the bits stand in, point down, each size
+ *   engraved in the ledge in front of it.
  *
  * Printed upright as it hangs: the ledge lies on the bed, so every hole is a
  * plain vertical hole, and the back rises from its back edge with 45° gussets
@@ -18,16 +22,20 @@ import { backMounts, minHeight } from '../mount';
 import { int, num, obj, pick, registerAttachment, str, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
 
-export const TOOL_MODES = ['drivers', 'pliers', 'wrenches', 'bits', 'hexKeys'] as const;
+export const TOOL_MODES = ['drivers', 'pliers', 'wrenches', 'bits', 'hexKeys', 'sockets', 'index'] as const;
 export type ToolMode = (typeof TOOL_MODES)[number];
 
 export interface ToolRackOptions {
   mode: ToolMode;
-  /** Size lists, mm (text: "3, 4, 5"): shaft diameters, jaw thicknesses, wrench sizes, hex keys across flats. */
+  /** Size lists, mm (text: "3, 4, 5"): shaft diameters, jaw thicknesses, wrench sizes, hex keys across flats, sockets' outside diameters, drill bits. */
   drivers: string;
   pliers: string;
   wrenches: string;
   hexKeys: string;
+  sockets: string;
+  index: string;
+  /** Sockets: the square drive, inches. */
+  drive: '1/4' | '3/8' | '1/2';
   /** Bits: how many, in how many rows. */
   bits: number;
   rows: number;
@@ -39,6 +47,8 @@ export interface ToolRackOptions {
   clearance: number;
   /** Back plate height. */
   height: number;
+  /** The holes this far out from the back at least: room for T-handles or heads behind them, mm. */
+  reach: number;
 }
 
 export const TOOL_RACK_DEFAULTS: ToolRackOptions = {
@@ -47,16 +57,33 @@ export const TOOL_RACK_DEFAULTS: ToolRackOptions = {
   pliers: '10, 11, 12, 12',
   wrenches: '8, 10, 12, 13, 14, 17, 19',
   hexKeys: '1.5, 2, 2.5, 3, 4, 5, 6, 8, 10',
+  sockets: '17, 17, 18, 19, 20, 22, 23, 25',
+  index: '1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10',
+  drive: '3/8',
   bits: 12,
   rows: 2,
   handle: 30,
   head: 24,
   clearance: 0.6,
   height: 60,
+  reach: 0,
 };
 
 /** Back plate and end gusset thickness, plastic round a hole, least gap between holes, ledge thickness (bits: deeper for their sockets), bit across flats, fit and pitch; mm. */
 export const TOOL = { back: 3, end: 3, edge: 3, gap: 2.5, ledge: 6, bitLedge: 12, bit: 6.35, bitFit: 0.25, bitPitch: 10 } as const;
+
+/** Sockets' square posts by drive: side (a hair under the drive) and height; mm. */
+export const DRIVES = { '1/4': [6.25, 8], '3/8': [9.4, 10], '1/2': [12.55, 13] } as const;
+
+/** Drill index: ledge thickness, the bits' holes' depth, the engraved sizes' height, stroke and depth; mm. */
+export const INDEX = { ledge: 14, depth: 11, text: 3.5, stroke: 0.6, engrave: 0.6 } as const;
+
+/** Width of an engraved size ("6.5"): seven-segment digits (geometry/digits.ts) and a dot. */
+export const labelWidth = (t: string) => {
+  const n = t.replace(/[^\d]/g, '').length;
+  const dot = t.includes('.') ? 1 : 0;
+  return n * 0.55 * INDEX.text + dot * INDEX.stroke + (n + dot - 1) * 1.3 * INDEX.stroke;
+};
 
 /** A hole in the ledge: its centre, its size across (x) and front to back (z). A comb slot runs out through the front. */
 export interface ToolHole {
@@ -64,7 +91,9 @@ export interface ToolHole {
   z: number;
   sx: number;
   sz: number;
-  shape: 'round' | 'hex' | 'slot' | 'comb' | 'socket';
+  shape: 'round' | 'hex' | 'slot' | 'comb' | 'socket' | 'post' | 'blind';
+  /** Engraved in front of it (drill index). */
+  label?: string;
 }
 
 /** Sizes from text: "3, 4, 5 mm" → [3, 4, 5]. */
@@ -95,6 +124,8 @@ export function toolLayout(o: ToolRackOptions): { holes: ToolHole[]; w: number; 
   const c = o.clearance;
   // Each: hole size, half the width a tool takes across (handle, joint, head), and how far its centre stays from the back.
   const items = parseSizes(o[o.mode]).map((s) => {
+    if (o.mode === 'sockets') return { sx: s + c, sz: s + c, keep: 0, off: 0, shape: 'post' as const };
+    if (o.mode === 'index') return { sx: s + c, sz: s + c, keep: labelWidth(String(s)) / 2, off: 0, shape: 'blind' as const, label: String(s) };
     if (o.mode === 'drivers') return { sx: s + c, sz: s + c, keep: o.handle / 2, off: o.handle / 2 + 1, shape: 'round' as const };
     if (o.mode === 'hexKeys') return { sx: (2 * (s + c)) / SQ3, sz: s + c, keep: 0, off: 0, shape: 'hex' as const };
     if (o.mode === 'pliers') return { sx: s + c, sz: o.head + c, keep: s, off: 0, shape: 'slot' as const };
@@ -107,14 +138,16 @@ export function toolLayout(o: ToolRackOptions): { holes: ToolHole[]; w: number; 
   let prev: (typeof items)[number] | null = null;
   for (const it of items) {
     x += prev ? Math.max((prev.sx + it.sx) / 2 + gap, prev.keep + it.keep + 1) : Math.max(it.sx / 2 + edge, it.keep);
-    holes.push({ x, z: 0, sx: it.sx, sz: it.sz, shape: it.shape });
+    holes.push({ x, z: 0, sx: it.sx, sz: it.sz, shape: it.shape, ...('label' in it ? { label: it.label } : {}) });
     prev = it;
   }
-  const z = back + Math.max(0, ...items.map((it) => Math.max(it.sz / 2 + edge, it.off)));
+  const z = back + Math.max(o.reach, ...items.map((it) => Math.max(it.sz / 2 + edge, it.off)));
   const w = prev ? x + Math.max(prev.sx / 2 + edge, prev.keep) + end : 0;
   // At least 30 mm wide, the holes centred.
   for (const h of holes) Object.assign(h, { x: h.x + Math.max(0, 30 - w) / 2, z });
-  return { holes, w: Math.max(30, w), d: z + Math.max(0, ...items.map((it) => it.sz / 2)) + edge, t: TOOL.ledge };
+  // A drill index has a row of sizes in front of the holes.
+  const label = o.mode === 'index' ? INDEX.text + 1.5 : 0;
+  return { holes, w: Math.max(30, w), d: z + Math.max(0, ...items.map((it) => it.sz / 2)) + label + edge, t: o.mode === 'index' ? INDEX.ledge : TOOL.ledge };
 }
 
 export const toolRackHeight = (o: ToolRackOptions, ctx: MountCtx) => Math.max(o.height, minHeight(ctx), toolLayout(o).t + 10);
@@ -125,6 +158,8 @@ const NAMES: Record<ToolMode, [string, string]> = {
   wrenches: ['Wrench rack', 'slot'],
   bits: ['Bit holder', 'bit'],
   hexKeys: ['Hex key rack', 'hole'],
+  sockets: ['Socket rail', 'post'],
+  index: ['Drill index', 'hole'],
 };
 
 registerAttachment<ToolRackOptions>({
@@ -140,12 +175,16 @@ registerAttachment<ToolRackOptions>({
       pliers: list(r.pliers, d.pliers),
       wrenches: list(r.wrenches, d.wrenches),
       hexKeys: list(r.hexKeys, d.hexKeys),
+      sockets: list(r.sockets, d.sockets),
+      index: list(r.index, d.index),
+      drive: pick(r.drive, ['1/4', '3/8', '1/2'] as const, d.drive),
       bits: int(r.bits, 1, 60, d.bits),
       rows: int(r.rows, 1, 4, d.rows),
       handle: num(r.handle, 0, 60, d.handle),
       head: num(r.head, 5, 60, d.head),
       clearance: num(r.clearance, 0, 3, d.clearance),
       height: num(r.height, 25, 150, d.height),
+      reach: num(r.reach, 0, 80, d.reach),
     };
   },
   layout(o, ctx) {
@@ -163,7 +202,8 @@ registerAttachment<ToolRackOptions>({
     const l = toolLayout(o);
     const out = leverNotes(l.d, toolRackHeight(o, ctx));
     if (!l.holes.length) out.push('No sizes yet: list them in mm, like “3, 4, 5”.');
-    else if (o.mode !== 'bits' && o.clearance < 0.3) out.push('Under 0.3 mm clearance the holes may be too tight to drop the tools in.');
+    else if (o.mode !== 'bits' && o.mode !== 'sockets' && o.clearance < 0.3)
+      out.push('Under 0.3 mm clearance the holes may be too tight to drop the tools in.');
     return out;
   },
 });
