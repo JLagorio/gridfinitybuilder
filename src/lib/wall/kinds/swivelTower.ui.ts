@@ -5,6 +5,8 @@ registerAttachmentUi({
   label: 'Swivel tower',
   description: 'A stack of trays on an upright axle, each swinging out on its own.',
   group: 'storage',
+  // Dragged taller in the board editor: more trays.
+  resize: { h: 'count' },
   fields: [
     { key: 'count', label: 'Trays', kind: 'number', min: 1, max: 8, step: 1, suffix: '' },
     { key: 'trayH', label: 'Tray height', kind: 'length', min: 10, max: 75 },

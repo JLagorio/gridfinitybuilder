@@ -19,20 +19,37 @@
 .we-slots {
   fill: #0f1114;
 }
-.we-att rect {
+.we-att .we-body {
   fill: rgba(122, 166, 194, 0.32);
   stroke: #7aa6c2;
   stroke-width: 1;
   cursor: grab;
 }
-.we-att.selected rect {
-  fill: var(--accent-soft);
-  stroke: var(--accent);
-  stroke-width: 1.4;
-}
-.we-att.bad rect {
-  fill: rgba(240, 97, 106, 0.2);
+.we-att.bad .we-body {
+  fill: rgba(240, 97, 106, 0.22);
   stroke: var(--danger);
+}
+/* Selected: the accent outline, whether it fits or not (a part that doesn't keeps its red fill). */
+.we-att.selected .we-body {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.we-att.selected:not(.bad) .we-body {
+  fill: var(--accent-soft);
+}
+.we-handle {
+  fill: var(--accent);
+  stroke: #15181d;
+  stroke-width: 0.8;
+}
+.we-handle.ew {
+  cursor: ew-resize;
+}
+.we-handle.ns {
+  cursor: ns-resize;
+}
+.we-handle.nwse {
+  cursor: nwse-resize;
 }
 .we-att text {
   fill: var(--text);

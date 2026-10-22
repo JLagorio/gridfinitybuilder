@@ -9,6 +9,8 @@ registerAttachmentUi({
   label: 'Planter',
   description: 'A pot holder whose saucer twists or slides out to empty, or test tubes for cuttings. Print it in PETG.',
   group: 'other',
+  // Dragged wider in the board editor: a bigger pot; taller: a taller one.
+  resize: { w: 'size', h: 'potH' },
   fields: [
     {
       key: 'preset',
