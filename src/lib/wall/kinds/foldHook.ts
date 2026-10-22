@@ -149,4 +149,6 @@ registerAttachment<FoldHookOptions>({
     return out;
   },
   hardware: (o) => pinHardware(o.pin, 1, foldPlan(o).base - 1),
+  // A cup holder: a full mug, about 0.4 kg; a hook: anything.
+  load: (o) => ({ kg: o.style === 'cup' ? 0.4 : 0, at: o.reach }),
 });

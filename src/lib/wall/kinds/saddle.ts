@@ -182,7 +182,7 @@ registerAttachment<SaddleOptions>({
     if (o.mode === 'yoke') {
       const y = yokeShape(o, ctx);
       const out = leverNotes(y.D, y.H);
-      if (o.heavy) out.push('Carries 3–4 kg: print it in PETG or ASA with 5 walls and 40% infill, and screw the board to the wall.');
+      if (o.heavy) out.push('Carries 3–5 kg: print it in PETG or ASA with 5 walls and 40% infill, and screw the board to the wall.');
       return out;
     }
     const st = saddleStack(o, ctx);
@@ -196,4 +196,11 @@ registerAttachment<SaddleOptions>({
     o.mode === 'yoke' && o.pad
       ? [{ item: 'Self-adhesive felt strip, 8 mm wide', count: 2, note: `${Math.round(o.reach - SADDLE.tipT)} mm each, in the prongs’ grooves` }]
       : [],
+  // Headphones or a helmet, about 0.5 kg a saddle. A guitar (3–5 kg: a heavy electric or a bass, 4.5) hangs below its
+  // headstock, which rests on the prongs about 25 mm out; a ukulele or a controller, 0.6 kg.
+  load(o) {
+    if (o.mode === 'yoke') return o.heavy ? { kg: 4.5, at: SADDLE.back + 25 } : { kg: 0.6, at: o.reach / 2 };
+    const s = saddleRun(o).seats;
+    return { kg: 0.5 * o.count, at: s.reduce((t, [a, b]) => t + (a + b) / 2, 0) / s.length };
+  },
 });

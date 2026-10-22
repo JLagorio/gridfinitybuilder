@@ -17,6 +17,7 @@
 import { backMounts } from '../mount';
 import { int, num, obj, registerAttachment, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface CaddyOptions {
   /** The caddy outside: across, out from its back, and its walls' height, mm. */
@@ -109,4 +110,6 @@ registerAttachment<CaddyOptions>({
       },
     ];
   },
+  // The caddy, full, hanging in front of the dock.
+  load: (o) => ({ kg: o.width * o.depth * o.height * KG.full, at: caddyPlan(o).zc + o.depth / 2 }),
 });

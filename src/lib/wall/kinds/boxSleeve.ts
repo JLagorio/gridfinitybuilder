@@ -15,6 +15,7 @@
 import { backMounts, minHeight } from '../mount';
 import { bool, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface BoxSleeveOptions {
   /** The box: left to right, out from the board, and how much of its height the sleeve covers, mm. */
@@ -117,4 +118,6 @@ registerAttachment<BoxSleeveOptions>({
     if (o.open === 'bottom' && o.slot > o.depth - 4) out.push('The floor slot is as deep as the box: it may drop through. Make the slot narrower.');
     return out;
   },
+  // A box of gloves, bags or cards: about half a kilo a litre.
+  load: (o, l) => ({ kg: 0.5 * o.width * o.depth * o.height * KG.full, at: l.depth / 2 }),
 });

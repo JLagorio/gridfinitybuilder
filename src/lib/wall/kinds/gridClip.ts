@@ -66,4 +66,6 @@ registerAttachment<GridClipOptions>({
   // The bin covers its back: no bolts.
   backPlate: () => null,
   notes: (o) => (o.style === 'lip' && o.units > 12 ? ['A bin this tall is heavy for its lip when full: the cradle carries it from below.'] : []),
+  // A bin of screws, about 0.3 kg a cell 6 units tall, hanging in front: its middle half a cell out.
+  load: (o, l) => ({ kg: (0.3 * o.cells * o.units) / 6, at: l.depth + GRID / 2 }),
 });

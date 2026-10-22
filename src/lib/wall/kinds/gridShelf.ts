@@ -96,4 +96,6 @@ registerAttachment<GridShelfOptions>({
     const sd = shelfSide(o);
     return { x0: SHELF.cheek + 0.5, x1: l.w - SHELF.cheek - 0.5, y0: Math.max(sd.top + SHELF.root, GRID_TOP + o.lip) + 0.5, y1: l.h, z: SHELF.plate };
   },
+  // A bin of screws or bits on every cell, about 0.3 kg.
+  load: (o, l) => ({ kg: 0.3 * o.cellsX * o.cellsY, at: l.depth / 2 }),
 });

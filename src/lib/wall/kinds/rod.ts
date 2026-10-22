@@ -13,6 +13,7 @@
 import { backMounts, minHeight } from '../mount';
 import { num, obj, pick, registerAttachment, type AttachmentPart, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface RodOptions {
   /** Roll width: room between the arms, mm. */
@@ -89,4 +90,6 @@ registerAttachment<RodOptions>({
     return [{ key: 'rod', name: 'Rod', spec: { r: g.r, length: g.length }, w: g.length, d: 2 * g.r, h: g.r + flat, place }];
   },
   hardware: (o) => (o.source === 'dowel' ? [{ item: `Dowel ⌀${o.rod} mm`, count: 1, note: `cut to ${Math.round(rodGeometry(o).length)} mm` }] : []),
+  // A roll of kitchen paper, foil or filament.
+  load: (o) => ({ kg: (Math.PI / 4) * o.diameter ** 2 * o.width * KG.roll, at: rodGeometry(o).z }),
 });

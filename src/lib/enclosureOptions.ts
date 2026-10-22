@@ -68,6 +68,7 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
       // What's in it (like a bin's contents), and a label that follows it.
       ...(contents ? { contents } : {}),
       ...(r.labelFrom === 'contents' ? { labelFrom: 'contents' as const } : {}),
+      ...(r.material === 'pla' || r.material === 'petg' || r.material === 'asa' ? { material: r.material } : {}),
     });
   }
   return out;

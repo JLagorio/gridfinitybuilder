@@ -105,4 +105,11 @@ registerAttachment<StickRackOptions>({
     if (o.mode === 'list' && !parseSizes(o.sizes).length) out.push('No sizes yet: list them in mm, like “3, 4, 5”.');
     return out;
   },
+  // Sticks about four times as long as their holes are deep, 0.8 g a cm³.
+  load: (o, l) => ({
+    kg: stickSpec(o)
+      .rows.flat()
+      .reduce((t, d) => t + (Math.PI / 4) * d * d * 4 * o.cup * 0.8e-6, 0),
+    at: l.depth / 2,
+  }),
 });

@@ -172,4 +172,6 @@ registerAttachment<MagnetBarOptions>({
       },
     ];
   },
+  // A knife or a tool every 40 mm, about 150 g each, on its face.
+  load: (o, l) => ({ kg: (0.15 * o.length) / 40, at: l.depth + 15 }),
 });

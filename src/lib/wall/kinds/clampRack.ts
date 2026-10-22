@@ -101,4 +101,6 @@ registerAttachment<ClampRackOptions>({
     if (o.pitch < o.barT + 2 * o.clearance + 10) out.push('The slots are closer than the teeth between them can take: space them further apart.');
     return out;
   },
+  // F-clamps about 1 kg each, a spring clamp (100 g) every 30 mm of the rail.
+  load: (o, l) => ({ kg: o.count + (0.1 * o.springs) / 30, at: l.depth / 2 }),
 });

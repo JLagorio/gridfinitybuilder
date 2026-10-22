@@ -5,6 +5,7 @@
  */
 import { backMounts, minHeight } from '../mount';
 import { bool, int, num, obj, registerAttachment } from '../registry';
+import { KG } from '../load';
 
 export interface BinOptions {
   width: number;
@@ -73,4 +74,6 @@ registerAttachment<BinOptions>({
     const xs = [t, ...cuts.flatMap((x) => [x - t / 2, x + t / 2]), l.w - t];
     return Array.from({ length: xs.length / 2 }, (_, k) => ({ x0: xs[2 * k], x1: xs[2 * k + 1], y0, y1: l.h, z: BIN_BACK }));
   },
+  // Full of things (its front is lower: about half way between).
+  load: (o) => ({ kg: o.width * o.depth * o.height * ((1 + o.front / 100) / 2) * KG.full, at: o.depth / 2 }),
 });

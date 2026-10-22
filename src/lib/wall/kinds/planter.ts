@@ -19,6 +19,7 @@ import type { Vec2 } from '../../geometry/kernel';
 import { backMounts, minHeight } from '../mount';
 import { int, num, obj, pick, registerAttachment, type AttachmentPart, type MountCtx } from '../registry';
 import { leverNotes } from './shelf';
+import { KG } from '../load';
 
 export interface PlanterOptions {
   mode: 'pot' | 'tubes';
@@ -171,4 +172,9 @@ registerAttachment<PlanterOptions>({
     ];
   },
   hardware: (o) => (o.mode === 'tubes' ? [{ item: `Test tube ⌀${+o.tube.toFixed(1)} × ${Math.round(o.tubeLen)}`, count: o.count }] : []),
+  // Damp soil, or water: about 1 kg a litre.
+  load: (o, l) => ({
+    kg: (o.mode === 'tubes' ? o.count * (Math.PI / 4) * o.tube ** 2 * o.tubeLen : (o.shape === 'round' ? Math.PI / 4 : 1) * o.size ** 2 * o.potH) * KG.full,
+    at: l.depth / 2,
+  }),
 });

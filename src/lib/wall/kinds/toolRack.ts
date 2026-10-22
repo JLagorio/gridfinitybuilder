@@ -218,4 +218,10 @@ registerAttachment<ToolRackOptions>({
       out.push('Under 0.3 mm clearance the holes may be too tight to drop the tools in.');
     return out;
   },
+  // About what each tool weighs.
+  load(o) {
+    const l = toolLayout(o);
+    const each = { drivers: 0.15, pliers: 0.3, wrenches: 0.15, bits: 0.01, hexKeys: 0.03, sockets: 0.05, index: 0.01 }[o.mode];
+    return { kg: each * (o.mode === 'bits' ? o.bits : parseSizes(o[o.mode]).length), at: l.holes[0]?.z ?? l.d / 2 };
+  },
 });

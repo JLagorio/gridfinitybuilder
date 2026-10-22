@@ -98,4 +98,6 @@ registerAttachment<SlotRackOptions>({
   // Its first divider leans in front of the whole back (the finger notch stops at it).
   backPlate: () => null,
   notes: (o, ctx) => leverNotes(rackPlan(o).depth, rackHeight(o, ctx)),
+  // A build plate, a tablet or a cutting board in each, about 0.5 kg.
+  load: (o, l) => ({ kg: 0.5 * o.count, at: l.depth / 2 }),
 });

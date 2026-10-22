@@ -359,6 +359,16 @@ export function attachmentLayout(a: Pick<PlacedAttachment, 'type' | 'opts'>, ctx
   return { opts, layout: def.layout(opts, ctx) };
 }
 
+/** A warning when an attachment is meant to hold more than its mounts take, or null. */
+export type LoadNote = (a: PlacedAttachment, def: AttachmentDef<object>, opts: object, ctx: MountCtx, has?: (x: number, y: number) => boolean) => string | null;
+
+let loadNote: LoadNote | null = null;
+
+/** The load check (load.ts) sets this as it loads, with the kinds: it stays off the first screen. */
+export function setLoadNote(f: LoadNote): void {
+  loadNote = f;
+}
+
 /** A part's front view on the board, wall coordinates. */
 export interface Box {
   x0: number;
@@ -427,8 +437,12 @@ export function placeAttachments(list: readonly PlacedAttachment[], board: WallB
     const oy = y - l.layout.anchor[1];
     for (const msg of def.notes?.(l.opts as never, board.ctx) ?? []) warnings.push(`${name}: ${msg}`);
     // Its common options: bolts go through slots the board has.
-    const e = planExtras(a, def, l.opts, l.layout, board.ctx, ok ? (px, py) => keys.has(keyOf(ox + px, oy + py)) : undefined);
+    const has = ok ? (px: number, py: number) => keys.has(keyOf(ox + px, oy + py)) : undefined;
+    const e = planExtras(a, def, l.opts, l.layout, board.ctx, has);
     for (const msg of e.notes) warnings.push(`${name}: ${msg}`);
+    // More than its mounts take.
+    const heavy = loadNote?.(a, def, l.opts, board.ctx, has);
+    if (heavy) warnings.push(`${name}: ${heavy}`);
     const layout = e.layout;
     const b = partBounds(layout, board.ctx);
     // Lock keys stand on the board above it.

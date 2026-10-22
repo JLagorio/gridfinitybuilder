@@ -5,6 +5,7 @@
  */
 import { backMounts, minHeight } from '../mount';
 import { int, num, obj, pick, registerAttachment } from '../registry';
+import { KG } from '../load';
 
 export interface CupOptions {
   /** Inside diameter, mm. */
@@ -49,4 +50,5 @@ registerAttachment<CupOptions>({
   // The cups cover the strip: no bolts.
   backPlate: () => null,
   summary: (o) => `${o.count > 1 ? `${o.count} ` : ''}${o.bottom === 'open' ? 'ring' : 'cup'}${o.count > 1 ? 's' : ''} ⌀${Math.round(o.diameter)}`,
+  load: (o) => ({ kg: o.count * (Math.PI / 4) * o.diameter ** 2 * o.height * KG.full, at: CUP_BACK + o.diameter / 2 }),
 });

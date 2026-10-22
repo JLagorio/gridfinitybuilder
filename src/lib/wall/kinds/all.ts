@@ -1,9 +1,10 @@
 /**
- * Every attachment kind's planning (each registers itself; ../index.ts loads this on demand).
- * Add a kind here, in ../ui.ts and in ../build.ts.
+ * Every attachment kind's planning (each registers itself; ../index.ts loads this on demand), and
+ * the load check planning runs on them (../load.ts). Add a kind here, in ../ui.ts and in ../build.ts.
  */
 // Boards built from tiles plan with this, loaded with the first board too (geometry/skadis.ts setTilesPlanner).
 import '../../geometry/skadisTiles';
+import '../load';
 import './hook';
 import './bin';
 import './cup';

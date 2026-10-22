@@ -9,6 +9,7 @@
  */
 import { backMounts, minHeight } from '../mount';
 import { bool, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
+import { KG } from '../load';
 
 export interface ShelfOptions {
   width: number;
@@ -97,4 +98,5 @@ registerAttachment<ShelfOptions>({
       z: SHELF_BACK,
     }));
   },
+  load: (o) => ({ kg: o.width * o.depth * KG.shelf, at: o.depth / 2 }),
 });

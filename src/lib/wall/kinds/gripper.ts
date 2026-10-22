@@ -111,4 +111,6 @@ registerAttachment<GripperOptions>({
     if (o.arm > 0.25 * o.diameter + 1) out.push('Arms that thick on so small an item may crack instead of springing open: make them thinner.');
     return out;
   },
+  // A broom or a mop, about 0.5 kg each.
+  load: (o, l) => ({ kg: 0.5 * o.count, at: l.depth / 2 }),
 });

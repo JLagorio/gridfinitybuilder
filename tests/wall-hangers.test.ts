@@ -169,7 +169,7 @@ describe('headphone & controller hanger', () => {
   it('notes a heavy load, ear cups near the board and a long reach; names itself', () => {
     const def = attachmentDef('saddle')!;
     expect(def.notes!(def.sanitize({}), CTX)).toEqual([]);
-    expect(def.notes!(def.sanitize(presetsOf('saddle').find((p) => p.value === 'guitar')!.set), CTX).join()).toMatch(/3–4 kg.*PETG/);
+    expect(def.notes!(def.sanitize(presetsOf('saddle').find((p) => p.value === 'guitar')!.set), CTX).join()).toMatch(/3–5 kg.*PETG/);
     expect(def.notes!(def.sanitize({ count: 3 }), CTX).join()).toMatch(/ear cups may touch the board/);
     expect(def.notes!(def.sanitize({ mode: 'yoke', reach: 200, tip: 0, tilt: 0, height: 20 }), CTX).join()).toMatch(/three times/);
     expect(def.summary(def.sanitize({}))).toBe('Headphone hanger 50 mm');

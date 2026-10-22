@@ -26,6 +26,7 @@
  */
 import { backMounts } from '../mount';
 import { bool, int, num, obj, pick, registerAttachment, type AttachmentPart } from '../registry';
+import { KG } from '../load';
 
 export const RAIL_SIZES = ['1x1', '2x1', '1x2', '2x2', '3x1'] as const;
 
@@ -200,5 +201,10 @@ registerAttachment<RailOptions>({
     const card = drawer ? (p.bh < 22.9 ? 0 : Math.min(p.bw - 8.8, 48)) : Math.min(p.cw * p.u - 8.6, 58);
     const n = p.n * (drawer ? p.cw * p.ch : 1);
     return o.label && card && n ? [{ item: 'Label card', count: n, note: `${Math.floor(card)} × 12.5 mm` }] : [];
+  },
+  // Its containers, full.
+  load(o) {
+    const p = railPlan(o);
+    return { kg: p.n * p.cw * p.u * p.H * o.depth * KG.full, at: o.depth / 2 };
   },
 });

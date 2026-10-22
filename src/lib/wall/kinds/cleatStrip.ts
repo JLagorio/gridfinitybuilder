@@ -83,4 +83,6 @@ registerAttachment<CleatStripOptions>({
     return [{ ...p, place: { at: [a.x, a.y, 0], turn: [0, 180, 0] } }];
   },
   hardware: (o) => (o.hanger ? [{ item: 'Screws M4 (cleat hanger)', count: 2, note: 'to fix your holder to it' }] : []),
+  // Anything that hangs on it, in front.
+  load: (_o, l) => ({ kg: 0, at: l.depth + 30 }),
 });

@@ -77,4 +77,6 @@ registerAttachment<LeadHangerOptions>({
     if (o.slot > o.pocket - 3) out.push('The slot is nearly as wide as the pocket: the plugs may slip through.');
     return out;
   },
+  // A lead and its plugs, about 100 g.
+  load: (o, l) => ({ kg: 0.1 * o.count, at: l.depth / 2 }),
 });

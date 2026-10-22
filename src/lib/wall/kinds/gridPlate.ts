@@ -57,4 +57,6 @@ registerAttachment<GridPlateOptions>({
   notes: (o) =>
     o.magnets ? [] : [o.ledge ? 'Without magnets only the bottom row stays on, standing on the ledge.' : 'Without magnets or a ledge the bins fall off.'],
   hardware: (o) => gridMagnets(o.magnets, o.cellsX * o.cellsY, 'Gridfinity wall plate', 'bins need them too'),
+  // A bin of screws or bits on every cell, about 0.3 kg, standing a cell out from the plate.
+  load: (o) => ({ kg: 0.3 * o.cellsX * o.cellsY, at: GRID_TOP + GRID / 2 }),
 });

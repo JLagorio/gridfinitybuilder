@@ -175,4 +175,14 @@ registerAttachment<CellDispenserOptions>({
     if (o.shape === 'round' && o.length < 1.2 * o.diameter) out.push('Cells this short may turn in the chute: dispense them as coins.');
     return out;
   },
+  // Cells weigh about 2.5 g a cm³.
+  load(o, l) {
+    const v =
+      o.shape === 'round'
+        ? (Math.PI / 4) * o.diameter ** 2 * o.length
+        : o.shape === 'coin'
+          ? (Math.PI / 4) * o.diameter ** 2 * o.thick
+          : o.diameter * o.length * o.thick;
+    return { kg: o.columns * o.capacity * v * 2.5e-6, at: l.depth / 2 };
+  },
 });

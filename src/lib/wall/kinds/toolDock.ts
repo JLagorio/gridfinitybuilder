@@ -85,4 +85,6 @@ registerAttachment<ToolDockOptions>({
     if (toolDockWidth(o, ctx) > 250) out.push("Over 250 mm wide: if it doesn't fit your printer, make two with fewer tools.");
     return out;
   },
+  // A drill or a driver with its battery on: 1.5–2.5 kg.
+  load: (o) => ({ kg: 2 * o.count, at: o.setback }),
 });
