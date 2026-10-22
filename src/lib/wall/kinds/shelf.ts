@@ -1,10 +1,11 @@
 /**
  * Shelf: a flat shelf at the foot of a back plate, with a lip along the front,
- * side walls if you like, and drain slots through it. Printed upright as it
- * hangs: the shelf lies on the bed and the back rises from its back edge, so
- * the 45° gussets in the corner between them (or the side walls) build on the
- * shelf without support. Clips across the top of the back, studs low on it
- * against tilting.
+ * side walls if you like, and drain slots through it. Seen from above its
+ * front is square, rounded at the corners, half a hexagon or half round (the
+ * lip follows it round). Printed upright as it hangs: the shelf lies on the
+ * bed and the back rises from its back edge, so the 45° gussets in the corner
+ * between them (or the side walls) build on the shelf without support. Clips
+ * across the top of the back, studs low on it against tilting.
  */
 import { backMounts, minHeight } from '../mount';
 import { bool, num, obj, pick, registerAttachment, type MountCtx } from '../registry';
@@ -22,9 +23,13 @@ export interface ShelfOptions {
   holes: 'none' | 'slots';
   /** Shelf thickness, mm. */
   floor: number;
+  /** Its outline seen from above. */
+  shape: (typeof SHELF_SHAPES)[number];
 }
 
-export const SHELF_DEFAULTS: ShelfOptions = { width: 160, depth: 100, height: 60, lip: 8, sides: false, holes: 'none', floor: 3 };
+export const SHELF_SHAPES = ['rect', 'rounded', 'hexagon', 'halfRound'] as const;
+
+export const SHELF_DEFAULTS: ShelfOptions = { width: 160, depth: 100, height: 60, lip: 8, sides: false, holes: 'none', floor: 3, shape: 'rect' };
 
 /** Back plate thickness, mm. */
 export const SHELF_BACK = 3;
@@ -34,6 +39,8 @@ export const leverNotes = (depth: number, h: number) =>
   depth > 3 * h ? [`It reaches out over three times as far as its back is tall: a heavy load may pull the clips out. Make the back taller.`] : [];
 
 export const shelfHeight = (o: ShelfOptions, ctx: MountCtx) => Math.max(o.height, minHeight(ctx), o.floor + o.lip);
+
+const SHAPE_NAMES = { rect: 'Shelf', rounded: 'Rounded shelf', hexagon: 'Hexagon shelf', halfRound: 'Half-round shelf' };
 
 registerAttachment<ShelfOptions>({
   type: 'shelf',
@@ -49,6 +56,7 @@ registerAttachment<ShelfOptions>({
       sides: bool(r.sides, d.sides),
       holes: pick(r.holes, ['none', 'slots'] as const, d.holes),
       floor: num(r.floor, 2, 8, d.floor),
+      shape: pick(r.shape, SHELF_SHAPES, d.shape),
     };
   },
   layout(o, ctx) {
@@ -56,6 +64,6 @@ registerAttachment<ShelfOptions>({
     const m = backMounts(o.width, h, ctx, { rows: 3 });
     return { w: o.width, h, depth: o.depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
-  summary: (o) => `Shelf ${Math.round(o.width)} × ${Math.round(o.depth)}`,
+  summary: (o) => `${SHAPE_NAMES[o.shape]} ${Math.round(o.width)} × ${Math.round(o.depth)}`,
   notes: (o, ctx) => leverNotes(o.depth, shelfHeight(o, ctx)),
 });

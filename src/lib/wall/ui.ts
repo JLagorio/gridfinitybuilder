@@ -21,3 +21,8 @@ import './kinds/cableComb.ui';
 import './kinds/gridShelf.ui';
 import './kinds/gridPlate.ui';
 import './kinds/gridClip.ui';
+import './kinds/slotRack.ui';
+import './kinds/displayLedge.ui';
+import './kinds/planter.ui';
+import './kinds/caddy.ui';
+import './kinds/faceout.ui';
