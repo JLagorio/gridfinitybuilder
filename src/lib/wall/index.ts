@@ -22,3 +22,7 @@ import './kinds/cableComb';
 import './kinds/gridShelf';
 import './kinds/gridPlate';
 import './kinds/gridClip';
+import './kinds/bottleRack';
+import './kinds/stickRack';
+import './kinds/holster';
+import './kinds/gripper';

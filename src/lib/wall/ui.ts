@@ -21,3 +21,7 @@ import './kinds/cableComb.ui';
 import './kinds/gridShelf.ui';
 import './kinds/gridPlate.ui';
 import './kinds/gridClip.ui';
+import './kinds/bottleRack.ui';
+import './kinds/stickRack.ui';
+import './kinds/holster.ui';
+import './kinds/gripper.ui';
