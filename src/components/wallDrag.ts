@@ -6,7 +6,8 @@
  * them for real (one undo step); meanwhile UIState.wallDrag says where they're shown.
  */
 import type { Vec2 } from '../lib/geometry/kernel';
-import { dragAnchor, type WallBoard, type WallPlacement } from '../lib/wall/plan';
+import { dragAnchor } from '../lib/wall/board';
+import type { WallBoard, WallPlacement } from '../lib/wall/plan';
 import type { UIState } from '../state/store';
 import type { SceneItem } from './Viewer';
 
