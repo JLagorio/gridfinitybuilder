@@ -199,6 +199,21 @@ export function deltaLegs(a: Vec3, b: Vec3, minLen = 1e-3): { axis: Axis; from: 
 }
 
 // ---------------------------------------------------------------------------
+// Drag
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a ray (from the camera, through the pointer) meets the horizontal plane at height `z`: its x and y,
+ * or null when it runs along the plane or away from it. Dragged parts follow this point.
+ */
+export function rayPlaneZ(origin: Vec3, dir: Vec3, z: number): [number, number] | null {
+  if (Math.abs(dir[2]) < 1e-9) return null;
+  const t = (z - origin[2]) / dir[2];
+  if (t < 0) return null;
+  return [origin[0] + t * dir[0], origin[1] + t * dir[1]];
+}
+
+// ---------------------------------------------------------------------------
 // Lift bins
 // ---------------------------------------------------------------------------
 

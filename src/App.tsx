@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { projectOf, selectedIds, useStore, type Tab } from './state/store';
 import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
 import { asDrawer, binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
@@ -6,7 +6,7 @@ import { binSeatHeight } from './lib/geometry/baseplate';
 import { plateOrigin } from './lib/export/bambu';
 import { bedExclusion, findPrinter } from './lib/printers';
 import { geometry } from './worker/client';
-import { Viewer, type SceneBed, type SceneItem } from './components/Viewer';
+import { Viewer, type SceneBed, type SceneItem, type ViewerDrag } from './components/Viewer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DrawerPanel } from './components/DrawerPanel';
 import { BinGridEditor } from './components/BinGridEditor';
@@ -36,6 +36,9 @@ import { PhoneNav, usePhoneView } from './components/PhoneNav';
 import { externalBox, importedSpec } from './lib/external';
 import { hasImported, importedVersion, subscribeImported } from './lib/imported/registry';
 import { kindsVersion, loadKinds, subscribeKinds } from './lib/wall';
+import { slotKeys } from './lib/wall/plan';
+import { draggedItems, dropAt, grabOffset, sameDrag, wallDragAt } from './components/wallDrag';
+import type { Vec2 } from './lib/geometry/kernel';
 import { useCoarsePointer } from './components/touch';
 import './components/workflow.css';
 
@@ -57,6 +60,8 @@ const loadWall = once(() => import('./components/WallPanel'));
 const loadWallEditor = once(() => import('./components/WallEditor'));
 const WallPanel = lazyNamed(loadWall, 'WallPanel');
 const WallEditor = lazyNamed(loadWallEditor, 'WallEditor');
+// Editing attachments (one undo step each): with the Attachments tab, for a drop in the 3D view.
+const loadWallEdits = once(() => import('./state/wall'));
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
@@ -337,9 +342,24 @@ export default function App() {
   const meshesIn = useSyncExternalStore(subscribeImported, importedVersion);
   const scene = useMemo<Scene>(() => {
     if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup);
-    return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
+    const s = drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
+    // A board's attachment being dragged in the 3D view: shown where it would go (components/wallDrag.ts).
+    return ui.wallDrag ? { ...s, items: draggedItems(s.items, ui.wallDrag, viewJob.drawers[0]?.enclosure?.wall?.placed ?? []) } : s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup, lidView, meshesIn]);
+  }, [
+    printJob,
+    viewJob,
+    ui.tab,
+    ui.plate,
+    ui.explode,
+    ui.selectedBinId,
+    ui.selectedBinIds,
+    ui.selectedAttachment,
+    ui.wallDrag,
+    state.setup,
+    lidView,
+    meshesIn,
+  ]);
 
   // Ask the worker for exactly the meshes on screen (selected bin first).
   useEffect(() => {
@@ -394,6 +414,41 @@ export default function App() {
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
   const coarse = useCoarsePointer();
+  // A board's attachments drag in the 3D view too, over the board's front (components/wallDrag.ts): on its
+  // Attachments tab, and on its board tab unless the tiles are spread apart.
+  const wall = board ? viewJob.drawers[0]?.enclosure?.wall : undefined;
+  const wallKeys = useMemo(() => (wall ? slotKeys(wall.board.slots) : null), [wall?.board.slots]);
+  // Where the anchor is from the pointer, from the press on.
+  const grab = useRef<{ id: string; at: Vec2 } | null>(null);
+  const drag: ViewerDrag | undefined =
+    wall && wallKeys && (ui.tab === 'bins' || (ui.tab === 'drawer' && !ui.explode))
+      ? {
+          can: (id) => wall.placed.some((p) => p.id === id),
+          planeZ: wall.board.front,
+          start: (id, x, y) => {
+            const p = wall.placed.find((q) => q.id === id);
+            grab.current = p ? { id, at: grabOffset(p, x, y) } : null;
+            if (p && ui.tab === 'bins') state.setUI({ selectedAttachment: id });
+          },
+          move: (id, x, y) => {
+            const p = wall.placed.find((q) => q.id === id);
+            const next = p && grab.current?.id === id ? wallDragAt(wall.board, wallKeys, p, grab.current.at, x, y) : null;
+            if (next && !sameDrag(next, useStore.getState().ui.wallDrag)) state.setUI({ wallDrag: next });
+          },
+          end: (id, moved) => {
+            grab.current = null;
+            const clear = () => {
+              if (useStore.getState().ui.wallDrag) state.setUI({ wallDrag: null });
+            };
+            const at = moved ? dropAt(useStore.getState().ui.wallDrag, wall.placed) : null;
+            if (!at) return clear();
+            // The drag clears once it has moved, so it never shows back where it was.
+            void loadWallEdits()
+              .then((m) => m.moveAttachment(id, at[0], at[1]))
+              .finally(clear);
+          },
+        }
+      : undefined;
   // Multi-colour: the filament slots on screen.
   const legend = useMemo(() => colourLegend(ui.tab === 'print' ? printJob : viewJob), [ui.tab, printJob, viewJob]);
   const phone3d = usePhoneView((s) => s.view3d);
@@ -416,10 +471,11 @@ export default function App() {
         fitIds={focusing ? [ui.selectedBinId!] : undefined}
         legend={legend}
         onPick={ui.tab === 'bins' ? (id) => state.setUI(board ? { selectedAttachment: id } : { selectedBinId: id }) : undefined}
+        drag={drag}
         hint={
           coarse
-            ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? ' · tap a bin to select it' : ''}`
-            : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? ' · click a bin to select' : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
+            ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? (board ? ' · tap an attachment to select it, drag it to move it' : ' · tap a bin to select it') : ''}`
+            : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? (board ? ' · drag an attachment to move it' : ' · click a bin to select') : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
         }
       >
         {ui.tab === 'bins' && !board && (

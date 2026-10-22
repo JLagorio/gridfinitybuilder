@@ -25,6 +25,7 @@ import {
   measure,
   nearestWithin,
   planeFrame,
+  rayPlaneZ,
   sectionPlane,
   sectionPos,
   sectionRange,
@@ -109,6 +110,25 @@ export interface ViewerProps {
   onPick?: (id: string | null) => void;
   /** Multi-colour: the filament slots on screen, top right. */
   legend?: LegendEntry[];
+  /** Parts that can be dragged (a board's attachments, across its front). */
+  drag?: ViewerDrag;
+}
+
+/**
+ * Dragging parts in the 3D view: pressing on a part whose pick id `can` take it drags it instead of orbiting
+ * (the camera stays put); a press that doesn't move still picks it. The pointer is followed on the horizontal
+ * plane at `planeZ` (scene mm), and every call gets the point there.
+ */
+export interface ViewerDrag {
+  can(id: string): boolean;
+  /** Height of the plane the pointer moves on, mm. */
+  planeZ: number;
+  /** Pressed on it at (x, y). */
+  start(id: string, x: number, y: number): void;
+  /** Moved (past a tap's slop) to (x, y). */
+  move(id: string, x: number, y: number): void;
+  /** Let go. `moved` is false after a press that stayed put (a click: it picks too) or a drag called off (Esc, a second finger). */
+  end(id: string, moved: boolean): void;
 }
 
 const SELECT_COLOR = '#f5a524';
@@ -158,12 +178,14 @@ function useGeometryVersion() {
   );
 }
 
-export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, children, legend }: ViewerProps) {
+export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, children, legend, drag }: ViewerProps) {
   const host = useRef<HTMLDivElement>(null);
   const ctx = useRef<ReturnType<typeof createContext> | null>(null);
   const version = useGeometryVersion();
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
   // 'lost': the GPU dropped the WebGL context; 'failed': WebGL couldn't start at all.
   const [gl, setGl] = useState<{ state: 'ok' | 'lost' | 'failed'; detail?: string }>({ state: 'ok' });
   // Bumped by "Restart 3D view" to build a fresh renderer.
@@ -208,6 +230,7 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, chi
         (lost) => setGl({ state: lost ? 'lost' : 'ok' }),
         setMeasured,
         (mm) => fmtRef.current(mm),
+        () => dragRef.current,
       );
     } catch (e) {
       console.error('[Gridfit] The 3D view could not start WebGL:', e);
@@ -252,8 +275,8 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, chi
   // The measure label is drawn by the 3D context; redraw it when the units change.
   useEffect(() => ctx.current?.redrawOverlay(), [units, precision]);
 
-  // C section · M measure · X x-ray · L lift · Esc clears a measurement. Capture phase, so Esc
-  // clears the measurement before the app treats it as "clear the selection".
+  // C section · M measure · X x-ray · L lift · Esc calls a drag off or clears a measurement. Capture phase, so Esc
+  // does that before the app treats it as "clear the selection".
   const canLiftRef = useRef(canLift);
   canLiftRef.current = canLift;
   useEffect(() => {
@@ -262,6 +285,10 @@ export function Viewer({ items, beds, outline, fitKey, fitIds, onPick, hint, chi
       if (document.querySelector('.modal-backdrop, .overlay')) return;
       const t = useViewerTools.getState();
       if (e.key === 'Escape') {
+        if (ctx.current?.cancelDrag()) {
+          e.preventDefault();
+          return;
+        }
         if (!t.measure) return;
         if (!ctx.current?.clearMeasure()) t.set({ measure: false });
         e.preventDefault();
@@ -510,6 +537,7 @@ function createContext(
   onContext: (lost: boolean) => void,
   onMeasure: (m: MeasureInfo) => void,
   fmt: (mm: number) => string,
+  dragOf: () => ViewerDrag | undefined,
 ) {
   // The stencil buffer caps the section cut.
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, stencil: true });
@@ -759,6 +787,10 @@ function createContext(
   let overlayDirty = true;
   const requestRender = () => (needsRender = true);
   controls.addEventListener('change', requestRender);
+  let cursor = '';
+  const setCursor = (c: string) => {
+    if (c !== cursor) renderer.domElement.style.cursor = cursor = c;
+  };
 
   // Measure: up to two points; hover is the snapped point under the pointer.
   interface MeasurePoint {
@@ -896,6 +928,8 @@ function createContext(
     // A measurement on a part that's gone (deleted bin, other plate) goes with it.
     if (points.some((p) => !groups.has(p.itemId))) clearMeasure();
     if (hover && !groups.has(hover.itemId)) hover = null;
+    // Picks before the next frame (a click whose press changed the selection) need the new parts where they are.
+    world.updateMatrixWorld(true);
     overlayDirty = true;
     requestRender();
     return [...painted];
@@ -996,7 +1030,7 @@ function createContext(
         clearMeasure();
         hover = null;
       }
-      renderer.domElement.style.cursor = t.measure ? 'crosshair' : '';
+      setCursor(t.measure ? 'crosshair' : '');
     }
     overlayDirty = true;
     requestRender();
@@ -1008,11 +1042,24 @@ function createContext(
   const tmpN = new THREE.Vector3();
   const kept = (p: THREE.Vector3) => !planeSpec || isKept(planeSpec, [p.x, p.y, p.z]);
 
-  function castFrom(clientX: number, clientY: number, targets: THREE.Object3D[] = world.children, recursive = true) {
+  /** Aim the ray from the camera through a point of the canvas. */
+  function aim(clientX: number, clientY: number) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
+  }
+
+  function castFrom(clientX: number, clientY: number, targets: THREE.Object3D[] = world.children, recursive = true) {
+    aim(clientX, clientY);
     return ray.intersectObjects(targets, recursive);
+  }
+
+  /** The pick id of the first part under the pointer among `targets` (null: none, or something that isn't picked is in front). */
+  function pickAt(clientX: number, clientY: number, targets: THREE.Object3D[] = world.children): string | null {
+    const hits = castFrom(clientX, clientY, targets);
+    // With a section on, a click on the cap (a back face of the stencil pass) picks the part that was cut.
+    const hit = hits.find((h) => (h.object.userData.id !== undefined || h.object.userData.stencilBack) && kept(h.point));
+    return hit ? ((groupOf(hit.object).userData.pickId as string | null) ?? null) : null;
   }
 
   function screenOf(p: THREE.Vector3): [number, number] | null {
@@ -1162,6 +1209,61 @@ function createContext(
     if (points.length) report();
   }
 
+  // ---- dragging parts (ViewerDrag) ----
+  let dragging: { id: string; pointer: number; x: number; y: number; moved: boolean; with: ViewerDrag } | null = null;
+  // Where the pointer hovers, for the grab cursor over a part that drags (once a frame).
+  let hoverAt: { x: number; y: number } | null = null;
+  const draggable = (d: ViewerDrag) => world.children.filter((o) => o.userData.pickId && d.can(o.userData.pickId as string));
+
+  function planeAt(clientX: number, clientY: number, z: number) {
+    aim(clientX, clientY);
+    const { origin: o, direction: v } = ray.ray;
+    return rayPlaneZ([o.x, o.y, o.z], [v.x, v.y, v.z], z);
+  }
+
+  // Seen before the canvas's own listeners (the orbit controls'), so a press on a part that drags never orbits.
+  const onPress = (e: PointerEvent) => {
+    if (dragging) {
+      // A second finger calls the drag off, and the view takes it (to orbit, pinch or pan).
+      if (e.pointerId !== dragging.pointer) stopDrag(false);
+      return;
+    }
+    const d = dragOf();
+    // The first finger or the left button only; Shift, Ctrl or ⌘ with a drag pans, as anywhere else.
+    if (!d || e.target !== renderer.domElement || tools.measure || !e.isPrimary || e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    // Over a part that drags (cheap), then that nothing is in front of it (the whole scene).
+    if (!pickAt(e.clientX, e.clientY, draggable(d))) return;
+    const id = pickAt(e.clientX, e.clientY);
+    const at = id && d.can(id) ? planeAt(e.clientX, e.clientY, d.planeZ) : null;
+    if (!id || !at) return;
+    dragging = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, moved: false, with: d };
+    controls.enabled = false;
+    renderer.domElement.setPointerCapture(e.pointerId);
+    setCursor('grabbing');
+    d.start(id, at[0], at[1]);
+  };
+
+  function dragMove(e: PointerEvent) {
+    const g = dragging!;
+    if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) <= tapSlop(isTouch(e))) return;
+    g.moved = true;
+    const d = dragOf() ?? g.with;
+    const at = planeAt(e.clientX, e.clientY, d.planeZ);
+    if (at) d.move(g.id, at[0], at[1]);
+  }
+
+  /** Let go of the part being dragged; `moved` false calls the drag off. False if there was none. */
+  function stopDrag(moved: boolean) {
+    if (!dragging) return false;
+    const g = dragging;
+    dragging = null;
+    controls.enabled = true;
+    if (renderer.domElement.hasPointerCapture(g.pointer)) renderer.domElement.releasePointerCapture(g.pointer);
+    setCursor('');
+    (dragOf() ?? g.with).end(g.id, moved);
+    return true;
+  }
+
   // A tap (click) picks or measures; a drag orbits. Two fingers (pinch, pan) never count as a tap.
   let down: { x: number; y: number } | null = null;
   const pressed = new Set<number>();
@@ -1173,6 +1275,16 @@ function createContext(
   };
   const onUp = (e: PointerEvent) => {
     pressed.delete(e.pointerId);
+    if (dragging?.pointer === e.pointerId) {
+      // A press on a part that drags and didn't move is a click: it picks below.
+      const moved = dragging.moved;
+      stopDrag(moved);
+      hoverAt = { x: e.clientX, y: e.clientY };
+      if (moved) {
+        down = null;
+        return;
+      }
+    }
     if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > tapSlop(isTouch(e))) return;
     down = null;
     if (tools.measure) {
@@ -1186,14 +1298,18 @@ function createContext(
       report();
       return;
     }
-    const hits = castFrom(e.clientX, e.clientY);
-    // With a section on, a click on the cap (a back face of the stencil pass) picks the part that was cut.
-    const hit = hits.find((h) => (h.object.userData.id !== undefined || h.object.userData.stencilBack) && kept(h.point));
-    pick(hit ? ((groupOf(hit.object).userData.pickId as string | null) ?? null) : null);
+    pick(pickAt(e.clientX, e.clientY));
   };
   const onMove = (e: PointerEvent) => {
-    if (!tools.measure) return;
-    // Not while orbiting.
+    if (dragging) {
+      if (e.pointerId === dragging.pointer) dragMove(e);
+      return;
+    }
+    if (!tools.measure) {
+      // Not while orbiting.
+      if (!e.buttons) hoverAt = { x: e.clientX, y: e.clientY };
+      return;
+    }
     pointer = e.buttons ? null : { x: e.clientX, y: e.clientY };
     if (!pointer) hover = null;
     hoverPending = true;
@@ -1201,12 +1317,16 @@ function createContext(
   const onLeave = () => {
     pointer = null;
     hover = null;
+    hoverAt = null;
+    if (!dragging && !tools.measure) setCursor('');
     overlayDirty = true;
   };
   const onCancel = (e: PointerEvent) => {
     pressed.delete(e.pointerId);
     down = null;
+    if (dragging?.pointer === e.pointerId) stopDrag(false);
   };
+  el.addEventListener('pointerdown', onPress, true);
   renderer.domElement.addEventListener('pointerdown', onDown);
   renderer.domElement.addEventListener('pointerup', onUp);
   renderer.domElement.addEventListener('pointermove', onMove);
@@ -1260,6 +1380,11 @@ function createContext(
       hover = pointer ? measureHit(pointer.x, pointer.y) : null;
       overlayDirty = true;
     }
+    if (hoverAt && !dragging && !tools.measure) {
+      const d = dragOf();
+      setCursor(d && pickAt(hoverAt.x, hoverAt.y, draggable(d)) ? 'grab' : '');
+      hoverAt = null;
+    }
     if (needsRender) {
       needsRender = false;
       // Print beds are solid slabs at z ≤ 0: from below they'd hide everything.
@@ -1280,6 +1405,8 @@ function createContext(
     setTools,
     /** Forget the measurement; true if there was one. */
     clearMeasure,
+    /** Call off a drag (the part goes back); true if there was one. */
+    cancelDrag: () => stopDrag(false),
     redrawOverlay() {
       overlayDirty = true;
     },
@@ -1292,6 +1419,7 @@ function createContext(
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
+      el.removeEventListener('pointerdown', onPress, true);
       renderer.domElement.removeEventListener('pointerdown', onDown);
       renderer.domElement.removeEventListener('pointerup', onUp);
       renderer.domElement.removeEventListener('pointermove', onMove);
