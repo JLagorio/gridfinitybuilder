@@ -298,7 +298,8 @@
   .wp-off button {
     padding: 7px 11px;
   }
-  .wp-obstacle-head button {
+  .wp-obstacle-head button,
+  .wph-panel .wph-actions button {
     padding: 6px 12px;
   }
   .wp-mini input {
