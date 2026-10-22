@@ -20,15 +20,16 @@ export function useOpenSharedProject() {
       // Clear first so a reload (or a second effect run) doesn't ask again.
       clearHash();
       let data: unknown;
+      let question: string | null;
       try {
-        const { projectFromHash } = await loadShare();
-        data = projectFromHash(hash);
+        const share = await loadShare();
+        data = share.projectFromHash(hash);
+        question = share.openQuestion(data);
       } catch (e) {
         alert((e as Error).message);
         return;
       }
-      if (data == null) return;
-      if (!confirm('Open the project from this link? It replaces the project you have open. (Undo brings yours back.)')) return;
+      if (!question || !confirm(question)) return;
       try {
         useStore.getState().loadProject(data);
       } catch (e) {
