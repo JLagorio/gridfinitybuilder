@@ -136,7 +136,8 @@ export function pegPlan(o: SpoolRackOptions) {
 /** The strip: as tall as asked, room for the clips, and over the pockets and the spools' tops (the board sees all of it). */
 const spoolHeight = (o: SpoolRackOptions, ctx: MountCtx) => {
   const g = spoolPlan(o);
-  return Math.max(o.height, minHeight(ctx), o.mode === 'pegs' ? 13 : Math.max(g.yp + 2, g.yc + o.diameter / 2 + 1));
+  // Pegs stand on a 3 mm shelf.
+  return Math.max(o.height, minHeight(ctx), o.mode === 'pegs' ? Math.max(13, Math.ceil(3 + pegPlan(o).h)) : Math.max(g.yp + 2, g.yc + o.diameter / 2 + 1));
 };
 
 registerAttachment<SpoolRackOptions>({
@@ -197,6 +198,7 @@ registerAttachment<SpoolRackOptions>({
     const out = leverNotes(g.reach, spoolHeight(o, ctx));
     const axle = 2 * g.r;
     if (axle > o.bore - 0.5 && !o.hubs) out.push(`The axle (⌀${axle}) doesn't go through the spools' ${o.bore} mm bore: pick a thinner one.`);
+    else if (o.hubs && o.bore - 0.8 <= axle + 0.6 + 1.6) out.push(`The axle (⌀${axle}) is too thick for hubs in a ${o.bore} mm bore: pick a thinner one.`);
     else if (o.bore > axle + 12 && !o.hubs) out.push('The spools will wobble on the axle: turn hubs on to centre them.');
     if (o.axle === 'printed' && g.length > 250) out.push(`The axle is ${Math.round(g.length)} mm long, more than most printers take: use a dowel.`);
     return out;
@@ -211,7 +213,8 @@ registerAttachment<SpoolRackOptions>({
       const place = { at: [SPOOL.stop + 0.5, g.yc - flat, g.zc - g.r] as [number, number, number], turn: [-90, 0, 0] as [number, number, number] };
       out.push({ key: 'axle', name: 'Axle', spec: { p: 'axle', r: g.r, length: g.length }, w: g.length, d: 2 * g.r, h: g.r + flat, place });
     }
-    if (o.hubs) {
+    // A hub's boss goes in the spool's bore round the axle: none when the axle is too thick for that (a note says so).
+    if (o.hubs && o.bore - 0.8 > 2 * g.r + 0.6 + 1.6) {
       // Flange down; in use, either side of a spool, the boss in its bore.
       const f = Math.min(o.bore + 8, o.diameter - 2);
       const boss = Math.min(10, o.width / 2 - 1);

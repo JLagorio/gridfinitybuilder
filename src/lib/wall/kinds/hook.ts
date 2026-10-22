@@ -30,12 +30,21 @@ export const HOOK_DEFAULTS: HookOptions = { style: 'j', reach: 50, width: 8, arm
 /** Back plate thickness, mm. */
 export const HOOK_PLATE = 4;
 
-/** Back plate height: room for the hook and the stud below it, and for a double hook's arms. */
+/** How high the arm reaches up the back: a J, U or double hook's tip, an L or peg arm's rise (and a peg's knob). */
+export function hookArmTop(o: HookOptions): number {
+  const R = Math.max(o.reach, HOOK_PLATE + o.arm);
+  const rise = (R - HOOK_PLATE) * Math.tan((o.angle * Math.PI) / 180);
+  if (o.style === 'l') return rise + o.arm;
+  if (o.style === 'peg') return rise + 1.6 * o.arm;
+  return (o.style === 'double' ? o.spacing : 0) + o.arm + o.tip;
+}
+
+/** Back plate height: room for the hook and the stud below it, and as high as the arm reaches (it lies on the bed as printed). */
 export function hookPlateHeight(o: HookOptions, ctx: MountCtx): number {
   const hook = mountBox('hook', [0, 0], ctx);
   const stud = mountBox('stud', [0, -2 * ctx.pitch], ctx);
   const two = hook.y1 - stud.y0 + 2 * MOUNT.margin;
-  return Math.ceil(Math.max(two, o.style === 'double' ? o.spacing + o.arm + 2 * MOUNT.margin : 0));
+  return Math.ceil(Math.max(two, o.style === 'double' ? o.spacing + o.arm + 2 * MOUNT.margin : 0, hookArmTop(o)));
 }
 
 registerAttachment<HookOptions>({
@@ -62,10 +71,7 @@ registerAttachment<HookOptions>({
   },
   summary: (o) => `${o.style === 'double' ? 'Double' : o.style.toUpperCase()} hook ${Math.round(o.reach)} mm`,
   backPlate(o, l) {
-    const P = HOOK_PLATE;
-    const R = Math.max(o.reach, P + o.arm);
-    const rise = (R - P) * Math.tan((o.angle * Math.PI) / 180);
-    const top = o.style === 'l' || o.style === 'peg' ? rise + 1.6 * o.arm : (o.style === 'double' ? o.spacing : 0) + o.arm + o.tip;
-    return { x0: 0, x1: l.w, y0: top + 1, y1: l.h, z: P };
+    const top = o.style === 'l' ? hookArmTop({ ...o, style: 'peg' }) : hookArmTop(o);
+    return { x0: 0, x1: l.w, y0: top + 1, y1: l.h, z: HOOK_PLATE };
   },
 });

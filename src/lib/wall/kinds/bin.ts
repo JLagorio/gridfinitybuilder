@@ -47,7 +47,8 @@ registerAttachment<BinOptions>({
   layout(o, ctx) {
     const h = Math.max(o.height, minHeight(ctx));
     const m = backMounts(o.width, h, ctx, { rows: 3 });
-    return { w: o.width, h, depth: o.depth, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
+    // The label ledge stands 2 mm out past the front.
+    return { w: o.width, h, depth: o.depth + (o.label ? 2 : 0), anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Bin ${Math.round(o.width)} × ${Math.round(o.depth)} × ${Math.round(o.height)}${o.dividers ? `, ${o.dividers + 1} sections` : ''}`,
   notes: (o) => (o.width / (o.dividers + 1) < 8 ? ['Sections under 8 mm wide are hard to reach into.'] : []),

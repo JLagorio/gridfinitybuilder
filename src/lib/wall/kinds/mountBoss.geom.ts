@@ -132,10 +132,11 @@ export const mountBossBuilder: AttachmentBuilder<MountBossOptions> = {
     // The arm: from the platform's back top edge, back to the back plate at 45° (as high as the plate allows).
     const [ya, za] = at(bh, -bd / 2);
     const top = Math.min(layout.h - 2, ya + za - B);
+    // (It runs 0.5 mm into the platform: meeting it face to face, a long arm could come apart from it.)
     const arm: Vec2[] = [
       [B - 0.5, 0],
-      [za, 0],
-      [za, ya],
+      [za + 0.5, 0],
+      [za + 0.5, ya],
       [za - (top - ya), top],
       [B - 0.5, top],
     ].filter((q, k, all) => k === 0 || Math.hypot(q[0] - all[k - 1][0], q[1] - all[k - 1][1]) > 1e-6) as Vec2[];

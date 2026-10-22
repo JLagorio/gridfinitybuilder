@@ -237,3 +237,36 @@ describe('on a board', () => {
     ).toEqual([att('a', 'bin', 1, 2)]);
   });
 });
+
+describe('edge cases a random sweep of the forms found', () => {
+  const cases: [string, object][] = [
+    // An L or peg arm rising steeply far out, and a long J tip: the back covers the arm.
+    ['hook', { style: 'l', reach: 249, width: 28.6, arm: 6, tip: 57.5, angle: 44 }],
+    ['hook', { style: 'peg', reach: 217, width: 8, arm: 6, tip: 12, angle: 39 }],
+    ['hook', { style: 'j', reach: 60, arm: 20, tip: 80 }],
+    // The label ledge stands out past the front.
+    ['bin', { width: 80, height: 120, depth: 80, label: true }],
+    // Pegs taller than the back; hubs asked for round an axle too thick for the bore.
+    ['spoolRack', { mode: 'pegs', diameter: 64, width: 50.8, bore: 58, count: 4, rows: 2, height: 32.6 }],
+    ['spoolRack', { mode: 'axle', diameter: 200, width: 70, bore: 5.8, count: 3, axle: 'printed', rod: 20, hubs: true, height: 134 }],
+    // A long arm out to a level platform: one piece.
+    ['mountBoss', { fixing: 'coldshoe', reach: 120.3, tilt: 0, height: 98.6 }],
+    ['mountBoss', { fixing: '3/8-16', reach: 87.3, tilt: 0, height: 60 }],
+  ];
+  for (const [type, raw] of cases) {
+    it(`${type} ${JSON.stringify(raw)}`, () => {
+      const def = attachmentDefs().find((d) => d.type === type)!;
+      const o = def.sanitize(raw);
+      const layout = def.layout(o, CTX);
+      const mesh = buildMesh(w, { kind: 'attachment', key: type, type, opts: o, layout, ctx: CTX });
+      expect(checkPart(w, mesh).issues.filter((i) => i.severity === 'error')).toEqual([]);
+      const b = meshBounds(mesh);
+      const want = printedSize(layout, CTX);
+      expect(b.max[0] - b.min[0]).toBeCloseTo(want.w, 1);
+      expect(b.max[1] - b.min[1]).toBeCloseTo(want.d, 1);
+      expect(b.max[2] - b.min[2]).toBeCloseTo(want.h, 1);
+      for (const p of def.parts?.(o, CTX) ?? [])
+        expect(checkPart(w, buildMesh(w, { kind: 'attachmentPart', key: p.key, type, part: p.spec, ctx: CTX })).ok, p.key).toBe(true);
+    });
+  }
+});

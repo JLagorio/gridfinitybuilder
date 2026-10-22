@@ -24,7 +24,7 @@ export const hookBuilder: AttachmentBuilder<HookOptions> = {
       parts.push(prismX(w, s, pts, 0, o.width));
     };
     if (o.style === 'j') arm(0, o.tip);
-    else if (o.style === 'u') arm(0, Math.min(o.tip, layout.h + 40));
+    else if (o.style === 'u') arm(0, o.tip);
     else if (o.style === 'double') {
       arm(0, o.tip);
       arm(o.spacing, o.tip);
