@@ -123,7 +123,7 @@ export function boltSites(
   size: BoltSize,
   has: (x: number, y: number) => boolean = () => true,
 ): (BoltSite & { stud: boolean })[] {
-  const declared = def.backPlate ? def.backPlate(opts, layout) : undefined;
+  const declared = def.backPlate ? def.backPlate(opts, layout, ctx) : undefined;
   if (declared === null) return [];
   const plates = declared === undefined ? null : Array.isArray(declared) ? declared : [declared];
   const R = BOLT[size].head / 2;
