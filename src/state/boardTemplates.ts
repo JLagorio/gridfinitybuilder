@@ -4,7 +4,7 @@
  */
 import { history, projectOf, useStore } from './store';
 import { planJob } from '../lib/project';
-import { sanitizeSkadis } from '../lib/geometry/skadis';
+import { NEW_SKADIS, sanitizeSkadis } from '../lib/geometry/skadis';
 import { boardOf, fitTemplate, templateSkadis, type BoardTemplate } from '../lib/wall/templates';
 
 /** What became of a template's parts: how many went on, and the names of those with no room. */
@@ -15,13 +15,14 @@ export interface TemplateResult {
 
 /** A new board the template's size, named after it, with its parts on; the Attachments tab open. */
 export function newBoardFromTemplate(t: BoardTemplate): TemplateResult {
+  // Planned first (a new board's settings), so the board and its parts go in together: one undo step, however slow.
+  const { setup } = useStore.getState();
+  const skadis = templateSkadis(t, sanitizeSkadis(NEW_SKADIS), setup);
+  const board = boardOf(skadis, setup);
+  const fit = board ? fitTemplate(t, board) : { list: [], left: t.items.map((i) => i.name ?? i.type) };
   history.checkpoint();
   useStore.getState().addDrawer(t.name, { skadis: true });
-  const s = useStore.getState();
-  const skadis = templateSkadis(t, sanitizeSkadis(s.drawer.skadis), s.setup);
-  const board = boardOf(skadis, s.setup);
-  const fit = board ? fitTemplate(t, board) : { list: [], left: t.items.map((i) => i.name ?? i.type) };
-  s.setDrawer({ skadis, attachments: fit.list });
+  useStore.getState().setDrawer({ skadis, attachments: fit.list });
   useStore.getState().setUI({ tab: 'bins', selectedAttachment: null });
   history.checkpoint();
   return { added: fit.list.length, left: fit.left };

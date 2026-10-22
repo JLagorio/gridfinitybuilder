@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, useUnits } from '../state/store';
-import { PAPERS, combinedMapSvg, drawerMaps, mapSvg, tilePlan, type DrawerMap, type Tile } from '../lib/inventory';
+import { PAPERS, combinedMapSvg, drawerMaps, mapSvg, tilePlan, type DrawerMap, type MapOptions, type Tile } from '../lib/inventory';
 import { downloadBytes } from '../worker/client';
 import { Segmented, Toggle } from './fields';
 import { encodeQr, qrRects } from '../lib/qrEncode';
 import type { QrEcc } from '../lib/qr';
 import { useAllDrawers, type Scope } from './DrawerMap';
-import { planPrint } from '../lib/project';
+import { planPrint, type NamedDrawer } from '../lib/project';
+import type { PrintSetup } from '../lib/layout/plan';
+import { isGridBoard } from '../lib/gridBoards';
 import { boardMap } from '../lib/wall/boardMap';
 
 type Scale = 'fit' | 'actual';
@@ -34,6 +36,16 @@ interface Page {
 
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'drawer';
 
+/** The maps of these drawers: a drawer's (one a level of stacked bins), a Skådis board's; an openGrid or Multiboard board holds nothing to map. */
+export function projectMaps(docs: NamedDrawer[], setup: PrintSetup, o: MapOptions): DrawerMap[] {
+  return docs.flatMap((d) => {
+    if (isGridBoard(d.drawer.enclosure)) return [];
+    if (d.drawer.enclosure !== 'skadis') return drawerMaps(d, o);
+    const wall = planPrint([d], setup, { baseplate: true, bins: true }).drawers[0]?.enclosure?.wall;
+    return wall ? [boardMap(d, wall, o)] : [];
+  });
+}
+
 /**
  * Printable drawer map: a top view of the drawer (or every drawer) with each
  * bin's label and contents, fitted to a page or at actual size across pages
@@ -56,12 +68,7 @@ export function DrawerMapDialog({ initialScope = 'active', onClose }: { initialS
   const [codes, setCodes] = useState(true);
   // Stacked bins get a map per level.
   const maps = useMemo(
-    () =>
-      shownAll.flatMap((d) => {
-        if (d.drawer.enclosure !== 'skadis') return drawerMaps(d, { units, precision, ...(codes ? { qr: mapQr } : {}) });
-        const wall = planPrint([d], setup, { baseplate: true, bins: true }).drawers[0]?.enclosure?.wall;
-        return wall ? [boardMap(d, wall, { units, precision })] : [];
-      }),
+    () => projectMaps(shownAll, setup, { units, precision, ...(codes ? { qr: mapQr } : {}) }),
     [shownAll, units, precision, codes, setup],
   );
   const pages = useMemo<Page[]>(

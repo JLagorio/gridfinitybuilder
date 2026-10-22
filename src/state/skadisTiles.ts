@@ -8,6 +8,7 @@
 import { history, useStore } from './store';
 import { planSkadis, sanitizeSkadis, type SkadisCell } from '../lib/geometry/skadis';
 import { skadisAreas } from '../lib/enclosures';
+import { setTilesSize } from '../lib/inventory';
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 const same = (a: SkadisCell, b: SkadisCell) => a[0] === b[0] && a[1] === b[1];
@@ -17,6 +18,14 @@ function originOf(skadis: unknown): [number, number] | null {
   const s = useStore.getState();
   return planSkadis(sanitizeSkadis(skadis), skadisAreas(s.setup)).grid?.origin ?? null;
 }
+
+// The contents list and Find say where on a board a part is: on one built from tiles, as big as they make it.
+setTilesSize((skadis) => {
+  const o = sanitizeSkadis(skadis);
+  if (o.layout !== 'tiles') return null;
+  const p = planSkadis(o, skadisAreas(useStore.getState().setup));
+  return { w: p.W, h: p.H };
+});
 
 /** The active board's tiles: these, its attachments and zones moved with them. */
 export function setTiles(tiles: SkadisCell[]) {
@@ -28,6 +37,10 @@ export function setTiles(tiles: SkadisCell[]) {
   const b = originOf(next);
   const [dx, dy] = a && b ? [b[0] - a[0], b[1] - a[1]] : [0, 0];
   const attachments = s.drawer.attachments?.map((q) => ({ ...q, x: r3(q.x + dx), y: r3(q.y + dy) }));
+  // On the wall planner's wall, the board's bottom-left corner moves the other way: its tiles stay where they hang.
+  const on = s.wall?.items.some((i) => i.drawerId === s.activeDrawerId);
+  const wall =
+    on && s.wall ? { ...s.wall, items: s.wall.items.map((i) => (i.drawerId === s.activeDrawerId ? { ...i, x: r3(i.x - dx), y: r3(i.y - dy) } : i)) } : s.wall;
   history.checkpoint();
   useStore.setState({
     drawer: {
@@ -35,6 +48,7 @@ export function setTiles(tiles: SkadisCell[]) {
       skadis: { ...next, zones: next.zones.map((z) => ({ ...z, x: r3(z.x + dx), y: r3(z.y + dy) })) },
       ...(attachments ? { attachments } : {}),
     },
+    wall,
   });
   history.checkpoint();
 }

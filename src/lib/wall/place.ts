@@ -7,7 +7,7 @@
 import type { Vec2 } from '../geometry/kernel';
 import { lockKey, mountBox, partBounds, printedSize, siteAt, viewTurn } from './mount';
 import { attachmentDef, type AttachmentDef, type MountCtx, type PlacedAttachment } from './index';
-import { attachmentLayout, fitsAt, keyOf, labelRelief, nearestSlot, planExtras, slotKeys, type WallBoard, type WallPlacement } from './plan';
+import { attachmentLayout, fitsAt, keyOf, labelRelief, nearestSlot, planExtras, slotKeys, snapAnchor, type WallBoard, type WallPlacement } from './plan';
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -82,7 +82,10 @@ export function placeAttachments(list: readonly PlacedAttachment[], board: WallB
       continue;
     }
     const name = a.name?.trim() || def.summary(l.opts as never);
-    const at = keys.has(keyOf(a.x, a.y)) ? ([a.x, a.y] as Vec2) : nearestSlot(board.slots, a.x, a.y);
+    const on = keys.has(keyOf(a.x, a.y));
+    // Saved before parts stayed where they're put (PlacedAttachment.snap): on the nearest slot where it fits, as then.
+    const was = a.snap && !(on && fitsAt(keys, l.layout, board.ctx, a.x, a.y)) ? snapAnchor(board.slots, keys, l.layout, board.ctx, a.x, a.y) : null;
+    const at = was ?? (on ? ([a.x, a.y] as Vec2) : nearestSlot(board.slots, a.x, a.y));
     const ok = !!at && fitsAt(keys, l.layout, board.ctx, at[0], at[1]);
     const [x, y] = at ?? [a.x, a.y];
     const ox = x - l.layout.anchor[0];

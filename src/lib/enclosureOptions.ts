@@ -69,7 +69,21 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
       ...(contents ? { contents } : {}),
       ...(r.labelFrom === 'contents' ? { labelFrom: 'contents' as const } : {}),
       ...(r.material === 'pla' || r.material === 'petg' || r.material === 'asa' ? { material: r.material } : {}),
+      ...(r.snap === true ? { snap: true as const } : {}),
     });
   }
   return out;
+}
+
+/**
+ * A project saved before a board's attachments stayed where they're put (project files before version 4, autosave
+ * before 3), copied with every attachment of its drawers marked to be planned as it was then (PlacedAttachment.snap).
+ */
+export function snapOld<T>(project: T): T {
+  const p = structuredClone(project) as { drawer?: { attachments?: unknown }; drawers?: unknown } | null;
+  for (const d of [p, ...(Array.isArray(p?.drawers) ? p.drawers : [])]) {
+    const list = d?.drawer?.attachments;
+    if (Array.isArray(list)) for (const a of list) if (a && typeof a == 'object') a.snap = true;
+  }
+  return p as T;
 }
