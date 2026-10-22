@@ -46,3 +46,7 @@ import './kinds/measureHanger.ui';
 import './kinds/eyewear.ui';
 import './kinds/clampRack.ui';
 import './kinds/clipTab.ui';
+import './kinds/bottleRack.ui';
+import './kinds/stickRack.ui';
+import './kinds/holster.ui';
+import './kinds/gripper.ui';

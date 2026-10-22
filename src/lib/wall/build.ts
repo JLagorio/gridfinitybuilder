@@ -52,6 +52,10 @@ import { measureHangerBuilder } from './kinds/measureHanger.geom';
 import { eyewearBuilder } from './kinds/eyewear.geom';
 import { clampRackBuilder } from './kinds/clampRack.geom';
 import { clipTabBuilder } from './kinds/clipTab.geom';
+import { bottleRackBuilder } from './kinds/bottleRack.geom';
+import { stickRackBuilder } from './kinds/stickRack.geom';
+import { holsterBuilder } from './kinds/holster.geom';
+import { gripperBuilder } from './kinds/gripper.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -110,6 +114,10 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   eyewear: eyewearBuilder as AttachmentBuilder<never>,
   clampRack: clampRackBuilder as AttachmentBuilder<never>,
   clipTab: clipTabBuilder as AttachmentBuilder<never>,
+  bottleRack: bottleRackBuilder as AttachmentBuilder<never>,
+  stickRack: stickRackBuilder as AttachmentBuilder<never>,
+  holster: holsterBuilder as AttachmentBuilder<never>,
+  gripper: gripperBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {

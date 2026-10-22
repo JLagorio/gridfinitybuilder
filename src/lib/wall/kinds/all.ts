@@ -45,6 +45,10 @@ import './measureHanger';
 import './eyewear';
 import './clampRack';
 import './clipTab';
+import './bottleRack';
+import './stickRack';
+import './holster';
+import './gripper';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();
