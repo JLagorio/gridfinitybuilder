@@ -33,6 +33,11 @@ export interface AttachmentUi {
   group: AttachmentGroup;
   /** The form that edits it, in order. */
   fields: AttachmentField[];
+  /**
+   * The options its edges resize in the board editor, across (`w`) and up (`h`), when they aren't the usual names
+   * (lib/wall/resize.ts); null: that edge doesn't resize it.
+   */
+  resize?: { w?: string | null; h?: string | null };
 }
 
 const UIS = new Map<string, AttachmentUi>();

@@ -8,6 +8,8 @@ registerAttachmentUi({
   label: 'Glasses rest',
   description: 'Glasses hang folded by the bridge on a nose, or by one temple in a slot; goggles by the strap. One to four pairs.',
   group: 'hooks',
+  // Dragged taller in the board editor: room for more pairs.
+  resize: { h: 'pairs' },
   fields: [
     {
       key: 'preset',

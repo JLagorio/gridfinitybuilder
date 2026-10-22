@@ -10,6 +10,8 @@ registerAttachmentUi({
   label: 'Battery dispenser',
   description: 'Cells drop down a chute and come out at the bottom one at a time: AA to D, 9V, 18650, coin cells.',
   group: 'storage',
+  // Dragged wider in the board editor: more columns; taller: more cells in each.
+  resize: { w: 'columns', h: 'capacity' },
   fields: [
     {
       key: 'preset',
