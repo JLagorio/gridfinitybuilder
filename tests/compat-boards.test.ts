@@ -174,6 +174,19 @@ describe('attachments saved before they stayed where they’re put', () => {
     expect(board().drawer.attachments!.find((a) => a.id === hook)!.snap).toBe(true);
   });
 
+  it('go to My attachments as a set arranged as they’re planned', async () => {
+    const { saveToMyAttachments } = await import('../src/state/myAttachments');
+    s().loadProject(fx.file);
+    s().switchDrawer(board().id);
+    const hook = fx.expect.drawers[1].placed![0];
+    const made = saveToMyAttachments([hook.id, cup.id], plannedBoard().board)!;
+    const p = plannedBoard().board.ctx.pitch;
+    expect(made.items.map((it) => [it.type, it.di, it.dj, 'snap' in it])).toEqual([
+      ['hook', 0, 0, false],
+      ['cup', (cup.x - hook.x) / p, (cup.y - hook.y) / p, false],
+    ]);
+  });
+
   it('come back from an autosave before version 3 planned as then too', async () => {
     const ls = new Map<string, string>();
     vi.stubGlobal('window', {
