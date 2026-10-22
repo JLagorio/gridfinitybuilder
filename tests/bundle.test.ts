@@ -127,6 +127,20 @@ describe('bundle', () => {
       'src/lib/wall/mount.ts',
       // The divider-wall tools (the drawer grid's paste-layout shortcut has its clipboard on its own: layoutClip.ts).
       'src/components/WallTools.tsx',
+      // My attachments and its share links; the wall's photo; boards' print keys; attachments that hold a bin.
+      'src/components/MyAttachments.tsx',
+      'src/components/SharedAttachments.tsx',
+      'src/components/openShareLink.ts',
+      'src/lib/myAttachments.ts',
+      'src/state/myAttachments.ts',
+      'src/components/WallPhoto.tsx',
+      'src/lib/wallPlanner/photo.ts',
+      'src/lib/wallPlanner/photoStore.ts',
+      'src/state/wallPhoto.ts',
+      'src/lib/printedBoards.ts',
+      'src/lib/wall/follow.ts',
+      'src/state/follow.ts',
+      'src/components/WallHolds.tsx',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).
