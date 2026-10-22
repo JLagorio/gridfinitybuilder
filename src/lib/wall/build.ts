@@ -25,6 +25,12 @@ import { cableCombBuilder } from './kinds/cableComb.geom';
 import { gridShelfBuilder } from './kinds/gridShelf.geom';
 import { gridPlateBuilder } from './kinds/gridPlate.geom';
 import { gridClipBuilder } from './kinds/gridClip.geom';
+import { saddleBuilder } from './kinds/saddle.geom';
+import { magnetBarBuilder } from './kinds/magnetBar.geom';
+import { measureHangerBuilder } from './kinds/measureHanger.geom';
+import { eyewearBuilder } from './kinds/eyewear.geom';
+import { clampRackBuilder } from './kinds/clampRack.geom';
+import { clipTabBuilder } from './kinds/clipTab.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -56,6 +62,12 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   gridShelf: gridShelfBuilder as AttachmentBuilder<never>,
   gridPlate: gridPlateBuilder as AttachmentBuilder<never>,
   gridClip: gridClipBuilder as AttachmentBuilder<never>,
+  saddle: saddleBuilder as AttachmentBuilder<never>,
+  magnetBar: magnetBarBuilder as AttachmentBuilder<never>,
+  measureHanger: measureHangerBuilder as AttachmentBuilder<never>,
+  eyewear: eyewearBuilder as AttachmentBuilder<never>,
+  clampRack: clampRackBuilder as AttachmentBuilder<never>,
+  clipTab: clipTabBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
