@@ -46,5 +46,7 @@ registerAttachment<CupOptions>({
     // Each cup sinks one wall into the strip.
     return { w, h, depth: CUP_BACK + o.diameter + o.wall, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
+  // The cups cover the strip: no bolts.
+  backPlate: () => null,
   summary: (o) => `${o.count > 1 ? `${o.count} ` : ''}${o.bottom === 'open' ? 'ring' : 'cup'}${o.count > 1 ? 's' : ''} ⌀${Math.round(o.diameter)}`,
 });

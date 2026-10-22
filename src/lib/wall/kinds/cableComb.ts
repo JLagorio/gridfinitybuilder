@@ -29,6 +29,7 @@ export function combSize(o: CableCombOptions) {
 
 registerAttachment<CableCombOptions>({
   type: 'cableComb',
+  backPlate: () => null,
   defaults: COMB_DEFAULTS,
   sanitize(raw) {
     const r = obj(raw);

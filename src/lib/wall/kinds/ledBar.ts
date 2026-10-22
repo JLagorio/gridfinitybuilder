@@ -83,6 +83,7 @@ export function diffuserPieces(s: number): Vec2[][] {
 
 registerAttachment<LedBarOptions>({
   type: 'ledBar',
+  backPlate: () => null,
   defaults: LED_DEFAULTS,
   sanitize(raw) {
     const r = obj(raw);

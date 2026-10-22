@@ -2,10 +2,7 @@ import type { Manifold } from '../../geometry/kernel';
 import { boxAt, cylinderAt, roundedRectRing } from '../../geometry/shapes';
 import { prismX, prismY } from '../mount';
 import type { AttachmentBuilder } from '../build';
-import { CRADLE, cradlePocket, type CradleOptions } from './cradle';
-
-/** Front lip height (share of the pocket, at least 8 mm), the corners an open front keeps, the wall under a U cut-out and a notch; mm. */
-const LIP = { share: 0.25, min: 8, corner: 8, under: 4 } as const;
+import { CRADLE, CRADLE_LIP as LIP, cradleFront, cradlePocket, type CradleOptions } from './cradle';
 
 export const cradleBuilder: AttachmentBuilder<CradleOptions> = {
   body(w, s, o, layout) {
@@ -20,13 +17,11 @@ export const cradleBuilder: AttachmentBuilder<CradleOptions> = {
     const cuts: Manifold[] = [s.t(boxAt(w, p.x0, p.y0, p.z0, p.x1, top + 1, p.z1))];
     // The front: the corners only, a low lip, or a U cut-out down to near the floor.
     const fz = p.z1 - 1;
-    if (o.front === 'lip') cuts.push(s.t(boxAt(w, p.x0, p.y0 + Math.min(p.h, Math.max(LIP.min, LIP.share * p.h)), fz, p.x1, top + 1, D + 1)));
-    else if (o.front === 'open') {
-      const c = Math.min(LIP.corner, iw / 4);
-      cuts.push(s.t(boxAt(w, p.x0 + c, p.y0, fz, p.x1 - c, top + 1, D + 1)));
-    } else {
-      const r = Math.max(3, Math.min(0.3 * iw, iw / 2 - 4));
-      const cy = p.y0 + LIP.under + r;
+    const f = cradleFront(o);
+    if (o.front === 'lip') cuts.push(s.t(boxAt(w, p.x0, f.lip, fz, p.x1, top + 1, D + 1)));
+    else if (o.front === 'open') cuts.push(s.t(boxAt(w, p.x0 + f.corner, p.y0, fz, p.x1 - f.corner, top + 1, D + 1)));
+    else {
+      const { r, cy } = f;
       const cx = W / 2;
       cuts.push(s.t(cylinderAt(w, cx, cy, fz, D + 1, r)));
       if (cy < top + 1) cuts.push(s.t(boxAt(w, cx - r, cy, fz, cx + r, top + 1, D + 1)));

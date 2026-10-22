@@ -22,3 +22,4 @@ import './kinds/cableComb';
 import './kinds/gridShelf';
 import './kinds/gridPlate';
 import './kinds/gridClip';
+import './kinds/labelTag';

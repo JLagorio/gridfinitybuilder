@@ -93,8 +93,8 @@ import { groupName, plateGroup, plateGroups, soloGroup, tagColours, useSplitMesh
 import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
 import { buildImported, type ImportedSpec } from './imported/registry';
 import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
-import { attachmentDef, type AttachmentLayout, type MountCtx } from './wall';
-import { attachmentKey, attachmentView, placeAttachments } from './wall/plan';
+import { attachmentDef, type AttachmentExtras, type AttachmentLayout, type MountCtx } from './wall';
+import { MOUNT_PARTS, attachmentKey, attachmentView, mountParts, placeAttachments } from './wall/plan';
 import { buildAttachment, buildAttachmentPart } from './wall/build';
 import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
@@ -191,8 +191,8 @@ export type MeshSpec =
   | { kind: 'split'; key: string; base: MeshSpec }
   /** An imported bin's mesh, as it is (external.ts, imported/registry.ts). */
   | ImportedSpec
-  /** Something that hangs on a Skådis board (lib/wall), in its print pose. */
-  | { kind: 'attachment'; key: string; type: string; opts: object; layout: AttachmentLayout; ctx: MountCtx }
+  /** Something that hangs on a Skådis board (lib/wall), in its print pose; `extras`: what its common options add (bolts, label, barbs). */
+  | { kind: 'attachment'; key: string; type: string; opts: object; layout: AttachmentLayout; ctx: MountCtx; extras?: AttachmentExtras }
   /** One of an attachment's extra parts. */
   | { kind: 'attachmentPart'; key: string; type: string; part: unknown; ctx: MountCtx };
 
@@ -604,16 +604,18 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         const ctx = enc.wall.ctx;
         for (const p of placed) {
           const def = attachmentDef(p.type)!;
-          const meshKey = attachmentKey(p.type, p.opts, ctx);
-          meshes[meshKey] = { kind: 'attachment', key: meshKey, type: p.type, opts: p.opts, layout: p.layout, ctx };
+          const meshKey = attachmentKey(p.type, p.opts, ctx, p.extras);
+          meshes[meshKey] = { kind: 'attachment', key: meshKey, type: p.type, opts: p.opts, layout: p.layout, ctx, ...(p.extras ? { extras: p.extras } : {}) };
           const v = attachmentView(p, enc.wall);
           const key = `${prefix}att:${p.id}`;
           parts[key] = { key, name: `${label}${p.name}`, kind: 'attachment', meshKey, ...v.size, drawer: d.id, attachment: p.id };
           if (include.bins) binItems.push({ key, w: v.size.w, d: v.size.d });
           items.push({ id: `att-${p.id}`, pick: p.id, meshKey, x: v.at[0], y: v.at[1], z: v.at[2], ...v.size, turn: v.turn, role: 'attachment', when: 'always' });
-          for (const xp of def.parts?.(p.opts, ctx) ?? []) {
-            const pk = `attpart|${p.type}|${JSON.stringify(xp.spec)}|${JSON.stringify(ctx)}`;
-            meshes[pk] = { kind: 'attachmentPart', key: pk, type: p.type, part: xp.spec, ctx };
+          // Its kind's extra parts, then its lock keys and T-nuts (the mount standard's own, build.ts builds them).
+          const extra = [...(def.parts?.(p.opts, ctx) ?? []).map((xp) => ({ xp, type: p.type })), ...mountParts(p, ctx).map((xp) => ({ xp, type: MOUNT_PARTS }))];
+          for (const { xp, type } of extra) {
+            const pk = `attpart|${type}|${JSON.stringify(xp.spec)}|${JSON.stringify(ctx)}`;
+            meshes[pk] = { kind: 'attachmentPart', key: pk, type, part: xp.spec, ctx };
             const k = `${prefix}att:${p.id}:${xp.key}`;
             parts[k] = { key: k, name: `${label}${xp.name} (${p.name})`, kind: 'attachment', meshKey: pk, w: xp.w, d: xp.d, h: xp.h, drawer: d.id, attachment: p.id };
             if (include.bins) binItems.push({ key: k, w: xp.w, d: xp.d });

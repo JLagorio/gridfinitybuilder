@@ -30,6 +30,15 @@ export interface PlacedAttachment {
   name?: string;
   /** Multi-colour: its own filament slot (1-based); unset: the role's. */
   colour?: number;
+  // Options every kind has (plan.ts plans them, WallPanel edits them above the kind's own):
+  /** Lock keys: a printed key pushed into the slot above each hook, so the part can't lift off (parts with hooks). */
+  lock?: boolean;
+  /** Bolt it on: a countersunk screw through its back and a slot into a printed T-nut behind the board. */
+  bolt?: 'm3' | 'm4';
+  /** Text engraved on its label face (kinds with AttachmentDef.labelFace). */
+  label?: string;
+  /** Barbs on the clips at the ends of its top row only (the rest plain pegs): easier to push on and off. */
+  barbs?: 'ends';
 }
 
 /** The board an attachment is for: its slots and thickness. */
@@ -117,6 +126,55 @@ export interface AttachmentPart {
   place?: { at: [number, number, number]; turn: [number, number, number] };
 }
 
+/**
+ * A flat face of a part for a label, in its frame: 'front' a face looking out
+ * from the board at `z`, the text box x..x + w, y..y + h; 'up' a face looking
+ * up at height `y`, the text box x..x + w across and z..z + h out from the
+ * board (the text reads from the front). `depth`: how deep text may go (0.6 mm
+ * unless the wall behind is thin).
+ */
+export interface LabelFace {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+  normal: 'front' | 'up';
+  depth?: number;
+}
+
+/**
+ * Where a part's back is solid `z` thick with nothing in front of it, in its
+ * frame: a screw can go in there from the front (x0..x1 across, y0..y1 up).
+ */
+export interface BackPlate {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  z: number;
+}
+
+/** A bolt through a part's back and a slot: its centre (the slot's), the head's seat (flush with what's in front, on a boss when the back is thinner) and the screw. */
+export interface BoltSite {
+  x: number;
+  y: number;
+  size: 'm3' | 'm4';
+  /** Where the countersunk head sits, out from the board, mm. */
+  seat: number;
+  /** A round boss out to the seat (the back is thinner there). */
+  boss: boolean;
+  /** Screw length (countersunk: overall), mm. */
+  screw: number;
+}
+
+/** What the common options add to a part's mesh (planned from PlacedAttachment's lock, bolt, label and barbs). */
+export interface AttachmentExtras {
+  barbs?: 'ends';
+  bolts?: BoltSite[];
+  label?: { text: string; face: LabelFace };
+}
+
 /** A line of the bill of materials. */
 export interface AttachmentHardware {
   item: string;
@@ -155,6 +213,13 @@ export interface AttachmentDef<O extends object = Record<string, unknown>> {
   parts?(o: O, ctx: MountCtx): AttachmentPart[];
   /** Hardware to buy. */
   hardware?(o: O): AttachmentHardware[];
+  /** Where a label goes (the Label option shows only when this gives a face); unset: no label. */
+  labelFace?(o: O, layout: AttachmentLayout): LabelFace | null;
+  /**
+   * Where its back is solid with nothing in front, for bolts (one region, or several); null: no bolts.
+   * Unset: next to its top row's mounts, on a boss as thick as the screw head needs (plan.ts).
+   */
+  backPlate?(o: O, layout: AttachmentLayout): BackPlate | BackPlate[] | null;
 }
 
 const DEFS = new Map<string, AttachmentDef<object>>();

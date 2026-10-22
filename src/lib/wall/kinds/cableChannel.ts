@@ -56,6 +56,8 @@ registerAttachment<CableChannelOptions>({
     return { w: o.length, h: H, depth: Z, anchor: m.anchor, mounts: m.mounts, pose: 'upright' };
   },
   summary: (o) => `Cable channel ${Math.round(o.length)} mm, ${Math.round(o.width)} × ${Math.round(o.height)}`,
+  labelFace: (o, l) => (o.exits ? null : { x: 4, y: 1, w: l.w - 8, h: l.h - 2, z: l.depth, normal: 'front' }),
+  backPlate: () => null,
   parts(o, ctx) {
     if (!o.lid) return [];
     const { H, Z } = channelSize(o, ctx);

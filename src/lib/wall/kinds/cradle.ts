@@ -29,6 +29,22 @@ export const CRADLE_DEFAULTS: CradleOptions = { width: 80, depth: 16, height: 60
 /** Back plate and floor thickness, clearance each side of the device, mm. */
 export const CRADLE = { back: 3, floor: 2.4, fit: 0.5 } as const;
 
+/** Front lip height (share of the pocket, at least 8 mm), the corners an open front keeps, the wall under a U cut-out; mm. */
+export const CRADLE_LIP = { share: 0.25, min: 8, corner: 8, under: 4 } as const;
+
+/** The front's opening: a U's radius and centre height, a lip's top, an open front's corners. */
+export function cradleFront(o: CradleOptions) {
+  const p = cradlePocket(o);
+  const iw = p.x1 - p.x0;
+  const r = Math.max(3, Math.min(0.3 * iw, iw / 2 - 4));
+  return {
+    r,
+    cy: p.y0 + CRADLE_LIP.under + r,
+    lip: p.y0 + Math.min(p.h, Math.max(CRADLE_LIP.min, CRADLE_LIP.share * p.h)),
+    corner: Math.min(CRADLE_LIP.corner, iw / 4),
+  };
+}
+
 /** The pocket inside, mm: x0..x1 across, z0..z1 out from the board, from the floor's top up `h`. */
 export function cradlePocket(o: CradleOptions) {
   const x0 = o.wall;
@@ -63,4 +79,18 @@ registerAttachment<CradleOptions>({
   },
   summary: (o) => `Holder ${Math.round(o.width)} × ${Math.round(o.depth)} × ${Math.round(o.height)}`,
   notes: (o, ctx) => leverNotes(cradlePocket(o).z1 + o.wall, cradleHeight(o, ctx)),
+  labelFace(o, l) {
+    if (o.front === 'open') return null;
+    const f = cradleFront(o);
+    const top = o.front === 'lip' ? f.lip : f.cy - f.r;
+    return { x: o.wall + 1, y: 0.6, w: l.w - 2 * o.wall - 2, h: top - 1.2, z: l.depth, normal: 'front', depth: Math.min(0.6, o.wall / 2) };
+  },
+  backPlate(o, l) {
+    const p = cradlePocket(o);
+    const f = cradleFront(o);
+    const c = l.w / 2;
+    if (o.front === 'u') return { x0: c - f.r, x1: c + f.r, y0: f.cy, y1: l.h, z: CRADLE.back };
+    if (o.front === 'lip') return { x0: p.x0, x1: p.x1, y0: f.lip, y1: l.h, z: CRADLE.back };
+    return { x0: p.x0 + f.corner, x1: p.x1 - f.corner, y0: p.y0, y1: l.h, z: CRADLE.back };
+  },
 });

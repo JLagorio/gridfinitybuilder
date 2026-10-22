@@ -63,5 +63,7 @@ registerAttachment<GridClipOptions>({
     return { w, h, depth, anchor: m.anchor, mounts: m.mounts, pose: 'side' };
   },
   summary: (o) => `Bin ${o.style === 'lip' ? 'lip clip' : 'cradle'}, ${o.cells} wide ${o.units}u`,
+  // The bin covers its back: no bolts.
+  backPlate: () => null,
   notes: (o) => (o.style === 'lip' && o.units > 12 ? ['A bin this tall is heavy for its lip when full: the cradle carries it from below.'] : []),
 });

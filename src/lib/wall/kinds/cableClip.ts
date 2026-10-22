@@ -71,5 +71,6 @@ registerAttachment<CableClipOptions>({
     const m = backMounts(w, H, ctx, { kind: 'hook', rows: 2, columns: 1, left: true });
     return { w, h: H, depth: clipSeat(o).z, anchor: m.anchor, mounts: m.mounts, pose: 'side' };
   },
+  backPlate: () => null,
   summary: (o) => `Cable clip ${o.count > 1 ? `${o.count} × ` : ''}${o.style === 'flat' ? `${Math.round(o.flatW)} × ${o.flatT} flat` : `⌀${o.diameter}`}`,
 });

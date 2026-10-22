@@ -107,6 +107,8 @@ export function railPlan(o: RailOptions) {
 }
 
 registerAttachment<RailOptions>({
+  // Its profile runs across the whole front: no bolts.
+  backPlate: () => null,
   type: 'rail',
   defaults: RAIL_DEFAULTS,
   sanitize(raw) {
