@@ -126,7 +126,13 @@ export type AttachmentField =
    */
   | { key: string; label: string; kind: 'preset'; presets: AttachmentPreset[]; hint?: string; when?: (o: never) => boolean }
   /** A model file (STL, 3MF, OBJ) to hang (kinds/model.ts ModelRef): "Choose a model…", its name and size (components/ModelField.tsx). */
-  | { key: string; label: string; kind: 'model'; hint?: string; when?: (o: never) => boolean };
+  | { key: string; label: string; kind: 'model'; hint?: string; when?: (o: never) => boolean }
+  /**
+   * Traced tools (kinds/traced.ts TracedTool[]): buttons that trace one from a photo, import an outline or take one
+   * from the tool library (components/WallOutlines.tsx), and the list of them to rename, turn and remove; at most
+   * `max` (with one, a new one takes its place), each with what holds it when `hold`.
+   */
+  | { key: string; label: string; kind: 'outlines'; max: number; hold?: boolean; hint?: string; when?: (o: never) => boolean };
 
 /** One choice of a 'preset' field: the options it sets. */
 export interface AttachmentPreset {
