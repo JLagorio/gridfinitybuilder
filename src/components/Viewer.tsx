@@ -870,7 +870,9 @@ function createContext(
         obj.add(mesh, new THREE.LineSegments(g.edges, edges));
         if (tools.section) addStencil(obj, g.mesh);
         for (const o of g.overlays) {
-          const oc = p ? (p.bands && p.bands.length > 1 ? null : (p.roles?.[o.role] ?? p.main)) : OVERLAY_COLORS[(o.filament - 2) % OVERLAY_COLORS.length];
+          // Without paint: filament 2+ bodies in their stand-in colours, filament 1 ones (raised text) as the part.
+          const own = o.filament > 1 ? OVERLAY_COLORS[(o.filament - 2) % OVERLAY_COLORS.length] : it.selected ? SELECT_COLOR : it.color;
+          const oc = p ? (p.bands && p.bands.length > 1 ? null : (p.roles?.[o.role] ?? p.main)) : own;
           if (p && oc) painted.add(oc);
           const om = new THREE.Mesh(o.mesh, oc ? material(oc) : bandMaterial(p!.bands!));
           om.userData.id = mesh.userData.id;

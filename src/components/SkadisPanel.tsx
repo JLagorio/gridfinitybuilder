@@ -433,6 +433,17 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
                   <LengthInput label="Height" value={z.h} min={5} max={o.height} onChange={(h) => setZone(i, { h })} />
                 </div>
                 {z.kind === 'text' && <TextInput label="Text" value={z.text} placeholder="SCREWDRIVERS" onChange={(text) => setZone(i, { text })} />}
+                {z.kind === 'text' && (
+                  <Segmented
+                    label="Text style"
+                    value={z.style ?? 'engraved'}
+                    options={[
+                      { value: 'engraved', label: 'Engraved' },
+                      { value: 'inlaid', label: 'Inlaid', title: 'Filled flush in the board text colour: a second filament for its first layers' },
+                    ]}
+                    onChange={(v) => setZone(i, { style: v === 'inlaid' ? 'inlaid' : undefined })}
+                  />
+                )}
                 <div className="button-row">
                   <button className="danger" onClick={() => set({ zones: o.zones.filter((_, k) => k !== i) })}>
                     Remove zone {i + 1}

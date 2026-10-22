@@ -91,7 +91,9 @@ registerAttachment<SlotRackOptions>({
     const tan = Math.tan(p.a);
     const top = Math.min(p.front, o.notch && o.height >= 25 ? p.top - 0.45 * o.height : Infinity) - 1;
     const h = Math.min(10, top - 1, tan > 0 ? (p.t / Math.cos(p.a) - 1.8) / tan : Infinity);
-    return h >= 5 ? { x: 2, y: 1, w: o.width - 4, h, z: p.depth - tan, normal: 'front', depth: 0.6 + h * tan } : null;
+    return h >= 5
+      ? { x: 2, y: 1, w: o.width - 4, h, z: p.depth - tan, normal: 'front', depth: 0.6 + h * tan, ...(tan > 0 ? { flat: false as const } : {}) }
+      : null;
   },
   // Its first divider leans in front of the whole back (the finger notch stops at it).
   backPlate: () => null,

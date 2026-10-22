@@ -55,6 +55,7 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
       ...(typeof r.lock === 'boolean' ? { lock: r.lock } : {}),
       ...(r.bolt === 'm3' || r.bolt === 'm4' ? { bolt: r.bolt } : {}),
       ...(typeof r.label === 'string' && r.label.trim() ? { label: r.label.slice(0, 40) } : {}),
+      ...(r.labelStyle === 'raised' || r.labelStyle === 'inlaid' ? { labelStyle: r.labelStyle } : {}),
       ...(r.barbs === 'ends' ? { barbs: 'ends' as const } : {}),
     });
   }

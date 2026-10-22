@@ -35,8 +35,14 @@ export interface PlacedAttachment {
   lock?: boolean;
   /** Bolt it on: a countersunk screw through its back and a slot into a printed T-nut behind the board. */
   bolt?: 'm3' | 'm4';
-  /** Text engraved on its label face (kinds with AttachmentDef.labelFace). */
+  /** Text on its label face (kinds with AttachmentDef.labelFace). */
   label?: string;
+  /**
+   * How the label's text is made: cut in (unset), raised on the face, or inlaid (cut in and filled flush). Raised and
+   * inlaid text is a body of its own, in the board text's colour (colours.ts 'wallText'): inlaid text prints in filament
+   * 2 with multi-colour off, raised text with the part.
+   */
+  labelStyle?: 'raised' | 'inlaid';
   /** Barbs on the clips at the ends of its top row only (the rest plain pegs): easier to push on and off. */
   barbs?: 'ends';
 }
@@ -141,6 +147,8 @@ export interface LabelFace {
   z: number;
   normal: 'front' | 'up';
   depth?: number;
+  /** False for a face that isn't flat (it leans): text can go in, not stand out on it. */
+  flat?: false;
 }
 
 /**
@@ -172,7 +180,7 @@ export interface BoltSite {
 export interface AttachmentExtras {
   barbs?: 'ends';
   bolts?: BoltSite[];
-  label?: { text: string; face: LabelFace };
+  label?: { text: string; face: LabelFace; style?: 'raised' | 'inlaid' };
 }
 
 /** A line of the bill of materials. */
@@ -220,6 +228,11 @@ export interface AttachmentDef<O extends object = Record<string, unknown>> {
    * bolts. Unset: next to its top row's mounts, on a boss as thick as the screw head needs (plan.ts).
    */
   backPlate?(o: O, layout: AttachmentLayout, ctx: MountCtx): BackPlate | BackPlate[] | null;
+  /**
+   * Whether its body has inlays that print in filament 2 with multi-colour off (inlaid text, two-colour pocket
+   * floors: the builder returns them, build.ts AttachmentBody), for planning; unset: none.
+   */
+  inlaid?(o: O): boolean;
 }
 
 const DEFS = new Map<string, AttachmentDef<object>>();

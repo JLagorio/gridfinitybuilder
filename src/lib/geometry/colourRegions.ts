@@ -76,6 +76,9 @@ export function specRole(spec: MeshSpec | undefined): ColourRole {
     case 'bin':
       // A vase-mode bin is a bin (its wall is one line), not a container's shell.
       return activeContainer(spec.opts) && !isVaseBin(spec.opts) ? 'containerShell' : 'binWalls';
+    case 'attachment':
+    case 'attachmentPart':
+      return 'attachments';
   }
   return 'binWalls';
 }

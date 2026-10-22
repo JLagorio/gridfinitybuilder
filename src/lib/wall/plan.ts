@@ -9,6 +9,7 @@
  * (AttachmentExtras) and the extra parts they bring (lock keys, T-nuts).
  */
 import type { Vec2 } from '../geometry/kernel';
+import type { MeshSpec } from '../project';
 import type { SkadisOptions, SkadisPlan } from '../geometry/skadis';
 import { boardSlots, plannedSkadis, rimWidth, skadisBehind, skadisGap, tileOutlines } from '../geometry/skadis';
 import { BOLT, boltSeat, lockKey, mountBox, partBounds, printedSize, siteAt, tNut, viewTurn, type BoltSize } from './mount';
@@ -177,7 +178,7 @@ export function boltSites(
  * stud's place) and anything worth a note. `has`: whether the board has a slot at a point of the part's frame.
  */
 export function planExtras(
-  a: Pick<PlacedAttachment, 'lock' | 'bolt' | 'label' | 'barbs'>,
+  a: Pick<PlacedAttachment, 'lock' | 'bolt' | 'label' | 'labelStyle' | 'barbs'>,
   def: Pick<AttachmentDef<object>, 'labelFace' | 'backPlate'>,
   opts: object,
   layout: AttachmentLayout,
@@ -190,7 +191,9 @@ export function planExtras(
   if (a.barbs === 'ends' && layout.mounts.filter((m) => m.kind === 'clip').length > 2) extras.barbs = 'ends';
   const text = typeof a.label === 'string' ? a.label.trim().slice(0, 40) : '';
   const face = text && def.labelFace ? def.labelFace(opts, layout) : null;
-  if (face) extras.label = { text, face };
+  // Raised text needs a flat face (on one that leans it's cut in).
+  const style = a.labelStyle === 'inlaid' || (a.labelStyle === 'raised' && face?.flat !== false) ? a.labelStyle : undefined;
+  if (face) extras.label = { text, face, ...(style ? { style } : {}) };
   if (a.bolt === 'm3' || a.bolt === 'm4') {
     const sites = boltSites(def, opts, layout, ctx, a.bolt, has);
     if (!sites.length) notes.push('No room for a bolt: it needs a free slot behind a flat part of its back.');
@@ -209,6 +212,27 @@ export function planExtras(
   }
   const lock = (a.lock ?? LOCK_DEFAULT) && canLock(out, ctx);
   return { ...(Object.keys(extras).length ? { extras } : {}), lock, layout: out, notes };
+}
+
+/** How far raised label text stands out of its face, mm (build.ts). */
+export const LABEL_RELIEF = 0.6;
+
+/** How much a raised label adds to a part's size: out past its front (`dz`) or up past its top (`dy`), mm. */
+export function labelRelief(e: AttachmentExtras | undefined, layout: Pick<AttachmentLayout, 'depth' | 'h'>): { dz: number; dy: number } {
+  const l = e?.label;
+  if (l?.style !== 'raised') return { dz: 0, dy: 0 };
+  return l.face.normal === 'front'
+    ? { dz: Math.max(0, r3(l.face.z + LABEL_RELIEF - layout.depth)), dy: 0 }
+    : { dz: 0, dy: Math.max(0, r3(l.face.y + LABEL_RELIEF - layout.h)) };
+}
+
+/**
+ * Whether a board's mesh has bodies that print in filament 2 with multi-colour off: an attachment's inlaid label or its
+ * kind's own inlays (AttachmentDef.inlaid), a tile's inlaid zone text.
+ */
+export function wallInlaid(spec: MeshSpec | undefined): boolean {
+  if (spec?.kind === 'attachment') return spec.extras?.label?.style === 'inlaid' || !!attachmentDef(spec.type)?.inlaid?.(spec.opts);
+  return spec?.kind === 'piece' && spec.enclosure?.kind === 'skadis' && !!spec.enclosure.tile.text?.some((t) => t.inlay);
 }
 
 /** Lock keys and T-nuts are built by build.ts's own part builder: their mesh specs have this for a type. */
@@ -419,8 +443,10 @@ export function attachmentView(
   const b = partBounds(p.layout, board.ctx);
   const ox = p.x - p.layout.anchor[0];
   const oy = p.y - p.layout.anchor[1];
+  // A raised label stands out past its front (or top): the print is that much bigger, the min corner the same.
+  const r = labelRelief(p.extras, p.layout);
   return {
-    size: printedSize(p.layout, board.ctx),
+    size: printedSize(r.dz || r.dy ? { ...p.layout, depth: p.layout.depth + r.dz, h: p.layout.h + r.dy } : p.layout, board.ctx),
     turn: viewTurn(p.layout.pose),
     at: [r2(ox + b.x0), r2(oy + b.y0), r2(board.front + b.z0)],
   };

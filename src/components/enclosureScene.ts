@@ -17,12 +17,18 @@ const COLORS: Record<EnclosureSceneItem['role'], string> = {
 };
 
 /** The enclosure's extra parts for the drawer view (plate coordinates; spread with the pieces). */
-export function enclosureSceneItems(enc: EnclosureScene, lid: LidView, gap: number, paint?: (role: EnclosureSceneItem['role']) => ScenePaint | undefined): SceneItem[] {
+export function enclosureSceneItems(
+  enc: EnclosureScene,
+  lid: LidView,
+  gap: number,
+  paint?: (role: EnclosureSceneItem['role'], it: EnclosureSceneItem) => ScenePaint | undefined,
+): SceneItem[] {
   const out: SceneItem[] = [];
   for (const it of enc.items) {
     if (it.when === 'closed' && lid !== 'closed') continue;
     if (it.when === 'open' && lid !== 'open') continue;
     if (lid === 'off' && (it.role === 'lid' || it.role === 'handle')) continue;
+    const p = paint?.(it.role, it);
     out.push({
       id: it.id,
       meshKey: it.meshKey,
@@ -33,7 +39,7 @@ export function enclosureSceneItems(enc: EnclosureScene, lid: LidView, gap: numb
       d: it.d,
       h: it.h,
       color: COLORS[it.role],
-      ...(paint?.(it.role) ? { paint: paint(it.role) } : {}),
+      ...(p ? { paint: p } : {}),
       ...(it.turn ? { turn: it.turn } : {}),
       ...(it.pick ? { pickable: true, id: it.pick } : {}),
     });

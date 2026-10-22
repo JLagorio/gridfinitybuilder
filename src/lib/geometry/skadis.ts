@@ -36,7 +36,8 @@
  * the meshes are turned face down for printing.
  *
  * Rectangle boards can also have (planned here, the parts built in skadisParts.ts):
- * - zones: solid areas without slots, blank, with text engraved in the front,
+ * - zones: solid areas without slots, blank, with text engraved in the front
+ *   (or inlaid: filled flush in a second colour, its first layers on the bed),
  *   or with 6 × 2 mm magnet pockets from the back (a strip for knives and bits);
  * - a frame: a rim proud of the front all round. A rim would hold a tile off the
  *   bed it prints face down on, so it is separate frame strips, printed front
@@ -58,6 +59,7 @@ import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Vec2
 import { HOLE_SEGMENTS, cylinderAt, loftRings, roundedRectRing } from './shapes';
 import { textRects, textSize } from './digits';
 import { hasFont, textOutline, textSolid } from './text';
+import { addInlay, splitInlay } from './inlay';
 import { balanceScore, enumeratePartitions } from '../layout/split';
 
 export type SkadisShape = 'rect' | 'hex';
@@ -81,6 +83,8 @@ export interface SkadisZone {
   kind: 'blank' | 'text' | 'magnets';
   /** Engraved in the front ('text'). */
   text: string;
+  /** The text inlaid instead: engraved and filled flush, in the board text's colour (geometry/inlay.ts). */
+  style?: 'inlaid';
 }
 
 export interface SkadisOptions {
@@ -248,6 +252,7 @@ export function sanitizeSkadis(raw: unknown): SkadisOptions {
         h: num(z.h, 5, 5000, 40),
         kind: pick(z.kind, ['blank', 'text', 'magnets'] as const, 'blank'),
         text: typeof z.text === 'string' ? z.text.slice(0, 40) : '',
+        ...(z.style === 'inlaid' ? { style: 'inlaid' as const } : {}),
       })),
     hang: pick(r.hang, ['screws', 'cleat', 'door', 'desk'] as const, 'screws'),
     doorThickness: num(r.doorThickness, 20, 70, d.doorThickness),
@@ -407,6 +412,7 @@ export interface SkadisZoneRect {
   y1: number;
   kind: SkadisZone['kind'];
   text: string;
+  style?: SkadisZone['style'];
 }
 
 /** A frame strip on the front border (wall coordinates), and its pins (into holes in the tiles). */
@@ -540,7 +546,7 @@ function zoneRects(o: SkadisOptions, L: SkadisLattice): SkadisZoneRect[] {
       const y0 = snap(z.y, L.oy);
       const x1 = Math.min(o.width, Math.max(r3(x0 + P), snap(z.x + z.w, L.ox)));
       const y1 = Math.min(o.height, Math.max(r3(y0 + P), snap(z.y + z.h, L.oy)));
-      return { x0: Math.max(0, x0), y0: Math.max(0, y0), x1, y1, kind: z.kind, text: z.text };
+      return { x0: Math.max(0, x0), y0: Math.max(0, y0), x1, y1, kind: z.kind, text: z.text, ...(z.style ? { style: z.style } : {}) };
     })
     .filter((z) => z.x1 > z.x0 && z.y1 > z.y0);
 }
@@ -1309,8 +1315,8 @@ export interface SkadisTileSpec {
   cover?: SkadisCoverHole;
   /** The LED channel round the back of its outer edges (left, right, bottom, top): width and depth; deeper where two meet. */
   led?: { w: number; d: number; sides: [boolean, boolean, boolean, boolean] };
-  /** Text engraved in the front, fitted to a box (its centre and size). */
-  text?: { text: string; x: number; y: number; w: number; h: number }[];
+  /** Text engraved in the front, fitted to a box (its centre and size); `inlay`: filled flush, a body of its own. */
+  text?: { text: string; x: number; y: number; w: number; h: number; inlay?: true }[];
   /** Magnet pockets from the back, by centre. */
   magnets?: Vec2[];
 }
@@ -1422,7 +1428,15 @@ export function skadisTileSpecs(plan: SkadisPlan, raw: SkadisOptions): SkadisTil
     const text = plan.zones.flatMap((z) => {
       const [x0, y0, x1, y1] = zoneArea(o, z, P);
       return z.kind === 'text' && z.text.trim() && x1 > t.x0 && x0 < t.x1 && y1 > t.y0 && y0 < t.y1 && x1 > x0 && y1 > y0
-        ? [{ text: z.text.trim(), ...pt(at((x0 + x1) / 2, (y0 + y1) / 2)), w: r3(x1 - x0), h: r3(y1 - y0) }]
+        ? [
+            {
+              text: z.text.trim(),
+              ...pt(at((x0 + x1) / 2, (y0 + y1) / 2)),
+              w: r3(x1 - x0),
+              h: r3(y1 - y0),
+              ...(z.style === 'inlaid' ? { inlay: true as const } : {}),
+            },
+          ]
         : [];
     });
     return {
@@ -1676,12 +1690,14 @@ export function buildSkadisTile(w: Wasm, spec: SkadisTileSpec): MeshData {
       ] as [boolean, number, number][])
         if (on) cuts.push(box(x0, y0, x0 + cw + 1, y0 + cw + 1, deep));
     }
-    // Text engraved in the front (reading from the front: the tile is mirrored as it's turned face down).
+    // Text engraved in the front (reading from the front: the tile is mirrored as it's turned face down); inlaid
+    // text is what it cuts out, a body of its own in the board text's colour (inlay.ts).
+    const inlaid: Manifold[] = [];
     if (spec.text && hasFont()) {
       for (const tx of spec.text) {
         const out = textOutline(tx.text, { size: Math.min(SKADIS.text.size, tx.h * 0.7), maxWidth: tx.w, maxHeight: tx.h });
         const solid = textSolid(w, out, tx.x, tx.y, -1, SKADIS.text.depth + 1);
-        if (solid) cuts.push(s.t(solid));
+        if (solid) (tx.inlay ? inlaid : cuts).push(s.t(solid));
       }
     }
     let body = s.t(w.Manifold.extrude([spec.outline], t));
@@ -1689,12 +1705,15 @@ export function buildSkadisTile(w: Wasm, spec: SkadisTileSpec): MeshData {
     // Slots never touch each other: one compose, then one difference.
     if (spec.slots.length) body = s.t(body.subtract(s.t(w.Manifold.compose(spec.slots.map(([x, y]) => s.t(slotSolid(w, x, y, spec)))))));
     if (cuts.length) body = s.t(body.subtract(s.t(w.Manifold.union(cuts))));
+    const inlay = inlaid.length ? splitInlay(s, body, s.t(w.Manifold.union(inlaid))) : null;
+    if (inlay) body = inlay.body;
     // Face down: turned over about the y axis (x mirrored, front on the bed).
     const down = s.t(body.mirror([1, 0, 0]));
     const b = down.boundingBox();
     const out = s.t(down.translate([-b.min[0], -b.min[1], -b.min[2]]));
     assertValid(out, 'Skådis tile');
-    return toMeshData(out);
+    const fill = inlay?.fill ? s.t(s.t(inlay.fill.mirror([1, 0, 0])).translate([-b.min[0], -b.min[1], -b.min[2]])) : null;
+    return addInlay(toMeshData(out), fill, { name: 'Zone text', role: 'wallText', filament: 2 });
   } finally {
     s.dispose();
   }

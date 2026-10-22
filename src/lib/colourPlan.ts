@@ -35,7 +35,8 @@ export function ownerBinId(key: string, part: Pick<JobPart, 'kind' | 'drawer' | 
 
 /**
  * Tag every part with its role (from its mesh) and its own colour: its bin's
- * (`opts.colour`) or its drawer's baseplate colour (`baseplate.colour`).
+ * (`opts.colour`), its board attachment's (`colour`, for its extra parts too)
+ * or its drawer's baseplate colour (`baseplate.colour`).
  */
 export function tagColours(parts: Record<string, JobPart>, meshes: Record<string, MeshSpec>, drawers: NamedDrawer[], multi: boolean): void {
   const byId = new Map(drawers.map((d) => [d.id, d]));
@@ -48,7 +49,8 @@ export function tagColours(parts: Record<string, JobPart>, meshes: Record<string
     if (plate) o.plate = plate;
     const binId = ownerBinId(key, part, multi);
     const bin = binId ? bins.get(d?.id ?? '')?.get(binId) : undefined;
-    const own = cleanSlot(bin?.opts.colour);
+    const att = part.attachment ? d?.drawer.attachments?.find((a) => a.id === part.attachment) : undefined;
+    const own = cleanSlot(att ? att.colour : bin?.opts.colour);
     if (own) o.bin = own;
     if (o.plate || o.bin) part.colour = o;
     else delete part.colour;

@@ -194,7 +194,22 @@ function CommonFields({ a, def, placed, ctx }: { a: PlacedAttachment; def: Attac
           onChange={(v) => set({ barbs: v === 'ends' ? 'ends' : undefined })}
         />
       )}
-      {face && <TextInput label="Label" value={a.label ?? ''} placeholder="Cut into its front" onChange={(label) => set({ label })} />}
+      {face && <TextInput label="Label" value={a.label ?? ''} placeholder="Text on its front" onChange={(label) => set({ label })} />}
+      {face && !!a.label?.trim() && (
+        <Segmented
+          label="Label text"
+          value={a.labelStyle ?? 'engraved'}
+          options={[
+            { value: 'engraved', label: 'Cut in' },
+            ...(face.flat === false
+              ? []
+              : [{ value: 'raised' as const, label: 'Raised', title: 'Stands out 0.6 mm; in the board text colour with multi-colour on' }]),
+            { value: 'inlaid', label: 'Inlaid', title: 'Cut in and filled flush in a second filament: two colours, a smooth face' },
+          ]}
+          hint={a.labelStyle ? 'Prints in the board text colour (Print plates › Colours).' : undefined}
+          onChange={(v) => set({ labelStyle: v === 'engraved' ? undefined : v })}
+        />
+      )}
     </>
   );
 }

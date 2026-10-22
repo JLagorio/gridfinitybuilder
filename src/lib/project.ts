@@ -94,7 +94,7 @@ import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type Ext
 import { buildImported, type ImportedSpec } from './imported/registry';
 import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
 import { attachmentDef, kindsReady, type AttachmentExtras, type AttachmentLayout, type MountCtx } from './wall';
-import { MOUNT_PARTS, attachmentKey, attachmentView, mountParts, placeAttachments } from './wall/plan';
+import { MOUNT_PARTS, attachmentKey, attachmentView, mountParts, placeAttachments, wallInlaid } from './wall/plan';
 import type * as WallBuild from './wall/build';
 import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
@@ -1038,6 +1038,8 @@ export function usesSecondFilament(job: PrintJob): boolean {
       if (spec?.kind === 'accessory' && spec.part.type === 'slideLid' && spec.part.qr?.style === 'inlaid') return true;
       // Inlaid tab text (with label plates it's on the plates, unless a tab is too small for one), two-tone or inlaid front labels.
       if (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) return true;
+      // A board's inlaid zone text, an attachment's inlaid label or its kind's own inlays (wall/plan.ts).
+      if (wallInlaid(spec)) return true;
     }
   }
   return false;
