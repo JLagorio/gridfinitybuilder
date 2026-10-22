@@ -1,6 +1,7 @@
 /**
  * Things around the baseplate: a printed carry case (geometry/case.ts), a wall
- * grid (geometry/wallmount.ts) and spacer strips (geometry/spacers.ts).
+ * grid (geometry/wallmount.ts) and spacer strips (geometry/spacers.ts); and a
+ * Skådis pegboard (geometry/skadis.ts), which prints in place of the grid.
  *
  * `planEnclosure` is what `planPrint` asks for each drawer. It returns null
  * for a plain drawer, so those plan exactly as before. Otherwise it says what
@@ -64,14 +65,30 @@ import {
   type WallOptions,
 } from './geometry/wallmount';
 import { SPACER, buildSpacerSegment, planSpacerStrips, sanitizeSpacers, spacerBounds, spacerSocketCuts, type SpacerSegment } from './geometry/spacers';
+import type {
+  SkadisCapPart,
+  SkadisHangPart,
+  SkadisPlan,
+  SkadisPlatePart,
+  SkadisRimPart,
+  SkadisSpacerPart,
+  SkadisTileSpec,
+} from './geometry/skadis';
 import { spacerMargins, type DrawerInput, type GridLayout } from './layout/drawer';
-import { fitsOnBed, packPlates, plateBed, type PlateLayout } from './layout/pack';
+import type { WallBoard, WallPlacement } from './wall/plan';
+import { clearAreas, fitsOnBed, packPlates, plateBed, type PlateLayout } from './layout/pack';
 import { pieceFootprint, planBaseplate, type BaseplatePlan, type PrintSetup } from './layout/plan';
 import type { PieceDef } from './layout/split';
 import type { BinOptions } from './geometry/bin';
 import { tallestStack } from './stacking';
+// openGrid and Multiboard boards: their planning loads with the first one (gridBoards.ts).
+import { gridBoardBuilders, isGridBoard, planGridBoard, type GridBoardInfo } from './gridBoards';
+// Skådis boards: their planning loads with the first one too, their builders are handed in (skadisBoards.ts).
+import { planSkadisBoard, skadisBoardBuilders } from './skadisBoards';
+import type { OpenGridConnectorPart, OpenGridTileSpec } from './geometry/opengrid';
+import type { MultiboardTileSpec } from './geometry/multiboard';
 
-export type EnclosureKind = 'case' | 'wall' | 'spacers';
+export type EnclosureKind = 'case' | 'wall' | 'spacers' | 'skadis' | 'opengrid' | 'multiboard';
 
 /** A line of the bill of materials. */
 export interface EnclosureHardware {
@@ -89,6 +106,11 @@ export type PieceEnclosure = { origin: Vec3; cuts: SolidDef[]; hardware?: Enclos
   | { kind: 'case'; geom: CaseGeom }
   | { kind: 'wall'; ledge: { x0: number; x1: number; y0: number; y1: number; z1: number } | null }
   | { kind: 'spacers' }
+  /** A Skådis board's tile, built from `tile` alone (the baseplate's layout and options don't apply). */
+  | { kind: 'skadis'; tile: SkadisTileSpec }
+  /** openGrid and Multiboard boards' tiles (gridBoards.ts). */
+  | { kind: 'opengrid'; tile: OpenGridTileSpec }
+  | { kind: 'multiboard'; tile: MultiboardTileSpec }
 );
 
 /** Extra printed parts (MeshSpec 'enclosure'). */
@@ -98,7 +120,17 @@ export type EnclosurePart =
   | { kind: 'handle'; geom: CaseGeom; half: -1 | 0 | 1 }
   | { kind: 'foot' }
   | { kind: 'spacer'; seg: SpacerSegment; plateW: number; plateD: number }
-  | { kind: 'cleat'; strip: CleatStrip };
+  | { kind: 'cleat'; strip: CleatStrip }
+  /** Skådis joint plate: pins up as printed, or pins down in its pocket (drawer view). */
+  | { kind: 'skadisPlate'; plate: SkadisPlatePart; pinsDown?: boolean }
+  | { kind: 'skadisSpacer'; spacer: SkadisSpacerPart }
+  /** Skådis frame strip, and a part the board hangs from (a cleat, door hook, desk foot or clamp) with what it takes to put up. */
+  | { kind: 'skadisRim'; rim: SkadisRimPart }
+  | { kind: 'skadisHang'; hang: SkadisHangPart; hardware?: EnclosureHardware[] }
+  /** Skådis screw cover: snaps into a screw hole made for it. */
+  | { kind: 'skadisCap'; cap: SkadisCapPart }
+  /** openGrid board connector: clicks into the holes either side of a seam. */
+  | { kind: 'openGridConnector'; connector: OpenGridConnectorPart };
 
 export type EnclosurePartKind = EnclosurePart['kind'];
 
@@ -133,7 +165,11 @@ export interface EnclosureSceneItem {
   w: number;
   d: number;
   h: number;
-  role: 'lid' | 'hardware' | 'handle' | 'foot' | 'strip' | 'cleat';
+  role: 'lid' | 'hardware' | 'handle' | 'foot' | 'strip' | 'cleat' | 'joint' | 'standoff' | 'attachment';
+  /** Turned before it's placed (degrees about x, y, z); (x, y, z) is still its min corner. */
+  turn?: [number, number, number];
+  /** Picked in the 3D view as this (an attachment's id). */
+  pick?: string;
   /** Shown with the lid closed, open, or always. */
   when: 'closed' | 'open' | 'always';
   /** Which piece's column / row it spreads with. */
@@ -156,6 +192,10 @@ export interface EnclosureScene {
   seat: number;
   /** Case outline in plate coordinates. */
   box?: { x0: number; y0: number; x1: number; y1: number; h: number };
+  /** Turn for every floor piece's mesh (a Skådis tile, printed face down, shown face up). */
+  pieceTurn?: [number, number, number];
+  /** A Skådis board: its slots and the attachments on it (lib/wall). */
+  wall?: { board: WallBoard; placed: WallPlacement[] };
   /** For the sidebar. */
   info: {
     /** Case: wall top, room above the floor, pieces, hinges, latches, lid keys. */
@@ -173,7 +213,39 @@ export interface EnclosureScene {
     floor?: number;
     /** Spacer strips: one line per strip. */
     strips?: { side: 'left' | 'right' | 'front' | 'back'; width: number; pieces: number }[];
+    /** Skådis board: what it came to. */
+    skadis?: SkadisInfo;
+    /** openGrid or Multiboard board. */
+    grid?: GridBoardInfo;
   };
+}
+
+/** A Skådis board in numbers, for the sidebar. */
+export interface SkadisInfo {
+  shape: SkadisPlan['shape'];
+  tiles: number;
+  cols: number;
+  rows: number;
+  slots: number;
+  tabs: number;
+  plates: number;
+  mounts: number;
+  screws: number;
+  /** Largest tile (as printed, tabs included), mm. */
+  tileW: number;
+  tileD: number;
+  /** Hexagon size, mm. */
+  hexW?: number;
+  hexH?: number;
+  /** Magnets in its magnet zones. */
+  magnets?: number;
+  /** Snap-on screw covers. */
+  covers?: number;
+  /** How much of the space the board covers, mm. */
+  boardW: number;
+  boardH: number;
+  /** Built from tiles: where they are, and where more can go (SkadisPlan.grid). */
+  grid?: SkadisPlan['grid'];
 }
 
 export interface EnclosurePlan {
@@ -182,8 +254,12 @@ export interface EnclosurePlan {
   pieceLayout: GridLayout;
   baseplate: BaseplateOptions;
   plan: BaseplatePlan;
-  /** Per piece: what it adds, its printed size and name (null: a plain baseplate piece). */
-  piece(p: PieceDef): { enclosure: PieceEnclosure; w: number; d: number; h: number; name: string } | null;
+  /**
+   * Per piece: what it adds, its printed size and name (null: a plain baseplate
+   * piece), and a mesh key of its own when the piece is built from the
+   * enclosure alone (Skådis tiles: identical tiles share one mesh).
+   */
+  piece(p: PieceDef): { enclosure: PieceEnclosure; w: number; d: number; h: number; name: string; meshKey?: string } | null;
   parts: EnclosurePartPlan[];
   /** View-only meshes (closed and open lid, upright handle). */
   views: { meshKey: string; part: EnclosurePart; view: EnclosureView }[];
@@ -197,6 +273,12 @@ export interface EnclosurePlan {
   /** Room above the bin seat (for "taller than" warnings); Infinity when the planner warns itself. */
   room: number;
   scene: EnclosureScene;
+  /** An assembly map of its own (Skådis boards); unset: the baseplate's. */
+  map?: string;
+  /** A Skådis board as attachments see it (lib/wall/plan.ts). */
+  wall?: WallBoard;
+  /** What the plates the floor pieces print on are called (unset: by the enclosure). */
+  plateName?: string;
 }
 
 /** Bed size left for a piece that reaches `reach` past its outline (as planBaseplate sees it). */
@@ -206,7 +288,7 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 const sizeOf = (b: Box3) => ({ w: b.max[0] - b.min[0], d: b.max[1] - b.min[1], h: b.max[2] - b.min[2] });
 
 /** Plates for the floor pieces, packed with their true printed footprints. */
-function packPieces(pieces: PieceDef[], size: (p: PieceDef) => { w: number; d: number }, setup: PrintSetup): PlateLayout[] {
+export function packPieces(pieces: PieceDef[], size: (p: PieceDef) => { w: number; d: number }, setup: PrintSetup): PlateLayout[] {
   return packPlates(
     pieces.map((p) => ({ key: `piece:${p.id}`, ...size(p) })),
     { ...plateBed(setup), spacing: setup.spacing, nest: setup.nest },
@@ -221,6 +303,8 @@ export function planEnclosure(
 ): EnclosurePlan | null {
   if (d.drawer.enclosure === 'case') return planCase(d, layout, setup);
   if (d.drawer.enclosure === 'wall') return planWall(d, layout, setup);
+  if (d.drawer.enclosure === 'skadis') return planSkadisBoard(d, layout, setup);
+  if (isGridBoard(d.drawer.enclosure)) return planGridBoard(d, layout, setup);
   if (spacerMargins(d.drawer)) return planSpacers(d, layout, setup);
   return null;
 }
@@ -697,6 +781,13 @@ function planSpacers(d: Parameters<typeof planEnclosure>[0], layout: GridLayout,
 }
 
 // ---------------------------------------------------------------------------
+// Skådis board: planned in skadisBoardPlan.ts, loaded with the first board (skadisBoards.ts)
+// ---------------------------------------------------------------------------
+
+/** The bed areas a board's tiles print on. */
+export const skadisAreas = (setup: PrintSetup) => clearAreas({ ...plateBed(setup), spacing: setup.spacing }).map((a) => ({ w: a.w, d: a.d }));
+
+// ---------------------------------------------------------------------------
 // Building (geometry worker)
 // ---------------------------------------------------------------------------
 
@@ -709,6 +800,8 @@ export function buildEnclosurePiece(
   connectors: ConnectorSite[],
   e: PieceEnclosure,
 ): MeshData {
+  if (e.kind === 'skadis') return skadisBoardBuilders().piece(w, e);
+  if (e.kind === 'opengrid' || e.kind === 'multiboard') return gridBoardBuilders().piece(w, e);
   const s = new Scope();
   try {
     if (e.kind === 'case') return meshAt(buildCaseBodySolid(w, s, layout, piece, o, connectors, e.geom), e.origin, `case body ${piece.id}`);
@@ -753,6 +846,14 @@ export function buildEnclosurePart(w: Wasm, part: EnclosurePart, view?: Enclosur
         return buildSpacerSegment(w, part.seg, part.plateW, part.plateD);
       case 'cleat':
         return buildCleatStrip(w, part.strip);
+      case 'skadisPlate':
+      case 'skadisSpacer':
+      case 'skadisRim':
+      case 'skadisHang':
+      case 'skadisCap':
+        return skadisBoardBuilders().part(w, part);
+      case 'openGridConnector':
+        return gridBoardBuilders().part(w, part);
     }
   } finally {
     s.dispose();
@@ -762,6 +863,7 @@ export function buildEnclosurePart(w: Wasm, part: EnclosurePart, view?: Enclosur
 /** Hardware an extra part needs (bill of materials); floor pieces carry theirs in `PieceEnclosure.hardware`. */
 export function enclosurePartHardware(part: EnclosurePart): EnclosureHardware[] {
   if (part.kind === 'cleat') return [{ item: `Countersunk screws ⌀${part.strip.screwDiameter} (French cleat)`, count: part.strip.screws.length, note: 'into the wall' }];
+  if (part.kind === 'skadisHang') return part.hardware ?? [];
   return [];
 }
 

@@ -1,16 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { allDrawers, useStore } from '../state/store';
+import { isGridBoard } from '../lib/gridBoards';
 import { LazyDialog, lazyNamed } from './lazy';
 
 export type Scope = 'active' | 'all';
 
-/** Every drawer, current; re-renders only when the workspace changes. */
+/** Every drawer with bins in it (not Skådis, openGrid or Multiboard boards), and the Skådis boards, current; re-renders only when the workspace changes. */
 export function useAllDrawers() {
   const ws = useStore(
     useShallow((s) => ({ drawers: s.drawers, activeDrawerId: s.activeDrawerId, drawer: s.drawer, baseplate: s.baseplate, bins: s.bins })),
   );
-  return { docs: useMemo(() => allDrawers(ws), [ws]), activeDrawerId: ws.activeDrawerId };
+  const all = useMemo(() => allDrawers(ws), [ws]);
+  // Boards hold no bins: no drawer page on the map; Skådis boards' attachments have lines of their own in the contents.
+  const docs = useMemo(() => all.filter((d) => d.drawer.enclosure !== 'skadis' && !isGridBoard(d.drawer.enclosure)), [all]);
+  const boards = useMemo(() => all.filter((d) => d.drawer.enclosure === 'skadis'), [all]);
+  return { docs, boards, all, activeDrawerId: ws.activeDrawerId };
 }
 
 // The map itself (DrawerMapDialog.tsx) loads when it first opens.

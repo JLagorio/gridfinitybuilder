@@ -34,5 +34,6 @@ export default defineConfig({
   },
   // Agent worktrees live under .claude/; never pick up their copies of the tests.
   // Geometry tests build real meshes; give them room on a busy machine.
-  test: { exclude: ['**/node_modules/**', '.claude/**', 'dist/**'], testTimeout: 60_000 },
+  // Every attachment kind registered (the app loads them on demand, lib/wall/ready.ts).
+  test: { exclude: ['**/node_modules/**', '.claude/**', 'dist/**'], testTimeout: 60_000, setupFiles: ['tests/setup.ts'] },
 });

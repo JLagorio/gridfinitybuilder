@@ -2,17 +2,24 @@ import { useEffect, useState } from 'react';
 import { projectFile, useStore } from '../state/store';
 import { shareUrl } from '../lib/share';
 import { shareableProject } from '../lib/externalShare';
+import { dropLostLinks } from '../lib/wall/follow';
 
-/** Copies a link that holds the whole project (lib/share.ts). Imported bins go in it as boxes of their size: a link can't hold meshes. */
+/** Copies a link that holds the whole project (lib/share.ts). Imported bins and models go in it as boxes of their size: a link can't hold meshes. */
 export function CopyShareLink() {
   const [status, setStatus] = useState<string | null>(null);
   const copy = async () => {
-    const { file, dropped } = shareableProject(projectFile(useStore.getState()));
+    // A board's link to a bin that's gone isn't shared (lib/wall/follow.ts).
+    const { file, dropped, models, photo } = shareableProject(dropLostLinks(projectFile(useStore.getState())));
     const url = shareUrl(file, window.location.href);
     const size = url.length > 1500 ? ` (${Math.round(url.length / 100) / 10} k characters)` : '';
-    const note = dropped
-      ? ` ${dropped === 1 ? 'The imported bin goes' : `The ${dropped} imported bins go`} as plain boxes: a link can't hold meshes. Save the project file to pass them on.`
-      : '';
+    const what = [
+      dropped && (dropped === 1 ? 'the imported bin' : `the ${dropped} imported bins`),
+      models && (models === 1 ? 'the imported model' : `the ${models} imported models`),
+    ].filter(Boolean);
+    const note =
+      (what.length
+        ? ` ${what.join(' and ').replace(/^./, (c) => c.toUpperCase())} ${dropped + models === 1 ? 'goes' : 'go'} as plain boxes: a link can't hold meshes. Save the project file to pass them on.`
+        : '') + (photo ? ' The wall’s photo stays behind: save the project file to pass it on.' : '');
     try {
       await navigator.clipboard.writeText(url);
       setStatus(`Link copied${size}.${note}`);
@@ -28,7 +35,10 @@ export function CopyShareLink() {
   }, [status]);
   return (
     <>
-      <button onClick={copy} title="A link with the whole project in it. Nothing is uploaded. Imported bins go as boxes of their size (a link can't hold meshes).">
+      <button
+        onClick={copy}
+        title="A link with the whole project in it. Nothing is uploaded. Imported bins and models go as boxes of their size (a link can't hold meshes)."
+      >
         Copy share link
       </button>
       {status && <span className="field-hint share-status">{status}</span>}

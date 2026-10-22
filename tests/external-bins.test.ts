@@ -317,7 +317,7 @@ describe('project files and share links', () => {
     addExternal({ name: 'Mesh', unitsX: 2, unitsY: 1, mesh: ref, print: true });
     addExternal({ name: 'Box', unitsX: 1, unitsY: 1 });
     const file = JSON.parse(JSON.stringify(await projectWithMeshes(projectFile(s()))));
-    expect(file.version).toBe(3);
+    expect(file.version).toBe(4);
     expect(Object.keys(file.meshes)).toEqual([ref.hash]);
     // Another device: nothing in memory.
     const mesh = importedMesh(ref.hash)!;

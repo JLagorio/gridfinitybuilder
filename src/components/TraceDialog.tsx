@@ -10,8 +10,10 @@ import { bounds, pointInPolygon, signedArea } from '../lib/trace/polygon';
 import { once } from './lazy';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { DEFAULT_CLEARANCE, DEFAULT_TOOL_DEPTH } from '../lib/tools';
-import { fingerPx, isTouch, useCoarsePointer } from './touch';
+import { isTouch, useCoarsePointer } from './touch';
+import { fingerPx } from './gestures';
 import { inOpenList } from './shortcuts';
+import type { TracedOutline } from '../lib/wall/kinds/traced';
 
 export type TraceTab = 'photo' | 'import';
 
@@ -61,7 +63,19 @@ function svgPoint(svg: SVGSVGElement | null, e: { clientX: number; clientY: numb
 
 const baseName = (file: string) => file.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Tool';
 
-export function TraceDialog({ initialTab = 'photo', onClose }: { initialTab?: TraceTab; onClose: () => void }) {
+/**
+ * Trace a tool from a photo or import its outline, into the tool library; with `onOutlines`, the outlines go to it
+ * instead (a shadow board's or a tool holder's form: components/WallOutlines.tsx), where they were in the photo or file.
+ */
+export function TraceDialog({
+  initialTab = 'photo',
+  onClose,
+  onOutlines,
+}: {
+  initialTab?: TraceTab;
+  onClose: () => void;
+  onOutlines?: (tools: TracedOutline[]) => void;
+}) {
   const [tab, setTab] = useState<TraceTab>(initialTab);
   const toolCount = useStore((s) => s.tools.length);
   const [name, setName] = useState(`Tool ${toolCount + 1}`);
@@ -91,7 +105,7 @@ export function TraceDialog({ initialTab = 'photo', onClose }: { initialTab?: Tr
     setDropFile(f);
   };
 
-  const common = { name, setName, depth, setDepth, clearance, setClearance, onClose, dropFile, clearDrop: () => setDropFile(null) };
+  const common = { name, setName, depth, setDepth, clearance, setClearance, onClose, dropFile, clearDrop: () => setDropFile(null), onOutlines };
   return (
     <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
@@ -132,6 +146,8 @@ interface TabProps {
   onClose: () => void;
   dropFile: File | null;
   clearDrop: () => void;
+  /** Hand the outlines back instead of adding them to the library. */
+  onOutlines?: (tools: TracedOutline[]) => void;
 }
 
 /** Name / thickness / clearance + save, shared by both tabs. */
@@ -270,7 +286,9 @@ function PhotoTab(p: TabProps) {
       onBack={() => setStep('corners')}
       fmt={fmt}
       onSave={(outline) => {
-        addTool({ name: p.name.trim() || 'Tool', outline, depth: p.depth, clearance: p.clearance });
+        const tool = { name: p.name.trim() || 'Tool', outline, depth: p.depth, clearance: p.clearance };
+        if (p.onOutlines) p.onOutlines([tool]);
+        else addTool(tool);
         p.onClose();
       }}
     />
@@ -607,7 +625,7 @@ function OutlineStep({
         <div className="button-row">
           <button onClick={onBack}>← Corners</button>
           <button className="primary" disabled={!outline} onClick={() => outline && onSave(outline)}>
-            Save to library
+            {p.onOutlines ? 'Add it' : 'Save to library'}
           </button>
         </div>
       </aside>
@@ -678,14 +696,16 @@ function ImportTab(p: TabProps) {
 
   const save = () => {
     const chosen = sel.filter((i) => !inside(i));
-    chosen.forEach((i, k) => {
-      addTool({
-        name: (chosen.length > 1 ? `${p.name.trim() || 'Tool'} ${k + 1}` : p.name.trim()) || 'Tool',
-        outline: shapes[i].points,
-        depth: p.depth,
-        clearance: p.clearance,
-      });
-    });
+    // Several: each named after its element's id in the file ("path#wrench"), else numbered.
+    const idOf = (source: string) => source.match(/#(.+)$/)?.[1].replace(/[-_]+/g, ' ').trim();
+    const tools = chosen.map((i, k) => ({
+      name: (chosen.length > 1 ? idOf(shapes[i].source) || `${p.name.trim() || 'Tool'} ${k + 1}` : p.name.trim()) || 'Tool',
+      outline: shapes[i].points,
+      depth: p.depth,
+      clearance: p.clearance,
+    }));
+    if (p.onOutlines) p.onOutlines(tools);
+    else tools.forEach((t) => addTool(t));
     p.onClose();
   };
 
@@ -773,6 +793,11 @@ function ImportTab(p: TabProps) {
                   })}
               </div>
             )}
+            {shapes.length > 1 && sel.length < shapes.length && (
+              <button className="link" onClick={() => setPicked(shapes.map((_, i) => i))}>
+                Use all {shapes.length} shapes
+              </button>
+            )}
             {parsed.r?.warnings.map((w) => (
               <div key={w} className="field-hint">
                 {w}
@@ -784,7 +809,7 @@ function ImportTab(p: TabProps) {
         <div className="trace-spacer" />
         <div className="button-row">
           <button className="primary" disabled={!sel.length} onClick={save}>
-            {sel.filter((i) => !inside(i)).length > 1 ? `Add ${sel.filter((i) => !inside(i)).length} tools` : 'Save to library'}
+            {sel.filter((i) => !inside(i)).length > 1 ? `Add ${sel.filter((i) => !inside(i)).length} tools` : p.onOutlines ? 'Add it' : 'Save to library'}
           </button>
         </div>
       </aside>

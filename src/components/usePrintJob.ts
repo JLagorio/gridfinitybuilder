@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from 'react';
-import { printDrawers, selectedIds, type Store } from '../state/store';
+import { allDrawers, printDrawers, selectedIds, type Store } from '../state/store';
 import { asDrawer, planPrint, withPrinted, type PlanPrintOptions, type PrintJob } from '../lib/project';
 import { slicedSeconds } from '../lib/layout/fleet';
 import { hasPrints } from '../lib/printed';
@@ -22,6 +22,8 @@ export function usePrintJob(state: Store, job: PrintJob): PrintJob {
     () => {
       const docs = printDrawers(state);
       const opts: PlanPrintOptions = hasPrints(state.printed) ? { printed: state.printed, onlyChanged: state.onlyChanged } : {};
+      // Attachments that hold a bin in a drawer not printed find it (lib/wall/follow.ts).
+      opts.drawers = allDrawers(state);
       if (several) opts.seconds = slicedSeconds(state.setup, (key) => geometry.printStats(key));
       if (docs.length === 1 && docs[0].id === state.activeDrawerId && state.printScope !== 'selected' && !several && !opts.onlyChanged) {
         // Its parts know their drawer, for what's printed (printed.ts).

@@ -1,11 +1,13 @@
 import { useEffect, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { useStore, type Tab } from '../state/store';
+import { isGridBoard } from '../lib/gridBoards';
 
 /**
  * Phone-width layout (≤ 760 px, see styles.css): one screen at a time, picked
  * from a tab bar at the bottom. Drawer, Bins and Print are the three steps;
- * 3D shows the 3D view of the step you're on, full screen.
+ * 3D shows the 3D view of the step you're on, full screen. On a board the first
+ * two are the board and its attachments, as its tabs are.
  */
 interface PhoneView {
   /** The 3D view instead of the step's panel. */
@@ -18,10 +20,11 @@ export const usePhoneView = create<PhoneView>((set) => ({
   set: (view3d) => set({ view3d }),
 }));
 
-const STEPS: { tab: Tab; label: string; icon: ReactNode }[] = [
+const STEPS: { tab: Tab; label: string; board: string; icon: ReactNode }[] = [
   {
     tab: 'drawer',
     label: 'Drawer',
+    board: 'Board',
     icon: (
       <>
         <rect x="3" y="3" width="14" height="14" rx="2" />
@@ -32,6 +35,7 @@ const STEPS: { tab: Tab; label: string; icon: ReactNode }[] = [
   {
     tab: 'bins',
     label: 'Bins',
+    board: 'Attachments',
     icon: (
       <>
         <rect x="3" y="3" width="6" height="6" rx="1.2" />
@@ -59,6 +63,7 @@ const ICON_PRINT = (
 /** The bottom tab bar (shown only at phone width). */
 export function PhoneNav() {
   const tab = useStore((s) => s.ui.tab);
+  const board = useStore((s) => s.drawer.enclosure === 'skadis' || isGridBoard(s.drawer.enclosure));
   const setUI = useStore((s) => s.setUI);
   const { view3d, set } = usePhoneView();
 
@@ -85,7 +90,7 @@ export function PhoneNav() {
   );
   return (
     <nav className="phone-nav" role="tablist" aria-label="Screens">
-      {STEPS.map((s) => item(s.tab, s.label, s.icon, !view3d && tab === s.tab, () => go(s.tab)))}
+      {STEPS.map((s) => item(s.tab, board ? s.board : s.label, s.icon, !view3d && tab === s.tab, () => go(s.tab)))}
       {item('3d', '3D', ICON_3D, view3d, () => set(true))}
       {item('print', 'Print', ICON_PRINT, !view3d && tab === 'print', () => go('print'))}
     </nav>

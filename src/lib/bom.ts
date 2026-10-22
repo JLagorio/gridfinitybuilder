@@ -8,6 +8,8 @@ import type { PrintSetup } from './layout/plan';
 import { STANDARD_PROCESS, currencySymbol, formatDuration, formatMoney, plateCost, slotGrams, type CostBreakdown, type PlateEstimate } from './estimate';
 import { coloursOn, slotLabel, slotPrice } from './colours';
 import { enclosurePartHardware, type EnclosurePartKind } from './enclosures';
+import { attachmentDef } from './wall';
+import { extrasHardware } from './wall/plan';
 import { printerSetup } from './layout/fleet';
 
 /**
@@ -104,6 +106,8 @@ export interface Bom {
     trays?: number;
     pads?: number;
     enclosure?: Partial<Record<EnclosurePartKind, number>>;
+    /** Skådis board attachments and their parts (lib/wall); only set when there are some. */
+    attachments?: number;
   };
   plates: PlateBom[];
   total: PlateBom;
@@ -146,9 +150,13 @@ function holesIn(split: MeshSpec | undefined): { item: string; count: number; no
   const spec = baseSpec(split);
   if (!spec) return [];
   if (spec.kind === 'enclosure') return enclosurePartHardware(spec.part);
+  if (spec.kind === 'attachment') return [...(attachmentDef(spec.type)?.hardware?.(spec.opts) ?? []), ...extrasHardware(spec.extras)];
   if (spec.kind === 'piece') {
     const o = spec.opts;
     const out: HardwareLine[] = [...(spec.enclosure?.hardware ?? [])];
+    // A Skådis, openGrid or Multiboard tile is no baseplate: its screws are all in its hardware.
+    const k = spec.enclosure?.kind;
+    if (k === 'skadis' || k === 'opengrid' || k === 'multiboard') return out;
     // Joints are shared by two pieces: count each on one side (pins: left / front; screws: the head side).
     const low = spec.connectors.filter((s) => lowSideOf(s, spec.piece));
     if (o.connector === 'pin' && low.length) {
@@ -224,6 +232,7 @@ export function billOfMaterials(
       const part = job.parts[p.key];
       if (part.kind === 'piece') parts.pieces++;
       else if (part.kind === 'bin') parts.bins++;
+      else if (part.kind === 'attachment') parts.attachments = (parts.attachments ?? 0) + 1;
       else if (part.kind === 'lid') parts.lids++;
       else if (part.kind === 'divider') parts.dividers++;
       else if (part.kind === 'label') parts.labels++;
@@ -368,6 +377,7 @@ export function bomCsv(b: Bom): string {
   for (const h of b.hardware) rows.push(['Hardware', h.item, h.count, ...blank, h.note ?? '']);
   rows.push(['Parts', 'Baseplate pieces', b.parts.pieces, ...blank, '']);
   rows.push(['Parts', 'Bins', b.parts.bins, ...blank, '']);
+  if (b.parts.attachments) rows.push(['Parts', 'Board attachments', b.parts.attachments, ...blank, '']);
   if (b.parts.lids) rows.push(['Parts', 'Lids', b.parts.lids, ...blank, '']);
   if (b.parts.trays) rows.push(['Parts', 'Lift-out trays', b.parts.trays, ...blank, '']);
   if (b.parts.keys) rows.push(['Parts', 'Connector keys', b.parts.keys, ...blank, '']);
@@ -428,7 +438,7 @@ export function bomText(b: Bom): string {
   lines.push(
     '',
     'Parts',
-    `  ${b.parts.pieces} baseplate pieces, ${b.parts.bins} bins${b.parts.lids ? `, ${b.parts.lids} lids` : ''}${b.parts.trays ? `, ${b.parts.trays} trays` : ''}` +
+    `  ${b.parts.pieces} baseplate pieces, ${b.parts.bins} bins${b.parts.attachments ? `, ${b.parts.attachments} board attachments` : ''}${b.parts.lids ? `, ${b.parts.lids} lids` : ''}${b.parts.trays ? `, ${b.parts.trays} trays` : ''}` +
       `${b.parts.keys ? `, ${b.parts.keys} connector keys` : ''}` +
       `${b.parts.dividers ? `, ${b.parts.dividers} removable dividers` : ''}${b.parts.labels ? `, ${b.parts.labels} label plates` : ''}` +
       enclosureCounts(b)
@@ -487,6 +497,12 @@ export const ENCLOSURE_PARTS: Record<EnclosurePartKind, [string, string]> = {
   foot: ['Printed foot', 'Printed feet'],
   spacer: ['Spacer strip', 'Spacer strips'],
   cleat: ['Wall cleat', 'Wall cleats'],
+  skadisPlate: ['Joint plate', 'Joint plates'],
+  skadisSpacer: ['Standoff spacer', 'Standoff spacers'],
+  skadisRim: ['Frame strip', 'Frame strips'],
+  skadisHang: ['Part to hang it from', 'Parts to hang it from'],
+  skadisCap: ['Screw cover', 'Screw covers'],
+  openGridConnector: ['openGrid connector', 'openGrid connectors'],
 };
 
 /** "2 hinge pins". */

@@ -45,7 +45,7 @@ export function specRole(spec: MeshSpec | undefined): ColourRole {
     case 'split':
       return specRole(spec.base);
     case 'piece':
-      return spec.enclosure?.kind === 'case' ? 'caseShell' : spec.enclosure?.kind === 'wall' ? 'wallGrid' : 'plate';
+      return spec.enclosure?.kind === 'case' ? 'caseShell' : spec.enclosure?.kind === 'wall' || spec.enclosure?.kind === 'skadis' ? 'wallGrid' : 'plate';
     case 'key':
       return 'plateAccent';
     case 'lid':
@@ -63,11 +63,22 @@ export function specRole(spec: MeshSpec | undefined): ColourRole {
       return spec.type === 'drawers' ? 'containerFront' : spec.type === 'box' ? 'lids' : 'containerShell';
     case 'enclosure': {
       const k = spec.part.kind;
-      return k === 'lid' ? 'caseLid' : k === 'handle' ? 'caseHandle' : k === 'spacer' ? 'plateAccent' : k === 'cleat' ? 'wallGrid' : 'caseHardware';
+      return k === 'lid'
+        ? 'caseLid'
+        : k === 'handle'
+          ? 'caseHandle'
+          : k === 'spacer' || k === 'skadisPlate' || k === 'skadisSpacer'
+            ? 'plateAccent'
+            : k === 'cleat' || k === 'skadisRim' || k === 'skadisHang' || k === 'skadisCap'
+              ? 'wallGrid'
+              : 'caseHardware';
     }
     case 'bin':
       // A vase-mode bin is a bin (its wall is one line), not a container's shell.
       return activeContainer(spec.opts) && !isVaseBin(spec.opts) ? 'containerShell' : 'binWalls';
+    case 'attachment':
+    case 'attachmentPart':
+      return 'attachments';
   }
   return 'binWalls';
 }

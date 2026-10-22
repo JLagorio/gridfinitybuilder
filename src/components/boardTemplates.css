@@ -1,0 +1,105 @@
+/* Starter boards (BoardTemplates.tsx). */
+.tpl-dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+.tpl-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tpl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+.tpl-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.tpl-card:hover:not(:disabled),
+.tpl-card.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tpl-preview {
+  flex: none;
+  width: 84px;
+  height: 84px;
+}
+.tpl-board {
+  fill: #1f242c;
+  stroke: var(--border-strong);
+  stroke-width: 4;
+}
+.tpl-part {
+  fill: rgba(122, 166, 194, 0.45);
+  stroke: #7aa6c2;
+  stroke-width: 3;
+}
+.tpl-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.tpl-text small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+.tpl-meta {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.tpl-note {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.tpl-note p {
+  margin: 0 0 8px;
+}
+@media (max-width: 640px) {
+  .tpl-dialog {
+    width: 100%;
+    max-height: 100%;
+    height: 100%;
+  }
+}
+/* Phones: the title and its close button on one line, the hint under them; a close button a fingertip finds. */
+@media (max-width: 640px) {
+  .tpl-dialog .modal-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+  }
+  .tpl-dialog .modal-head > span {
+    grid-column: 1 / -1;
+  }
+  .tpl-dialog .modal-close {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}
+@media (pointer: coarse) {
+  .tpl-dialog .modal-close {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}

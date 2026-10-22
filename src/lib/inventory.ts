@@ -7,7 +7,8 @@
  *   editing them never rebuilds geometry.
  * - Search across every drawer: contents, bin and compartment label text, tool
  *   cutout names and drawer names; case- and accent-insensitive, every word
- *   must match, with a little typo tolerance.
+ *   must match, with a little typo tolerance. A Skådis board's attachments are
+ *   searched too: their names, labels and contents (PlacedAttachment.contents).
  * - A printable top-view drawer map (SVG, mm units, optionally tiled 1:1 over
  *   several pages; one per level when bins are stacked), with each bin's QR
  *   code when it has one, and a CSV inventory.
@@ -29,6 +30,7 @@ import { externalKind, externalLabel } from './external';
 import { resolveQrText } from './geometry/binQr';
 import { qrPayload } from './geometry/qrCode';
 import { QR_QUIET, type QrEcc } from './qr';
+import { attachmentDef, attachmentLabel, type PlacedAttachment } from './wall/registry';
 
 // ---------------------------------------------------------------------------
 // Contents
@@ -320,10 +322,75 @@ export function binTitle(e: Pick<BinEntry, 'size' | 'label'>): string {
 }
 
 // ---------------------------------------------------------------------------
+// A board's attachments (lib/wall): what's in them, and where
+// ---------------------------------------------------------------------------
+
+export interface AttachmentEntry {
+  drawerId: string;
+  drawerName: string;
+  attachment: PlacedAttachment;
+  /** Its kind and size ("Bin 80 × 50 × 60"); just its kind until the kinds have loaded. */
+  desc: string;
+  /** Its own name, else `desc`. */
+  title: string;
+  /** Where it is on the board: "top left", "middle", "bottom". */
+  pos: string;
+  /** The text on its label ('' = none). */
+  label: string;
+  contents: string[];
+}
+
+/** Where a point is on a board `w` × `h` (y up): "top left", "left", "middle", "bottom right", … */
+export function boardPlace(x: number, y: number, w: number, h: number): string {
+  const col = x < w / 3 ? 'left' : x > (2 * w) / 3 ? 'right' : '';
+  const row = y > (2 * h) / 3 ? 'top' : y < h / 3 ? 'bottom' : '';
+  return [row, col].filter(Boolean).join(' ') || 'middle';
+}
+
+/** A board built from tiles' size as it plans for the printer (state/skadisTiles.ts sets it as it loads); till then, or not built from tiles: its space's. */
+let tilesSize: ((skadis: unknown) => { w: number; h: number } | null) | undefined;
+export const setTilesSize = (f: typeof tilesSize) => (tilesSize = f);
+
+/** Every Skådis board's attachments, board by board, top to bottom and left to right. */
+export function attachmentEntries(drawers: NamedDrawer[]): AttachmentEntry[] {
+  const out: AttachmentEntry[] = [];
+  for (const d of drawers) {
+    if (d.drawer.enclosure !== 'skadis') continue;
+    const t = tilesSize?.(d.drawer.skadis);
+    const w = t?.w ?? (Number(d.drawer.skadis?.width) || 560);
+    const h = t?.h ?? (Number(d.drawer.skadis?.height) || 560);
+    for (const a of [...(d.drawer.attachments ?? [])].sort((p, q) => q.y - p.y || p.x - q.x)) {
+      const def = attachmentDef(a.type);
+      // "spoolRack" → "Spool rack" until its kind has loaded.
+      const kind = a.type.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+      const desc = def ? def.summary(def.sanitize(a.opts) as never) : kind.charAt(0).toUpperCase() + kind.slice(1);
+      const label = attachmentLabel(a);
+      out.push({
+        drawerId: d.id,
+        drawerName: d.name,
+        attachment: a,
+        desc,
+        title: a.name?.trim() || desc,
+        pos: boardPlace(a.x, a.y, w, h),
+        label,
+        contents: contentLines(a.contents),
+      });
+    }
+  }
+  return out;
+}
+
+/** "Hex keys", "Bin 60 × 40 × 40 “Nozzles”". */
+export function attachmentTitle(e: Pick<AttachmentEntry, 'title' | 'label'>): string {
+  return e.label && e.label !== e.title ? `${e.title} “${e.label}”` : e.title;
+}
+
+// ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------
 
-export type FindKind = 'label' | 'contents' | 'tool' | 'drawer';
+/** 'part': a board attachment's own name. */
+export type FindKind = 'label' | 'contents' | 'tool' | 'drawer' | 'part';
 
 export interface FindResult {
   /** Unique per drawer / bin / compartment. */
@@ -333,7 +400,9 @@ export interface FindResult {
   drawerName: string;
   binId?: string;
   compKey?: string;
-  /** "2×1 “Screws”". */
+  /** A board attachment (lib/wall), when it's one of those. */
+  attachmentId?: string;
+  /** "2×1 “Screws”" (an attachment: its name or kind, "Hex keys"). */
   bin?: string;
   /** Grid reference, "B3". */
   pos?: string;
@@ -439,8 +508,8 @@ export function queryTokens(q: string): string[] {
   return [...new Set(fold(q).text.split(/\s+/).filter(Boolean))];
 }
 
-const KIND_WEIGHT: Record<FindKind, number> = { label: 1.2, contents: 1, tool: 1, drawer: 0.9 };
-const KIND_ORDER: Record<FindKind, number> = { label: 0, contents: 1, tool: 2, drawer: 3 };
+const KIND_WEIGHT: Record<FindKind, number> = { label: 1.2, contents: 1, tool: 1, drawer: 0.9, part: 1.2 };
+const KIND_ORDER: Record<FindKind, number> = { label: 0, contents: 1, tool: 2, drawer: 3, part: 0 };
 
 interface Candidate {
   kind: FindKind;
@@ -448,6 +517,7 @@ interface Candidate {
   order: number;
   entry?: BinEntry;
   comp?: CompEntry;
+  att?: AttachmentEntry;
   text: string;
   /** Other text the bin is known by: words found only here count, at a lower score. */
   ctx: string[];
@@ -468,8 +538,17 @@ function candidates(drawers: NamedDrawer[]): Candidate[] {
   const out: Candidate[] = [];
   let order = 0;
   const entries = binEntries(drawers);
+  const atts = attachmentEntries(drawers);
   for (const d of drawers) {
     out.push({ kind: 'drawer', drawer: d, order: order++, text: d.name, ctx: [] });
+    for (const e of atts) {
+      if (e.drawerId !== d.id) continue;
+      const base = { drawer: d, att: e };
+      const name = e.attachment.name?.trim() ?? '';
+      if (name) out.push({ ...base, kind: 'part', order: order++, text: name, ctx: [d.name, e.desc] });
+      if (e.label && e.label !== name) out.push({ ...base, kind: 'label', order: order++, text: e.label, ctx: [d.name, e.title] });
+      for (const line of e.contents) out.push({ ...base, kind: 'contents', order: order++, text: line, ctx: [d.name, e.title, e.label, e.desc] });
+    }
     for (const e of entries) {
       if (e.drawerId !== d.id) continue;
       const base = { drawer: d, entry: e };
@@ -525,15 +604,17 @@ export function searchInventory(
     const score =
       (total / tokens.length) * KIND_WEIGHT[c.kind] + exact - Math.min(c.text.length, 80) / 1000 + (c.drawer.id === o.activeDrawerId ? 0.01 : 0);
     const e = c.entry;
+    const a = c.att;
     hits.push({
-      key: [c.drawer.id, e?.bin.id ?? '', c.comp?.key ?? ''].join('|'),
+      key: [c.drawer.id, e?.bin.id ?? (a ? `att:${a.attachment.id}` : ''), c.comp?.key ?? ''].join('|'),
       kind: c.kind,
       drawerId: c.drawer.id,
       drawerName: c.drawer.name,
       binId: e?.bin.id,
       compKey: c.comp?.key,
-      bin: e ? binTitle(e) : undefined,
-      pos: e?.pos,
+      ...(a ? { attachmentId: a.attachment.id } : {}),
+      bin: e ? binTitle(e) : a ? attachmentTitle(a) : undefined,
+      pos: e?.pos ?? a?.pos,
       comp: c.comp ? c.comp.label || c.comp.name : undefined,
       text: c.text,
       marks: mergeRanges(marks),
@@ -584,6 +665,12 @@ export function inventoryRows(drawers: NamedDrawer[]): string[][] {
     }
     for (const t of e.tools) rows.push([...base, 'Tool pocket', t]);
     if (rows.length === before) rows.push([...base, '', '']);
+  }
+  // Boards' attachments: the board, where on it, what it is.
+  for (const e of attachmentEntries(drawers)) {
+    const base = [e.drawerName, e.pos, e.title === e.desc ? e.desc : `${e.title} (${e.desc})`, e.label, ''];
+    if (!e.contents.length) rows.push([...base, '']);
+    for (const item of e.contents) rows.push([...base, item]);
   }
   return rows;
 }
@@ -682,7 +769,7 @@ const SOFT = '#6b7380';
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const n2 = (v: number) => String(Math.round(v * 100) / 100);
 
-interface TextLine {
+export interface TextLine {
   text: string;
   bold?: boolean;
   dim?: boolean;
@@ -771,7 +858,7 @@ export function fitLines(lines: TextLine[], w: number, h: number, max = 6, min =
 }
 
 /** SVG text for lines fitted into a box; short blocks are centered, longer ones read from the top left. */
-function textBlock(lines: TextLine[], x: number, y: number, w: number, h: number, max = 6, min = 1.6): string {
+export function textBlock(lines: TextLine[], x: number, y: number, w: number, h: number, max = 6, min = 1.6): string {
   const { lines: ls, fits } = fitLines(lines, w, h, max, min);
   if (!ls.length) return '';
   const total = ls.reduce((t, l) => t + l.size * LINE_H, 0);

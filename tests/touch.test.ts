@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { doubleTapper, fingerPx, isTouch, tapSlop } from '../src/components/touch';
+import { isTouch, tapSlop } from '../src/components/touch';
+import { doubleTapper, fingerPx } from '../src/components/gestures';
 
 const ev = (t: number, x = 100, y = 100) => ({ timeStamp: t, clientX: x, clientY: y });
 

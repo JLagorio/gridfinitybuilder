@@ -1,0 +1,255 @@
+/* The custom attachment's profile and feature editor (ProfileEditor.tsx). */
+.profile-editor {
+  gap: 8px;
+}
+.pe-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 5px;
+}
+.pe-presets button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 3px 5px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+.pe-presets button.active {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.pe-thumb {
+  width: 34px;
+  height: 34px;
+}
+.pe-view,
+.pe-face {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  user-select: none;
+  touch-action: none;
+}
+.pe-view {
+  height: 270px;
+}
+.pe-view:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pe-face {
+  max-height: 200px;
+}
+.pe-grid line {
+  stroke: var(--border);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+.pe-board {
+  fill: #2a303b;
+}
+.pe-plate {
+  fill: #3a4250;
+}
+.pe-thumb .pe-plate {
+  fill: var(--faint);
+}
+.pe-caption {
+  fill: var(--faint);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+.pe-bed-label,
+.pe-side-label {
+  text-anchor: end;
+}
+.pe-bed {
+  stroke: var(--ok);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
+}
+.pe-shape {
+  fill: rgba(122, 166, 194, 0.32);
+  stroke: #7aa6c2;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.pe-thumb .pe-shape {
+  stroke-width: 1.5;
+}
+.pe-addon {
+  fill: rgba(122, 166, 194, 0.16);
+  stroke: #7aa6c2;
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+.pe-addon.dashed {
+  fill: none;
+  stroke-dasharray: 3 3;
+}
+.pe-edge {
+  stroke: transparent;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.pe-edge.picked {
+  stroke: var(--accent);
+}
+.pe-edge.bad {
+  stroke: var(--danger);
+}
+.pe-thin {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.pe-point {
+  fill: var(--text);
+  stroke: var(--panel);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.pe-point.selected {
+  fill: var(--accent);
+}
+.pe-view > :not(.pe-plus) {
+  pointer-events: none;
+}
+.pe-plus {
+  cursor: copy;
+}
+.pe-plus circle {
+  fill: var(--panel-3);
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+.pe-plus path {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.pe-readout {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--faint);
+}
+.pe-point-tools {
+  display: flex;
+  gap: 10px;
+}
+.pe-features {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.pe-face-rect {
+  fill: rgba(122, 166, 194, 0.2);
+  stroke: #7aa6c2;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.pe-face-rib,
+.pe-face-mount {
+  fill: rgba(152, 161, 174, 0.28);
+}
+.pe-face-mid {
+  stroke: var(--border-strong);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.pe-hole,
+.pe-hole path {
+  fill: var(--bg);
+  stroke: var(--text);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+}
+.pe-hole.selected,
+.pe-hole.selected path {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.pe-hole.bad,
+.pe-hole.bad path {
+  fill: rgba(240, 97, 106, 0.25);
+  stroke: var(--danger);
+}
+.pe-hole text {
+  fill: var(--text);
+  stroke: none;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+.pe-face-caption {
+  font-size: 12px;
+  color: var(--faint);
+}
+.pe-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.pe-add button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.pe-feature-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.pe-feature-list button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.pe-feature-list button.active {
+  border-color: var(--accent);
+}
+.pe-feature-list small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.pe-feature-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.pe-feature-form .segmented button {
+  padding-left: 3px;
+  padding-right: 3px;
+  font-size: 11.5px;
+}
+.pe-feature-form > .link {
+  align-self: flex-start;
+}

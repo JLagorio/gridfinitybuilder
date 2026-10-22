@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { allDrawers, useStore } from '../state/store';
+import { BoardTemplatesDialog } from './boardTemplatesLazy';
+import { GRID_BOARD_NAMES, isGridBoard, type GridBoardKind } from '../lib/gridBoards';
+import { useWallView } from '../state/wallView';
 
 /** Top-bar drawer picker: switch, add, duplicate, rename, delete. */
 export function DrawerSwitcher() {
@@ -13,7 +16,12 @@ export function DrawerSwitcher() {
   const setUI = useStore((s) => s.setUI);
   // The active drawer's live settings are at the top level of the store.
   const activeHave = useStore((s) => !!s.drawer.haveBaseplate);
+  const activeBoard = useStore((s) => s.drawer.enclosure === 'skadis');
+  const activeEnclosure = useStore((s) => s.drawer.enclosure);
+  const setDrawer = useStore((s) => s.setDrawer);
   const [open, setOpen] = useState(false);
+  // The starter-board picker (BoardTemplates.tsx), open after the menu closes.
+  const [templates, setTemplates] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const active = drawers.find((d) => d.id === activeId) ?? drawers[0];
 
@@ -54,13 +62,33 @@ export function DrawerSwitcher() {
                 >
                   <span>{d.name}</span>
                   <small>
-                    {binCount(d.id)} bins
-                    {(d.id === activeId ? activeHave : d.drawer.haveBaseplate) ? ' · just bins' : ''}
+                    {isGridBoard(d.id === activeId ? activeEnclosure : d.drawer.enclosure) ? (
+                      GRID_BOARD_NAMES[(d.id === activeId ? activeEnclosure : d.drawer.enclosure) as GridBoardKind]
+                    ) : (d.id === activeId ? activeBoard : d.drawer.enclosure === 'skadis') ? (
+                      'Skådis board'
+                    ) : (
+                      <>
+                        {binCount(d.id)} bins
+                        {(d.id === activeId ? activeHave : d.drawer.haveBaseplate) ? ' · just bins' : ''}
+                      </>
+                    )}
                   </small>
                 </button>
               </li>
             ))}
           </ul>
+          {/* Every board and wall grid of the project on one measured wall (WallPlanner.tsx). */}
+          <button
+            className="drawer-menu-wall"
+            title="Lay out the boards and wall grids on a measured wall"
+            onClick={() => {
+              setUI({ selectedBinId: null, selectedAttachment: null });
+              useWallView.getState().set(true);
+              setOpen(false);
+            }}
+          >
+            Wall planner
+          </button>
           <div className="drawer-menu-actions">
             <button
               onClick={() => {
@@ -82,6 +110,47 @@ export function DrawerSwitcher() {
             >
               New: just bins
             </button>
+            {/* A pegboard for a space on the wall: Skådis slots, split to the bed (geometry/skadis.ts). */}
+            <button
+              title="A Skådis pegboard for a space on the wall, split into tiles that fit your printer"
+              onClick={() => {
+                addDrawer(undefined, { skadis: true });
+                setUI({ tab: 'drawer' });
+                setOpen(false);
+              }}
+            >
+              New: Skådis board
+            </button>
+            {/* A board with a ready set of parts on it (lib/wall/templates.ts). */}
+            <button
+              title="A Skådis board with parts on it for a 3D printer’s corner, an electronics bench, a paint station, the kitchen, …"
+              onClick={() => {
+                setTemplates(true);
+                setOpen(false);
+              }}
+            >
+              New: board from a template…
+            </button>
+            {/* Boards for openGrid's and Multiboard's own accessories, split to the bed (lib/gridBoards.ts). */}
+            {(
+              [
+                ['opengrid', 'An openGrid board (28 mm squares), split into tiles that fit your printer'],
+                ['multiboard', 'A Multiboard-compatible board (25 mm grid), split into tiles that fit your printer'],
+              ] as const
+            ).map(([kind, title]) => (
+              <button
+                key={kind}
+                title={title}
+                onClick={() => {
+                  addDrawer(GRID_BOARD_NAMES[kind]);
+                  setDrawer({ enclosure: kind, [kind]: {} });
+                  setUI({ tab: 'drawer' });
+                  setOpen(false);
+                }}
+              >
+                New: {GRID_BOARD_NAMES[kind]}
+              </button>
+            ))}
             <button
               onClick={() => {
                 duplicateDrawer(activeId);
@@ -111,6 +180,7 @@ export function DrawerSwitcher() {
           </div>
         </div>
       )}
+      {templates && <BoardTemplatesDialog target="new" onClose={() => setTemplates(false)} />}
     </div>
   );
 }

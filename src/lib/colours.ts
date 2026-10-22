@@ -101,9 +101,11 @@ export type ColourRole =
   | 'containerShell'
   | 'containerFront'
   | 'containerPull'
+  | 'attachments'
   | 'labelText'
   | 'qrCode'
-  | 'shadow';
+  | 'shadow'
+  | 'wallText';
 
 export type RoleGroup = 'plate' | 'case' | 'bins' | 'labels';
 
@@ -140,9 +142,11 @@ export const ROLES: readonly RoleDef[] = [
   { id: 'containerShell', group: 'bins', follows: 'binWalls' },
   { id: 'containerFront', group: 'bins', follows: 'containerShell' },
   { id: 'containerPull', group: 'bins', follows: 'containerFront' },
+  { id: 'attachments', group: 'bins', follows: 'binWalls' },
   { id: 'labelText', group: 'labels', slot: 2 },
   { id: 'qrCode', group: 'labels', follows: 'labelText' },
   { id: 'shadow', group: 'labels', follows: 'labelText' },
+  { id: 'wallText', group: 'labels', follows: 'labelText' },
 ];
 
 const ROLE_BY_ID = new Map(ROLES.map((r) => [r.id, r]));
@@ -154,11 +158,12 @@ export const isRole = (v: unknown): v is ColourRole => typeof v === 'string' && 
 export const BASIC_ROLES: readonly ColourRole[] = ['plate', 'binWalls', 'labelText'];
 
 /**
- * Inlays (today's filament-2 overlays): label text, QR codes, tool shadows.
- * By part they keep their own filament, and a per-bin colour doesn't change
- * them, so they keep their contrast.
+ * Inlays (today's filament-2 overlays): label text, QR codes, tool shadows,
+ * text on a board and its attachments. By part they keep their own filament,
+ * and a per-bin (per-attachment) colour doesn't change them, so they keep
+ * their contrast.
  */
-export const INLAY_ROLES: ReadonlySet<ColourRole> = new Set(['labelText', 'qrCode', 'shadow']);
+export const INLAY_ROLES: ReadonlySet<ColourRole> = new Set(['labelText', 'qrCode', 'shadow', 'wallText']);
 
 /** Roles a per-drawer baseplate colour changes. */
 const PLATE_ROLES: ReadonlySet<ColourRole> = new Set(['plate', 'plateAccent', 'wallGrid', 'caseShell']);

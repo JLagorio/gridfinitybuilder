@@ -16,11 +16,13 @@ import { cleanStretch, type BinStretch } from '../lib/geometry/placement';
 import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
-import { cleanEnclosure } from '../lib/enclosureOptions';
+import { cleanEnclosure, snapOld } from '../lib/enclosureOptions';
+import { NEW_SKADIS } from '../lib/geometry/skadisOptions';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
 import { NO_PRINTS, cleanPrinted, type PrintedRecord } from '../lib/printed';
 import { cleanExternal, cleanExternalOpts, patchExternalOpts } from '../lib/external';
+import { cleanWall, type WallPlan } from '../lib/wallPlanner/data';
 
 export type Tab = 'drawer' | 'bins' | 'print';
 /** Bins tab, left pane: the drawer grid, the selected bin's compartment editor, or its tool cutouts. */
@@ -44,6 +46,16 @@ export interface UIState {
   plate: number;
   /** Bins tab, left pane (see BinPane). */
   binPane: BinPane;
+  /** A Skådis board's selected attachment (lib/wall), on its Attachments tab: the primary, the one its panel edits. */
+  selectedAttachment?: string | null;
+  /** Every selected attachment; like `selectedBinIds`, only counts while it contains `selectedAttachment` (see attachmentSelection). */
+  selectedAttachments?: string[];
+  /**
+   * An attachment being dragged in the 3D view (components/wallDrag.ts): the anchor slot it's shown on, and
+   * whether all its mounts have slots there, and the same for the rest of the selection moving with it (`group`).
+   * The drop moves them (one undo step); this is never saved or undone.
+   */
+  wallDrag?: { id: string; x: number; y: number; fits: boolean; group?: { id: string; x: number; y: number; fits: boolean }[] } | null;
 }
 
 /**
@@ -80,6 +92,8 @@ export interface Store extends ProjectState {
   printed: PrintedRecord;
   /** Print only what isn't printed yet. */
   onlyChanged: boolean;
+  /** The wall the boards and wall grids hang on (lib/wallPlanner, components/WallPlanner.tsx). Unset: none measured yet. */
+  wall?: WallPlan;
   /** Add a tool (outline in mm, any winding/origin; it's normalized). Returns its id. */
   addTool(t: Partial<Tool> & Pick<Tool, 'outline'>): string;
   /** Change a tool; its copies in placed bins follow. */
@@ -124,8 +138,12 @@ export interface Store extends ProjectState {
   /** Remember the list typed in "Fill from a list" for the active drawer (not an undo step of its own). */
   setFillList(text: string): void;
   // Drawers
-  /** A new drawer after the others; `haveBaseplate`: for a baseplate you have ("Just bins", sized in grid units). */
-  addDrawer(name?: string, o?: { haveBaseplate?: boolean }): string;
+  /**
+   * A new drawer after the others; `haveBaseplate`: for a baseplate you have
+   * ("Just bins", sized in grid units); `skadis`: a Skådis pegboard instead of
+   * a grid (geometry/skadis.ts).
+   */
+  addDrawer(name?: string, o?: { haveBaseplate?: boolean; skadis?: boolean }): string;
   duplicateDrawer(id: string): string;
   removeDrawer(id: string): void;
   renameDrawer(id: string, name: string): void;
@@ -182,6 +200,13 @@ export function selectedIds(ui: Pick<UIState, 'selectedBinId' | 'selectedBinIds'
   const p = ui.selectedBinId;
   if (!p) return [];
   return ui.selectedBinIds?.includes(p) ? [p, ...ui.selectedBinIds.filter((id) => id !== p)] : [p];
+}
+
+/** Every selected attachment id, primary first. */
+export function attachmentSelection(ui: Pick<UIState, 'selectedAttachment' | 'selectedAttachments'>): string[] {
+  const p = ui.selectedAttachment;
+  if (!p) return [];
+  return ui.selectedAttachments?.includes(p) ? [p, ...ui.selectedAttachments.filter((id) => id !== p)] : [p];
 }
 
 const DEFAULT_UI: UIState = {
@@ -326,8 +351,9 @@ function persisted(s: Store) {
     tools: s.tools,
     printed: s.printed,
     onlyChanged: s.onlyChanged,
-    // View-only state (selection, spread pieces, shown plate) starts fresh on every load.
-    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], explode: false, plate: -1 },
+    wall: s.wall,
+    // View-only state (selection, spread pieces, shown plate, a drag in the 3D view) starts fresh on every load.
+    ui: { ...s.ui, selectedBinId: null, selectedBinIds: [], selectedAttachments: [], explode: false, plate: -1, wallDrag: null },
   };
 }
 
@@ -338,6 +364,7 @@ const DEFAULT_WORKSPACE = {
   printPick: [] as string[],
   printed: NO_PRINTS,
   onlyChanged: false,
+  wall: undefined as WallPlan | undefined,
 };
 
 export const useStore = create<Store>()(
@@ -355,7 +382,7 @@ export const useStore = create<Store>()(
         if (!!s.drawer.haveBaseplate === on) return;
         const { haveBaseplate: _, ...rest } = s.drawer;
         // Nothing drawn yet: a baseplate you have is easiest given by its cells.
-        const grid = on && !s.bins.length && s.drawer.mode === 'drawer' ? { mode: 'grid' as const } : {};
+        const grid = on && !s.bins.length && s.drawer.mode === 'drawer' && s.drawer.enclosure !== 'skadis' ? { mode: 'grid' as const } : {};
         history.checkpoint();
         set({ drawer: on ? { ...rest, ...grid, haveBaseplate: true } : rest });
         history.checkpoint();
@@ -514,7 +541,7 @@ export const useStore = create<Store>()(
         // New drawers start with the current baseplate settings: magnets, connectors etc. are usually shared.
         const doc: DrawerDoc = {
           id,
-          name: uniqueName(name?.trim() || `Drawer ${docs.length + 1}`, docs.map((d) => d.name)),
+          name: uniqueName(name?.trim() || (o.skadis ? 'Skådis board' : `Drawer ${docs.length + 1}`), docs.map((d) => d.name)),
           drawer: {
             ...DEFAULT_DRAWER,
             mode: s.drawer.mode,
@@ -522,7 +549,9 @@ export const useStore = create<Store>()(
             fill: s.drawer.fill,
             ...(s.drawer.halfGrid ? { halfGrid: true } : {}),
             // For a baseplate you have: given by its cells, and nothing of it prints.
-            ...(o.haveBaseplate ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
+            ...(o.haveBaseplate && !o.skadis ? { mode: 'grid' as const, haveBaseplate: true as const } : {}),
+            // A pegboard built from tiles, one to start (geometry/skadis.ts).
+            ...(o.skadis ? { enclosure: 'skadis' as const, skadis: { ...NEW_SKADIS } } : {}),
           },
           baseplate: { ...s.baseplate },
           bins: [],
@@ -693,8 +722,10 @@ export const useStore = create<Store>()(
         history.checkpoint();
       },
       loadProject: (data) => {
-        const p = (data ?? {}) as Partial<Store> & { app?: string };
+        let p = (data ?? {}) as Partial<Store> & { app?: string; version?: number };
         if (typeof p !== 'object' || (p.app !== undefined && p.app !== 'gridfit')) throw new Error('Not a Gridfit project file.');
+        // Before version 4 a board's attachments were planned on the nearest slot where they fit: they still are, till moved.
+        if (!(p.version! > 3)) p = snapOld(p);
         // Version 1 files hold a single drawer at the top level.
         const docs = Array.isArray(p.drawers) && p.drawers.length
           ? p.drawers.map(cleanDoc)
@@ -716,16 +747,18 @@ export const useStore = create<Store>()(
           tools: mergeTools(s.tools, cleanTools(p.tools)),
           printed: cleanPrinted(p.printed),
           onlyChanged: p.onlyChanged === true,
+          wall: cleanWall(p.wall, docs),
           ui: { ...s.ui, selectedBinId: null, plate: -1 },
         }));
       },
     }),
     {
       name: 'gridfit-project',
-      version: 2,
+      version: 3,
       partialize: persisted,
-      // Version 1 had no drawer list; merge() below builds it from the top-level drawer.
-      migrate: (persisted) => persisted as never,
+      // Version 1 had no drawer list; merge() below builds it from the top-level drawer. Before 3 a board's attachments
+      // were planned on the nearest slot where they fit (enclosureOptions.ts snapOld).
+      migrate: (persisted, version) => (version < 3 ? snapOld(persisted) : persisted) as never,
       // Fill in fields added after the project was saved.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Store>;
@@ -753,6 +786,7 @@ export const useStore = create<Store>()(
           tools: cleanTools(p.tools ?? current.tools),
           printed: cleanPrinted(p.printed ?? current.printed),
           onlyChanged: (p.onlyChanged ?? current.onlyChanged) === true,
+          wall: cleanWall(p.wall, docs),
           // Saved before view state stopped being persisted: never come back with pieces spread apart.
           ui: { ...current.ui, ...p.ui, explode: false, plate: -1 },
         };
@@ -765,12 +799,13 @@ export const useStore = create<Store>()(
  * Contents of a saved .gridfit.json file. Version 3: bins may be from
  * elsewhere (`external`, external.ts), and a saved file adds the bytes of their
  * meshes as `meshes` (imported/meshStore.ts projectWithMeshes); 1 and 2 load as
- * before.
+ * before. Version 4: a board's attachments stay where they're put (older ones
+ * are planned as they were, PlacedAttachment.snap).
  */
 export function projectFile(s: Store) {
   return {
     app: 'gridfit',
-    version: 3,
+    version: 4,
     ...projectOf(s),
     newBin: s.newBin,
     drawers: allDrawers(s),
@@ -781,6 +816,7 @@ export function projectFile(s: Store) {
     tools: s.tools,
     printed: s.printed,
     onlyChanged: s.onlyChanged,
+    ...(s.wall ? { wall: s.wall } : {}),
   };
 }
 

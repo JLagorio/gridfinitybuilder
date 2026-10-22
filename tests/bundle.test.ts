@@ -25,8 +25,19 @@ const root = resolve(__dirname, '..');
  * Multi-colour planning (colours.ts, colourPlan.ts, plates by colour) and the 3D view's filament
  * colours and bands are on it too, ~27 kB (594 kB in all); the Colours section, its palette,
  * presets, texts and checks load with the print tab.
+ * Skådis boards' planning (the slot pattern, the split into tiles, joints, mounting points, the
+ * assembly map and the drawer view) is too, being part of planning a print: ~20 kB (613 kB in
+ * all). Their panel and its search index load with a board, their geometry with the mesh builders.
+ * Wall attachments' planning (lib/wall: the mount standard, snapping to slots, each kind's options,
+ * size and mounts) is on it too: ~12 kB with the first four kinds (625 kB in all), ~1.5 kB a kind
+ * more. Their names and forms (lib/wall/ui.ts) load with the Attachments tab, their geometry
+ * (lib/wall/build.ts) with the mesh builders. The kinds' own planning (lib/wall/kinds/all.ts)
+ * loads with the first board (lib/wall/ready.ts), so new kinds don't add to the first screen: with
+ * the boards' slot patterns, frame, zones and ways to hang, ~636 kB.
+ * The boards' own planning loads with the first board too (lib/skadisBoards.ts), and the divider-wall
+ * tools with the compartment editor: ~611 kB.
  */
-const FIRST_SCREEN_BUDGET = 600_000;
+const FIRST_SCREEN_BUDGET = 660_000;
 const VENDOR = ['react', 'three'];
 
 let out: string;
@@ -100,6 +111,40 @@ describe('bundle', () => {
       'src/lib/share.ts',
       'src/lib/qrEncode.ts',
       'src/components/QrFields.tsx',
+      // Skådis boards: their panel and its search index; the Attachments tab and its forms.
+      'src/components/SkadisPanel.tsx',
+      'src/components/skadisIndex.ts',
+      'src/components/WallPanel.tsx',
+      'src/components/WallEditor.tsx',
+      'src/lib/wall/ui.ts',
+      'src/lib/wall/kinds/all.ts',
+      'src/state/wall.ts',
+      // Skådis boards' planning and the attachments' (the slots, the mount standard): with the first board (lib/skadisBoards.ts).
+      'src/lib/skadisBoardPlan.ts',
+      'src/lib/geometry/skadis.ts',
+      'src/lib/geometry/skadisTiles.ts',
+      'src/lib/wall/plan.ts',
+      'src/lib/wall/mount.ts',
+      // The divider-wall tools (the drawer grid's paste-layout shortcut has its clipboard on its own: layoutClip.ts).
+      'src/components/WallTools.tsx',
+      // My attachments and its share links; the wall's photo; boards' print keys; attachments that hold a bin.
+      'src/components/MyAttachments.tsx',
+      'src/components/SharedAttachments.tsx',
+      'src/components/openShareLink.ts',
+      'src/lib/myAttachments.ts',
+      'src/state/myAttachments.ts',
+      'src/components/WallPhoto.tsx',
+      'src/lib/wallPlanner/photo.ts',
+      'src/lib/wallPlanner/photoStore.ts',
+      'src/state/wallPhoto.ts',
+      'src/lib/printedBoards.ts',
+      'src/lib/wall/follow.ts',
+      'src/state/follow.ts',
+      'src/components/WallHolds.tsx',
+      // Build your own: its profile model and planning (with the kinds), its editor (on first use).
+      'src/lib/wall/custom/profile.ts',
+      'src/lib/wall/kinds/custom.ts',
+      'src/components/ProfileEditor.tsx',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).

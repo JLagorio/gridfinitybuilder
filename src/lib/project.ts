@@ -82,6 +82,7 @@ import {
   type EnclosurePart,
   type EnclosurePartKind,
   type EnclosureScene,
+  type EnclosureSceneItem,
   type EnclosureView,
   type PieceEnclosure,
 } from './enclosures';
@@ -93,6 +94,10 @@ import { groupName, plateGroup, plateGroups, soloGroup, tagColours, useSplitMesh
 import { externalBox, externalSize, importedSpec, meshSize, printsMesh, type ExternalBin } from './external';
 import { buildImported, type ImportedSpec } from './imported/registry';
 import { binSpiral, type SpiralPrint } from './geometry/containers/vase';
+import { kindsReady, type AttachmentExtras, type PlacedAttachment, type AttachmentLayout, type MountCtx } from './wall';
+import { wallInlaid } from './wall/board';
+import type { WallBoard, WallPlacement } from './wall/plan';
+import type * as WallBuild from './wall/build';
 import { packSpiral, spiralClearance, spiralSettingsText } from './layout/spiral';
 
 /** A bin placed in the drawer grid. (x, y) is the front-left cell it covers. */
@@ -187,12 +192,16 @@ export type MeshSpec =
   /** `base` cut into a volume per colour role (multi-colour 'feature': geometry/colourRegions.ts); key: colours.ts splitMeshKey. */
   | { kind: 'split'; key: string; base: MeshSpec }
   /** An imported bin's mesh, as it is (external.ts, imported/registry.ts). */
-  | ImportedSpec;
+  | ImportedSpec
+  /** Something that hangs on a Skådis board (lib/wall), in its print pose; `extras`: what its common options add (bolts, label, barbs). */
+  | { kind: 'attachment'; key: string; type: string; opts: object; layout: AttachmentLayout; ctx: MountCtx; extras?: AttachmentExtras }
+  /** One of an attachment's extra parts. */
+  | { kind: 'attachmentPart'; key: string; type: string; part: unknown; ctx: MountCtx };
 
 export interface JobPart {
   key: string;
   name: string;
-  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray' | 'pad' | 'enclosure';
+  kind: 'piece' | 'bin' | 'lid' | 'key' | 'divider' | 'label' | 'tray' | 'pad' | 'enclosure' | 'attachment';
   /** Enclosure parts: which one (case lid, hinge pin, spacer strip, …). */
   enclosure?: EnclosurePartKind;
   meshKey: string;
@@ -207,6 +216,8 @@ export interface JobPart {
   assembled?: { x: number; y: number; z: number };
   /** Container parts: the placed bin they belong to. */
   bin?: string;
+  /** Attachments and their parts: the attachment's id (lib/wall). */
+  attachment?: string;
   /** Colour role of the part (multi-colour, colours.ts); set by planning. */
   role?: ColourRole;
   /** Its bin's or its drawer's own colour over the roles' (colourPlan.ts tagColours). */
@@ -248,6 +259,8 @@ export interface DrawerJob {
   room?: number;
   /** The assembly map's name for each of `plan.plates` when they aren't together from `plateOffset` (several printers). */
   plateNames?: string[];
+  /** An assembly map of its own (a Skådis board's), instead of the grid's. */
+  map?: string;
   /**
    * The grid is there already ("Just bins", DrawerInput.haveBaseplate): `plan`
    * is it in one piece, for the drawer view only. None of it is on the plates,
@@ -287,6 +300,8 @@ export interface PlanPrintOptions {
   onlyChanged?: boolean;
   /** A part's print seconds on printer `i` (start sequence left out) once it's sliced, for sharing parts out between printers. */
   seconds?: (part: JobPart, printer: number) => number | undefined;
+  /** Every drawer in the project, when only some are planned: a board's attachment that holds a bin finds it there (wall/follow.ts). */
+  drawers?: readonly NamedDrawer[];
 }
 
 /**
@@ -375,8 +390,8 @@ export function binUnitsText(layout: Pick<GridLayout, 'halfGrid'>, o: Pick<BinOp
 }
 
 /** Everything about the print except the geometry itself. Cheap; safe to call on every edit. */
-export function planJob(state: ProjectState): PrintJob {
-  return planPrint([{ id: '', name: '', drawer: state.drawer, baseplate: state.baseplate, bins: state.bins }], state.setup, state.include);
+export function planJob(state: ProjectState, opts?: PlanPrintOptions): PrintJob {
+  return planPrint([{ id: '', name: '', drawer: state.drawer, baseplate: state.baseplate, bins: state.bins }], state.setup, state.include, opts);
 }
 
 /**
@@ -455,7 +470,8 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       const key = `${prefix}piece:${piece.id}`;
       const mine = sitesOnPiece(sites, piece);
       const ep = enc?.piece(piece);
-      const meshKey = pieceMeshKey(pieceLayout, piece, bpo, mine) + (ep ? `|enc${JSON.stringify(ep.enclosure)}` : '');
+      // A piece built from its enclosure alone (Skådis tiles) has a key of its own: identical ones share a mesh.
+      const meshKey = ep?.meshKey ?? pieceMeshKey(pieceLayout, piece, bpo, mine) + (ep ? `|enc${JSON.stringify(ep.enclosure)}` : '');
       meshes[meshKey] = { kind: 'piece', key: meshKey, layout: pieceLayout, piece, opts: bpo, connectors: mine, ...(ep ? { enclosure: ep.enclosure } : {}) };
       parts[key] = {
         key,
@@ -492,14 +508,15 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         placements: pl.placements.map((p) => ({ ...p, key: prefix + p.key })),
       }));
       // Multi-colour (colourPlan.ts): keys in another colour than the pieces get plates of their own.
-      const pieceRole = enc?.kind === 'case' ? 'caseShell' : enc?.kind === 'wall' ? 'wallGrid' : 'plate';
+      const pieceRole = enc?.kind === 'case' ? 'caseShell' : enc?.kind === 'wall' || enc?.kind === 'skadis' ? 'wallGrid' : 'plate';
       const over = plateColour ? { plate: plateColour } : undefined;
       const apart = soloGroup(setup, 'plateAccent', over) !== soloGroup(setup, pieceRole, over);
       const packed = apart
         ? { ...packIntoPlates([], keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true }), plates: piecePlates }
         : packIntoPlates(piecePlates, keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
       packed.plates.forEach((pl, i) => {
-        plates.push({ name: `${label}${enc?.kind === 'case' ? 'Case body' : 'Baseplate'} ${i + 1}`, group: 'baseplate', placements: pl.placements });
+        const what = enc?.plateName ?? (enc?.kind === 'case' ? 'Case body' : enc?.kind === 'skadis' ? 'Skådis board' : 'Baseplate');
+        plates.push({ name: `${label}${what} ${i + 1}`, group: 'baseplate', placements: pl.placements });
       });
       packed.extra.forEach((pl, i) => {
         const name = packed.extra.length > 1 ? `Connector keys ${i + 1}` : 'Connector keys';
@@ -577,8 +594,25 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       plateOffset,
       plateCount: plates.length - plateOffset,
       ...(enc ? { enclosure: enc.scene } : {}),
+      ...(enc?.map ? { map: enc.map } : {}),
       ...(have ? { haveBaseplate: true as const } : {}),
     });
+    // A Skådis board holds attachments (lib/wall), not bins: they print with the bins, on shared plates.
+    if (enc?.kind === 'skadis') {
+      if (enc.wall) {
+        const scene = drawerJobs[drawerJobs.length - 1].enclosure!;
+        const items = [...scene.items];
+        // Until the kinds and their planning have loaded (wall/ready.ts, wall/parts.ts) the board plans bare; App plans again once they're in.
+        const placed =
+          wallParts && kindsReady()
+            ? wallParts({ list: d.drawer.attachments ?? [], board: enc.wall, drawer: d.id, prefix, label, bins: include.bins, meshes, parts, binItems, items, warn, drawers: opts.drawers ?? drawers })
+            : [];
+        drawerJobs[drawerJobs.length - 1].enclosure = { ...scene, wall: { board: enc.wall, placed }, items };
+      }
+      continue;
+    }
+    // An openGrid or Multiboard board (gridBoards.ts) has no bins.
+    if (enc?.kind === 'opengrid' || enc?.kind === 'multiboard') continue;
 
     // TPU pads (pads.ts) lift the whole plate a little.
     const lift = padStyle(bpo) ? PAD.proud : 0;
@@ -767,7 +801,7 @@ function binPlates(
   bed: PackOptions,
   printerId: string,
   warnings: Set<string>,
-  count: { bins: number; vases: number },
+  count: { bins: number; vases: number; attachments?: number },
   printer?: number,
 ): JobPlate[] {
   const out: JobPlate[] = [];
@@ -780,7 +814,12 @@ function binPlates(
       bed,
     );
     for (const o of packed.oversize) warnings.add(`${parts[o.key].name} is larger than the print bed and was left out.`);
-    packed.plates.forEach((pl) => out.push({ name: `Bins ${++count.bins}${tag}`, group: 'bins', placements: pl.placements, ...at }));
+    packed.plates.forEach((pl) => {
+      // A plate of nothing but a board's attachments says so.
+      const board = pl.placements.every((p) => parts[p.key].kind === 'attachment');
+      const name = board ? `Board attachments ${(count.attachments = (count.attachments ?? 0) + 1)}` : `Bins ${++count.bins}`;
+      out.push({ name: `${name}${tag}`, group: 'bins', placements: pl.placements, ...at });
+    });
     // By height, a vase bin that changes colour prints alone: several on a plate print by object,
     // and Bambu Studio only makes per-layer changes on plates printed by layer.
     const vase = list.filter((it) => parts[it.key].spiral);
@@ -899,6 +938,46 @@ function sharePlates(
   return out;
 }
 
+/** What a board's attachments add to a print job: their parts, meshes and drawer-view items (wall/parts.ts). */
+export type WallParts = (a: {
+  list: readonly PlacedAttachment[];
+  board: WallBoard;
+  drawer: string;
+  prefix: string;
+  label: string;
+  bins: boolean;
+  meshes: Record<string, MeshSpec>;
+  parts: Record<string, JobPart>;
+  binItems: PackItem[];
+  items: EnclosureSceneItem[];
+  warn: (msg: string) => void;
+  /** The project's drawers, for attachments that hold a bin (wall/follow.ts). */
+  drawers: readonly NamedDrawer[];
+}) => WallPlacement[];
+
+/**
+ * A board's attachments' planning (wall/parts.ts hands it in as it loads, with the kinds): importing it here would put
+ * the placing, the mount standard and the common options on the first screen.
+ */
+let wallParts: WallParts | null = null;
+export function setWallParts(f: WallParts): void {
+  wallParts = f;
+}
+
+/**
+ * The attachments' builders (wall/build.ts), handed in by whoever builds meshes (the geometry
+ * worker, the tests, the scripts): importing them here would pull every attachment kind's
+ * planning onto the first screen with them (their planning registers itself; wall/ready.ts).
+ */
+let wallBuild: typeof WallBuild | null = null;
+export function setWallBuilders(b: typeof WallBuild): void {
+  wallBuild = b;
+}
+function wallBuilders(): typeof WallBuild {
+  if (!wallBuild) throw new Error('Attachment builders not set (setWallBuilders).');
+  return wallBuild;
+}
+
 /** Build a mesh with its footprint's min corner at the origin and its bottom at z = 0. */
 export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'split') return splitByRoles(w, buildMesh(w, spec.base), spec.base);
@@ -915,6 +994,8 @@ export function buildMesh(w: Wasm, spec: MeshSpec): MeshData {
   if (spec.kind === 'accessory') return buildAccessoryPart(w, spec.part);
   if (spec.kind === 'insertPart') return buildInsertPart(w, spec.part);
   if (spec.kind === 'imported') return buildImported(spec);
+  if (spec.kind === 'attachment') return wallBuilders().buildAttachment(w, spec);
+  if (spec.kind === 'attachmentPart') return wallBuilders().buildAttachmentPart(w, spec);
   if (spec.kind === 'container') {
     const def = containerDef(spec.type);
     if (!def?.buildPart) throw new Error(`No part builder for container type “${spec.type}”.`);
@@ -964,6 +1045,8 @@ export function usesSecondFilament(job: PrintJob): boolean {
       if (spec?.kind === 'accessory' && spec.part.type === 'slideLid' && spec.part.qr?.style === 'inlaid') return true;
       // Inlaid tab text (with label plates it's on the plates, unless a tab is too small for one), two-tone or inlaid front labels.
       if (spec?.kind === 'bin' && binUsesInlay(spec.opts, spec.cells)) return true;
+      // A board's inlaid zone text, an attachment's inlaid label or its kind's own inlays (wall/plan.ts).
+      if (wallInlaid(spec)) return true;
     }
   }
   return false;
@@ -978,6 +1061,12 @@ export function assemblyMaps(job: PrintJob): Record<string, string> {
     if (d.haveBaseplate) continue;
     const name = job.drawers.length > 1 ? `assembly-map-${slug(d.name)}.txt` : 'assembly-map.txt';
     const head = job.drawers.length > 1 ? `${d.name}\n` : '';
+    if (d.map) {
+      // A Skådis board's map, then the plates its tiles print on.
+      const plates = d.plan.plates.map((pl, i) => `${d.plateNames?.[i] ?? `Plate ${d.plateOffset + i + 1}`}: ${pl.placements.map((p) => p.key.replace('piece:', 'tile ')).join(', ')}`);
+      out[name] = head + d.map + 'PLATES\n' + '-'.repeat(40) + '\n' + plates.join('\n') + '\n';
+      continue;
+    }
     out[name] = head + assemblyMap(d.layout, d.plan, d.connectors.length, d.plateOffset, d.steps, d.plateNames);
   }
   return out;

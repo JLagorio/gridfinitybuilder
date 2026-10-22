@@ -27,6 +27,8 @@ import { colourChecks } from '../lib/colourChecks';
 import { HaveBaseplateNotes, NothingToPrint } from './PrintWhat';
 import { isOwned } from '../lib/external';
 import { adoptMeshes, projectWithMeshes } from '../lib/imported/meshStore';
+import { adoptPhotos, withWallPhoto } from '../lib/wallPlanner/photoStore';
+import { dropLostLinks } from '../lib/wall/follow';
 
 // The Colours section (palette, roles, strategies) loads with the print tab's first render, beside it.
 const loadColours = once(() => import('./ColourSection'));
@@ -126,10 +128,11 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     );
 
   const fileInput = useRef<HTMLInputElement>(null);
-  // With the meshes of imported bins in it, so the file opens complete anywhere (lib/imported/meshStore.ts).
+  // With the meshes of imported bins in it, and the wall's photo, so the file opens complete anywhere (lib/imported/meshStore.ts, lib/wallPlanner/photoStore.ts);
+  // a board's link to a bin that's gone isn't saved (lib/wall/follow.ts).
   const saveProject = () =>
     run('Saving the project', async () => {
-      const file = await projectWithMeshes(projectFile(store));
+      const file = await withWallPhoto(await projectWithMeshes(dropLostLinks(projectFile(store))));
       downloadBytes(new TextEncoder().encode(JSON.stringify(file, null, 2)), `gridfinity-drawer-${stamp}.gridfit.json`, 'application/json');
     });
   const [started, setStarted] = useState(false);
@@ -138,8 +141,9 @@ export function PrintPanel({ job }: { job: PrintJob }) {
     setStarted(false);
     try {
       const data = JSON.parse(await file.text());
-      // Imported bins' meshes first (version 3 files), then the project.
+      // Imported bins' meshes first (version 3 files), and the wall's photo, then the project.
       adoptMeshes(data?.meshes);
+      adoptPhotos(data?.photos);
       store.loadProject(data);
     } catch (e) {
       setError(`Couldn't open ${file.name}: ${(e as Error).message}`);

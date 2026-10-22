@@ -2,6 +2,10 @@ import { GRID } from '../geometry/spec';
 import type { CaseOptions } from '../geometry/case';
 import type { WallOptions } from '../geometry/wallmount';
 import type { SpacerOptions } from '../geometry/spacers';
+import type { SkadisOptions } from '../geometry/skadis';
+import type { OpenGridOptions } from '../geometry/opengrid';
+import type { MultiboardOptions } from '../geometry/multiboard';
+import type { PlacedAttachment } from '../wall/registry';
 
 /**
  * What fills the space left over between the grid and the drawer walls.
@@ -13,9 +17,11 @@ export type EdgeFill = 'solid' | 'half' | 'fit' | 'spacers';
 /**
  * What the grid goes in: a drawer (missing), a printed carry 'case' whose floor
  * is the baseplate (geometry/case.ts), or a 'wall' grid screwed to a wall
- * (geometry/wallmount.ts).
+ * (geometry/wallmount.ts). Or no grid at all: a 'skadis' pegboard for a space
+ * on the wall (geometry/skadis.ts), sized by `skadis`, with no bins; or an
+ * 'opengrid' or 'multiboard' board (lib/gridBoards.ts), sized by its own options.
  */
-export type Enclosure = 'case' | 'wall';
+export type Enclosure = 'case' | 'wall' | 'skadis' | 'opengrid' | 'multiboard';
 
 export interface DrawerInput {
   /** 'drawer': fit a grid into a drawer size; 'grid': give the grid size in units. */
@@ -67,6 +73,13 @@ export interface DrawerInput {
   wallMount?: Partial<WallOptions>;
   /** Spacer-strip settings (fill 'spacers'). Missing = defaults. */
   spacers?: Partial<SpacerOptions>;
+  /** Skådis board settings, the space on the wall included (enclosure 'skadis'). Missing = defaults. */
+  skadis?: Partial<SkadisOptions>;
+  /** openGrid and Multiboard boards' settings, their size included (enclosure 'opengrid' / 'multiboard', lib/gridBoards.ts). Missing = defaults. */
+  opengrid?: Partial<OpenGridOptions>;
+  multiboard?: Partial<MultiboardOptions>;
+  /** What hangs on a Skådis board (lib/wall). Missing = nothing. */
+  attachments?: PlacedAttachment[];
   /**
    * "Just bins": the baseplate is there already (printed before, or bought),
    * so nothing of the grid prints: no baseplate pieces, connector keys, pads

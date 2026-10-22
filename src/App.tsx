@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { projectOf, selectedIds, useStore, type Tab } from './state/store';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { attachmentSelection, projectOf, selectedIds, useStore, type Tab } from './state/store';
 import { moveBins, removeSelection, resizeBin, selectBins, useSelectedIds } from './state/selection';
 import { asDrawer, binOrigin, planJob, type JobPart, type MeshSpec, type PrintJob } from './lib/project';
 import { binSeatHeight } from './lib/geometry/baseplate';
 import { plateOrigin } from './lib/export/bambu';
 import { bedExclusion, findPrinter } from './lib/printers';
 import { geometry } from './worker/client';
-import { Viewer, type SceneBed, type SceneItem } from './components/Viewer';
+import { Viewer, type SceneBed, type SceneItem, type ViewerDrag } from './components/Viewer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DrawerPanel } from './components/DrawerPanel';
 import { BinGridEditor } from './components/BinGridEditor';
@@ -35,7 +35,14 @@ import { stackPlaces } from './lib/stacking';
 import { PhoneNav, usePhoneView } from './components/PhoneNav';
 import { externalBox, importedSpec } from './lib/external';
 import { hasImported, importedVersion, subscribeImported } from './lib/imported/registry';
+import { kindsVersion, loadKinds, subscribeKinds } from './lib/wall';
+import { GRID_BOARD_NAMES, gridBoardsVersion, isGridBoard, subscribeGridBoards } from './lib/gridBoards';
+import { loadSkadisBoards, skadisBoardsVersion, subscribeSkadisBoards } from './lib/skadisBoards';
+import { slotKeys } from './lib/wall/board';
+import { NO_FIT_COLOR, dragMoves, draggedItems, grabOffset, sameDrag, wallDragAt } from './components/wallDrag';
+import type { Vec2 } from './lib/geometry/kernel';
 import { useCoarsePointer } from './components/touch';
+import { useWallView } from './state/wallView';
 import './components/workflow.css';
 
 // The first screen is the drawer panel, the bin grid and the 3D view; the rest loads on first use (components/lazy.tsx).
@@ -44,14 +51,37 @@ const loadBinPanel = once(() => import('./components/BinPanel'));
 const loadPrintPanel = once(() => import('./components/PrintPanel'));
 const loadInterior = once(() => import('./components/BinInteriorEditor'));
 const loadCutouts = once(() => import('./components/CutoutEditor'));
+// Only a Skådis board's tabs (geometry/skadis.ts) need it; it shows once the board has planned (lib/skadisBoards.ts).
+const loadSkadis = once(() => Promise.all([import('./components/SkadisPanel'), loadSkadisBoards()]).then(([m]) => m));
 const BinPanel = lazyNamed(loadBinPanel, 'BinPanel');
 const PrintPanel = lazyNamed(loadPrintPanel, 'PrintPanel');
 const BinInteriorEditor = lazyNamed(loadInterior, 'BinInteriorEditor');
 const CutoutEditor = lazyNamed(loadCutouts, 'CutoutEditor');
+const SkadisPanel = lazyNamed(loadSkadis, 'SkadisPanel');
+// A board's Attachments tab (lib/wall): its panel and the board editor.
+const loadWall = once(() => import('./components/WallPanel'));
+const loadWallEditor = once(() => import('./components/WallEditor'));
+const WallPanel = lazyNamed(loadWall, 'WallPanel');
+const WallEditor = lazyNamed(loadWallEditor, 'WallEditor');
+// Editing attachments (one undo step each): with the Attachments tab, for a drop in the 3D view.
+const loadWallEdits = once(() => import('./state/wall'));
+// openGrid and Multiboard boards (lib/gridBoards.ts): their tab's panel and the Attachments tab's note.
+const loadGridPanel = once(() => import('./components/GridBoardPanel'));
+const GridBoardPanel = lazyNamed(loadGridPanel, 'GridBoardPanel');
+const GridBoardAttachments = lazyNamed(loadGridPanel, 'GridBoardAttachments');
+// The wall planner: the project's boards and wall grids on one measured wall (drawer menu → Wall planner).
+const loadWallPlanner = once(() => import('./components/WallPlanner'));
+const WallPlanner = lazyNamed(loadWallPlanner, 'WallPlanner');
+// Dragging several attachments together in the 3D view (lib/wall/arrange.ts): loaded with the first board.
+const loadArrange = once(() => import('./lib/wall/arrange'));
+let arrange: Awaited<ReturnType<typeof loadArrange>> | null = null;
+// A board built from tiles: its tiles from the front, to add and take away tiles, on its board tab.
+const loadBoardTiles = once(() => import('./components/BoardTiles'));
+const BoardTiles = lazyNamed(loadBoardTiles, 'BoardTiles');
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
-  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts);
+  return prefetch(loadBinPanel, loadPrintPanel, loadInterior, loadCutouts, loadSkadis, loadWall, loadWallEditor, loadBoardTiles);
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -74,7 +104,16 @@ const paintOf = (job: PrintJob, key: string) => {
 };
 
 /** Enclosure parts in the drawer view (case lid, handle, feet, strips, cleat) by their colour role. */
-const ENCLOSURE_ROLES: Record<string, ColourRole> = { lid: 'caseLid', hardware: 'caseHardware', handle: 'caseHandle', foot: 'caseHardware', strip: 'plateAccent', cleat: 'wallGrid' };
+const ENCLOSURE_ROLES: Record<string, ColourRole> = {
+  lid: 'caseLid',
+  hardware: 'caseHardware',
+  handle: 'caseHandle',
+  foot: 'caseHardware',
+  strip: 'plateAccent',
+  cleat: 'wallGrid',
+  joint: 'plateAccent',
+  standoff: 'plateAccent',
+};
 
 function drawerScene(
   job: PrintJob,
@@ -101,6 +140,8 @@ function drawerScene(
       d: part.d,
       h: part.h,
       color: withBins ? BASEPLATE_COLOR : pieceColor(p.id),
+      // A Skådis tile is printed face down and shown face up.
+      ...(enc?.pieceTurn ? { turn: enc.pieceTurn } : {}),
       // Not printed (you have it): see-through, not in a filament's colour.
       ...(have ? { ghost: true } : paintOf(job, part.key)),
     };
@@ -231,14 +272,38 @@ function drawerScene(
     const cs = job.colours;
     const pal = cs ? paletteOf(cs, 16) : null;
     const over = cs && state.baseplate.colour ? { plate: state.baseplate.colour } : undefined;
-    const encPaint = cs && !have ? (role: string) => ({ main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }) : undefined;
-    items.push(...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint).map((it) => (have ? { ...it, ghost: true } : it)));
+    // A board's attachments: their parts' own paint (an attachment's colour, its label text's).
+    const atts = new Map(Object.values(job.parts).flatMap((p) => (p.attachment ? [[`${p.attachment}|${p.meshKey}`, p.key] as const] : [])));
+    const encPaint = cs
+      ? (role: string, it: { pick?: string; meshKey: string }) =>
+          role === 'attachment'
+            ? partPaint(job, atts.get(`${it.pick}|${it.meshKey}`) ?? '')
+            : have
+              ? undefined
+              : { main: (pal![partRoleSlot(cs, ENCLOSURE_ROLES[role] ?? 'caseShell', over) - 1]?.colour ?? '#808080').toUpperCase() }
+      : undefined;
+    // A Skådis board's attachments are never "had": only the board itself can be. One that doesn't fit where it is shows red.
+    const picked = new Set(attachmentSelection(state.ui));
+    // (While it's dragged, where it's going decides: wallDrag.ts.)
+    const moving = new Set(dragMoves(state.ui.wallDrag).map((m) => m.id));
+    const bad = new Set(enc.wall?.placed.filter((p) => !p.ok && !moving.has(p.id)).map((p) => p.id));
+    items.push(
+      ...enclosureSceneItems(enc, withBins ? 'off' : lidView, gap, encPaint).map((it) =>
+        it.pickable
+          ? bad.has(it.id)
+            ? { ...it, paint: undefined, color: NO_FIT_COLOR, selected: false }
+            : { ...it, selected: picked.has(it.id) }
+          : have
+            ? { ...it, ghost: true }
+            : it,
+      ),
+    );
   }
   return {
     items: shiftItems(items, enc?.shift),
     outline: state.drawer.mode === 'drawer' && enc?.outline !== false ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
-    // The camera stays put when the lid opens or closes.
-    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}` : ''}`,
+    // The camera stays put when the lid opens or closes (a Skådis board's size is its space, not the grid's).
+    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}` : ''}${(enc?.kind === 'skadis' || isGridBoard(enc?.kind)) && enc.box ? `-${enc.box.x1}x${enc.box.y1}` : ''}`,
   };
 }
 
@@ -284,13 +349,25 @@ export default function App() {
   const interiorBin = useInteriorPane();
   // Plan with bins always included so the drawer view can show them.
   const project = projectOf(state);
+  // A board's attachments plan once their kinds have loaded (lib/wall/ready.ts): load them with the first board.
+  const kinds = useSyncExternalStore(subscribeKinds, kindsVersion);
+  // An openGrid or Multiboard board plans once its planning has loaded (lib/gridBoards.ts).
+  const grids = useSyncExternalStore(subscribeGridBoards, gridBoardsVersion);
+  // A Skådis board plans once its planning has loaded (lib/skadisBoards.ts): it loads with the first board too.
+  const boards = useSyncExternalStore(subscribeSkadisBoards, skadisBoardsVersion);
+  const hasBoard = state.drawer.enclosure === 'skadis' || state.drawers.some((d) => d.drawer.enclosure === 'skadis');
+  useEffect(() => {
+    if (hasBoard) void Promise.all([loadSkadisBoards(), loadKinds(), loadArrange().then((m) => (arrange = m))]);
+  }, [hasBoard]);
+  // A board's attachments that hold a bin find it in the other drawers (lib/wall/follow.ts).
+  const others = { drawers: state.drawers };
   const job = useMemo(
-    () => planJob(project),
+    () => planJob(project, others),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.drawer, state.baseplate, state.setup, state.bins, state.include],
+    [state.drawer, state.baseplate, state.setup, state.bins, state.include, state.drawers, kinds, grids, boards],
   );
   const viewJob = useMemo(
-    () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } })),
+    () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } }, others)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [job, state.include.bins],
   );
@@ -305,12 +382,32 @@ export default function App() {
   const meshesIn = useSyncExternalStore(subscribeImported, importedVersion);
   const scene = useMemo<Scene>(() => {
     if (ui.tab === 'print') return platesScene(printJob, ui.plate, state.setup);
-    return drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
+    const s = drawerScene(viewJob, ui.tab === 'drawer' && ui.explode, ui.tab === 'bins', state, lidView);
+    // A board's attachment being dragged in the 3D view: shown where it would go (components/wallDrag.ts).
+    return ui.wallDrag ? { ...s, items: draggedItems(s.items, ui.wallDrag, viewJob.drawers[0]?.enclosure?.wall?.placed ?? []) } : s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [printJob, viewJob, ui.tab, ui.plate, ui.explode, ui.selectedBinId, ui.selectedBinIds, state.setup, lidView, meshesIn]);
+  }, [
+    printJob,
+    viewJob,
+    ui.tab,
+    ui.plate,
+    ui.explode,
+    ui.selectedBinId,
+    ui.selectedBinIds,
+    ui.selectedAttachment,
+    ui.selectedAttachments,
+    ui.wallDrag,
+    state.setup,
+    lidView,
+    meshesIn,
+  ]);
 
-  // Ask the worker for exactly the meshes on screen (selected bin first).
+  // Ask the worker for exactly the meshes on screen (selected bin first); the wall planner asks for its own.
+  const wallView = useWallView((s) => s.open);
+  // A tab leaves the wall planner too.
+  const pickTab = (tab: Tab) => (state.setUI({ tab }), useWallView.getState().set(false));
   useEffect(() => {
+    if (wallView) return;
     const seen = new Set<string>();
     const specs: MeshSpec[] = [];
     const ordered = [...scene.items].sort((a, b) => Number(!!b.selected) - Number(!!a.selected));
@@ -321,7 +418,7 @@ export default function App() {
       if (spec) specs.push(spec);
     }
     geometry.want(specs);
-  }, [scene, printJob, viewJob]);
+  }, [scene, printJob, viewJob, wallView]);
 
   useOpenSharedProject();
   const selection = useSelectedIds();
@@ -356,9 +453,64 @@ export default function App() {
     () => geometry.queueLength,
   );
   const printer = findPrinter(state.setup.printerId);
+  // A Skådis board (geometry/skadis.ts): its own Drawer tab, no bins.
+  const board = state.drawer.enclosure === 'skadis';
+  // An openGrid or Multiboard board: its own tab, no bins, no attachments of Gridfit's.
+  const gridBoard = isGridBoard(state.drawer.enclosure) ? state.drawer.enclosure : null;
+  const boardInfo = board ? job.drawers[0]?.enclosure?.info.skadis : undefined;
+  // A board whose planning is still loading (lib/skadisBoards.ts, lib/gridBoards.ts): nothing to count yet.
+  const boardPending = (board && !boardInfo) || (!!gridBoard && !job.drawers[0]?.enclosure?.info.grid);
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
   const coarse = useCoarsePointer();
+  // A board's attachments drag in the 3D view too, over the board's front (components/wallDrag.ts): on its
+  // Attachments tab, and on its board tab unless the tiles are spread apart.
+  const wall = board ? viewJob.drawers[0]?.enclosure?.wall : undefined;
+  // A board built from tiles: where they are (geometry/skadis.ts SkadisPlan.grid).
+  const tileGrid = board ? viewJob.drawers[0]?.enclosure?.info.skadis?.grid : undefined;
+  const wallKeys = useMemo(() => (wall ? slotKeys(wall.board.slots) : null), [wall?.board.slots]);
+  // Where the anchor is from the pointer, from the press on, and the selected parts that move with it.
+  const grab = useRef<{ id: string; at: Vec2; group: string[] } | null>(null);
+  const drag: ViewerDrag | undefined =
+    wall && wallKeys && (ui.tab === 'bins' || (ui.tab === 'drawer' && !ui.explode))
+      ? {
+          can: (id) => wall.placed.some((p) => p.id === id),
+          planeZ: wall.board.front,
+          start: (id, x, y) => {
+            const p = wall.placed.find((q) => q.id === id);
+            const sel = attachmentSelection(useStore.getState().ui);
+            grab.current = p ? { id, at: grabOffset(p, x, y), group: sel.includes(id) ? sel : [id] } : null;
+            if (p && ui.tab === 'bins') state.setUI({ selectedAttachment: id, ...(sel.includes(id) ? {} : { selectedAttachments: [id] }) });
+          },
+          move: (id, x, y) => {
+            const p = wall.placed.find((q) => q.id === id);
+            const g = grab.current;
+            if (!p || g?.id !== id) return;
+            const parts = wall.placed.filter((q) => g.group.includes(q.id));
+            // Several move together once their math has loaded (it has, with the first board).
+            const moves = parts.length > 1 ? arrange?.dragGroup(wall.board, wallKeys, parts, id, x + g.at[0], y + g.at[1]) : null;
+            const held = moves?.find((m) => m.id === id);
+            const next = held
+              ? { ...held, group: moves!.filter((m) => m !== held) }
+              : parts.length > 1
+                ? null
+                : wallDragAt(wall.board, wallKeys, p, g.at, x, y);
+            if (next && !sameDrag(next, useStore.getState().ui.wallDrag)) state.setUI({ wallDrag: next });
+          },
+          end: (_, moved) => {
+            grab.current = null;
+            const clear = () => {
+              if (useStore.getState().ui.wallDrag) state.setUI({ wallDrag: null });
+            };
+            const moves = moved ? dragMoves(useStore.getState().ui.wallDrag) : [];
+            if (!moves.some((m) => wall.placed.some((p) => p.id === m.id && (p.x !== m.x || p.y !== m.y)))) return clear();
+            // The drag clears once they have moved, so they never show back where they were.
+            void loadWallEdits()
+              .then((m) => m.moveAttachments(moves))
+              .finally(clear);
+          },
+        }
+      : undefined;
   // Multi-colour: the filament slots on screen.
   const legend = useMemo(() => colourLegend(ui.tab === 'print' ? printJob : viewJob), [ui.tab, printJob, viewJob]);
   const phone3d = usePhoneView((s) => s.view3d);
@@ -380,14 +532,17 @@ export default function App() {
         fitKey={focusing ? `focus-${ui.selectedBinId}-${scene.fitKey}` : scene.fitKey}
         fitIds={focusing ? [ui.selectedBinId!] : undefined}
         legend={legend}
-        onPick={ui.tab === 'bins' ? (id) => state.setUI({ selectedBinId: id }) : undefined}
+        onPick={
+          ui.tab === 'bins' ? (id) => state.setUI(board ? { selectedAttachment: id, selectedAttachments: id ? [id] : [] } : { selectedBinId: id }) : undefined
+        }
+        drag={drag}
         hint={
           coarse
-            ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? ' · tap a bin to select it' : ''}`
-            : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? ' · click a bin to select' : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
+            ? `Drag to orbit · pinch to zoom · drag with two fingers to pan${ui.tab === 'bins' ? (board ? ' · tap an attachment, then drag it to move it' : ' · tap a bin to select it') : ''}`
+            : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? (board ? ' · drag an attachment to move it' : ' · click a bin to select') : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
         }
       >
-        {ui.tab === 'bins' && (
+        {ui.tab === 'bins' && !board && !gridBoard && (
           <div className="viewer-tools">
             {haveNote}
             <button className={!focusing ? 'active' : ''} onClick={() => setFocusSel(false)}>
@@ -419,7 +574,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app${phone3d ? ' phone-3d' : ''}`}>
+    <div className={`app${phone3d ? ' phone-3d' : ''}${wallView ? ' wall-view' : ''}`}>
       <header className="topbar">
         <div className="brand">
           <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden>
@@ -435,9 +590,17 @@ export default function App() {
         <DrawerSwitcher />
         <nav className="tabs" role="tablist">
           {TABS.map((t, i) => (
-            <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => state.setUI({ tab: t.id })}>
+            <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => pickTab(t.id)}>
               <span className="tab-num">{i + 1}</span>
-              {t.label}
+              {gridBoard && t.id !== 'print'
+                ? t.id === 'drawer'
+                  ? GRID_BOARD_NAMES[gridBoard]
+                  : 'Attachments'
+                : board && t.id === 'drawer'
+                  ? 'Skådis board'
+                  : board && t.id === 'bins'
+                    ? 'Attachments'
+                    : t.label}
             </button>
           ))}
         </nav>
@@ -461,22 +624,62 @@ export default function App() {
             {state.setup.printers ? printerNames(state.setup).map(shortName).join(' + ') : `${printer.name} · ${state.setup.bedW}×${state.setup.bedD}`}
           </span>
           <span className="chip">
-            {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} ·{' '}
-            {job.drawers[0]?.haveBaseplate ? 'just bins' : `${job.plan.pieces.length} pieces`} ·{' '}
-            {printJob.plates.length} plates
+            {boardPending ? (
+              <>{gridBoard ? GRID_BOARD_NAMES[gridBoard] : 'Skådis board'} · …</>
+            ) : board ? (
+              <>
+                Skådis · {job.drawers[0]?.haveBaseplate ? 'just attachments' : `${boardInfo?.tiles ?? 0} ${boardInfo?.shape === 'hex' ? 'hexagons' : 'tiles'}`} ·{' '}
+                {state.drawer.attachments?.length ?? 0} attachments ·{' '}
+              </>
+            ) : gridBoard ? (
+              <>
+                {GRID_BOARD_NAMES[gridBoard].replace(' board', '')} · {job.drawers[0]?.enclosure?.info.grid?.tiles ?? 0} tiles ·{' '}
+              </>
+            ) : (
+              <>
+                {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} ·{' '}
+                {job.drawers[0]?.haveBaseplate ? 'just bins' : `${job.plan.pieces.length} pieces`} ·{' '}
+              </>
+            )}
+            {!boardPending && `${printJob.plates.length} plates`}
           </span>
           <ShortcutsHelp />
         </div>
       </header>
 
-      <div className="body">
+      {wallView && (
+        <LazyPart scope="The wall planner">
+          <WallPlanner drawerScene={drawerScene} />
+        </LazyPart>
+      )}
+      <div className="body" hidden={wallView}>
         <aside className="sidebar">
-          {ui.tab === 'drawer' && <DrawerPanel job={job} />}
-          {ui.tab === 'bins' && (
-            <LazyPart scope="The Bins panel">
-              <BinPanel job={viewJob} />
-            </LazyPart>
-          )}
+          {ui.tab === 'drawer' &&
+            (board ? (
+              <LazyPart scope="The Skådis board panel">
+                <SkadisPanel job={job} />
+              </LazyPart>
+            ) : gridBoard ? (
+              <LazyPart scope="The board panel">
+                <GridBoardPanel job={job} />
+              </LazyPart>
+            ) : (
+              <DrawerPanel job={job} />
+            ))}
+          {ui.tab === 'bins' &&
+            (board ? (
+              <LazyPart scope="The Attachments panel">
+                <WallPanel job={viewJob} />
+              </LazyPart>
+            ) : gridBoard ? (
+              <LazyPart scope="The Attachments panel">
+                <GridBoardAttachments />
+              </LazyPart>
+            ) : (
+              <LazyPart scope="The Bins panel">
+                <BinPanel job={viewJob} />
+              </LazyPart>
+            ))}
           {ui.tab === 'print' && (
             <LazyPart scope="The Print panel">
               <PrintPanel job={printJob} />
@@ -484,7 +687,21 @@ export default function App() {
           )}
         </aside>
         <main className={`main main-${ui.tab}`}>
-          {ui.tab === 'bins' ? (
+          {ui.tab === 'bins' && board ? (
+            <div className="split">
+              <div className="pane pane-2d">
+                <div className="pane-head">
+                  <div className="pane-title">The board from the front: drag attachments onto the slots</div>
+                </div>
+                {viewJob.drawers[0]?.enclosure?.wall && (
+                  <LazyPart scope="The board editor">
+                    <WallEditor board={viewJob.drawers[0].enclosure.wall.board} placed={viewJob.drawers[0].enclosure.wall.placed} job={viewJob} />
+                  </LazyPart>
+                )}
+              </div>
+              <div className="pane pane-3d">{viewer}</div>
+            </div>
+          ) : ui.tab === 'bins' && !gridBoard ? (
             <div className="split">
               <div className="pane pane-2d">
                 <BinPaneHeader />
@@ -512,6 +729,15 @@ export default function App() {
                     tints={tints}
                   />
                 )}
+              </div>
+              <div className="pane pane-3d">{viewer}</div>
+            </div>
+          ) : ui.tab === 'drawer' && tileGrid && wall ? (
+            <div className="split">
+              <div className="pane pane-2d">
+                <LazyPart scope="The board's tiles">
+                  <BoardTiles grid={tileGrid} board={wall.board} placed={wall.placed} hex={boardInfo?.shape === 'hex'} job={viewJob} />
+                </LazyPart>
               </div>
               <div className="pane pane-3d">{viewer}</div>
             </div>

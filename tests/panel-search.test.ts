@@ -3,11 +3,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { allEntries, basicIds, findTerms, hitTitles, searchIndex, stem, termMatches, visibleIds, type FindEntry } from '../src/lib/panelSearch';
 import { BIN_INDEX, DRAWER_INDEX, PRINT_INDEX } from '../src/components/panelIndex';
+import { SKADIS_INDEX } from '../src/components/skadisIndex';
 
 const PANELS: [string, FindEntry[]][] = [
   ['bins', BIN_INDEX],
   ['drawer', DRAWER_INDEX],
   ['print', PRINT_INDEX],
+  ['skadis', SKADIS_INDEX],
 ];
 
 /** Ids a search turns up by themselves. */
