@@ -50,3 +50,8 @@ import './kinds/bottleRack.ui';
 import './kinds/stickRack.ui';
 import './kinds/holster.ui';
 import './kinds/gripper.ui';
+import './kinds/tiltBin.ui';
+import './kinds/lidBox.ui';
+import './kinds/cabinet.ui';
+import './kinds/swivelTower.ui';
+import './kinds/foldHook.ui';

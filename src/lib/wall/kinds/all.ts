@@ -49,6 +49,11 @@ import './bottleRack';
 import './stickRack';
 import './holster';
 import './gripper';
+import './tiltBin';
+import './lidBox';
+import './cabinet';
+import './swivelTower';
+import './foldHook';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();

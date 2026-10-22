@@ -56,6 +56,11 @@ import { bottleRackBuilder } from './kinds/bottleRack.geom';
 import { stickRackBuilder } from './kinds/stickRack.geom';
 import { holsterBuilder } from './kinds/holster.geom';
 import { gripperBuilder } from './kinds/gripper.geom';
+import { tiltBinBuilder } from './kinds/tiltBin.geom';
+import { lidBoxBuilder } from './kinds/lidBox.geom';
+import { cabinetBuilder } from './kinds/cabinet.geom';
+import { swivelTowerBuilder } from './kinds/swivelTower.geom';
+import { foldHookBuilder } from './kinds/foldHook.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -118,6 +123,11 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   stickRack: stickRackBuilder as AttachmentBuilder<never>,
   holster: holsterBuilder as AttachmentBuilder<never>,
   gripper: gripperBuilder as AttachmentBuilder<never>,
+  tiltBin: tiltBinBuilder as AttachmentBuilder<never>,
+  lidBox: lidBoxBuilder as AttachmentBuilder<never>,
+  cabinet: cabinetBuilder as AttachmentBuilder<never>,
+  swivelTower: swivelTowerBuilder as AttachmentBuilder<never>,
+  foldHook: foldHookBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {
