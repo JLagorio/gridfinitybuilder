@@ -60,7 +60,8 @@ const notched = () => imported((s) => s.t(cube(s, 0, 0, 0, 80, 30, 100).subtract
 function body(o: ModelOptions, run: (m: Manifold) => void) {
   const s = new Scope();
   try {
-    run(modelBuilder.body(w, s, o, def().layout(o, CTX), CTX));
+    const out = modelBuilder.body(w, s, o, def().layout(o, CTX), CTX);
+    run('inlays' in out ? out.body : out);
   } finally {
     s.dispose();
   }
