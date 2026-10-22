@@ -51,6 +51,32 @@ export interface PlacedAttachment {
   labelFrom?: 'contents';
   /** What it's printed in, for what it holds (load.ts); unset: PLA. */
   material?: 'pla' | 'petg' | 'asa';
+  /**
+   * The Gridfinity bin it holds (kinds with AttachmentDef.follow): planning sizes it from that bin (follow.ts), so it
+   * follows when the bin changes; its `opts` keep the size it had last, for when the bin is gone.
+   */
+  follow?: BinLink;
+}
+
+/** A bin in this project: its drawer's id and its own. */
+export interface BinLink {
+  drawer: string;
+  bin: string;
+}
+
+/** What an attachment that holds a bin is sized from (follow.ts heldBin). */
+export interface HeldBin {
+  /** Its footprint in 42 mm grid cells, across and front to back: a fraction for a half-grid bin, a stretched one or one on part cells. */
+  cellsX: number;
+  cellsY: number;
+  /** Its height without the lip, in 7 mm units (a fraction when it's given in mm). */
+  units: number;
+  /** Its outside, mm: across, front to back and up, its lip included. */
+  w: number;
+  d: number;
+  h: number;
+  /** It has a stacking lip. */
+  lip: boolean;
 }
 
 /** The label its contents give an attachment: its one item, a few short ones ("Nozzles, Wipes"), else the first; '' when none. */
@@ -264,6 +290,8 @@ export interface AttachmentDef<O extends object = Record<string, unknown>> {
   inlaid?(o: O): boolean;
   /** What it's meant to hold (load.ts sets it against what its mounts take). Unset: only what its mounts take, for a load halfway out. */
   load?(o: O, layout: AttachmentLayout): AttachmentLoad;
+  /** Sized to hold a Gridfinity bin (PlacedAttachment.follow): the options that bin sets. Unset: it can't hold one. */
+  follow?(o: O, bin: HeldBin): Partial<O>;
 }
 
 /** What an attachment is meant to hold, about, kg (0: anything, so only where it hangs counts), and how far out from the board's front its centre sits, mm. */

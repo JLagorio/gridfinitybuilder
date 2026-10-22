@@ -356,13 +356,15 @@ export default function App() {
   useEffect(() => {
     if (hasBoard) void Promise.all([loadKinds(), loadArrange().then((m) => (arrange = m))]);
   }, [hasBoard]);
+  // A board's attachments that hold a bin find it in the other drawers (lib/wall/follow.ts).
+  const held = { drawers: state.drawers };
   const job = useMemo(
-    () => planJob(project),
+    () => planJob(project, held),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.drawer, state.baseplate, state.setup, state.bins, state.include, kinds, grids],
+    [state.drawer, state.baseplate, state.setup, state.bins, state.include, state.drawers, kinds, grids],
   );
   const viewJob = useMemo(
-    () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } })),
+    () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } }, held)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [job, state.include.bins],
   );

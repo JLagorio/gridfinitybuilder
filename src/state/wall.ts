@@ -13,6 +13,8 @@ import { attachmentLayout, nearestSlot, slotKeys, snapAnchor, type WallBoard, ty
 import { placeAttachments, type Box } from '../lib/wall/place';
 import { partBounds } from '../lib/wall/mount';
 import { align, bounds, distribute, fitMoves, pasteSpot, type AlignHow } from '../lib/wall/arrange';
+// Attachments that hold a bin follow it (sizes kept in step as the project changes).
+import './follow';
 
 const list = () => useStore.getState().drawer.attachments ?? [];
 

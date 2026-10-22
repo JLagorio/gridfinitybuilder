@@ -16,7 +16,7 @@
  * it on, studs in the other slots keep it straight.
  */
 import { backMounts } from '../mount';
-import { addStuds } from './grid';
+import { addStuds, cellsFor } from './grid';
 import { int, obj, pick, registerAttachment } from '../registry';
 import { GRID, HEIGHT_UNIT, LIP_HEIGHT, LIP_TOP_FLAT } from '../../geometry/spec';
 
@@ -68,4 +68,9 @@ registerAttachment<GridClipOptions>({
   notes: (o) => (o.style === 'lip' && o.units > 12 ? ['A bin this tall is heavy for its lip when full: the cradle carries it from below.'] : []),
   // A bin of screws, about 0.3 kg a cell 6 units tall, hanging in front: its middle half a cell out.
   load: (o, l) => ({ kg: (0.3 * o.cells * o.units) / 6, at: l.depth + GRID / 2 }),
+  // Its bin's width (inside its corners) and height; one without a lip, or between units, hangs in the cradle: the catch would miss.
+  follow(_, b) {
+    const units = cellsFor(b.units);
+    return { cells: cellsFor(b.cellsX, true), units, ...(b.lip && units - b.units < 1e-6 ? {} : { style: 'cradle' as const }) };
+  },
 });

@@ -8,6 +8,8 @@ import type { Vec2 } from '../geometry/kernel';
 import { lockKey, mountBox, partBounds, printedSize, siteAt, viewTurn } from './mount';
 import { attachmentDef, type AttachmentDef, type MountCtx, type PlacedAttachment } from './index';
 import { attachmentLayout, fitsAt, keyOf, labelRelief, nearestSlot, planExtras, slotKeys, type WallBoard, type WallPlacement } from './plan';
+import { holding } from './follow';
+import type { NamedDrawer } from '../project';
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -66,15 +68,22 @@ export function nearestFit(
 /**
  * Plans a board's attachments. Each stays on the slot it was put on (its anchor; one saved off the slots, from
  * before the board changed, goes to the nearest): where its mounts don't all find slots there it isn't ok, shows
- * red, and `fit` says the nearest spot where it would fit, for the board editor to offer.
+ * red, and `fit` says the nearest spot where it would fit, for the board editor to offer. With the project's
+ * `drawers`, one that holds a bin is sized from it (follow.ts).
  */
-export function placeAttachments(list: readonly PlacedAttachment[], board: WallBoard): { placed: WallPlacement[]; warnings: string[] } {
+export function placeAttachments(
+  list: readonly PlacedAttachment[],
+  board: WallBoard,
+  drawers?: readonly NamedDrawer[],
+): { placed: WallPlacement[]; warnings: string[] } {
   const keys = slotKeys(board.slots);
   const warnings: string[] = [];
   const placed: WallPlacement[] = [];
   // How high each takes the board (its lock keys stand above it), wall y.
   const tops: number[] = [];
-  for (const a of list) {
+  for (const own of list) {
+    const held = drawers && holding(own, drawers);
+    const a = held ? { ...own, opts: held.opts } : own;
     const def = attachmentDef(a.type);
     const l = attachmentLayout(a, board.ctx);
     if (!def || !l) {
@@ -82,6 +91,7 @@ export function placeAttachments(list: readonly PlacedAttachment[], board: WallB
       continue;
     }
     const name = a.name?.trim() || def.summary(l.opts as never);
+    if (held?.note) warnings.push(`${name}: ${held.note}`);
     const at = keys.has(keyOf(a.x, a.y)) ? ([a.x, a.y] as Vec2) : nearestSlot(board.slots, a.x, a.y);
     const ok = !!at && fitsAt(keys, l.layout, board.ctx, at[0], at[1]);
     const [x, y] = at ?? [a.x, a.y];

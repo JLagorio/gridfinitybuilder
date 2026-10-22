@@ -23,7 +23,7 @@
 import { backMounts, minHeight } from '../mount';
 import { bool, int, num, obj, pick, registerAttachment, type AttachmentLayout, type MountCtx } from '../registry';
 import { GRID } from '../../geometry/spec';
-import { GRID_TOP, addStuds, gridMagnets } from './grid';
+import { GRID_TOP, addStuds, cellsFor, gridMagnets } from './grid';
 
 export interface GridShelfOptions {
   cellsX: number;
@@ -98,4 +98,6 @@ registerAttachment<GridShelfOptions>({
   },
   // A bin of screws or bits on every cell, about 0.3 kg.
   load: (o, l) => ({ kg: 0.3 * o.cellsX * o.cellsY, at: l.depth / 2 }),
+  // Just its bin's footprint.
+  follow: (_, b) => ({ cellsX: cellsFor(b.cellsX), cellsY: cellsFor(b.cellsY) }),
 });

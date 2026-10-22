@@ -33,6 +33,7 @@ import { ModelField } from './ModelField';
 import { AttachmentContentsField, AttachmentLabelField } from './WallContents';
 import { StartFromTemplate } from './BoardTemplatesButton';
 import { OutlinesField } from './WallOutlines';
+import { HoldsField, useHeldKeys } from './WallHolds';
 import './wall.css';
 
 /**
@@ -56,6 +57,8 @@ export function WallPanel({ job }: { job: PrintJob }) {
   useSyncExternalStore(subscribeClip, clipVersion);
   const placed = wall?.placed.find((p) => p.id === selected) ?? null;
   const def = sel ? attachmentDef(sel.type) : null;
+  // The options the bin it holds sets (WallHolds.tsx).
+  const held = useHeldKeys(sel);
   const [query, setQuery] = useState('');
   const [closed, setClosed] = useState<Set<AttachmentGroup>>(() => new Set());
 
@@ -98,7 +101,8 @@ export function WallPanel({ job }: { job: PrintJob }) {
           />
           <AttachmentContentsField a={sel} />
           {placed && <CommonFields a={sel} def={def} placed={placed} ctx={wall.board.ctx} />}
-          <AttachmentFields def={def} ui={attachmentUi(sel.type)} opts={sel.opts} onChange={(p) => setAttachmentOpts(sel.id, p)} />
+          <HoldsField a={sel} def={def} />
+          <AttachmentFields def={def} ui={attachmentUi(sel.type)} opts={sel.opts} held={held} onChange={(p) => setAttachmentOpts(sel.id, p)} />
           {placed && (
             <div className="field-hint">
               {fmt(placed.x1 - placed.x0)} wide × {fmt(placed.y1 - placed.y0)} high, {fmt(placed.depth)} out from the board.{' '}
@@ -384,12 +388,28 @@ export function AttachmentFields({
   ui,
   opts,
   onChange,
+  held,
 }: {
   def: AttachmentDef<object>;
   ui: AttachmentUi | null;
   opts: Record<string, unknown>;
   onChange: (p: Record<string, unknown>) => void;
+  /** The options the bin it holds sets (PlacedAttachment.follow): shown first, as set, not to be edited. */
+  held?: ReadonlySet<string>;
 }) {
+  if (held?.size && ui) {
+    const set = (f: AttachmentField) => held.has(f.key) || (f.kind === 'preset' && f.presets.some((p) => Object.keys(p.set).some((k) => held.has(k))));
+    const part = (fields: AttachmentField[]) => ({ ...ui, fields });
+    const fixed = ui.fields.filter(set).map((f) => ({ ...f, hint: 'Set by the bin it holds.' }) as AttachmentField);
+    return (
+      <>
+        <fieldset className="wall-held" disabled style={{ border: 0, padding: 0, margin: 0, minWidth: 0, opacity: 0.7 }}>
+          <AttachmentFields def={def} ui={part(fixed)} opts={opts} onChange={onChange} />
+        </fieldset>
+        <AttachmentFields def={def} ui={part(ui.fields.filter((f) => !set(f)))} opts={opts} onChange={onChange} />
+      </>
+    );
+  }
   const o = def.sanitize(opts) as Record<string, unknown>;
   const show = (f: AttachmentField) => !f.when || (f.when as (v: object) => boolean)(o);
   return (

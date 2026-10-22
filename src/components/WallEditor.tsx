@@ -26,6 +26,7 @@ import {
 import { isMod, isTyping, keyLetter } from './shortcuts';
 import { isTouch, tapSlop } from './touch';
 import { dragMoves } from './wallDrag';
+import { useHeldKeys } from './WallHolds';
 import './wall.css';
 
 /** A resize in progress: which edge, where it started, the options that size the part, and its left and top edges (they stay put). */
@@ -107,10 +108,13 @@ export function WallEditor({ board, placed }: { board: WallBoard; placed: WallPl
 
   /** The selected part's size handles (a single selection): which options size it (none for a part no option sizes). */
   const single = sel.length === 1 ? (placed.find((p) => p.id === sel[0]) ?? null) : null;
+  // Not by the options the bin it holds sets (WallHolds.tsx).
+  const held = useHeldKeys(useStore((s) => (single && s.drawer.attachments?.find((a) => a.id === single.id)) || null));
   const axes = useMemo(() => {
     const def = single && attachmentDef(single.type);
-    return def && single ? resizeAxes(def, attachmentUi(single.type), single.opts, board.ctx) : { w: null, h: null };
-  }, [single, board.ctx]);
+    const a = def && single ? resizeAxes(def, attachmentUi(single.type), single.opts, board.ctx) : { w: null, h: null };
+    return held ? { w: a.w && !held.has(a.w.key) ? a.w : null, h: a.h && !held.has(a.h.key) ? a.h : null } : a;
+  }, [single, board.ctx, held]);
 
   /** What a resize would make of a part: its options, front view and mounts, its left and top edges where they were. */
   const resizedView = (p: WallPlacement, r: Resize) => {

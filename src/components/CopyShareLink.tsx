@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { projectFile, useStore } from '../state/store';
 import { shareUrl } from '../lib/share';
 import { shareableProject } from '../lib/externalShare';
+import { dropLostLinks } from '../lib/wall/follow';
 
 /** Copies a link that holds the whole project (lib/share.ts). Imported bins and models go in it as boxes of their size: a link can't hold meshes. */
 export function CopyShareLink() {
   const [status, setStatus] = useState<string | null>(null);
   const copy = async () => {
-    const { file, dropped, models } = shareableProject(projectFile(useStore.getState()));
+    // A board's link to a bin that's gone isn't shared (lib/wall/follow.ts).
+    const { file, dropped, models } = shareableProject(dropLostLinks(projectFile(useStore.getState())));
     const url = shareUrl(file, window.location.href);
     const size = url.length > 1500 ? ` (${Math.round(url.length / 100) / 10} k characters)` : '';
     const what = [

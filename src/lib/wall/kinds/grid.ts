@@ -13,6 +13,12 @@ export const GRID_FLOOR = 3;
 /** From the bottom of the floor to the top of the receptacles, mm: 3 + 0.35 + 4.65 − 0.4. */
 export const GRID_TOP = GRID_FLOOR + BP_BOTTOM_CLEARANCE + BP_PROFILE_HEIGHT - 0.4;
 
+/**
+ * Whole cells for a bin's footprint of `n` cells (follow.ts HeldBin: a fraction for a half-grid bin or one on part
+ * cells): up for what it stands in, `down` for what fits inside it.
+ */
+export const cellsFor = (n: number, down = false) => (down ? Math.floor(n + 1e-6) : Math.ceil(n - 1e-6));
+
 /** Four magnets a cell, when the pockets are on. */
 export const gridMagnets = (on: boolean, cells: number, what: string, note?: string): AttachmentHardware[] =>
   on ? [{ item: `Magnets 6 × 2 mm (${what})`, count: 4 * cells, ...(note ? { note } : {}) }] : [];

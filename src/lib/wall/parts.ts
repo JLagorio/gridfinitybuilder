@@ -9,8 +9,9 @@ import { attachmentDef } from './registry';
 import { MOUNT_PARTS, attachmentKey, mountParts } from './plan';
 import { attachmentView, placeAttachments } from './place';
 
-export const planWallParts: WallParts = ({ list, board, drawer, prefix, label, bins, meshes, parts, binItems, items, warn }) => {
-  const { placed, warnings } = placeAttachments(list, board);
+export const planWallParts: WallParts = ({ list, board, drawer, prefix, label, bins, meshes, parts, binItems, items, warn, drawers }) => {
+  // Those that hold a bin (follow.ts) are sized from it, among the project's drawers.
+  const { placed, warnings } = placeAttachments(list, board, drawers);
   for (const msg of warnings) warn(msg);
   const ctx = board.ctx;
   for (const p of placed) {

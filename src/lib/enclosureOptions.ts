@@ -4,7 +4,7 @@ import { sanitizeWall } from './geometry/wallmount';
 import { sanitizeSpacers } from './geometry/spacers';
 import { sanitizeSkadis } from './geometry/skadis';
 import { isGridBoard } from './gridBoards';
-import type { PlacedAttachment } from './wall/registry';
+import type { BinLink, PlacedAttachment } from './wall/registry';
 import { sanitizeContents } from './inventory';
 
 /**
@@ -51,6 +51,7 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
     seen.add(id);
     const opts = r.opts && typeof r.opts === 'object' && !Array.isArray(r.opts) ? { ...(r.opts as Record<string, unknown>) } : {};
     const contents = sanitizeContents(r.contents);
+    const f = r.follow as Partial<BinLink> | null | undefined;
     out.push({
       id,
       type: r.type,
@@ -69,6 +70,8 @@ export function cleanAttachments(raw: unknown): PlacedAttachment[] {
       ...(contents ? { contents } : {}),
       ...(r.labelFrom === 'contents' ? { labelFrom: 'contents' as const } : {}),
       ...(r.material === 'pla' || r.material === 'petg' || r.material === 'asa' ? { material: r.material } : {}),
+      // The bin it holds (wall/follow.ts): its drawer's id and its own.
+      ...(typeof f?.drawer === 'string' && typeof f.bin === 'string' && f.bin ? { follow: { drawer: f.drawer, bin: f.bin } } : {}),
     });
   }
   return out;

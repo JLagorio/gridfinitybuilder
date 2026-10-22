@@ -299,6 +299,8 @@ export interface PlanPrintOptions {
   onlyChanged?: boolean;
   /** A part's print seconds on printer `i` (start sequence left out) once it's sliced, for sharing parts out between printers. */
   seconds?: (part: JobPart, printer: number) => number | undefined;
+  /** Every drawer in the project, when only some are planned: a board's attachment that holds a bin finds it there (wall/follow.ts). */
+  drawers?: readonly NamedDrawer[];
 }
 
 /**
@@ -387,8 +389,8 @@ export function binUnitsText(layout: Pick<GridLayout, 'halfGrid'>, o: Pick<BinOp
 }
 
 /** Everything about the print except the geometry itself. Cheap; safe to call on every edit. */
-export function planJob(state: ProjectState): PrintJob {
-  return planPrint([{ id: '', name: '', drawer: state.drawer, baseplate: state.baseplate, bins: state.bins }], state.setup, state.include);
+export function planJob(state: ProjectState, opts?: PlanPrintOptions): PrintJob {
+  return planPrint([{ id: '', name: '', drawer: state.drawer, baseplate: state.baseplate, bins: state.bins }], state.setup, state.include, opts);
 }
 
 /**
@@ -602,7 +604,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         // Until the kinds and their planning have loaded (wall/ready.ts, wall/parts.ts) the board plans bare; App plans again once they're in.
         const placed =
           wallParts && kindsReady()
-            ? wallParts({ list: d.drawer.attachments ?? [], board: enc.wall, drawer: d.id, prefix, label, bins: include.bins, meshes, parts, binItems, items, warn })
+            ? wallParts({ list: d.drawer.attachments ?? [], board: enc.wall, drawer: d.id, prefix, label, bins: include.bins, meshes, parts, binItems, items, warn, drawers: opts.drawers ?? drawers })
             : [];
         drawerJobs[drawerJobs.length - 1].enclosure = { ...scene, wall: { board: enc.wall, placed }, items };
       }
@@ -948,6 +950,8 @@ export type WallParts = (a: {
   binItems: PackItem[];
   items: EnclosureSceneItem[];
   warn: (msg: string) => void;
+  /** The project's drawers, for attachments that hold a bin (wall/follow.ts). */
+  drawers: readonly NamedDrawer[];
 }) => WallPlacement[];
 
 /**

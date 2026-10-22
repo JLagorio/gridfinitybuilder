@@ -120,4 +120,6 @@ registerAttachment<BoxSleeveOptions>({
   },
   // A box of gloves, bags or cards: about half a kilo a litre.
   load: (o, l) => ({ kg: 0.5 * o.width * o.depth * o.height * KG.full, at: l.depth / 2 }),
+  // A Gridfinity bin is a box too: its outside.
+  follow: (_, b) => ({ width: b.w, depth: b.d, height: b.h }),
 });

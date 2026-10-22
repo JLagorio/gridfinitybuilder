@@ -17,7 +17,7 @@ import { backMounts } from '../mount';
 import { bool, int, obj, registerAttachment } from '../registry';
 import { GRID } from '../../geometry/spec';
 import { DEFAULT_WALL, WALL } from '../../geometry/wallmount';
-import { GRID_TOP, gridMagnets } from './grid';
+import { GRID_TOP, cellsFor, gridMagnets } from './grid';
 
 export interface GridPlateOptions {
   cellsX: number;
@@ -59,4 +59,6 @@ registerAttachment<GridPlateOptions>({
   hardware: (o) => gridMagnets(o.magnets, o.cellsX * o.cellsY, 'Gridfinity wall plate', 'bins need them too'),
   // A bin of screws or bits on every cell, about 0.3 kg, standing a cell out from the plate.
   load: (o) => ({ kg: 0.3 * o.cellsX * o.cellsY, at: GRID_TOP + GRID / 2 }),
+  // Its bin's base, cells across by cells up the plate.
+  follow: (_, b) => ({ cellsX: cellsFor(b.cellsX), cellsY: cellsFor(b.cellsY) }),
 });

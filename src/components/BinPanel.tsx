@@ -39,6 +39,7 @@ import { BinColourField } from './ColourFields';
 import { ExternalBinButtons, ExternalBinPanel } from './ExternalBinPanel';
 import { externalKind, externalSize } from '../lib/external';
 import { isVaseBin } from '../lib/geometry/containers/vase';
+import { HeldOn } from './WallHolds';
 
 type FieldProps = { opts: BinOptions; onChange: (p: Partial<BinOptions>) => void };
 
@@ -399,6 +400,7 @@ export function BinPanel({ job }: { job: PrintJob }) {
         {!sel && <p className="muted small">The bins you draw next get these settings.</p>}
         {one && <TooBigNotice bin={one} layout={job.layout} bed={bed} printerName={printerName} />}
         {one && <BinChecksNotice bin={one} layout={job.layout} />}
+        {one && <HeldOn bin={one} />}
         <Find id="quick">
           <BinPresets />
         </Find>
