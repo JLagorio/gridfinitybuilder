@@ -1,7 +1,7 @@
 import { deflateSync, inflateSync } from 'fflate';
 import { fromBase64Url, toBase64Url } from '../share';
 import { decodeMesh, encodeMesh, isMeshHash, meshHash } from './format';
-import { hasImported, importedMesh, putImported } from './registry';
+import { hasImported, importedMesh, optsMeshHash, putImported } from './registry';
 import type { RawMesh } from './meshOps';
 
 /**
@@ -215,14 +215,22 @@ export async function cleanupMeshes(used: Iterable<string>, now = Date.now(), re
 // Project files
 // ---------------------------------------------------------------------------
 
-type WithBins = { bins?: { external?: { mesh?: { hash: string } } }[] };
+type WithBins = { bins?: { external?: { mesh?: { hash: string } } }[]; drawer?: { attachments?: { opts?: unknown }[] } };
 
-/** Every mesh hash a project file's drawers (and top-level bins) use. */
+/** Every mesh hash these attachments use (a board's imported models, wall/kinds/model.ts). */
+export const attachmentMeshHashes = (list: readonly { opts?: unknown }[]): string[] =>
+  list.flatMap((a) => {
+    const h = optsMeshHash(a?.opts);
+    return isMeshHash(h) ? [h] : [];
+  });
+
+/** Every mesh hash a project file's drawers (and top-level bins) use: imported bins', and imported models' on boards. */
 export function projectMeshHashes(file: WithBins & { drawers?: WithBins[] }): string[] {
   const out = new Set<string>();
   for (const list of [file.bins ?? [], ...(file.drawers ?? []).map((d) => d.bins ?? [])]) {
     for (const b of list) if (b?.external?.mesh?.hash) out.add(b.external.mesh.hash);
   }
+  for (const d of [file, ...(file.drawers ?? [])]) for (const h of attachmentMeshHashes(d.drawer?.attachments ?? [])) out.add(h);
   return [...out];
 }
 

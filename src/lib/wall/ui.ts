@@ -55,3 +55,4 @@ import './kinds/lidBox.ui';
 import './kinds/cabinet.ui';
 import './kinds/swivelTower.ui';
 import './kinds/foldHook.ui';
+import './kinds/model.ui';

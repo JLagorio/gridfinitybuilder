@@ -4,7 +4,11 @@ import type { PrintSetup } from '../lib/layout/plan';
 import type { StepAssembly } from '../lib/export/step';
 import type { MeshPrintStats } from '../lib/estimate';
 import type { WorkerRequest, WorkerResponse } from './protocol';
-import { importedMesh } from '../lib/imported/registry';
+import { hasImported, importedMesh, optsMeshHash, subscribeImported } from '../lib/imported/registry';
+
+/** The imported mesh a spec needs, by hash: an imported bin's, or an imported model's on a board (lib/wall/kinds/model.ts). */
+const meshOf = (s: MeshSpec | undefined): string | undefined =>
+  s?.kind === 'imported' ? s.hash : s?.kind === 'attachment' ? optsMeshHash(s.opts) : s?.kind === 'split' ? meshOf(s.base) : undefined;
 
 type Pending = {
   resolve: (r: WorkerResponse) => void;
@@ -62,10 +66,23 @@ class GeometryClient {
       if (msg.type === 'error') p.reject(new Error(msg.message));
       else p.resolve(msg);
     };
+    // A mesh that failed for want of its imported mesh builds again once that's in (from this browser's storage, or a file).
+    subscribeImported(() => {
+      let back = false;
+      for (const [key, hash] of this.waiting)
+        if (hasImported(hash)) {
+          this.waiting.delete(key);
+          this.errors.delete(key);
+          back = true;
+        }
+      if (back) void this.pump();
+    });
   }
 
   /** Imported meshes the worker has (imported/registry.ts), by hash. */
   private sent = new Set<string>();
+  /** Meshes that failed because the page didn't have the imported mesh they need yet: key → its hash. */
+  private waiting = new Map<string, string>();
 
   /** Send the worker the imported meshes a request needs and it doesn't have yet (the page has them in memory). */
   private sendImported(body: Body) {
@@ -75,11 +92,12 @@ class GeometryClient {
     if ('job' in body) specs.push(...Object.values(body.job.meshes));
     if ('meshes' in body) specs.push(...Object.values(body.meshes));
     for (const s of specs) {
-      if (s?.kind !== 'imported' || this.sent.has(s.hash)) continue;
-      const m = importedMesh(s.hash);
+      const hash = meshOf(s);
+      if (!hash || this.sent.has(hash)) continue;
+      const m = importedMesh(hash);
       if (!m) continue;
-      this.sent.add(s.hash);
-      this.worker.postMessage({ id: 0, type: 'put-mesh', hash: s.hash, mesh: { positions: m.positions, indices: m.indices } } satisfies WorkerRequest);
+      this.sent.add(hash);
+      this.worker.postMessage({ id: 0, type: 'put-mesh', hash, mesh: { positions: m.positions, indices: m.indices } } satisfies WorkerRequest);
     }
   }
 
@@ -160,6 +178,8 @@ class GeometryClient {
       }
     } catch (e) {
       this.errors.set(next.key, (e as Error).message);
+      const hash = meshOf(next);
+      if (hash && !hasImported(hash)) this.waiting.set(next.key, hash);
     }
     // Keep the main-thread copy bounded too.
     if (this.meshes.size > 400) {

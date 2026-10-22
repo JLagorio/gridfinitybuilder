@@ -8,6 +8,7 @@ import '../lib/wall/kinds/all';
 import { sanitizeSkadis } from '../lib/geometry/skadis';
 import type { PrintJob } from '../lib/project';
 import { addAttachment, duplicateAttachment, removeAttachment, selectAttachment, setAttachmentOpts, updateAttachment } from '../state/wall';
+import { ModelField } from './ModelField';
 import './wall.css';
 
 /**
@@ -255,6 +256,8 @@ export function AttachmentFields({
             return <Toggle key={f.key} label={f.label} checked={!!o[f.key]} hint={f.hint} onChange={set} />;
           case 'text':
             return <TextInput key={f.key} label={f.label} value={String(o[f.key] ?? '')} placeholder={f.placeholder} hint={f.hint} onChange={set} />;
+          case 'model':
+            return <ModelField key={f.key} label={f.label} value={o[f.key]} hint={f.hint} onChange={set} />;
           case 'preset': {
             // The preset whose sizes the options have now, else Custom.
             const now = f.presets.find((p) => Object.entries(def.sanitize({ ...o, ...p.set }) as Record<string, unknown>).every(([k, v]) => o[k] === v));
