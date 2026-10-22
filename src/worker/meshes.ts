@@ -11,9 +11,13 @@ import type { WorkerRequest, WorkerResponse } from './protocol';
 import { FONT_URL_PATH, registerFont } from '../lib/geometry/text';
 import { CHUNK_ERROR_MESSAGE, isChunkError } from '../pwa/chunks';
 import { putImported } from '../lib/imported/registry';
+import { setGridBoardBuilders } from '../lib/gridBoards';
+import * as gridBuild from '../lib/geometry/gridBoardBuild';
 
 // Attachments' builders: project.ts doesn't import them (the first screen would get every kind's planning).
 setWallBuilders(wallBuild);
+// openGrid and Multiboard boards' builders, likewise (lib/gridBoards.ts).
+setGridBoardBuilders(gridBuild);
 
 /**
  * The geometry worker's work: builds meshes with Manifold and answers the
@@ -46,7 +50,8 @@ function fontReady() {
 
 /** Baseplate pieces (without case walls), Skådis tiles (but those with text zones) and connector keys have no text: they don't wait for the font. */
 const textFree = (spec: MeshSpec): boolean =>
-  (spec.kind === 'piece' && (!spec.enclosure || (spec.enclosure.kind === 'skadis' && !spec.enclosure.tile.text))) ||
+  (spec.kind === 'piece' &&
+    (!spec.enclosure || (spec.enclosure.kind === 'skadis' && !spec.enclosure.tile.text) || spec.enclosure.kind === 'opengrid' || spec.enclosure.kind === 'multiboard')) ||
   spec.kind === 'key' ||
   spec.kind === 'imported' ||
   (spec.kind === 'split' && textFree(spec.base));

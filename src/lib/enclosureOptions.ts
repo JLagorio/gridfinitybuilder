@@ -3,17 +3,18 @@ import { sanitizeCase } from './geometry/case';
 import { sanitizeWall } from './geometry/wallmount';
 import { sanitizeSpacers } from './geometry/spacers';
 import { sanitizeSkadis } from './geometry/skadis';
+import { isGridBoard } from './gridBoards';
 import type { PlacedAttachment } from './wall/registry';
 
 /**
  * Clean a saved drawer's enclosure fields (carry case, wall grid, spacer
- * strips, Skådis board). Each is only kept when it was there, so drawers saved
+ * strips, Skådis, openGrid and Multiboard boards). Each is only kept when it was there, so drawers saved
  * before they existed come back exactly as they were (same layout, same mesh
  * keys).
  */
 export function cleanEnclosure(d: DrawerInput): DrawerInput {
   const out = { ...d };
-  if (out.enclosure !== 'case' && out.enclosure !== 'wall' && out.enclosure !== 'skadis') delete out.enclosure;
+  if (out.enclosure !== 'case' && out.enclosure !== 'wall' && out.enclosure !== 'skadis' && !isGridBoard(out.enclosure)) delete out.enclosure;
   const obj = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v);
   if (obj(out.carryCase)) out.carryCase = sanitizeCase(out.carryCase);
   else delete out.carryCase;
@@ -23,6 +24,11 @@ export function cleanEnclosure(d: DrawerInput): DrawerInput {
   else delete out.spacers;
   if (obj(out.skadis)) out.skadis = sanitizeSkadis(out.skadis);
   else delete out.skadis;
+  // openGrid and Multiboard boards' options are cleaned as they're planned (gridBoardPlan.ts).
+  for (const k of ['opengrid', 'multiboard'] as const) {
+    if (obj(out[k])) out[k] = { ...out[k] };
+    else delete out[k];
+  }
   const atts = cleanAttachments(out.attachments);
   if (atts.length) out.attachments = atts;
   else delete out.attachments;

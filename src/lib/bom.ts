@@ -154,8 +154,9 @@ function holesIn(split: MeshSpec | undefined): { item: string; count: number; no
   if (spec.kind === 'piece') {
     const o = spec.opts;
     const out: HardwareLine[] = [...(spec.enclosure?.hardware ?? [])];
-    // A Skådis tile is no baseplate: its screws are all in its hardware.
-    if (spec.enclosure?.kind === 'skadis') return out;
+    // A Skådis, openGrid or Multiboard tile is no baseplate: its screws are all in its hardware.
+    const k = spec.enclosure?.kind;
+    if (k === 'skadis' || k === 'opengrid' || k === 'multiboard') return out;
     // Joints are shared by two pieces: count each on one side (pins: left / front; screws: the head side).
     const low = spec.connectors.filter((s) => lowSideOf(s, spec.piece));
     if (o.connector === 'pin' && low.length) {
@@ -501,6 +502,7 @@ export const ENCLOSURE_PARTS: Record<EnclosurePartKind, [string, string]> = {
   skadisRim: ['Frame strip', 'Frame strips'],
   skadisHang: ['Part to hang it from', 'Parts to hang it from'],
   skadisCap: ['Screw cover', 'Screw covers'],
+  openGridConnector: ['openGrid connector', 'openGrid connectors'],
 };
 
 /** "2 hinge pins". */

@@ -511,7 +511,7 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
         ? { ...packIntoPlates([], keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true }), plates: piecePlates }
         : packIntoPlates(piecePlates, keys.filter(keep), { ...bed, spacing: setup.spacing, nest: true });
       packed.plates.forEach((pl, i) => {
-        const what = enc?.kind === 'case' ? 'Case body' : enc?.kind === 'skadis' ? 'Skådis board' : 'Baseplate';
+        const what = enc?.plateName ?? (enc?.kind === 'case' ? 'Case body' : enc?.kind === 'skadis' ? 'Skådis board' : 'Baseplate');
         plates.push({ name: `${label}${what} ${i + 1}`, group: 'baseplate', placements: pl.placements });
       });
       packed.extra.forEach((pl, i) => {
@@ -632,6 +632,8 @@ function planParts(drawers: NamedDrawer[], setup: PrintSetup, include: ProjectSt
       }
       continue;
     }
+    // An openGrid or Multiboard board (gridBoards.ts) has no bins.
+    if (enc?.kind === 'opengrid' || enc?.kind === 'multiboard') continue;
 
     // TPU pads (pads.ts) lift the whole plate a little.
     const lift = padStyle(bpo) ? PAD.proud : 0;

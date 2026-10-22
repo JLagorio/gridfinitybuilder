@@ -36,6 +36,7 @@ import { PhoneNav, usePhoneView } from './components/PhoneNav';
 import { externalBox, importedSpec } from './lib/external';
 import { hasImported, importedVersion, subscribeImported } from './lib/imported/registry';
 import { kindsVersion, loadKinds, subscribeKinds } from './lib/wall';
+import { GRID_BOARD_NAMES, gridBoardsVersion, isGridBoard, subscribeGridBoards } from './lib/gridBoards';
 import { slotKeys } from './lib/wall/plan';
 import { draggedItems, dropAt, grabOffset, sameDrag, wallDragAt } from './components/wallDrag';
 import type { Vec2 } from './lib/geometry/kernel';
@@ -62,6 +63,10 @@ const WallPanel = lazyNamed(loadWall, 'WallPanel');
 const WallEditor = lazyNamed(loadWallEditor, 'WallEditor');
 // Editing attachments (one undo step each): with the Attachments tab, for a drop in the 3D view.
 const loadWallEdits = once(() => import('./state/wall'));
+// openGrid and Multiboard boards (lib/gridBoards.ts): their tab's panel and the Attachments tab's note.
+const loadGridPanel = once(() => import('./components/GridBoardPanel'));
+const GridBoardPanel = lazyNamed(loadGridPanel, 'GridBoardPanel');
+const GridBoardAttachments = lazyNamed(loadGridPanel, 'GridBoardAttachments');
 
 /** The other tabs and panes, loaded in the background once the first view is up (main.tsx), so switching to one is instant. */
 export function prefetchTabs() {
@@ -269,7 +274,7 @@ function drawerScene(
     items: shiftItems(items, enc?.shift),
     outline: state.drawer.mode === 'drawer' && enc?.outline !== false ? { w: state.drawer.width, d: state.drawer.depth } : undefined,
     // The camera stays put when the lid opens or closes (a Skådis board's size is its space, not the grid's).
-    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}` : ''}${enc?.kind === 'skadis' && enc.box ? `-${enc.box.x1}x${enc.box.y1}` : ''}`,
+    fitKey: `drawer-${job.layout.plateW}-${job.layout.plateD}-${explode}${enc ? `-${enc.kind}` : ''}${(enc?.kind === 'skadis' || isGridBoard(enc?.kind)) && enc.box ? `-${enc.box.x1}x${enc.box.y1}` : ''}`,
   };
 }
 
@@ -317,6 +322,8 @@ export default function App() {
   const project = projectOf(state);
   // A board's attachments plan once their kinds have loaded (lib/wall/ready.ts): load them with the first board.
   const kinds = useSyncExternalStore(subscribeKinds, kindsVersion);
+  // An openGrid or Multiboard board plans once its planning has loaded (lib/gridBoards.ts).
+  const grids = useSyncExternalStore(subscribeGridBoards, gridBoardsVersion);
   const hasBoard = state.drawer.enclosure === 'skadis' || state.drawers.some((d) => d.drawer.enclosure === 'skadis');
   useEffect(() => {
     if (hasBoard) void loadKinds();
@@ -324,7 +331,7 @@ export default function App() {
   const job = useMemo(
     () => planJob(project),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.drawer, state.baseplate, state.setup, state.bins, state.include, kinds],
+    [state.drawer, state.baseplate, state.setup, state.bins, state.include, kinds, grids],
   );
   const viewJob = useMemo(
     () => (state.include.bins ? job : planJob({ ...project, include: { ...project.include, bins: true } })),
@@ -410,6 +417,8 @@ export default function App() {
   const printer = findPrinter(state.setup.printerId);
   // A Skådis board (geometry/skadis.ts): its own Drawer tab, no bins.
   const board = state.drawer.enclosure === 'skadis';
+  // An openGrid or Multiboard board: its own tab, no bins, no attachments of Gridfit's.
+  const gridBoard = isGridBoard(state.drawer.enclosure) ? state.drawer.enclosure : null;
   const boardInfo = board ? job.drawers[0]?.enclosure?.info.skadis : undefined;
   const [focusSel, setFocusSel] = useState(false);
   const focusing = ui.tab === 'bins' && focusSel && !!ui.selectedBinId;
@@ -478,7 +487,7 @@ export default function App() {
             : `Drag to orbit (all the way under) · right-drag to pan · scroll to zoom${ui.tab === 'bins' ? (board ? ' · drag an attachment to move it' : ' · click a bin to select') : ''} · C section · M measure · X x-ray${ui.tab === 'bins' ? ' · L lift' : ''}`
         }
       >
-        {ui.tab === 'bins' && !board && (
+        {ui.tab === 'bins' && !board && !gridBoard && (
           <div className="viewer-tools">
             {haveNote}
             <button className={!focusing ? 'active' : ''} onClick={() => setFocusSel(false)}>
@@ -528,7 +537,15 @@ export default function App() {
           {TABS.map((t, i) => (
             <button key={t.id} role="tab" aria-selected={ui.tab === t.id} className={ui.tab === t.id ? 'active' : ''} onClick={() => state.setUI({ tab: t.id })}>
               <span className="tab-num">{i + 1}</span>
-              {board && t.id === 'drawer' ? 'Skådis board' : board && t.id === 'bins' ? 'Attachments' : t.label}
+              {gridBoard && t.id !== 'print'
+                ? t.id === 'drawer'
+                  ? GRID_BOARD_NAMES[gridBoard]
+                  : 'Attachments'
+                : board && t.id === 'drawer'
+                  ? 'Skådis board'
+                  : board && t.id === 'bins'
+                    ? 'Attachments'
+                    : t.label}
             </button>
           ))}
         </nav>
@@ -557,6 +574,10 @@ export default function App() {
                 Skådis · {job.drawers[0]?.haveBaseplate ? 'just attachments' : `${boardInfo?.tiles ?? 0} ${boardInfo?.shape === 'hex' ? 'hexagons' : 'tiles'}`} ·{' '}
                 {state.drawer.attachments?.length ?? 0} attachments ·{' '}
               </>
+            ) : gridBoard ? (
+              <>
+                {GRID_BOARD_NAMES[gridBoard].replace(' board', '')} · {job.drawers[0]?.enclosure?.info.grid?.tiles ?? 0} tiles ·{' '}
+              </>
             ) : (
               <>
                 {job.layout.halfGrid ? `${job.layout.nx / 2}×${job.layout.ny / 2} u half grid` : `${job.layout.nx}×${job.layout.ny} grid`} ·{' '}
@@ -576,6 +597,10 @@ export default function App() {
               <LazyPart scope="The Skådis board panel">
                 <SkadisPanel job={job} />
               </LazyPart>
+            ) : gridBoard ? (
+              <LazyPart scope="The board panel">
+                <GridBoardPanel job={job} />
+              </LazyPart>
             ) : (
               <DrawerPanel job={job} />
             ))}
@@ -583,6 +608,10 @@ export default function App() {
             (board ? (
               <LazyPart scope="The Attachments panel">
                 <WallPanel job={viewJob} />
+              </LazyPart>
+            ) : gridBoard ? (
+              <LazyPart scope="The Attachments panel">
+                <GridBoardAttachments />
               </LazyPart>
             ) : (
               <LazyPart scope="The Bins panel">
@@ -610,7 +639,7 @@ export default function App() {
               </div>
               <div className="pane pane-3d">{viewer}</div>
             </div>
-          ) : ui.tab === 'bins' ? (
+          ) : ui.tab === 'bins' && !gridBoard ? (
             <div className="split">
               <div className="pane pane-2d">
                 <BinPaneHeader />

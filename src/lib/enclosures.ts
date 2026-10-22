@@ -101,8 +101,12 @@ import { pieceFootprint, planBaseplate, type BaseplatePlan, type PrintSetup } fr
 import type { PieceDef } from './layout/split';
 import type { BinOptions } from './geometry/bin';
 import { tallestStack } from './stacking';
+// openGrid and Multiboard boards: their planning loads with the first one (gridBoards.ts).
+import { gridBoardBuilders, isGridBoard, planGridBoard, type GridBoardInfo } from './gridBoards';
+import type { OpenGridConnectorPart, OpenGridTileSpec } from './geometry/opengrid';
+import type { MultiboardTileSpec } from './geometry/multiboard';
 
-export type EnclosureKind = 'case' | 'wall' | 'spacers' | 'skadis';
+export type EnclosureKind = 'case' | 'wall' | 'spacers' | 'skadis' | 'opengrid' | 'multiboard';
 
 /** A line of the bill of materials. */
 export interface EnclosureHardware {
@@ -122,6 +126,9 @@ export type PieceEnclosure = { origin: Vec3; cuts: SolidDef[]; hardware?: Enclos
   | { kind: 'spacers' }
   /** A Skådis board's tile, built from `tile` alone (the baseplate's layout and options don't apply). */
   | { kind: 'skadis'; tile: SkadisTileSpec }
+  /** openGrid and Multiboard boards' tiles (gridBoards.ts). */
+  | { kind: 'opengrid'; tile: OpenGridTileSpec }
+  | { kind: 'multiboard'; tile: MultiboardTileSpec }
 );
 
 /** Extra printed parts (MeshSpec 'enclosure'). */
@@ -139,7 +146,9 @@ export type EnclosurePart =
   | { kind: 'skadisRim'; rim: SkadisRimPart }
   | { kind: 'skadisHang'; hang: SkadisHangPart; hardware?: EnclosureHardware[] }
   /** Skådis screw cover: snaps into a screw hole made for it. */
-  | { kind: 'skadisCap'; cap: SkadisCapPart };
+  | { kind: 'skadisCap'; cap: SkadisCapPart }
+  /** openGrid board connector: clicks into the holes either side of a seam. */
+  | { kind: 'openGridConnector'; connector: OpenGridConnectorPart };
 
 export type EnclosurePartKind = EnclosurePart['kind'];
 
@@ -224,6 +233,8 @@ export interface EnclosureScene {
     strips?: { side: 'left' | 'right' | 'front' | 'back'; width: number; pieces: number }[];
     /** Skådis board: what it came to. */
     skadis?: SkadisInfo;
+    /** openGrid or Multiboard board. */
+    grid?: GridBoardInfo;
   };
 }
 
@@ -282,6 +293,8 @@ export interface EnclosurePlan {
   map?: string;
   /** A Skådis board as attachments see it (lib/wall/plan.ts). */
   wall?: WallBoard;
+  /** What the plates the floor pieces print on are called (unset: by the enclosure). */
+  plateName?: string;
 }
 
 /** Bed size left for a piece that reaches `reach` past its outline (as planBaseplate sees it). */
@@ -307,6 +320,7 @@ export function planEnclosure(
   if (d.drawer.enclosure === 'case') return planCase(d, layout, setup);
   if (d.drawer.enclosure === 'wall') return planWall(d, layout, setup);
   if (d.drawer.enclosure === 'skadis') return planSkadisBoard(d, layout, setup);
+  if (isGridBoard(d.drawer.enclosure)) return planGridBoard(d, layout, setup);
   if (spacerMargins(d.drawer)) return planSpacers(d, layout, setup);
   return null;
 }
@@ -1108,6 +1122,7 @@ export function buildEnclosurePiece(
   e: PieceEnclosure,
 ): MeshData {
   if (e.kind === 'skadis') return buildSkadisTile(w, e.tile);
+  if (e.kind === 'opengrid' || e.kind === 'multiboard') return gridBoardBuilders().piece(w, e);
   const s = new Scope();
   try {
     if (e.kind === 'case') return meshAt(buildCaseBodySolid(w, s, layout, piece, o, connectors, e.geom), e.origin, `case body ${piece.id}`);
@@ -1162,6 +1177,8 @@ export function buildEnclosurePart(w: Wasm, part: EnclosurePart, view?: Enclosur
         return buildSkadisHang(w, part.hang);
       case 'skadisCap':
         return buildSkadisCap(w, part.cap);
+      case 'openGridConnector':
+        return gridBoardBuilders().part(w, part);
     }
   } finally {
     s.dispose();
