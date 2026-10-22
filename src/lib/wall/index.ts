@@ -22,3 +22,8 @@ import './kinds/cableComb';
 import './kinds/gridShelf';
 import './kinds/gridPlate';
 import './kinds/gridClip';
+import './kinds/cellDispenser';
+import './kinds/mediaBlock';
+import './kinds/spoolRack';
+import './kinds/boxSleeve';
+import './kinds/leadHanger';
