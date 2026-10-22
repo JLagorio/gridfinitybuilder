@@ -87,10 +87,13 @@ export const slotRackBuilder: AttachmentBuilder<SlotRackOptions> = {
     );
     let body = extrudeX(w, s, side, 0, W);
     const holes: Manifold[] = [];
-    if (o.notch && o.height >= 25) {
+    // (A short rack's notch is no wider than it is deep: its round end stays below the dividers' tops.)
+    const notchDepth = Math.min(0.45 * o.height, NOTCH.depth);
+    const notchR = Math.min(NOTCH.r, W * NOTCH.share, notchDepth - 1);
+    if (o.notch && o.height >= 25 && notchR >= 3) {
       // A U from the dividers' tops, from the first slot's back forward (the first divider and the back plate stay whole).
-      const r = Math.min(NOTCH.r, W * NOTCH.share);
-      const yc = p.top - Math.min(0.45 * o.height, NOTCH.depth) + r;
+      const r = notchR;
+      const yc = p.top - notchDepth + r;
       const z1 = layout.depth + 1;
       const u = s.t(s.t(cylinderAt(w, W / 2, yc, RACK_BACK, z1, r, r, 48)).add(s.t(boxAt(w, W / 2 - r, yc, RACK_BACK, W / 2 + r, p.top + 1, z1))));
       const ahead = sideSection(w, s, [

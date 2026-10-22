@@ -69,14 +69,19 @@ registerAttachment<BoxSleeveOptions>({
     const r = obj(raw);
     const d = BOX_DEFAULTS;
     const width = num(r.width, 20, 320, d.width);
+    const depth = num(r.depth, 5, 200, d.depth);
+    const height = num(r.height, 10, 250, d.height);
+    // The frame leaves some opening and the floor slot some floor either side (the notes say when it's too little to use).
+    const rimMax = Math.min(40, (width - 4) / 2, height - 3);
+    const slotMax = Math.max(2, depth - 2);
     return {
       width,
-      depth: num(r.depth, 5, 200, d.depth),
-      height: num(r.height, 10, 250, d.height),
+      depth,
+      height,
       open: pick(r.open, ['front', 'top', 'bottom'] as const, d.open),
-      rim: num(r.rim, 3, 40, d.rim),
+      rim: num(r.rim, 3, rimMax, Math.min(rimMax, d.rim)),
       front: num(r.front, 10, 100, d.front),
-      slot: num(r.slot, 5, 100, d.slot),
+      slot: num(r.slot, Math.min(5, slotMax), slotMax, Math.min(slotMax, d.slot)),
       cutter: bool(r.cutter, d.cutter),
       wall: num(r.wall, 1.2, 5, d.wall),
     };

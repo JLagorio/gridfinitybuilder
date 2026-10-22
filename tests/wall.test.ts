@@ -252,6 +252,12 @@ describe('edge cases a random sweep of the forms found', () => {
     // A long arm out to a level platform: one piece.
     ['mountBoss', { fixing: 'coldshoe', reach: 120.3, tilt: 0, height: 98.6 }],
     ['mountBoss', { fixing: '3/8-16', reach: 87.3, tilt: 0, height: 60 }],
+    // A floor slot deeper than the box, a frame as wide as the box.
+    ['boxSleeve', { width: 205.8, depth: 26.6, height: 125, open: 'bottom', rim: 10, slot: 45, cutter: true, wall: 3.1 }],
+    ['boxSleeve', { width: 23.2, depth: 127.4, height: 68.4, open: 'bottom', rim: 23.2, slot: 30, cutter: true, wall: 3 }],
+    // A short rack's finger notch.
+    ['slotRack', { count: 3, slot: 12, height: 30.8, width: 102.4, tilt: 3, lip: 60, floor: 'solid', notch: true }],
+    ['slotRack', { count: 4, slot: 19.7, height: 27.1, width: 138.7, tilt: 10, lip: 40, floor: 'drain', notch: true }],
   ];
   for (const [type, raw] of cases) {
     it(`${type} ${JSON.stringify(raw)}`, () => {
