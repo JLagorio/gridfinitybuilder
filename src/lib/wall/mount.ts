@@ -422,6 +422,9 @@ export function lockKeySolid(w: Wasm, s: Scope, at: Vec2, ctx: MountCtx): Manifo
   return s.t(w.Manifold.union(parts));
 }
 
+/** The thinnest boss wall beside a T-nut's screw that prints: two 0.4 mm lines, mm. */
+export const TNUT_MIN_WALL = 0.8;
+
 /**
  * A T-nut (tNut) as printed: its back on the bed (z = 0) with the nut's hex pocket open there, the boss on top,
  * centred on x = y = 0. Where it sits, its back is `ctx.t + t` behind the board's front.
@@ -437,8 +440,11 @@ export function tNutSolid(w: Wasm, s: Scope, size: BoltSize, ctx: MountCtx): Man
   );
   // The hex (flats left and right, so the bridge over it is short) and the screw's hole through.
   const hex = circle(0, 0, (B.nut + 0.3) / 2 / Math.cos(Math.PI / 6), 6);
-  const holes = s.t(w.Manifold.union([prismZ(w, s, hex, -1, B.nutT + 0.2), prismZ(w, s, circle(0, 0, B.hole / 2), -1, n.t + n.bd + 1)]));
-  return s.t(body.subtract(holes));
+  const cuts = [prismZ(w, s, hex, -1, B.nutT + 0.2), prismZ(w, s, circle(0, 0, B.hole / 2), -1, n.t + n.bd + 1)];
+  // A slot leaves little boss beside the screw (0.65 mm for an M3 in a standard slot, 0.1 for an M4): thinner than two
+  // lines it doesn't print, so the boss is two blocks, above and below the hole.
+  if ((n.bw - B.hole) / 2 < TNUT_MIN_WALL) cuts.push(prismZ(w, s, rect(-n.bw / 2 - 1, -B.hole / 2, n.bw / 2 + 1, B.hole / 2), n.t, n.t + n.bd + 1));
+  return s.t(body.subtract(s.t(w.Manifold.union(cuts))));
 }
 
 /** A bolt as the part's geometry needs it (registry.ts BoltSite). */

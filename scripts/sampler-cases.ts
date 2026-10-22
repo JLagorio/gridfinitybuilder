@@ -1,10 +1,14 @@
 /**
  * The parts scripts/sampler.ts prints and checks: every container type, the
  * plain bin's option families, baseplates, carry cases, wall grids, spacer
- * strips, TPU pads and the test-fit kit. Each group is planned like a real
- * job (planPrint / planTestFit), so the parts go through the app's own code.
+ * strips, TPU pads and the test-fit kit; boards (Skådis, openGrid,
+ * Multiboard) and every wall attachment kind (sampler-boards.ts). Each group is
+ * planned like a real job (planPrint / planTestFit), so the parts go through
+ * the app's own code.
  *
- * No side effects: tests/printcheck.test.ts builds a subset of these too.
+ * No side effects beyond registering the attachment kinds and the grid boards'
+ * planning, as the app does with its first board: tests/printcheck.test.ts
+ * builds a subset of these too.
  */
 import { DEFAULT_BIN, binInnerSize, type BinOptions } from '../src/lib/geometry/bin';
 import { DEFAULT_BASEPLATE, type BaseplateOptions } from '../src/lib/geometry/baseplate';
@@ -16,6 +20,7 @@ import { findPocketPreset, presetFields } from '../src/lib/geometry/pocketPreset
 import { findRackPreset, rackPresetFields } from '../src/lib/geometry/containers/rack';
 import { cutoutFromTool, type Tool } from '../src/lib/tools';
 import { addFreeWall, resolveLayout, setCompartmentOptions, setWallEnd, setWallProps, uniformLayout, type CompartmentOptions, type DividerLayout } from '../src/lib/dividers';
+import { ATTACHMENT_GROUPS, BOARD_FINDINGS, BOARD_GROUPS } from './sampler-boards';
 
 export const SAMPLE_SETUP: PrintSetup = DEFAULT_SETUP;
 
@@ -537,6 +542,8 @@ export const SAMPLE_GROUPS: SampleGroup[] = [
   byFeature,
   qrByPart,
   vaseByHeight,
+  ...BOARD_GROUPS,
+  ...ATTACHMENT_GROUPS,
 ];
 
 // ---------------------------------------------------------------------------
@@ -558,6 +565,13 @@ export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
   { file: /^colours\/vase-by-height\/drawer\.vase/, what: /^thin$/, why: 'a vase-mode bin (as vase/): one line of wall above the bottom layers' },
   { file: /^colours\/vase-by-height\/drawer\.vase/, what: /^thin$/, why: 'a vase-mode bin (as vase/): one line of wall above the bottom layers' },
   { file: /\.(key|lidkey|pin)-\d|spacer-(front|back)-|\.foot-/, what: /Low bed adhesion/, why: 'small or narrow part: a brim helps' },
+  // Faces past 45° (sampler-steep.ts), listed for a look.
+  { file: /pattern/, what: /^steep$/, why: 'the hex wall pattern’s holes stand on a point (60° faces), as Gridfinity Extended’s do; a label tab’s underside is 54°' },
+  { file: /^(labels|compartments|walls|placement|colours)\//, what: /^steep$/, why: 'a label tab’s underside at 54° from upright (36° off flat), as Gridfinity tabs are: it prints without support' },
+  { file: /^accessories\/tray-3/, what: /^steep$/, why: 'a few mm² at 51° in each corner, just past the scan’s 50°' },
+  { file: /^enclosures\/case-default\.lid/, what: /^steep$/, why: '4 mm², under a millimetre high' },
+  // Boards and attachments (sampler-boards.ts), before the catch-alls below.
+  ...BOARD_FINDINGS,
   { file: /./, what: /Long bridging extrusions/, why: 'bridges in the design (weight pockets, keyhole slots, hole roofs, half-grid foot gaps): PrusaSlicer flags any long bridge' },
   { file: /./, what: /Floating bridge anchors/, why: 'small bridges anchored on thin features (hinge-pin holes, pocket roofs): no mid-air islands or long ledges found there' },
 ];
@@ -568,11 +582,16 @@ export const KNOWN_FINDINGS: { file: RegExp; what: RegExp; why: string }[] = [
 
 const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-|-$/g, '');
 
-/** File name for a part key: `drawer/slot:b:i` → `drawer.slot-i` (b is the sample's bin), the bin itself → `drawer` (another bin of the drawer: `drawer.<id>`). */
+/**
+ * File name for a part key: `drawer/slot:b:i` → `drawer.slot-i` (b is the sample's bin), the bin itself → `drawer`
+ * (another bin of the drawer: `drawer.<id>`); an attachment (`drawer/att:a`, the sample's) → `drawer`, its extra
+ * parts (`drawer/att:a:lid`) → `drawer.lid`.
+ */
 export function partFile(job: PrintJob, key: string): string {
   const [drawer, rest] = key.includes('/') ? key.split('/', 2) : [job.drawers[0]?.id || 'part', key];
   const bits = rest.split(':');
-  const what = bits[0] === 'bin' ? (bits[1] === 'b' ? '' : bits[1]) : bits.filter((b, i) => !(i === 1 && b === 'b')).join('-');
+  const what =
+    bits[0] === 'bin' ? (bits[1] === 'b' ? '' : bits[1]) : bits[0] === 'att' ? bits.slice(2).join('-') : bits.filter((b, i) => !(i === 1 && b === 'b')).join('-');
   return slug(drawer || 'part') + (what ? `.${slug(what)}` : '');
 }
 
