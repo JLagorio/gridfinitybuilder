@@ -130,3 +130,15 @@
     display: none;
   }
 }
+
+/* Printed, or changed since (lib/printedBoards.ts), as on bins (printers.css .ge-printed). */
+svg text.pm-mark {
+  fill: var(--ok);
+  font-weight: 700;
+  text-anchor: start;
+  dominant-baseline: hanging;
+  pointer-events: auto;
+}
+svg text.pm-mark.changed {
+  fill: var(--accent);
+}

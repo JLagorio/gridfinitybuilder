@@ -204,7 +204,8 @@ export function oneTile(area: { w: number; h: number }, setup: PrintSetup, o: Pa
   let w = Math.floor(Math.max(60, Math.min(area.w, bed)));
   let h = Math.floor(Math.max(60, Math.min(area.h, bed)));
   for (let i = 0; i < 400; i++) {
-    const plan = planSkadis(plannedSkadis(sanitizeSkadis({ ...o, shape: 'rect', width: w, height: h })), areas);
+    // A board filling the area (addBoardHere's), whatever way the settings' board is laid out.
+    const plan = planSkadis(plannedSkadis(sanitizeSkadis({ ...o, layout: undefined, shape: 'rect', width: w, height: h })), areas);
     if (!plan.error && plan.tiles.length <= 1) break;
     if (w <= 60 && h <= 60) break;
     // The longer side gives first, 10 mm at a time.

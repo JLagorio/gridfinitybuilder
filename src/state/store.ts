@@ -16,7 +16,7 @@ import { cleanStretch, type BinStretch } from '../lib/geometry/placement';
 import { switchHalfGrid } from '../lib/layout/halfgrid';
 import { fitLayout, type DividerLayout } from '../lib/dividers';
 import { bedOvershoot, placedOvershoot, shrinkToBed, usableBeds } from '../lib/bedfit';
-import { cleanEnclosure } from '../lib/enclosureOptions';
+import { cleanEnclosure, snapOld } from '../lib/enclosureOptions';
 import { NEW_SKADIS } from '../lib/geometry/skadisOptions';
 import { cleanStacks, followFootprint, withBinsAbove, withNewIds } from '../lib/stacking';
 import { cleanFillList, mergeBins, type NewBin } from '../lib/autofill/apply';
@@ -722,8 +722,10 @@ export const useStore = create<Store>()(
         history.checkpoint();
       },
       loadProject: (data) => {
-        const p = (data ?? {}) as Partial<Store> & { app?: string };
+        let p = (data ?? {}) as Partial<Store> & { app?: string; version?: number };
         if (typeof p !== 'object' || (p.app !== undefined && p.app !== 'gridfit')) throw new Error('Not a Gridfit project file.');
+        // Before version 4 a board's attachments were planned on the nearest slot where they fit: they still are, till moved.
+        if (!(p.version! > 3)) p = snapOld(p);
         // Version 1 files hold a single drawer at the top level.
         const docs = Array.isArray(p.drawers) && p.drawers.length
           ? p.drawers.map(cleanDoc)
@@ -752,10 +754,11 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'gridfit-project',
-      version: 2,
+      version: 3,
       partialize: persisted,
-      // Version 1 had no drawer list; merge() below builds it from the top-level drawer.
-      migrate: (persisted) => persisted as never,
+      // Version 1 had no drawer list; merge() below builds it from the top-level drawer. Before 3 a board's attachments
+      // were planned on the nearest slot where they fit (enclosureOptions.ts snapOld).
+      migrate: (persisted, version) => (version < 3 ? snapOld(persisted) : persisted) as never,
       // Fill in fields added after the project was saved.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Store>;
@@ -796,12 +799,13 @@ export const useStore = create<Store>()(
  * Contents of a saved .gridfit.json file. Version 3: bins may be from
  * elsewhere (`external`, external.ts), and a saved file adds the bytes of their
  * meshes as `meshes` (imported/meshStore.ts projectWithMeshes); 1 and 2 load as
- * before.
+ * before. Version 4: a board's attachments stay where they're put (older ones
+ * are planned as they were, PlacedAttachment.snap).
  */
 export function projectFile(s: Store) {
   return {
     app: 'gridfit',
-    version: 3,
+    version: 4,
     ...projectOf(s),
     newBin: s.newBin,
     drawers: allDrawers(s),

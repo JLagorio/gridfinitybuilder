@@ -31,6 +31,8 @@ import {
 } from './geometry/skadis';
 // Boards built from tiles plan with this (geometry/skadis.ts setTilesPlanner).
 import './geometry/skadisTiles';
+// Its cleats, door hooks and frame strips in what's been printed (printed.ts setPrintKey).
+import './printedBoards';
 import { wallBoard } from './wall/plan';
 import type { Vec3 } from './geometry/kernel';
 import type { GridLayout } from './layout/drawer';

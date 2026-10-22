@@ -51,6 +51,11 @@ export interface PlacedAttachment {
   labelFrom?: 'contents';
   /** What it's printed in, for what it holds (load.ts); unset: PLA. */
   material?: 'pla' | 'petg' | 'asa';
+  /**
+   * Saved before attachments stayed where they're put (project files before version 4): planned on the nearest slot
+   * where it fits, as it was then, till it's moved (enclosureOptions.ts snapOld).
+   */
+  snap?: true;
 }
 
 /** The label its contents give an attachment: its one item, a few short ones ("Nozzles, Wipes"), else the first; '' when none. */

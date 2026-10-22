@@ -30,6 +30,8 @@ import { TouchToggle, isTouch, tapSlop, useCoarsePointer, useTouchModes } from '
 import { fingerPx, longPress } from './gestures';
 import { FINGER_PX, handleHit, heldSelection, nearestPart, useMmPerPx } from './wallTouch';
 import { dragMoves } from './wallDrag';
+import { asDrawer, type PrintJob } from '../lib/project';
+import { markText, markTitle, partMarks } from '../lib/printedBoards';
 import './wall.css';
 
 /** A resize in progress: which edge, where it started, the options that size the part, and its left and top edges (they stay put). */
@@ -77,14 +79,15 @@ const ARROWS: Record<string, Vec2> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], A
  * there's such a spot near; where they don't, it follows the pointer and stays where it's dropped, red), with guides
  * where its edges line up with another part's and the gaps to its neighbours. Drag a single selected part's right
  * or bottom edge to resize it. Delete removes the selection, the arrow keys move it one slot over, Ctrl+C / V / D
- * copy, paste (at the pointer) and duplicate (lib/wall/arrange.ts, state/wall.ts).
+ * copy, paste (at the pointer) and duplicate (lib/wall/arrange.ts, state/wall.ts). With `job` (the drawer's view),
+ * a part printed already has a ✓ in its corner, one changed since it was printed a dot (lib/printed.ts).
  *
  * With a finger: tap a part to select it (a press just beside a thin one takes it), drag it to move it, hold it still
  * to add it to the selection (or take it out), or turn on Select several in the bar above the board, which also
  * has the keyboard's Duplicate, Copy, Paste and Delete. The resize handles take a press a fingertip wide. A second
  * finger calls a drag off, and pinches zoom the page.
  */
-export function WallEditor({ board, placed }: { board: WallBoard; placed: WallPlacement[] }) {
+export function WallEditor({ board, placed, job }: { board: WallBoard; placed: WallPlacement[]; job?: PrintJob }) {
   const svg = useRef<SVGSVGElement>(null);
   const keys = useMemo(() => slotKeys(board.slots), [board.slots]);
   // Every selected part on this board, primary first.
@@ -97,6 +100,10 @@ export function WallEditor({ board, placed }: { board: WallBoard; placed: WallPl
   const hover = useRef<Vec2 | null>(null);
   // A part being dragged in the 3D view (App.tsx): shown where it's going here too.
   const wallDrag = useStore((s) => s.ui.wallDrag ?? null);
+  // Printed, or changed since (with its extra parts: lib/printedBoards.ts).
+  const record = useStore((s) => s.printed);
+  const drawerId = useStore((s) => s.activeDrawerId);
+  const marks = useMemo(() => (job ? partMarks(asDrawer(job, drawerId), record) : {}), [job, drawerId, record]);
   const { fmt } = useUnits();
   // Touch: the bar of buttons, Select several in place of Shift, a long press, and the finger the gesture is with.
   const coarse = useCoarsePointer();
@@ -451,6 +458,12 @@ export function WallEditor({ board, placed }: { board: WallBoard; placed: WallPl
               <text x={(p.x0 + p.x1) / 2} y={sy((p.y0 + p.y1) / 2)} fontSize={Math.max(5, Math.min(12, w / 8, h * 0.55))}>
                 {size ?? p.name}
               </text>
+              {marks[`att:${p.id}`] && (
+                <text className={`pm-mark ${marks[`att:${p.id}`]}`} x={p.x0 + 2} y={sy(p.y1) + 2} fontSize={Math.max(gs, Math.min(10, w / 6, h / 3))}>
+                  {markText(marks[`att:${p.id}`])}
+                  <title>{markTitle(marks[`att:${p.id}`])}</title>
+                </text>
+              )}
               {handles && (
                 <>
                   {axes.w && (
