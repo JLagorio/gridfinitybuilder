@@ -480,6 +480,26 @@ describe('box sleeve', () => {
     expect(overlap(b.hung, box(bp.x0 + q.rim + 1, -10, zm + q.slot / 2 - 1.4, bp.x1 - q.rim - 1, BOX.floor + 5, zm + q.slot / 2 - 0.2))).toBeGreaterThan(1);
   });
 
+  it('a frame rim taller than the sleeve, or wider than half the box, is held to what it can take and builds', () => {
+    // A random audit: these threw InvalidConstruction (the frame's opening, the floor slot and its teeth had no room).
+    for (const raw of [
+      { height: 15.8, rim: 22.3, cutter: true, wall: 3.4 },
+      { height: 26.4, rim: 35.2, front: 68.5, cutter: false, wall: 4.8 },
+      { open: 'bottom', width: 30, rim: 22.3, cutter: true },
+      { open: 'bottom', width: 30, rim: 15.5, cutter: true },
+    ]) {
+      const what = JSON.stringify(raw);
+      const b = build('boxSleeve', { ...BOX_DEFAULTS, ...raw });
+      expect(checkPart(w, b.mesh).issues.filter((i) => i.severity === 'error'), what).toEqual([]);
+      // The frame still leaves an opening.
+      const o = b.o as BoxSleeveOptions;
+      const p = boxPlan(o);
+      expect(BOX.floor + o.rim, what).toBeLessThan(b.layout.h - 1);
+      expect(p.x1 - p.x0 - 2 * o.rim, what).toBeGreaterThanOrEqual(6);
+      expect(overlap(b.hung, box(p.x0 + o.rim + 0.5, BOX.floor + o.rim + 0.5, p.z1 - 2, p.x1 - o.rim - 0.5, b.layout.h - 0.5, p.D + 10)), what).toBeLessThan(0.01);
+    }
+  });
+
   it('notes and summaries', () => {
     const def = attachmentDef('boxSleeve')!;
     const o = (x: object) => def.sanitize(x);
