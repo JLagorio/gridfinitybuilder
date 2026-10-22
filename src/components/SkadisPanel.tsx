@@ -322,6 +322,18 @@ export function SkadisPanel({ job }: { job: PrintJob }) {
                 : `The screws go through the board from the front into the ${p.hang === 'cleat' ? 'cleat' : p.hang === 'door' ? 'hooks' : o.deskMount === 'stand' ? 'feet' : 'clamps'}, where there is no slot; the wall takes no screws${p.hang === 'cleat' ? ' but the wall cleat’s' : ''}.`}
           </div>
         </Find>
+        <Find id="skadis-covers" set={o.covers}>
+          <Toggle
+            label="Screw covers"
+            checked={o.covers}
+            onChange={(covers) => set({ covers })}
+            hint={
+              p.standoff !== 'posts' || o.screw > 5
+                ? 'Snap-on caps over the screw heads: for screws up to 5 mm through posts.'
+                : `Snap-on caps over the screw heads${info?.covers ? ` (${info.covers})` : ''}: each hole is sunk deeper, the head in its post, with a groove the cap’s legs click into.`
+            }
+          />
+        </Find>
       </Section>
 
       <Section title="Board" find="skadis-board" set={changed('slotW', 'slotL', 'chamfer', 'thickness', 'border', 'corner', 'numbers')}>

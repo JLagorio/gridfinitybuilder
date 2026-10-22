@@ -21,3 +21,6 @@ import './kinds/cableComb.ui';
 import './kinds/gridShelf.ui';
 import './kinds/gridPlate.ui';
 import './kinds/gridClip.ui';
+import './kinds/batteryDock.ui';
+import './kinds/toolDock.ui';
+import './kinds/chargerCradle.ui';

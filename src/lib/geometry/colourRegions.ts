@@ -69,7 +69,7 @@ export function specRole(spec: MeshSpec | undefined): ColourRole {
           ? 'caseHandle'
           : k === 'spacer' || k === 'skadisPlate' || k === 'skadisSpacer'
             ? 'plateAccent'
-            : k === 'cleat' || k === 'skadisRim' || k === 'skadisHang'
+            : k === 'cleat' || k === 'skadisRim' || k === 'skadisHang' || k === 'skadisCap'
               ? 'wallGrid'
               : 'caseHardware';
     }

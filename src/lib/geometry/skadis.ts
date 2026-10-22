@@ -48,6 +48,11 @@
  * - other ways to hang than screws through the board into the wall: a French
  *   cleat, hooks over a door, or feet (or clamps) on a desk: printed parts
  *   screwed on from the front through countersunk holes in the board.
+ *
+ * Any board screwed up through its posts can have snap-on screw covers: each
+ * screw hole is sunk 4.5 mm deeper (the head sits in the post) behind a 1.5 mm
+ * mouth with a groove under it, and a round cap's slit legs push through the
+ * mouth and spring out into the groove (skadisParts.ts builds the caps).
  */
 import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Vec2, type Wasm } from './kernel';
 import { HOLE_SEGMENTS, cylinderAt, loftRings, roundedRectRing } from './shapes';
@@ -124,6 +129,8 @@ export interface SkadisOptions {
   doorThickness: number;
   deskMount: 'stand' | 'clamp';
   deskThickness: number;
+  /** Snap-on caps over the screw heads (screws through posts, up to 5 mm). */
+  covers: boolean;
 }
 
 /** Clip fit in the slots: tighter for a board that runs large, looser for one that runs small. */
@@ -160,6 +167,7 @@ export const DEFAULT_SKADIS: SkadisOptions = {
   doorThickness: 40,
   deskMount: 'stand',
   deskThickness: 25,
+  covers: false,
 };
 
 export const SKADIS = {
@@ -187,6 +195,12 @@ export const SKADIS = {
   magnet: { d: 6, h: 2, fit: 0.2, skin: 1, every: 12 },
   /** Engraved text: depth, and the largest letters. */
   text: { depth: 0.8, size: 24 },
+  /**
+   * Screw covers: the cap's diameter (at least) and thickness; the hole's mouth (deep, round the head's
+   * clearance), the groove under it (how much wider) and where the head's countersink starts; the cap's
+   * legs (wall, slits, clearance in the mouth) and the largest screw they suit.
+   */
+  cover: { d: 14, t: 1.2, mouth: 1.5, groove: 0.5, sink: 4.5, wall: 0.9, slit: 1.2, fit: 0.15, maxScrew: 5 },
 } as const;
 
 const num = (v: unknown, lo: number, hi: number, dflt: number) => {
@@ -239,6 +253,7 @@ export function sanitizeSkadis(raw: unknown): SkadisOptions {
     doorThickness: num(r.doorThickness, 20, 70, d.doorThickness),
     deskMount: r.deskMount === 'clamp' ? 'clamp' : 'stand',
     deskThickness: num(r.deskThickness, 10, 80, d.deskThickness),
+    covers: r.covers === undefined ? d.covers : !!r.covers,
   };
 }
 
@@ -286,6 +301,51 @@ export const patternSlot = (p: SkadisPattern, i: number, j: number) => p === 'de
 
 /** Countersunk head diameter for a screw (90°). */
 export const headDiameter = (screw: number) => 2 * screw + 0.5;
+
+/** A screw hole made for a cover (planned options): the mouth's radius and depth, the groove's radius, where the countersink starts; null: no covers. */
+export interface SkadisCoverHole {
+  r: number;
+  mouth: number;
+  groove: number;
+  sink: number;
+}
+
+/** The screw holes' recess for covers, when the board has them: screws through posts (the head sits in the post), up to 5 mm. */
+export function coverHole(o: SkadisOptions): SkadisCoverHole | null {
+  const C = SKADIS.cover;
+  if (!o.covers || o.standoff !== 'posts' || o.screw > C.maxScrew + 1e-9) return null;
+  const r = r3(headDiameter(o.screw) / 2 + 0.3);
+  return { r, mouth: C.mouth, groove: r3(r + C.groove), sink: C.sink };
+}
+
+/** A screw cover: a round cap, slit legs below it with a barb round their middle that springs out into the hole's groove. */
+export interface SkadisCapPart {
+  d: number;
+  t: number;
+  /** The legs: outside radius, wall, how long below the cap, slit width; the barb's radius and where it starts below the cap. */
+  r: number;
+  wall: number;
+  legs: number;
+  slit: number;
+  barb: number;
+  catchAt: number;
+}
+
+export function skadisCapPart(h: SkadisCoverHole): SkadisCapPart {
+  const C = SKADIS.cover;
+  return {
+    d: r3(Math.max(C.d, 2 * h.r + 4)),
+    t: C.t,
+    r: r3(h.r - C.fit),
+    wall: C.wall,
+    legs: r3(h.sink + 0.2),
+    slit: C.slit,
+    barb: r3(h.groove - C.fit),
+    catchAt: r3(h.mouth + 0.1),
+  };
+}
+
+export const capSize = (p: SkadisCapPart) => ({ w: p.d, d: p.d, h: r3(p.t + p.legs) });
 /** Joint plates need room for their pocket and pin holes (1.5 mm at least) in the board. */
 export const platesFit = (thickness: number) => thickness - SKADIS.plate.pocket - SKADIS.plate.minFloor >= 1.5 - 1e-9;
 /** How deep the pin holes go (and so how long the pins are) in a board this thick. */
@@ -1245,6 +1305,8 @@ export interface SkadisTileSpec {
   number?: { text: string; x: number; y: number };
   /** Holes in the front for the frame strips' pins: their diameter and depth. */
   pins?: { at: Vec2[]; d: number; depth: number };
+  /** The screw holes through posts are made for covers. */
+  cover?: SkadisCoverHole;
   /** The LED channel round the back of its outer edges (left, right, bottom, top): width and depth; deeper where two meet. */
   led?: { w: number; d: number; sides: [boolean, boolean, boolean, boolean] };
   /** Text engraved in the front, fitted to a box (its centre and size). */
@@ -1265,7 +1327,17 @@ export const ledDepth = (o: Pick<SkadisOptions, 'thickness'>) => r3(Math.min(SKA
 export function skadisTileSpecs(plan: SkadisPlan, raw: SkadisOptions): SkadisTileSpec[] {
   const o = plannedSkadis(raw);
   const posts = o.standoff === 'posts' ? r3(o.depth) : 0;
-  const common = { t: o.thickness, chamfer: o.chamfer, slotW: o.slotW, slotL: o.slotL, pinHole: r3(pinHoleDepth(o.thickness)), posts, screw: o.screw };
+  const cover = coverHole(o);
+  const common = {
+    t: o.thickness,
+    chamfer: o.chamfer,
+    slotW: o.slotW,
+    slotL: o.slotL,
+    pinHole: r3(pinHoleDepth(o.thickness)),
+    posts,
+    screw: o.screw,
+    ...(cover ? { cover } : {}),
+  };
   if (plan.shape === 'hex' && plan.hex) {
     const hw = plan.hex.w;
     const hh = plan.hex.h;
@@ -1549,6 +1621,14 @@ export function buildSkadisTile(w: Wasm, spec: SkadisTileSpec): MeshData {
       if (spec.posts > 0 && !m.hang) adds.push(s.t(cylinderAt(w, m.x, m.y, t - 0.01, t + spec.posts, SKADIS.post.r0, SKADIS.post.r1, 48)));
       if (!m.screw) continue;
       cuts.push(s.t(cylinderAt(w, m.x, m.y, -1, t + spec.posts + 1, holeR, holeR, HOLE_SEGMENTS)));
+      const c = spec.posts > 0 && !m.hang ? spec.cover : undefined;
+      if (c) {
+        // For a cover: the mouth, the groove under it (it widens away from the bed, so it prints), then the countersink, 45°, in the post.
+        cuts.push(s.t(cylinderAt(w, m.x, m.y, -1, c.mouth + 0.01, c.r, c.r, 48)));
+        cuts.push(s.t(cylinderAt(w, m.x, m.y, c.mouth, c.sink + 0.01, c.groove, c.groove, 48)));
+        cuts.push(s.t(cylinderAt(w, m.x, m.y, c.sink, c.sink + c.groove - holeR, c.groove, holeR, 48)));
+        continue;
+      }
       // Countersink on the front (on the bed): 90°, opening toward the bed.
       cuts.push(s.t(cylinderAt(w, m.x, m.y, -0.3, headR - holeR, headR + 0.3, holeR, 48)));
     }

@@ -20,6 +20,9 @@ import './cableComb';
 import './gridShelf';
 import './gridPlate';
 import './gridClip';
+import './batteryDock';
+import './toolDock';
+import './chargerCradle';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();

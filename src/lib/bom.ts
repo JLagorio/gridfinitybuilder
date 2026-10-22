@@ -499,6 +499,7 @@ export const ENCLOSURE_PARTS: Record<EnclosurePartKind, [string, string]> = {
   skadisSpacer: ['Standoff spacer', 'Standoff spacers'],
   skadisRim: ['Frame strip', 'Frame strips'],
   skadisHang: ['Part to hang it from', 'Parts to hang it from'],
+  skadisCap: ['Screw cover', 'Screw covers'],
 };
 
 /** "2 hinge pins". */

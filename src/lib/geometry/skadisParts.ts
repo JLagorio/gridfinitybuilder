@@ -11,11 +11,14 @@
  * up; the wall's cleat prints face down for the same reason, its countersinks
  * opening toward the bed like the tiles'; hooks, feet and clamps print on
  * their side, the profile flat on the bed, so the layers run round their bends.
+ *
+ * A screw cover prints cap down (its face comes off the bed smooth), legs up:
+ * a tube split four ways, a barb round it whose catch is a 0.5 mm ledge.
  */
 import type { CrossSection } from 'manifold-3d';
 import { Scope, assertValid, toMeshData, type Manifold, type MeshData, type Vec2, type Wasm } from './kernel';
 import { cylinderAt, roundedRectRing } from './shapes';
-import type { SkadisHangPart, SkadisRimPart } from './skadis';
+import type { SkadisCapPart, SkadisHangPart, SkadisRimPart } from './skadis';
 
 /** Its min corner to the origin, checked, as a mesh. */
 function placed(s: Scope, m: Manifold, what: string): MeshData {
@@ -90,6 +93,31 @@ export function buildSkadisHang(w: Wasm, p: SkadisHangPart): MeshData {
     if (cuts.length) body = s.t(body.subtract(s.t(w.Manifold.union(cuts))));
     const turned = p.pose === 'back' ? body : s.t(body.rotate(p.pose === 'front' ? [180, 0, 0] : [0, 90, 0]));
     return placed(s, turned, `Skådis ${p.kind}`);
+  } finally {
+    s.dispose();
+  }
+}
+
+/** A screw cover (SkadisCapPart), cap down, legs up. */
+export function buildSkadisCap(w: Wasm, p: SkadisCapPart): MeshData {
+  const s = new Scope();
+  try {
+    const c = p.d / 2;
+    const top = p.t + p.legs;
+    const tube = (z0: number, z1: number, r0: number, r1: number) => s.t(cylinderAt(w, c, c, z0, z1, r0, r1, 48));
+    // The barb: out to its radius at the catch, then in at 45° to the tip, a lead-in for the mouth.
+    const lead = Math.min(p.barb - p.r + 0.1, p.legs - p.catchAt - 0.6);
+    const parts = [
+      tube(0, p.t, c, c),
+      tube(p.t - 0.01, top, p.r, p.r),
+      tube(p.t + p.catchAt, top - lead, p.barb, p.barb),
+      tube(top - lead - 0.01, top, p.barb, p.barb - lead),
+    ];
+    const inside = tube(p.t + 0.4, top + 1, p.r - p.wall, p.r - p.wall);
+    // Four slits make four legs that spring in through the mouth.
+    const slits = [s.t(w.Manifold.cube([p.d + 2, p.slit, p.legs + 1]).translate([-1, c - p.slit / 2, p.t + 0.05]))];
+    slits.push(s.t(w.Manifold.cube([p.slit, p.d + 2, p.legs + 1]).translate([c - p.slit / 2, -1, p.t + 0.05])));
+    return placed(s, s.t(s.t(w.Manifold.union(parts)).subtract(s.t(w.Manifold.union([inside, ...slits])))), 'Skådis screw cover');
   } finally {
     s.dispose();
   }
