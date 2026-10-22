@@ -141,6 +141,10 @@ describe('bundle', () => {
       'src/lib/wall/follow.ts',
       'src/state/follow.ts',
       'src/components/WallHolds.tsx',
+      // Build your own: its profile model and planning (with the kinds), its editor (on first use).
+      'src/lib/wall/custom/profile.ts',
+      'src/lib/wall/kinds/custom.ts',
+      'src/components/ProfileEditor.tsx',
     ];
     expect(later.filter((m) => initial.has(m))).toEqual([]);
     // Each is in some chunk (a renamed file would make this test pass for nothing).
