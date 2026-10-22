@@ -33,7 +33,12 @@ import { ModelField } from './ModelField';
 import { AttachmentContentsField, AttachmentLabelField } from './WallContents';
 import { StartFromTemplate } from './BoardTemplatesButton';
 import { OutlinesField } from './WallOutlines';
+import { LazyPart, lazyNamed } from './lazy';
+import type { CustomOptions } from '../lib/wall/kinds/custom';
 import './wall.css';
+
+// The custom part's profile editor loads with the first one selected.
+const ProfileField = lazyNamed(() => import('./ProfileEditor'), 'ProfileField');
 
 /**
  * A Skådis board's Attachments tab (lib/wall): add hooks, bins, cups, … to
@@ -98,7 +103,7 @@ export function WallPanel({ job }: { job: PrintJob }) {
           />
           <AttachmentContentsField a={sel} />
           {placed && <CommonFields a={sel} def={def} placed={placed} ctx={wall.board.ctx} />}
-          <AttachmentFields def={def} ui={attachmentUi(sel.type)} opts={sel.opts} onChange={(p) => setAttachmentOpts(sel.id, p)} />
+          <AttachmentFields def={def} ui={attachmentUi(sel.type)} opts={sel.opts} ctx={wall.board.ctx} onChange={(p) => setAttachmentOpts(sel.id, p)} />
           {placed && (
             <div className="field-hint">
               {fmt(placed.x1 - placed.x0)} wide × {fmt(placed.y1 - placed.y0)} high, {fmt(placed.depth)} out from the board.{' '}
@@ -383,11 +388,14 @@ export function AttachmentFields({
   def,
   ui,
   opts,
+  ctx,
   onChange,
 }: {
   def: AttachmentDef<object>;
   ui: AttachmentUi | null;
   opts: Record<string, unknown>;
+  /** The board it's on (the profile editor draws it). */
+  ctx?: MountCtx;
   onChange: (p: Record<string, unknown>) => void;
 }) {
   const o = def.sanitize(opts) as Record<string, unknown>;
@@ -438,6 +446,12 @@ export function AttachmentFields({
             return <ModelField key={f.key} label={f.label} value={o[f.key]} hint={f.hint} onChange={set} />;
           case 'outlines':
             return <OutlinesField key={f.key} field={f} value={o[f.key]} onChange={set} />;
+          case 'profile':
+            return (
+              <LazyPart key={f.key} scope="The profile editor">
+                <ProfileField label={f.label} opts={o as unknown as CustomOptions} ctx={ctx} onChange={onChange} />
+              </LazyPart>
+            );
           case 'preset': {
             // The preset whose sizes the options have now, else Custom.
             const now = f.presets.find((p) => Object.entries(def.sanitize({ ...o, ...p.set }) as Record<string, unknown>).every(([k, v]) => o[k] === v));

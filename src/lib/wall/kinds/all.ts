@@ -62,6 +62,7 @@ import './foldHook';
 import './model';
 import './shadowBoard';
 import './toolCradle';
+import './custom';
 import { kindsLoaded } from '../ready';
 
 kindsLoaded();
