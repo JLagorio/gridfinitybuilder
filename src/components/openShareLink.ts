@@ -1,5 +1,5 @@
 import { useStore } from '../state/store';
-import { projectFromHash } from '../lib/share';
+import { openQuestion, projectFromHash } from '../lib/share';
 
 /**
  * Opening a share link (ShareLink.tsx notices one in the URL's hash): a whole
@@ -23,14 +23,15 @@ export async function openShareLink(): Promise<void> {
   if (!/^#?project=/.test(hash)) return;
   clearHash();
   let data: unknown;
+  let question: string | null;
   try {
     data = projectFromHash(hash);
+    question = openQuestion(data);
   } catch (e) {
     alert((e as Error).message);
     return;
   }
-  if (data == null) return;
-  if (!confirm('Open the project from this link? It replaces the project you have open. (Undo brings yours back.)')) return;
+  if (!question || !confirm(question)) return;
   try {
     useStore.getState().loadProject(data);
   } catch (e) {

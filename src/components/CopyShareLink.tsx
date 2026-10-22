@@ -7,16 +7,17 @@ import { shareableProject } from '../lib/externalShare';
 export function CopyShareLink() {
   const [status, setStatus] = useState<string | null>(null);
   const copy = async () => {
-    const { file, dropped, models } = shareableProject(projectFile(useStore.getState()));
+    const { file, dropped, models, photo } = shareableProject(projectFile(useStore.getState()));
     const url = shareUrl(file, window.location.href);
     const size = url.length > 1500 ? ` (${Math.round(url.length / 100) / 10} k characters)` : '';
     const what = [
       dropped && (dropped === 1 ? 'the imported bin' : `the ${dropped} imported bins`),
       models && (models === 1 ? 'the imported model' : `the ${models} imported models`),
     ].filter(Boolean);
-    const note = what.length
-      ? ` ${what.join(' and ').replace(/^./, (c) => c.toUpperCase())} ${dropped + models === 1 ? 'goes' : 'go'} as plain boxes: a link can't hold meshes. Save the project file to pass them on.`
-      : '';
+    const note =
+      (what.length
+        ? ` ${what.join(' and ').replace(/^./, (c) => c.toUpperCase())} ${dropped + models === 1 ? 'goes' : 'go'} as plain boxes: a link can't hold meshes. Save the project file to pass them on.`
+        : '') + (photo ? ' The wall’s photo stays behind: save the project file to pass it on.' : '');
     try {
       await navigator.clipboard.writeText(url);
       setStatus(`Link copied${size}.${note}`);
