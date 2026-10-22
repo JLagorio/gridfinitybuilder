@@ -347,13 +347,18 @@ export function boardPlace(x: number, y: number, w: number, h: number): string {
   return [row, col].filter(Boolean).join(' ') || 'middle';
 }
 
+/** A board built from tiles' size as it plans for the printer (state/skadisTiles.ts sets it as it loads); till then, or not built from tiles: its space's. */
+let tilesSize: ((skadis: unknown) => { w: number; h: number } | null) | undefined;
+export const setTilesSize = (f: typeof tilesSize) => (tilesSize = f);
+
 /** Every Skådis board's attachments, board by board, top to bottom and left to right. */
 export function attachmentEntries(drawers: NamedDrawer[]): AttachmentEntry[] {
   const out: AttachmentEntry[] = [];
   for (const d of drawers) {
     if (d.drawer.enclosure !== 'skadis') continue;
-    const w = Number(d.drawer.skadis?.width) || 560;
-    const h = Number(d.drawer.skadis?.height) || 560;
+    const t = tilesSize?.(d.drawer.skadis);
+    const w = t?.w ?? (Number(d.drawer.skadis?.width) || 560);
+    const h = t?.h ?? (Number(d.drawer.skadis?.height) || 560);
     for (const a of [...(d.drawer.attachments ?? [])].sort((p, q) => q.y - p.y || p.x - q.x)) {
       const def = attachmentDef(a.type);
       // "spoolRack" → "Spool rack" until its kind has loaded.

@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Vec2 } from '../lib/geometry/kernel';
 import type { SkadisPlan } from '../lib/geometry/skadis';
 import type { WallBoard, WallPlacement } from '../lib/wall/plan';
-import { useUnits } from '../state/store';
+import { useStore, useUnits } from '../state/store';
 import { addTile, removeTile } from '../state/skadisTiles';
+import { asDrawer, type PrintJob } from '../lib/project';
+// Loaded with the board's kinds and planning, as the board editor is (lib/printedBoards.ts goes with them).
+import '../lib/wall/kinds/all';
+import { markText, markTitle, partMarks } from '../lib/printedBoards';
 import './boardTiles.css';
 
 type Grid = NonNullable<SkadisPlan['grid']>;
@@ -32,10 +36,16 @@ const AROUND: Record<'hex' | 'rect', Vec2[]> = {
  * add the tile), and a ✕ on each tile to take it away (or click the tile and
  * press Delete). Its slots and attachments show faintly behind, so it's clear
  * what is on which tile; an attachment a tile taken away leaves without its
- * slots shows red.
+ * slots shows red. With `job` (the drawer's view), a tile printed already has a
+ * ✓ in its corner, one changed since it was printed a dot (lib/printed.ts).
  */
-export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: WallBoard; placed: WallPlacement[]; hex: boolean }) {
+export function BoardTiles({ grid, board, placed, hex, job }: { grid: Grid; board: WallBoard; placed: WallPlacement[]; hex: boolean; job?: PrintJob }) {
   const [sel, setSel] = useState<string | null>(null);
+  // Printed, or changed since (lib/printedBoards.ts): the tiles are the board's pieces, in the same order.
+  const record = useStore((s) => s.printed);
+  const drawerId = useStore((s) => s.activeDrawerId);
+  const marks = useMemo(() => (job ? partMarks(asDrawer(job, drawerId), record) : {}), [job, drawerId, record]);
+  const markOf = (i: number) => marks[`piece:${job?.drawers[0]?.plan.pieces[i]?.id}`];
   const { fmt } = useUnits();
   const place = ([q, r]: Vec2): Vec2 => [grid.origin[0] + q * grid.q[0] + r * grid.r[0], grid.origin[1] + q * grid.q[1] + r * grid.r[1]];
   // Every tile is alike: the first one's outline about its place, and that outline's box (its middle and size).
@@ -134,6 +144,7 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
           {board.outlines.map((o, i) => {
             const c = grid.at[i];
             const key = String(c);
+            const m = markOf(i);
             return (
               <polygon
                 key={key}
@@ -143,7 +154,9 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
                   e.stopPropagation();
                   setSel(key);
                 }}
-              />
+              >
+                {m && <title>{markTitle(m)}</title>}
+              </polygon>
             );
           })}
           <path className="bt-slots" d={slotPath} />
@@ -152,6 +165,23 @@ export function BoardTiles({ grid, board, placed, hex }: { grid: Grid; board: Wa
               <title>{p.name}</title>
             </rect>
           ))}
+          {grid.at.map((c, i) => {
+            const m = markOf(i);
+            if (!m) return null;
+            const [x, y] = place(c);
+            return (
+              <text
+                key={`m${String(c)}`}
+                className={`pm-mark ${m}`}
+                style={{ pointerEvents: 'none' }}
+                x={x + box.mid[0] - box.w * (hex ? 0.3 : 0.42)}
+                y={sy(y + box.mid[1] + box.h * (hex ? 0.28 : 0.42))}
+                fontSize={unit * 0.1}
+              >
+                {markText(m)}
+              </text>
+            );
+          })}
           {several &&
             grid.at.map((c) => {
               const [x, y] = place(c);

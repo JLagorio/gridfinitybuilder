@@ -110,8 +110,11 @@ export function addAttachment(type: string, board: WallBoard, placed: readonly W
   return id;
 }
 
+/** A part put somewhere: from now on it stays there (an older project's is planned on the nearest slot where it fits till then). */
+const put = ({ snap: _, ...a }: PlacedAttachment): PlacedAttachment => a;
+
 export function updateAttachment(id: string, patch: Partial<Omit<PlacedAttachment, 'id'>>) {
-  write(list().map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  write(list().map((a) => (a.id === id ? { ...('x' in patch || 'y' in patch ? put(a) : a), ...patch } : a)));
 }
 
 /** Change some of an attachment's options. */
@@ -126,8 +129,8 @@ export function moveAttachment(id: string, x: number, y: number) {
 /** Move several at once (one undo step); nothing happens if none of them moves. */
 export function moveAttachments(moves: readonly { id: string; x: number; y: number }[]) {
   const to = new Map(moves.map((m) => [m.id, m]));
-  if (!list().some((a) => to.has(a.id) && (a.x !== to.get(a.id)!.x || a.y !== to.get(a.id)!.y))) return;
-  write(list().map((a) => (to.has(a.id) ? { ...a, x: to.get(a.id)!.x, y: to.get(a.id)!.y } : a)));
+  if (!list().some((a) => to.has(a.id) && (a.x !== to.get(a.id)!.x || a.y !== to.get(a.id)!.y || a.snap))) return;
+  write(list().map((a) => (to.has(a.id) ? { ...put(a), x: to.get(a.id)!.x, y: to.get(a.id)!.y } : a)));
 }
 
 export function removeAttachment(id: string) {
@@ -202,13 +205,15 @@ function placeCopies(src: readonly PlacedAttachment[], board: WallBoard, near: (
   const items = src.flatMap((a) => {
     const p = tmp.find((q) => q.id === a.id);
     const b = p && boxOf(p);
-    return p && b ? [{ a, x: a.x, y: a.y, layout: p.layout, box: { x0: b.x0 - p.x, y0: b.y0 - p.y, x1: b.x1 - p.x, y1: b.y1 - p.y } }] : [];
+    // One from an older project is where it's planned (PlacedAttachment.snap).
+    const [x, y] = p && a.snap ? [p.x, p.y] : [a.x, a.y];
+    return p && b ? [{ a, x, y, layout: p.layout, box: { x0: b.x0 - p.x, y0: b.y0 - p.y, x1: b.x1 - p.x, y1: b.y1 - p.y } }] : [];
   });
   if (!items.length) return [];
   const around = bounds(items.map((it) => ({ x0: it.x + it.box.x0, y0: it.y + it.box.y0, x1: it.x + it.box.x1, y1: it.y + it.box.y1 })));
   const at = pasteSpot(board, slotKeys(board.slots), items, planned(board).map(boxOf), near(around, [items[0].x, items[0].y]));
   if (!at) return [];
-  const copies = items.map(({ a }, i) => ({ ...structuredClone(a), id: newId(), x: at[i][0], y: at[i][1] }));
+  const copies = items.map(({ a }, i) => ({ ...put(structuredClone(a)), id: newId(), x: at[i][0], y: at[i][1] }));
   write(
     [...list(), ...copies],
     copies.map((c) => c.id),

@@ -52,6 +52,11 @@ export interface PlacedAttachment {
   /** What it's printed in, for what it holds (load.ts); unset: PLA. */
   material?: 'pla' | 'petg' | 'asa';
   /**
+   * Saved before attachments stayed where they're put (project files before version 4): planned on the nearest slot
+   * where it fits, as it was then, till it's moved (enclosureOptions.ts snapOld).
+   */
+  snap?: true;
+  /**
    * The Gridfinity bin it holds (kinds with AttachmentDef.follow): planning sizes it from that bin (follow.ts), so it
    * follows when the bin changes; its `opts` keep the size it had last, for when the bin is gone.
    */

@@ -12,6 +12,12 @@ import { baseMeshKey } from './colours';
  * does. Prints are counted per fingerprint: three identical bins are three
  * prints of one fingerprint, and any of them can stand in for another.
  *
+ * A board's parts go the same way: an attachment's key is its kind, options,
+ * label and the slots it clips into (the board's thickness and fit), never
+ * where it hangs or what it's called; a tile's is its outline, slots, joints
+ * and number; alike hexagons, joint plates and lock keys are prints of one
+ * part (printedBoards.ts has the rest).
+ *
  * The record also says which part each print was (by drawer and part key),
  * so a drawer printed on its own doesn't take the prints of another drawer's
  * identical bins.
@@ -35,11 +41,22 @@ export const printCount = (r: PrintedRecord) => Object.values(r.counts).reduce((
 
 const cache = new Map<string, string>();
 
-/** A short hash of a mesh key (cyrb53: 53 bits, as 14 hex digits). Colours don't count: a part split by colour is the same print. */
+/**
+ * What a part's mesh key says about its geometry: the key itself, or for a board's parts whose key also says where
+ * they go (a cleat's height on the board, a frame strip's place along its edge), the key without that. Boards hand it
+ * in with their planning (printedBoards.ts), which isn't on the first screen.
+ */
+let printKey = (key: string) => key;
+export function setPrintKey(f: (key: string) => string) {
+  printKey = f;
+  cache.clear();
+}
+
+/** A short hash of a part's mesh key (cyrb53: 53 bits, as 14 hex digits). Colours don't count: a part split by colour is the same print. */
 export function fingerprint(key: string): string {
-  const meshKey = baseMeshKey(key);
-  let hit = cache.get(meshKey);
+  let hit = cache.get(key);
   if (hit) return hit;
+  const meshKey = printKey(baseMeshKey(key));
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
   for (let i = 0; i < meshKey.length; i++) {
@@ -51,7 +68,7 @@ export function fingerprint(key: string): string {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   hit = (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
   if (cache.size > 5000) cache.clear();
-  cache.set(meshKey, hit);
+  cache.set(key, hit);
   return hit;
 }
 
@@ -95,42 +112,31 @@ export function coveredParts(job: Pick<PrintJob, 'plates' | 'parts' | 'drawers'>
 /** The job's parts on plates that the record covers (planPrint sets `job.printed`). */
 export const printedOn = (job: PrintJob, rec: PrintedRecord): Set<string> => (job.printed ? new Set(job.printed) : coveredParts(job, rec));
 
-/** The record with a print of every part on these plates that isn't covered yet. */
-export function markPrinted(rec: PrintedRecord, job: PrintJob, plates: number[]): PrintedRecord {
+/** The record with a print more (`by` 1) of every part on these plates it doesn't cover yet, or without the prints (-1) that cover them. */
+function count(rec: PrintedRecord, job: PrintJob, plates: number[], by: 1 | -1): PrintedRecord {
   const covered = printedOn(job, rec);
   const counts = { ...rec.counts };
   const parts = { ...rec.parts };
   for (const i of plates) {
     for (const p of job.plates[i]?.placements ?? []) {
-      if (covered.has(p.key)) continue;
+      if (covered.has(p.key) === by > 0) continue;
       const part = job.parts[p.key];
       const f = fingerprint(part.meshKey);
-      counts[f] = (counts[f] ?? 0) + 1;
-      parts[partId(part)] = f;
-      covered.add(p.key);
+      const id = partId(part);
+      if ((counts[f] = (counts[f] ?? 0) + by) < 1) delete counts[f];
+      if (by > 0) parts[id] = f;
+      else if (parts[id] === f) delete parts[id];
+      covered[by > 0 ? 'add' : 'delete'](p.key);
     }
   }
   return { counts, parts };
 }
 
+/** The record with a print of every part on these plates that isn't covered yet. */
+export const markPrinted = (rec: PrintedRecord, job: PrintJob, plates: number[]) => count(rec, job, plates, 1);
+
 /** The record without the prints that cover parts on these plates. */
-export function unmarkPrinted(rec: PrintedRecord, job: PrintJob, plates: number[]): PrintedRecord {
-  const covered = printedOn(job, rec);
-  const counts = { ...rec.counts };
-  const parts = { ...rec.parts };
-  for (const i of plates) {
-    for (const p of job.plates[i]?.placements ?? []) {
-      if (!covered.has(p.key)) continue;
-      const part = job.parts[p.key];
-      const f = fingerprint(part.meshKey);
-      if ((counts[f] ?? 0) > 1) counts[f]--;
-      else delete counts[f];
-      if (parts[partId(part)] === f) delete parts[partId(part)];
-      covered.delete(p.key);
-    }
-  }
-  return { counts, parts };
-}
+export const unmarkPrinted = (rec: PrintedRecord, job: PrintJob, plates: number[]) => count(rec, job, plates, -1);
 
 /** Bins of a drawer's job with something to show: printed, or printed before and changed since. */
 export function binPrintMarks(job: PrintJob, rec: PrintedRecord): Record<string, 'printed' | 'changed'> {

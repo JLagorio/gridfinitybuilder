@@ -201,7 +201,12 @@ export function suggestedName(ids: readonly string[], board: Pick<WallBoard, 'ct
  * arranged on `board`. Returns it; null when there's nothing to save or it's refused (a newer library).
  */
 export function saveToMyAttachments(ids: readonly string[], board: Pick<WallBoard, 'ctx'>, o: SaveRequest = {}): AttachmentEntry | null {
-  const list = picked(ids);
+  // An older project's part is where it's planned (PlacedAttachment.snap).
+  const at = 'slots' in board && picked(ids).some((a) => a.snap) ? placeAttachments(picked(ids), board as WallBoard).placed : [];
+  const list = picked(ids).map((a) => {
+    const p = at.find((q) => q.id === a.id);
+    return p ? { ...a, x: p.x, y: p.y } : a;
+  });
   if (!list.length) return null;
   let made: AttachmentEntry | null = null;
   change((entries) => {
