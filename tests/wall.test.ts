@@ -204,7 +204,7 @@ describe('on a board', () => {
     const job = plan(board([att('a', 'bin', 100, 150, { width: 380 }), att('b', 'bin', 100, 150)]));
     expect(job.warnings.join()).toMatch(/overlap/);
     const wide = plan(board([att('a', 'bin', 100, 150, { width: 300 })], { width: 160 }));
-    expect(wide.warnings.join()).toMatch(/doesn't fit on the board/);
+    expect(wide.warnings.join()).toMatch(/doesn't fit anywhere on this board/);
   });
 
   it('just attachments: the board you have is not printed', () => {

@@ -43,6 +43,8 @@ export interface WallBoard {
   front: number;
   /** A frame's rim round the edge: how wide, mm (attachments keep off it). */
   rim?: number;
+  /** Hexagon tiles: each has slots of its own, not in line with its neighbours'. */
+  hex?: boolean;
 }
 
 export function wallBoard(plan: SkadisPlan, raw: SkadisOptions): WallBoard {
@@ -56,6 +58,7 @@ export function wallBoard(plan: SkadisPlan, raw: SkadisOptions): WallBoard {
     outlines: tileOutlines(plan, o),
     front: skadisGap(o) + o.thickness,
     ...(o.frame !== 'none' ? { rim: rimWidth(o) } : {}),
+    ...(plan.shape === 'hex' ? { hex: true } : {}),
   };
 }
 
@@ -286,6 +289,39 @@ export function snapAnchor(
   return best;
 }
 
+/** The slot nearest (x, y), or null on a board without slots. */
+export function nearestSlot(slots: Vec2[], x: number, y: number): Vec2 | null {
+  let best: Vec2 | null = null;
+  let bestD = Infinity;
+  for (const s of slots) {
+    const d = (s[0] - x) ** 2 + (s[1] - y) ** 2;
+    if (d < bestD) {
+      best = s;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Where an attachment dragged to (x, y) goes: the nearest slot where it fits, if one is near (within three lattice
+ * steps), else the slot under the pointer, so it follows the drag even where it doesn't fit (it shows red there).
+ */
+export function dragAnchor(
+  slots: Vec2[],
+  keys: ReadonlySet<string>,
+  layout: Pick<AttachmentLayout, 'mounts'>,
+  ctx: Pick<MountCtx, 'pitch'>,
+  x: number,
+  y: number,
+): { at: Vec2; fits: boolean } | null {
+  const near = slots.filter((s) => Math.hypot(s[0] - x, s[1] - y) <= 3 * ctx.pitch);
+  const fit = snapAnchor(near, keys, layout, ctx, x, y);
+  if (fit) return { at: fit, fits: true };
+  const at = nearestSlot(slots, x, y);
+  return at ? { at, fits: false } : null;
+}
+
 /** Each attachment's kind, cleaned options and layout (null: a kind that isn't registered). */
 export function attachmentLayout(a: Pick<PlacedAttachment, 'type' | 'opts'>, ctx: MountCtx): { opts: object; layout: AttachmentLayout } | null {
   const def = attachmentDef(a.type);
@@ -310,7 +346,11 @@ export function placeAttachments(list: readonly PlacedAttachment[], board: WallB
     const name = a.name?.trim() || def.summary(l.opts as never);
     const at = snapAnchor(board.slots, keys, l.layout, board.ctx, a.x, a.y);
     const ok = !!at;
-    if (!ok) warnings.push(`${name} doesn't fit on the board where it is: its mounts need slots that aren't there.`);
+    // Planning puts it on the nearest slot where it fits, anywhere: one that doesn't fit, fits nowhere on this board.
+    if (!ok)
+      warnings.push(
+        `${name} doesn't fit anywhere on this board: no spot has slots for all its mounts${board.hex ? ' (each hexagon has slots of its own, so it must fit on one)' : ''}. Make it narrower or shorter.`,
+      );
     const [x, y] = at ?? [a.x, a.y];
     const ox = x - l.layout.anchor[0];
     const oy = y - l.layout.anchor[1];
