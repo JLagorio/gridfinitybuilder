@@ -25,6 +25,11 @@ import { cableCombBuilder } from './kinds/cableComb.geom';
 import { gridShelfBuilder } from './kinds/gridShelf.geom';
 import { gridPlateBuilder } from './kinds/gridPlate.geom';
 import { gridClipBuilder } from './kinds/gridClip.geom';
+import { tiltBinBuilder } from './kinds/tiltBin.geom';
+import { lidBoxBuilder } from './kinds/lidBox.geom';
+import { cabinetBuilder } from './kinds/cabinet.geom';
+import { swivelTowerBuilder } from './kinds/swivelTower.geom';
+import { foldHookBuilder } from './kinds/foldHook.geom';
 
 export interface AttachmentBuilder<O = never> {
   /**
@@ -56,6 +61,11 @@ const BUILDERS: Record<string, AttachmentBuilder<never>> = {
   gridShelf: gridShelfBuilder as AttachmentBuilder<never>,
   gridPlate: gridPlateBuilder as AttachmentBuilder<never>,
   gridClip: gridClipBuilder as AttachmentBuilder<never>,
+  tiltBin: tiltBinBuilder as AttachmentBuilder<never>,
+  lidBox: lidBoxBuilder as AttachmentBuilder<never>,
+  cabinet: cabinetBuilder as AttachmentBuilder<never>,
+  swivelTower: swivelTowerBuilder as AttachmentBuilder<never>,
+  foldHook: foldHookBuilder as AttachmentBuilder<never>,
 };
 
 function builder(type: string): AttachmentBuilder<never> {

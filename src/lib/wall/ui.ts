@@ -21,3 +21,8 @@ import './kinds/cableComb.ui';
 import './kinds/gridShelf.ui';
 import './kinds/gridPlate.ui';
 import './kinds/gridClip.ui';
+import './kinds/tiltBin.ui';
+import './kinds/lidBox.ui';
+import './kinds/cabinet.ui';
+import './kinds/swivelTower.ui';
+import './kinds/foldHook.ui';
