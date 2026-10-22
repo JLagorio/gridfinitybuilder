@@ -163,7 +163,12 @@ export type AttachmentField =
    * from the tool library (components/WallOutlines.tsx), and the list of them to rename, turn and remove; at most
    * `max` (with one, a new one takes its place), each with what holds it when `hold`.
    */
-  | { key: string; label: string; kind: 'outlines'; max: number; hold?: boolean; hint?: string; when?: (o: never) => boolean };
+  | { key: string; label: string; kind: 'outlines'; max: number; hold?: boolean; hint?: string; when?: (o: never) => boolean }
+  /**
+   * A side profile to draw (kinds/custom.ts): presets, its points dragged on a grid with the 45° check, how it
+   * prints, and the holes and text on its faces (components/ProfileEditor.tsx); it edits `profile`, `pose` and `features`.
+   */
+  | { key: string; label: string; kind: 'profile'; hint?: string; when?: (o: never) => boolean };
 
 /** One choice of a 'preset' field: the options it sets. */
 export interface AttachmentPreset {

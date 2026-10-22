@@ -58,3 +58,4 @@ import './kinds/foldHook.ui';
 import './kinds/model.ui';
 import './kinds/shadowBoard.ui';
 import './kinds/toolCradle.ui';
+import './kinds/custom.ui';
