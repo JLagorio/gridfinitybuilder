@@ -167,3 +167,7 @@
 .model-file small {
   color: var(--muted);
 }
+/* An attachment found by search (FindBox.tsx) pulses for a moment, like a bin. */
+.find-flash .we-att.selected .we-body {
+  animation: find-pulse 0.6s ease-in-out 3;
+}

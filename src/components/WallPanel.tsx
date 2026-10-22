@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useStore, useUnits } from '../state/store';
 import { LengthInput, NumberInput, Section, Segmented, Select, TextInput, Toggle } from './fields';
-import { attachmentDef, type AttachmentDef, type AttachmentField, type AttachmentGroup, type MountCtx, type PlacedAttachment } from '../lib/wall';
+import { attachmentDef, attachmentLabel, type AttachmentDef, type AttachmentField, type AttachmentGroup, type MountCtx, type PlacedAttachment } from '../lib/wall';
 import { LOCK_DEFAULT, canLock, type WallPlacement } from '../lib/wall/plan';
 import { GROUP_LABELS, attachmentUi, attachmentUis, type AttachmentUi } from '../lib/wall/ui';
 import '../lib/wall/kinds/all';
@@ -9,6 +9,8 @@ import { sanitizeSkadis } from '../lib/geometry/skadis';
 import type { PrintJob } from '../lib/project';
 import { addAttachment, duplicateAttachment, removeAttachment, selectAttachment, setAttachmentOpts, updateAttachment } from '../state/wall';
 import { ModelField } from './ModelField';
+import { AttachmentContentsField, AttachmentLabelField } from './WallContents';
+import { StartFromTemplate } from './BoardTemplatesButton';
 import './wall.css';
 
 /**
@@ -63,6 +65,7 @@ export function WallPanel({ job }: { job: PrintJob }) {
             placeholder={def.summary(def.sanitize(sel.opts) as never)}
             onChange={(name) => updateAttachment(sel.id, { name })}
           />
+          <AttachmentContentsField a={sel} />
           {placed && <CommonFields a={sel} def={def} placed={placed} ctx={wall.board.ctx} />}
           <AttachmentFields def={def} ui={attachmentUi(sel.type)} opts={sel.opts} onChange={(p) => setAttachmentOpts(sel.id, p)} />
           {placed && (
@@ -82,6 +85,8 @@ export function WallPanel({ job }: { job: PrintJob }) {
           </div>
         </Section>
       )}
+
+      {!list.length && <StartFromTemplate />}
 
       <Section title="Add to the board">
         <p className="muted small">Click to add one, then drag it on the board: it snaps to the slots. Arrow keys move the selected one a slot over.</p>
@@ -195,8 +200,8 @@ function CommonFields({ a, def, placed, ctx }: { a: PlacedAttachment; def: Attac
           onChange={(v) => set({ barbs: v === 'ends' ? 'ends' : undefined })}
         />
       )}
-      {face && <TextInput label="Label" value={a.label ?? ''} placeholder="Text on its front" onChange={(label) => set({ label })} />}
-      {face && !!a.label?.trim() && (
+      {face && <AttachmentLabelField a={a} />}
+      {face && !!attachmentLabel(a)?.trim() && (
         <Segmented
           label="Label text"
           value={a.labelStyle ?? 'engraved'}

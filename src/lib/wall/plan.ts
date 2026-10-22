@@ -15,6 +15,7 @@ import { boardSlots, plannedSkadis, rimWidth, skadisBehind, skadisGap, tileOutli
 import { BOLT, boltSeat, lockKey, mountBox, partBounds, printedSize, siteAt, tNut, viewTurn, type BoltSize } from './mount';
 import {
   attachmentDef,
+  attachmentLabel,
   type AttachmentDef,
   type AttachmentExtras,
   type AttachmentHardware,
@@ -178,7 +179,7 @@ export function boltSites(
  * stud's place) and anything worth a note. `has`: whether the board has a slot at a point of the part's frame.
  */
 export function planExtras(
-  a: Pick<PlacedAttachment, 'lock' | 'bolt' | 'label' | 'labelStyle' | 'barbs'>,
+  a: Pick<PlacedAttachment, 'lock' | 'bolt' | 'label' | 'labelStyle' | 'barbs' | 'contents' | 'labelFrom'>,
   def: Pick<AttachmentDef<object>, 'labelFace' | 'backPlate'>,
   opts: object,
   layout: AttachmentLayout,
@@ -189,7 +190,7 @@ export function planExtras(
   const extras: AttachmentExtras = {};
   let out = layout;
   if (a.barbs === 'ends' && layout.mounts.filter((m) => m.kind === 'clip').length > 2) extras.barbs = 'ends';
-  const text = typeof a.label === 'string' ? a.label.trim().slice(0, 40) : '';
+  const text = attachmentLabel(a);
   const face = text && def.labelFace ? def.labelFace(opts, layout) : null;
   // Raised text needs a flat face (on one that leans it's cut in).
   const style = a.labelStyle === 'inlaid' || (a.labelStyle === 'raised' && face?.flat !== false) ? a.labelStyle : undefined;

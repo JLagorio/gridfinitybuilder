@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../state/store';
-import { binEntries, hasInventory, inventoryCsv, searchInventory, type BinEntry } from '../lib/inventory';
+import { attachmentEntries, binEntries, hasInventory, inventoryCsv, searchInventory, type AttachmentEntry, type BinEntry } from '../lib/inventory';
 import type { NamedDrawer } from '../lib/project';
 import { downloadBytes } from '../worker/client';
 import { Section } from './fields';
@@ -38,22 +38,30 @@ function ContentsCell({ e }: { e: BinEntry }) {
   );
 }
 
-/** Every bin of every drawer with what's in it; filter, click to go there, download as CSV. */
+/** Every bin of every drawer, and every board's attachments, with what's in them; filter, click to go there, download as CSV. */
 export function InventoryDialog({ onClose }: { onClose: () => void }) {
-  const { docs, activeDrawerId } = useAllDrawers();
+  const { docs, boards, all, activeDrawerId } = useAllDrawers();
   const [filter, setFilter] = useState('');
   const [hideEmpty, setHideEmpty] = useState(false);
   const close = useRef(onClose);
   close.current = onClose;
   const input = useRef<HTMLInputElement>(null);
   const entries = useMemo(() => binEntries(docs), [docs]);
+  const parts = useMemo(() => attachmentEntries(boards), [boards]);
   const match = useMemo(() => {
     if (!filter.trim()) return null;
-    const hits = searchInventory(docs, filter, { activeDrawerId, limit: 100000 });
-    return { bins: new Set(hits.map((r) => `${r.drawerId}|${r.binId ?? ''}`)), drawers: new Set(hits.filter((r) => !r.binId).map((r) => r.drawerId)) };
-  }, [docs, filter, activeDrawerId]);
+    const hits = searchInventory(all, filter, { activeDrawerId, limit: 100000 });
+    return {
+      bins: new Set(hits.map((r) => `${r.drawerId}|${r.binId ?? r.attachmentId ?? ''}`)),
+      drawers: new Set(hits.filter((r) => !r.binId && !r.attachmentId).map((r) => r.drawerId)),
+    };
+  }, [all, filter, activeDrawerId]);
   const shown = entries.filter(
     (e) => (!match || match.bins.has(`${e.drawerId}|${e.bin.id}`) || match.drawers.has(e.drawerId)) && (!hideEmpty || hasInventory(e)),
+  );
+  const listedPart = (e: AttachmentEntry) => !!e.label || e.contents.length > 0;
+  const shownParts = parts.filter(
+    (e) => (!match || match.bins.has(`${e.drawerId}|${e.attachment.id}`) || match.drawers.has(e.drawerId)) && (!hideEmpty || listedPart(e)),
   );
   const listed = entries.filter(hasInventory).length;
 
@@ -73,6 +81,10 @@ export function InventoryDialog({ onClose }: { onClose: () => void }) {
     goToResult({ drawerId: e.drawerId, binId: e.bin.id });
     onClose();
   };
+  const goPart = (e: AttachmentEntry) => {
+    goToResult({ drawerId: e.drawerId, attachmentId: e.attachment.id });
+    onClose();
+  };
 
   return (
     <div className="overlay" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -90,11 +102,12 @@ export function InventoryDialog({ onClose }: { onClose: () => void }) {
           <label className="inventory-check">
             <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} /> Only bins with something listed
           </label>
-          <button onClick={() => downloadInventoryCsv(docs)}>Download CSV</button>
+          <button onClick={() => downloadInventoryCsv(all)}>Download CSV</button>
         </div>
         <p className="muted small">
-          {entries.length} bin{entries.length === 1 ? '' : 's'} in {docs.length} drawer{docs.length === 1 ? '' : 's'}, {listed} with a label or contents.
-          Positions are column letters from the left and row numbers from the front. Click a bin to show it.
+          {entries.length} bin{entries.length === 1 ? '' : 's'} in {docs.length} drawer{docs.length === 1 ? '' : 's'}, {listed} with a label or contents
+          {parts.length ? `; ${parts.length} part${parts.length === 1 ? '' : 's'} on ${boards.length} board${boards.length === 1 ? '' : 's'}` : ''}. Positions
+          are column letters from the left and row numbers from the front. Click a bin to show it.
         </p>
         {docs.map((d) => {
           const rows = shown.filter((e) => e.drawerId === d.id);
@@ -129,7 +142,43 @@ export function InventoryDialog({ onClose }: { onClose: () => void }) {
             </section>
           );
         })}
-        {!shown.length && <p className="muted">{entries.length ? 'No bins match.' : 'No bins yet: draw some in the Bins tab.'}</p>}
+        {boards.map((d) => {
+          const rows = shownParts.filter((e) => e.drawerId === d.id);
+          if (!rows.length) return null;
+          return (
+            <section key={d.id} className="inventory-drawer">
+              <h3>
+                {d.name} <small className="muted">{d.drawer.attachments?.length ?? 0} parts on the board</small>
+              </h3>
+              <table className="inventory-table">
+                <thead>
+                  <tr>
+                    <th>Where</th>
+                    <th>Part</th>
+                    <th>Label</th>
+                    <th>What&apos;s in it</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((e) => (
+                    <tr key={e.attachment.id} onClick={() => goPart(e)} tabIndex={0} onKeyDown={(k) => k.key === 'Enter' && goPart(e)}>
+                      <td className="inventory-pos">{e.pos}</td>
+                      <td>
+                        {e.title}
+                        {e.title !== e.desc && <div className="muted small">{e.desc}</div>}
+                      </td>
+                      <td>{e.label || <span className="faint">—</span>}</td>
+                      <td>{e.contents.length ? e.contents.map((l, i) => <div key={i}>{l}</div>) : <span className="faint">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          );
+        })}
+        {!shown.length && !shownParts.length && (
+          <p className="muted">{entries.length || parts.length ? 'Nothing matches.' : 'No bins yet: draw some in the Bins tab.'}</p>
+        )}
       </div>
     </div>
   );
@@ -137,7 +186,7 @@ export function InventoryDialog({ onClose }: { onClose: () => void }) {
 
 /** Print tab: the drawer map, the contents list and its CSV. */
 export function ContentsSection() {
-  const { docs } = useAllDrawers();
+  const { docs, all } = useAllDrawers();
   const printScope = useStore((s) => s.printScope);
   const [open, setOpen] = useState<'map' | 'list' | null>(null);
   const entries = useMemo(() => binEntries(docs), [docs]);
@@ -151,7 +200,7 @@ export function ContentsSection() {
       <div className="button-row">
         <button onClick={() => setOpen('map')}>Drawer map…</button>
         <button onClick={() => setOpen('list')}>Contents list…</button>
-        <button onClick={() => downloadInventoryCsv(docs)} disabled={!entries.length}>
+        <button onClick={() => downloadInventoryCsv(all)} disabled={!entries.length && all.length === docs.length}>
           Contents (.csv)
         </button>
       </div>

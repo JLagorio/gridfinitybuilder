@@ -5,13 +5,16 @@ import { LazyDialog, lazyNamed } from './lazy';
 
 export type Scope = 'active' | 'all';
 
-/** Every drawer with bins in it (not Skådis boards), current; re-renders only when the workspace changes. */
+/** Every drawer with bins in it (not Skådis boards), and the boards, current; re-renders only when the workspace changes. */
 export function useAllDrawers() {
   const ws = useStore(
     useShallow((s) => ({ drawers: s.drawers, activeDrawerId: s.activeDrawerId, drawer: s.drawer, baseplate: s.baseplate, bins: s.bins })),
   );
-  // Skådis boards hold no bins: no page on the map, no lines in the contents.
-  return { docs: useMemo(() => allDrawers(ws).filter((d) => d.drawer.enclosure !== 'skadis'), [ws]), activeDrawerId: ws.activeDrawerId };
+  const all = useMemo(() => allDrawers(ws), [ws]);
+  // Skådis boards hold no bins: no drawer page on the map; their attachments have lines of their own in the contents.
+  const docs = useMemo(() => all.filter((d) => d.drawer.enclosure !== 'skadis'), [all]);
+  const boards = useMemo(() => all.filter((d) => d.drawer.enclosure === 'skadis'), [all]);
+  return { docs, boards, all, activeDrawerId: ws.activeDrawerId };
 }
 
 // The map itself (DrawerMapDialog.tsx) loads when it first opens.
